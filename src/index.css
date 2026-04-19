@@ -1,0 +1,272 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: #334155 transparent;
+  }
+
+  *::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  *::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  *::-webkit-scrollbar-thumb {
+    background-color: #334155;
+    border-radius: 3px;
+  }
+
+  *::-webkit-scrollbar-thumb:hover {
+    background-color: #475569;
+  }
+
+  body {
+    background: #0a0a0a;
+    overflow-x: hidden;
+  }
+
+  input[type="number"]::-webkit-inner-spin-button,
+  input[type="number"]::-webkit-outer-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+
+  input[type="number"] {
+    -moz-appearance: textfield;
+  }
+}
+
+@layer components {
+  .glass-card {
+    @apply bg-gradient-to-br from-[#141418]/90 to-[#111115]/80 
+           backdrop-blur-md border border-white/[0.06] 
+           rounded-2xl shadow-xl shadow-black/30
+           transition-all duration-300;
+  }
+
+  .glass-card-hover {
+    @apply glass-card 
+           hover:border-white/10 hover:shadow-white/5 
+           hover:shadow-2xl hover:scale-[1.01];
+  }
+
+  .input-dark {
+    @apply w-full px-4 py-2.5 bg-white/[0.04] border border-white/[0.08] 
+           rounded-xl text-white placeholder-gray-600 
+           focus:outline-none focus:ring-2 focus:ring-white/20 
+           focus:border-white/20 transition-all duration-200;
+  }
+
+  .select-dark {
+    @apply w-full px-4 py-2.5 bg-white/[0.04] border border-white/[0.08] 
+           rounded-xl text-white appearance-none cursor-pointer
+           focus:outline-none focus:ring-2 focus:ring-white/20 
+           focus:border-white/20 transition-all duration-200;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3E%3Cpath stroke='%236b7280' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='m6 8 4 4 4-4'/%3E%3C/svg%3E");
+    background-position: right 0.5rem center;
+    background-repeat: no-repeat;
+    background-size: 1.5em 1.5em;
+    padding-right: 2.5rem;
+  }
+
+  .select-dark option {
+    background: #1a1a1e;
+    color: #e5e7eb;
+  }
+
+  .checkbox-dark {
+    @apply w-4 h-4 rounded border-2 border-gray-500 bg-transparent 
+           cursor-pointer appearance-none relative transition-all duration-150;
+  }
+
+  .checkbox-dark:checked {
+    @apply bg-emerald-500 border-emerald-500;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 16 16' fill='white' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M12.207 4.793a1 1 0 0 1 0 1.414l-5 5a1 1 0 0 1-1.414 0l-2-2a1 1 0 0 1 1.414-1.414L6.5 9.086l4.293-4.293a1 1 0 0 1 1.414 0z'/%3E%3C/svg%3E");
+    background-size: 100% 100%;
+    background-position: center;
+    background-repeat: no-repeat;
+  }
+
+  .checkbox-dark:focus {
+    @apply ring-2 ring-emerald-500/30 outline-none;
+  }
+
+  .btn-primary {
+    @apply px-5 py-2.5 bg-white 
+           text-black font-semibold rounded-xl 
+           hover:bg-gray-100 
+           active:scale-95 transition-all duration-200 
+           shadow-lg shadow-white/10;
+  }
+
+  .btn-secondary {
+    @apply px-5 py-2.5 bg-white/5 border border-white/10 
+           text-gray-300 font-medium rounded-xl 
+           hover:bg-white/10 hover:text-white 
+           active:scale-95 transition-all duration-200;
+  }
+
+  .btn-danger {
+    @apply px-5 py-2.5 bg-red-500/10 border border-red-500/20 
+           text-red-400 font-medium rounded-xl 
+           hover:bg-red-500/20 hover:text-red-300 
+           active:scale-95 transition-all duration-200;
+  }
+
+  .badge {
+    @apply inline-flex items-center px-2.5 py-0.5 rounded-full 
+           text-xs font-medium;
+  }
+
+  .badge-green {
+    @apply badge bg-emerald-500/10 text-emerald-400 border border-emerald-500/20;
+  }
+
+  .badge-yellow {
+    @apply badge bg-yellow-500/10 text-yellow-400 border border-yellow-500/20;
+  }
+
+  .badge-red {
+    @apply badge bg-red-500/10 text-red-400 border border-red-500/20;
+  }
+
+  .badge-blue {
+    @apply badge bg-blue-500/10 text-blue-400 border border-blue-500/20;
+  }
+
+  .badge-purple {
+    @apply badge bg-purple-500/10 text-purple-400 border border-purple-500/20;
+  }
+
+  .table-row {
+    @apply border-b border-white/5 hover:bg-white/[0.03] 
+           transition-colors duration-150 cursor-pointer;
+  }
+
+  .stat-card {
+    @apply glass-card p-6 relative overflow-hidden;
+  }
+
+  .stat-card::before {
+    content: '';
+    @apply absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r;
+  }
+
+  .modal-overlay {
+    @apply fixed inset-0 bg-black/60 backdrop-blur-sm z-50 
+           flex items-center justify-center p-4 animate-fade-in;
+  }
+
+  .modal-content {
+    @apply glass-card w-full max-h-[90vh] overflow-y-auto 
+           animate-slide-up p-0;
+  }
+}
+
+/* ── Stagger delay utilities ── */
+.stagger-1 { animation-delay: 0.05s; }
+.stagger-2 { animation-delay: 0.1s; }
+.stagger-3 { animation-delay: 0.15s; }
+.stagger-4 { animation-delay: 0.2s; }
+.stagger-5 { animation-delay: 0.25s; }
+.stagger-6 { animation-delay: 0.3s; }
+.stagger-7 { animation-delay: 0.35s; }
+.stagger-8 { animation-delay: 0.4s; }
+.stagger-9 { animation-delay: 0.45s; }
+.stagger-10 { animation-delay: 0.5s; }
+
+/* ── Animated gradient accent line ── */
+.gradient-line {
+  height: 2px;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent);
+  background-size: 200% 100%;
+  animation: shimmer 2s linear infinite;
+}
+
+/* ── Glow effects ── */
+.glow-emerald { box-shadow: 0 0 20px rgba(16, 185, 129, 0.08); }
+.glow-sky { box-shadow: 0 0 20px rgba(56, 189, 248, 0.08); }
+.glow-amber { box-shadow: 0 0 20px rgba(245, 158, 11, 0.08); }
+.glow-violet { box-shadow: 0 0 20px rgba(139, 92, 246, 0.08); }
+
+/* ── Animated bar origin ── */
+.bar-origin-left {
+  transform-origin: left center;
+}
+
+/* ── Hover lift effect ── */
+.hover-lift {
+  transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.3s ease;
+}
+.hover-lift:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.3);
+}
+
+/* ── Number counter shimmer ── */
+.number-shine {
+  background: linear-gradient(110deg, currentColor 45%, rgba(255,255,255,0.6) 50%, currentColor 55%);
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: shimmer 3s ease-in-out infinite;
+}
+
+/* ── Page entrance ── */
+.page-enter {
+  animation: fadeIn 0.4s ease-out, slideUp 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* ── Donut chart rotation on load ── */
+.donut-spin {
+  animation: donutEnter 1s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+@keyframes donutEnter {
+  0% { transform: rotate(-90deg) scale(0.8); opacity: 0; }
+  100% { transform: rotate(0deg) scale(1); opacity: 1; }
+}
+
+/* ── Row slide-in ── */
+.row-enter {
+  animation: slideRight 0.3s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* ── Sidebar nav glow on active ── */
+.nav-active-glow {
+  box-shadow: inset 3px 0 0 rgba(255, 255, 255, 0.5), 0 0 15px rgba(255, 255, 255, 0.03);
+}
+
+/* ── Smooth counting number animation ── */
+.count-up {
+  display: inline-block;
+  animation: numberPop 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
+@keyframes numberPop {
+  0% { transform: scale(0.5); opacity: 0; }
+  70% { transform: scale(1.08); }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+/* ── SVG line draw animation ── */
+@keyframes lineDraw {
+  to { stroke-dashoffset: 0; }
+}
+
+/* ── Vertical bar grow (bottom to top) ── */
+@keyframes barGrowUp {
+  0% { transform: scaleY(0); transform-origin: bottom; opacity: 0.3; }
+  100% { transform: scaleY(1); transform-origin: bottom; opacity: 1; }
+}
+
+/* ── Vertical bar grow (top to bottom, for negatives) ── */
+@keyframes barGrowDown {
+  0% { transform: scaleY(0); transform-origin: top; opacity: 0.3; }
+  100% { transform: scaleY(1); transform-origin: top; opacity: 1; }
+}
