@@ -61,15 +61,15 @@ export default function Cases() {
   return (
     <div className="space-y-6 animate-fade-in">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-white">Casos</h1>
+          <h1 className="text-xl sm:text-2xl font-bold text-white">Casos</h1>
           <p className="text-gray-500 text-sm mt-1">
             {filteredCasos.length} {filteredCasos.length === 1 ? 'caso' : 'casos'}
             {filters.busqueda && ` · Buscando "${filters.busqueda}"`}
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <div className="flex rounded-xl border border-white/10 overflow-hidden">
             <button
               onClick={() => { setViewMode('list'); sessionStorage.setItem('cases-view', 'list'); }}
@@ -86,11 +86,11 @@ export default function Cases() {
               <LayoutGrid className="w-4 h-4" />
             </button>
           </div>
-          <button onClick={handleExport} className="btn-secondary flex items-center gap-2">
+          <button onClick={handleExport} className="btn-secondary flex items-center gap-2 text-sm">
             <Download className="w-4 h-4" />
             <span className="hidden sm:inline">Exportar Excel</span>
           </button>
-          <button onClick={handleNewCaso} className="btn-primary flex items-center gap-2">
+          <button onClick={handleNewCaso} className="btn-primary flex items-center gap-2 text-sm">
             <Plus className="w-4 h-4" />
             <span className="hidden sm:inline">Nuevo Caso</span>
           </button>

@@ -119,7 +119,7 @@ export default function Agenda() {
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-white">Agenda</h1>
+          <h1 className="text-xl sm:text-2xl font-bold text-white">Agenda</h1>
           <p className="text-gray-500 text-sm mt-1">
             {pendingToday.length > 0
               ? `${pendingToday.length} recordatorio${pendingToday.length > 1 ? 's' : ''} para hoy`
@@ -162,9 +162,9 @@ export default function Agenda() {
       </div>
 
       {vista === 'calendario' ? (
-        <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+        <div className="grid grid-cols-1 lg:grid-cols-4 gap-4 sm:gap-6">
           {/* Calendar */}
-          <div className="lg:col-span-3 glass-card p-5">
+          <div className="lg:col-span-3 glass-card p-3 sm:p-5">
             <div className="flex items-center justify-between mb-6">
               <button onClick={prevMonth} className="p-2 rounded-lg hover:bg-white/5 text-gray-400 hover:text-white transition-all">
                 <ChevronLeft className="w-5 h-5" />
@@ -190,7 +190,7 @@ export default function Agenda() {
             {/* Calendar grid */}
             <div className="grid grid-cols-7 gap-1">
               {Array.from({ length: firstDay }).map((_, i) => (
-                <div key={`empty-${i}`} className="min-h-[90px] sm:min-h-[100px]" />
+                <div key={`empty-${i}`} className="min-h-[70px] sm:min-h-[100px]" />
               ))}
               {Array.from({ length: daysInMonth }).map((_, i) => {
                 const day = i + 1;
@@ -203,7 +203,7 @@ export default function Agenda() {
                   <button
                     key={day}
                     onClick={() => handleDayClick(day)}
-                    className={`min-h-[90px] sm:min-h-[100px] rounded-xl p-1.5 flex flex-col transition-all relative group text-left
+                    className={`min-h-[70px] sm:min-h-[100px] rounded-xl p-1 sm:p-1.5 flex flex-col transition-all relative group text-left
                       ${isT ? 'bg-white/[0.08] ring-1 ring-white/20' : 'hover:bg-white/[0.04]'}
                       ${isSelected ? 'ring-2 ring-blue-500/50 bg-blue-500/10' : ''}
                     `}

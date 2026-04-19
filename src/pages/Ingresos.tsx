@@ -123,31 +123,31 @@ export default function Ingresos() {
     <div className="space-y-6 animate-fade-in">
       <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-white">Ingresos</h1>
-          <p className="mt-1 text-sm text-gray-500">Modelo comercial del estudio con bruto, neto, comisiones y origen de cobro</p>
+          <h1 className="text-xl sm:text-2xl font-bold text-white">Ingresos</h1>
+          <p className="mt-1 text-sm text-gray-500 hidden sm:block">Modelo comercial del estudio con bruto, neto, comisiones y origen de cobro</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <button onClick={handleExportIngresos} className="btn-secondary flex items-center gap-2">
+          <button onClick={handleExportIngresos} className="btn-secondary flex items-center gap-2 text-sm">
             <Download className="h-4 w-4" />
-            Exportar Excel
+            <span className="hidden sm:inline">Exportar Excel</span>
           </button>
-          <button onClick={handleExportPdf} className="btn-secondary flex items-center gap-2">
+          <button onClick={handleExportPdf} className="btn-secondary flex items-center gap-2 text-sm">
             <FileText className="h-4 w-4" />
-            Exportar PDF
+            <span className="hidden sm:inline">Exportar PDF</span>
           </button>
-          <button onClick={() => setImportModalOpen(true)} className="btn-secondary flex items-center gap-2">
+          <button onClick={() => setImportModalOpen(true)} className="btn-secondary flex items-center gap-2 text-sm">
             <FileSpreadsheet className="h-4 w-4" />
-            Importar Excel
+            <span className="hidden sm:inline">Importar Excel</span>
           </button>
-          <button onClick={() => setManualModalOpen(true)} className="btn-primary flex items-center gap-2">
+          <button onClick={() => setManualModalOpen(true)} className="btn-primary flex items-center gap-2 text-sm">
             <Plus className="h-4 w-4" />
-            Ingreso manual
+            <span className="hidden sm:inline">Ingreso manual</span>
           </button>
         </div>
       </div>
 
       <div className="glass-card p-4">
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-5">
           <div>
             <label className="text-xs text-gray-500">Desde</label>
             <input type="date" value={filtroFechaDesde} onChange={e => setFiltroFechaDesde(e.target.value)} className="input-dark mt-1 text-sm py-2" />
@@ -182,7 +182,7 @@ export default function Ingresos() {
         </div>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+      <div className="grid gap-3 sm:gap-4 grid-cols-2 sm:grid-cols-3 md:grid-cols-3 xl:grid-cols-5">
         <KpiCard label="Ingreso neto CJ NOA" value={formatMoney(analytics.totals.netIncome)} tone="emerald" index={0} change={changes.net} />
         <KpiCard label="Ingreso bruto" value={formatMoney(analytics.totals.grossIncome)} tone="sky" index={1} change={changes.gross} />
         <KpiCard label="Comisiones captadora" value={formatMoney(analytics.totals.commissions)} tone="amber" index={2} change={changes.commission} />
@@ -197,7 +197,7 @@ export default function Ingresos() {
           Ingreso por socio (calculado)
         </div>
         <div className="mt-1 text-xs text-gray-500">Calculado automaticamente desde los datos cargados (manuales + importados).</div>
-        <div className="mt-4 grid gap-4 xl:grid-cols-4">
+        <div className="mt-4 grid gap-3 sm:gap-4 grid-cols-1 sm:grid-cols-2 xl:grid-cols-4">
           {socios.map(socio => {
             const socioIngresos = filtered.filter(i => i.socio_cobro === socio);
             const neto = socioIngresos.reduce((s, i) => s + Number(i.monto_cj_noa || 0), 0);
@@ -328,8 +328,8 @@ export default function Ingresos() {
           </table>
         </div>
 
-        <div className="border-t border-white/5 bg-white/[0.02] px-5 py-4">
-          <div className="flex flex-wrap justify-end gap-6 text-sm">
+        <div className="border-t border-white/5 bg-white/[0.02] px-4 sm:px-5 py-3 sm:py-4">
+          <div className="flex flex-col sm:flex-row flex-wrap justify-end gap-3 sm:gap-6 text-sm">
             <div>
               <span className="text-gray-500">Ingreso neto:</span>{' '}
               <span className="font-semibold text-emerald-400">{formatMoney(analytics.totals.netIncome)}</span>
@@ -346,7 +346,7 @@ export default function Ingresos() {
         </div>
 
         {filtered.length > pageSize && (
-          <div className="border-t border-white/5 bg-white/[0.02] px-5 py-3 flex items-center justify-between">
+          <div className="border-t border-white/5 bg-white/[0.02] px-4 sm:px-5 py-3 flex items-center justify-between">
             <span className="text-xs text-gray-500">
               {page * pageSize + 1}–{Math.min((page + 1) * pageSize, filtered.length)} de {filtered.length}
             </span>
@@ -393,11 +393,11 @@ function KpiCard({ label, value, tone, change, index = 0 }: { label: string; val
   return (
     <div className="stat-card hover-lift animate-slide-up" style={{ animationDelay: `${index * 80}ms` }}>
       <div className={`absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r ${accents[tone]}`} />
-      <p className="text-[11px] uppercase tracking-[0.18em] text-gray-500 font-medium">{label}</p>
-      <p className={`mt-3 text-2xl font-bold count-up ${valueTones[tone]}`}>{value}</p>
+      <p className="text-[10px] sm:text-[11px] uppercase tracking-[0.12em] sm:tracking-[0.18em] text-gray-500 font-medium">{label}</p>
+      <p className={`mt-2 sm:mt-3 text-lg sm:text-2xl font-bold count-up ${valueTones[tone]}`}>{value}</p>
       {change != null && (
-        <p className={`mt-1.5 text-[11px] font-medium ${change >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-          {change >= 0 ? '▲' : '▼'} {Math.abs(change).toFixed(1)}% vs mes anterior
+        <p className={`mt-1 sm:mt-1.5 text-[10px] sm:text-[11px] font-medium ${change >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+          {change >= 0 ? '▲' : '▼'} {Math.abs(change).toFixed(1)}% vs mes ant.
         </p>
       )}
     </div>

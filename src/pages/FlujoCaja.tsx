@@ -73,8 +73,8 @@ export default function FlujoCaja() {
     <div className="space-y-6 animate-fade-in">
       <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-white">Flujo de caja</h1>
-          <p className="mt-1 text-sm text-gray-500">Panel dinamico del resultado financiero con linea, barras y torta sobre la misma base operativa</p>
+          <h1 className="text-xl sm:text-2xl font-bold text-white">Flujo de caja</h1>
+          <p className="mt-1 text-sm text-gray-500 hidden sm:block">Panel dinamico del resultado financiero con linea, barras y torta sobre la misma base operativa</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <div className="rounded-xl border border-white/10 bg-white/[0.03] p-1">
@@ -95,7 +95,7 @@ export default function FlujoCaja() {
         </div>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+      <div className="grid gap-3 sm:gap-4 grid-cols-2 sm:grid-cols-3 md:grid-cols-3 xl:grid-cols-5">
         <MetricCard label="Ingresos netos" value={formatMoney(overview.totals.netIncome)} tone="emerald" index={0} change={changes.income} />
         <MetricCard label="Egresos totales" value={formatMoney(overview.totals.totalExpenses)} tone="rose" index={1} change={changes.expense} invertColor />
         <MetricCard label="Resultado neto" value={formatMoney(overview.totals.netFlow)} tone={overview.totals.netFlow >= 0 ? 'emerald' : 'rose'} index={2} change={changes.net} />
@@ -124,13 +124,13 @@ export default function FlujoCaja() {
           Reparto y distribucion por socio (calculado)
         </div>
         <div className="mt-2 text-xs text-gray-500">Calculado automaticamente desde todos los ingresos y egresos cargados en el sistema.</div>
-        <div className="mt-4 grid gap-3 md:grid-cols-4">
+        <div className="mt-4 grid gap-3 sm:gap-3 grid-cols-2 md:grid-cols-4">
           <MiniKpi label="A repartir" value={formatMoney(reparto.global.totalARepartir)} tone="emerald" index={0} />
           <MiniKpi label="Base por socio" value={formatMoney(reparto.global.basePorPersona)} tone="sky" index={1} />
           <MiniKpi label="Reparto 65%" value={formatMoney(reparto.global.reparto65)} tone="violet" index={2} />
           <MiniKpi label="Reparto 35%" value={formatMoney(reparto.global.reparto35)} tone="amber" index={3} />
         </div>
-        <div className="mt-4 grid gap-4 xl:grid-cols-4">
+        <div className="mt-4 grid gap-3 sm:gap-4 grid-cols-1 sm:grid-cols-2 xl:grid-cols-4">
           {reparto.socios.map((s, i) => (
             <div key={s.socio} className="rounded-2xl border border-white/8 bg-white/[0.03] p-4 hover-lift animate-slide-up transition-all duration-300 hover:border-white/15" style={{ animationDelay: `${i * 100 + 300}ms` }}>
               <p className="text-sm font-semibold text-white">{s.socio}</p>
@@ -379,11 +379,11 @@ function MetricCard({ label, value, tone, change, invertColor, index = 0 }: { la
   return (
     <div className="stat-card hover-lift animate-slide-up" style={{ animationDelay: `${index * 80}ms` }}>
       <div className={`absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r ${accents[tone]}`} />
-      <p className="text-[11px] uppercase tracking-[0.18em] text-gray-500 font-medium">{label}</p>
-      <p className={`mt-3 text-2xl font-bold count-up ${valueTones[tone]}`}>{value}</p>
+      <p className="text-[10px] sm:text-[11px] uppercase tracking-[0.12em] sm:tracking-[0.18em] text-gray-500 font-medium">{label}</p>
+      <p className={`mt-2 sm:mt-3 text-lg sm:text-2xl font-bold count-up ${valueTones[tone]}`}>{value}</p>
       {change != null && (
-        <p className={`mt-1.5 text-[11px] font-medium ${changeColor}`}>
-          {(invertColor ? change <= 0 : change >= 0) ? '▲' : '▼'} {Math.abs(change).toFixed(1)}% vs mes anterior
+        <p className={`mt-1 sm:mt-1.5 text-[10px] sm:text-[11px] font-medium ${changeColor}`}>
+          {(invertColor ? change <= 0 : change >= 0) ? '▲' : '▼'} {Math.abs(change).toFixed(1)}% vs mes ant.
         </p>
       )}
     </div>
@@ -400,7 +400,7 @@ function MiniKpi({ label, value, tone, index = 0 }: { label: string; value: stri
   return (
     <div className="rounded-xl border border-white/8 bg-white/[0.03] p-3 hover-lift animate-scale-in transition-all duration-300 hover:border-white/15" style={{ animationDelay: `${index * 70}ms` }}>
       <p className="text-[10px] uppercase tracking-widest text-gray-500">{label}</p>
-      <p className={`mt-2 text-xl font-bold count-up ${tones[tone]}`}>{value}</p>
+      <p className={`mt-1.5 sm:mt-2 text-base sm:text-xl font-bold count-up ${tones[tone]}`}>{value}</p>
     </div>
   );
 }

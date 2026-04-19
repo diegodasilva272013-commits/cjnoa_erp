@@ -42,28 +42,28 @@ export default function Topbar({ onMenuClick }: TopbarProps) {
 
   return (
     <header className="sticky top-0 z-30 bg-[#0a0a0a]/80 backdrop-blur-xl border-b border-white/[0.06]">
-      <div className="flex items-center justify-between px-6 py-3">
+      <div className="flex items-center justify-between px-3 sm:px-6 py-2 sm:py-3">
         <button
           onClick={onMenuClick}
-          className="lg:hidden p-2 text-gray-400 hover:text-white rounded-lg hover:bg-white/5 transition-colors"
+          className="lg:hidden p-2 text-gray-400 hover:text-white rounded-lg hover:bg-white/5 transition-colors min-w-[40px] min-h-[40px] flex items-center justify-center"
         >
           <Menu className="w-5 h-5" />
         </button>
 
         <div className="hidden lg:block" />
 
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-2 sm:gap-4">
           <button
             onClick={() => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', ctrlKey: true }))}
-            className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-xl bg-white/[0.03] border border-white/[0.06] text-gray-500 hover:text-gray-300 hover:border-white/10 transition-all text-xs"
+            className="flex items-center justify-center p-2 sm:px-3 sm:py-1.5 rounded-xl bg-white/[0.03] border border-white/[0.06] text-gray-500 hover:text-gray-300 hover:border-white/10 transition-all text-xs min-w-[40px] min-h-[40px] sm:min-w-0 sm:min-h-0"
             title="Buscar (Ctrl+K)"
           >
-            <Search className="w-3.5 h-3.5" />
-            <span>Buscar...</span>
-            <kbd className="ml-1 rounded border border-white/10 bg-white/5 px-1 py-0.5 text-[10px]">⌘K</kbd>
+            <Search className="w-4 h-4 sm:w-3.5 sm:h-3.5" />
+            <span className="hidden sm:inline ml-2">Buscar...</span>
+            <kbd className="hidden sm:inline ml-1 rounded border border-white/10 bg-white/5 px-1 py-0.5 text-[10px]">⌘K</kbd>
           </button>
           <NotificationBell />
-          <div className="flex items-center gap-3 px-4 py-2 rounded-xl bg-white/[0.03] border border-white/[0.06]">
+          <div className="flex items-center gap-2 sm:gap-3 px-2 sm:px-4 py-1.5 sm:py-2 rounded-xl bg-white/[0.03] border border-white/[0.06]">
             <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={handleAvatarUpload} />
             <button
               onClick={() => fileInputRef.current?.click()}
@@ -91,7 +91,7 @@ export default function Topbar({ onMenuClick }: TopbarProps) {
 
           <button
             onClick={signOut}
-            className="p-2.5 text-gray-500 hover:text-red-400 rounded-xl hover:bg-red-500/10 transition-all duration-200"
+            className="p-2.5 text-gray-500 hover:text-red-400 rounded-xl hover:bg-red-500/10 transition-all duration-200 min-w-[40px] min-h-[40px] flex items-center justify-center"
             title="Cerrar sesión"
           >
             <LogOut className="w-4 h-4" />

@@ -44,12 +44,12 @@ export default function Dashboard() {
     <div className="space-y-6 animate-fade-in">
       {/* Header */}
       <div>
-        <h1 className="text-2xl font-bold text-white">Panel de Control</h1>
+        <h1 className="text-xl sm:text-2xl font-bold text-white">Panel de Control</h1>
         <p className="text-gray-500 text-sm mt-1">Resumen general del estudio</p>
       </div>
 
       {/* Main stat cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
         {/* Por Cobrar */}
         <div className="stat-card group hover-lift animate-slide-up" style={{ animationDelay: '0ms' }}>
           <div className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-white/40 to-white/10" />
@@ -96,7 +96,7 @@ export default function Dashboard() {
       </div>
 
       {/* Secondary cards */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 sm:gap-4">
         {/* Clientes por materia */}
         <div className="glass-card p-6 animate-slide-up" style={{ animationDelay: '200ms' }}>
           <h3 className="text-sm font-semibold text-white mb-4 flex items-center gap-2">
@@ -175,7 +175,7 @@ export default function Dashboard() {
           <TrendingUp className="w-4 h-4 text-white/60" />
           Resumen Financiero del Mes
         </h3>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
           <div className="flex items-center gap-3 p-4 bg-white/[0.02] rounded-xl border border-white/5 hover:bg-white/[0.05] hover:border-white/10 transition-all duration-200">
             <div className="p-2 bg-emerald-500/10 rounded-lg">
               <ArrowUpRight className="w-4 h-4 text-emerald-400" />
@@ -212,13 +212,13 @@ export default function Dashboard() {
       <SmartAlerts />
 
       {/* Cobranza por socio este mes */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-      <div className="glass-card p-6">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 sm:gap-4">
+      <div className="glass-card p-4 sm:p-6">
         <h3 className="text-sm font-semibold text-white mb-4 flex items-center gap-2">
           <Users className="w-4 h-4 text-white/60" />
           Cobranza por Socio (este mes)
         </h3>
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
           {socios.map(socio => {
             const now = new Date();
             const firstDay = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];

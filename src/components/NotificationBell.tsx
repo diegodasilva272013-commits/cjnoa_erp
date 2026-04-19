@@ -126,7 +126,7 @@ export default function NotificationBell() {
       </button>
 
       {open && (
-        <div className="absolute right-0 top-full mt-2 w-80 rounded-2xl border border-white/[0.06] bg-[#141418] shadow-2xl shadow-black/50 animate-slide-down z-50 overflow-hidden">
+        <div className="absolute right-0 sm:right-0 top-full mt-2 w-[calc(100vw-2rem)] sm:w-80 max-w-80 rounded-2xl border border-white/[0.06] bg-[#141418] shadow-2xl shadow-black/50 animate-slide-down z-50 overflow-hidden -translate-x-1/4 sm:translate-x-0">
           <div className="flex items-center justify-between px-4 py-3 border-b border-white/[0.06]">
             <h3 className="text-sm font-semibold text-white">Notificaciones</h3>
             <button onClick={() => setOpen(false)} className="text-gray-500 hover:text-white transition-colors">

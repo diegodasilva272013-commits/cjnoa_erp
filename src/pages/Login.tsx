@@ -31,15 +31,15 @@ export default function Login() {
         <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-white/10 to-transparent" />
       </div>
 
-      <div className="relative z-10 w-full max-w-md px-6">
+      <div className="relative z-10 w-full max-w-md px-4 sm:px-6">
         {/* Logo */}
-        <div className="text-center mb-10">
+        <div className="text-center mb-8 sm:mb-10">
           <img
             src="/Logo NOA.jpeg"
             alt="Centro Jurídico NOA"
-            className="w-32 h-32 mx-auto mb-6 rounded-2xl object-cover shadow-2xl shadow-black/50 border border-white/10"
+            className="w-24 h-24 sm:w-32 sm:h-32 mx-auto mb-4 sm:mb-6 rounded-2xl object-cover shadow-2xl shadow-black/50 border border-white/10"
           />
-          <h1 className="text-3xl font-bold text-white tracking-tight">
+          <h1 className="text-2xl sm:text-3xl font-bold text-white tracking-tight">
             Centro Jurídico <span className="text-gray-400">NOA</span>
           </h1>
           <p className="text-gray-600 mt-2 text-sm tracking-wide">Sistema de Gestión Integral</p>

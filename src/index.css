@@ -29,6 +29,13 @@
   body {
     background: #0a0a0a;
     overflow-x: hidden;
+    -webkit-tap-highlight-color: transparent;
+    -webkit-text-size-adjust: 100%;
+  }
+
+  /* Safe areas for notched phones */
+  html {
+    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
   }
 
   input[type="number"]::-webkit-inner-spin-button,
@@ -98,7 +105,7 @@
   }
 
   .btn-primary {
-    @apply px-5 py-2.5 bg-white 
+    @apply px-4 py-2 sm:px-5 sm:py-2.5 bg-white 
            text-black font-semibold rounded-xl 
            hover:bg-gray-100 
            active:scale-95 transition-all duration-200 
@@ -106,14 +113,14 @@
   }
 
   .btn-secondary {
-    @apply px-5 py-2.5 bg-white/5 border border-white/10 
+    @apply px-4 py-2 sm:px-5 sm:py-2.5 bg-white/5 border border-white/10 
            text-gray-300 font-medium rounded-xl 
            hover:bg-white/10 hover:text-white 
            active:scale-95 transition-all duration-200;
   }
 
   .btn-danger {
-    @apply px-5 py-2.5 bg-red-500/10 border border-red-500/20 
+    @apply px-4 py-2 sm:px-5 sm:py-2.5 bg-red-500/10 border border-red-500/20 
            text-red-400 font-medium rounded-xl 
            hover:bg-red-500/20 hover:text-red-300 
            active:scale-95 transition-all duration-200;
@@ -150,7 +157,7 @@
   }
 
   .stat-card {
-    @apply glass-card p-6 relative overflow-hidden;
+    @apply glass-card p-4 sm:p-6 relative overflow-hidden;
   }
 
   .stat-card::before {
@@ -160,12 +167,12 @@
 
   .modal-overlay {
     @apply fixed inset-0 bg-black/60 backdrop-blur-sm z-50 
-           flex items-center justify-center p-4 animate-fade-in;
+           flex items-end sm:items-center justify-center p-0 sm:p-4 animate-fade-in;
   }
 
   .modal-content {
-    @apply glass-card w-full max-h-[90vh] overflow-y-auto 
-           animate-slide-up p-0;
+    @apply glass-card w-full max-h-[95vh] sm:max-h-[90vh] overflow-y-auto 
+           animate-slide-up p-0 rounded-t-2xl sm:rounded-2xl;
   }
 }
 

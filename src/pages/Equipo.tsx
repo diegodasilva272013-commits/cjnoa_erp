@@ -119,9 +119,9 @@ export default function Equipo() {
 
   return (
     <div className="space-y-6 animate-fade-in">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-white">Equipo</h1>
+          <h1 className="text-xl sm:text-2xl font-bold text-white">Equipo</h1>
           <p className="text-gray-500 text-sm mt-1">
             {miembros.length} {miembros.length === 1 ? 'miembro' : 'miembros'}
           </p>
