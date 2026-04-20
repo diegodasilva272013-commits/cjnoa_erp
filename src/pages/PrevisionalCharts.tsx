@@ -43,6 +43,7 @@ const CustomTooltip = ({ active, payload, label }: any) => {
   );
 };
 
+export default function PrevisionalCharts() {
   const { stats, loading } = usePrevisionalStats();
   const { clientes } = useClientesPrevisional();
   // Filtros
