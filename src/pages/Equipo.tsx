@@ -360,23 +360,18 @@ function MiembroModal({ open, onClose, miembro, onSaved }: {
       showToast('El nombre es obligatorio', 'error');
       return;
     }
-
     if (!isEditing && (!email.trim() || !password.trim())) {
       showToast('Email y contraseña son obligatorios para crear un usuario', 'error');
       return;
     }
-
     if (!isEditing && password.length < 6) {
       showToast('La contraseña debe tener al menos 6 caracteres', 'error');
       return;
     }
-
     setSaving(true);
     try {
       if (isEditing) {
         let avatarUrl = miembro!.avatar_url || null;
-
-        // Upload avatar if changed
         if (avatarFile) {
           const ext = avatarFile.name.split('.').pop() || 'jpg';
           const path = `avatars/${miembro!.id}.${ext}`;
@@ -384,41 +379,34 @@ function MiembroModal({ open, onClose, miembro, onSaved }: {
           if (upErr) throw upErr;
           avatarUrl = path;
         }
-
         const { error } = await supabase
           .from('perfiles')
           .update({ nombre: nombre.trim(), rol, permisos, avatar_url: avatarUrl })
           .eq('id', miembro!.id);
         if (error) throw error;
-
-        // Refresh own perfil if editing self
         if (miembro!.id === user?.id) await refetchPerfil();
-
         showToast('Miembro actualizado');
       } else {
-        const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
-          email: email.trim(),
-          password: password.trim(),
-          options: {
-            data: { nombre: nombre.trim() },
-          },
+        // Nuevo flujo: crear usuario vía endpoint backend
+        const resp = await fetch('/api/createUserAdmin', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: email.trim(), password: password.trim(), nombre: nombre.trim() })
         });
-
-        if (signUpError) throw signUpError;
-
-        if (signUpData.user) {
-          await new Promise(resolve => setTimeout(resolve, 1000));
-
-          const { error: updateError } = await supabase
+        const result = await resp.json();
+        if (!resp.ok) throw new Error(result.error || 'Error al crear usuario');
+        const userId = result.user?.id;
+        if (userId) {
+          // Actualizar perfil con rol y permisos
+          const { error: perfilError } = await supabase
             .from('perfiles')
             .update({ nombre: nombre.trim(), rol, permisos })
-            .eq('id', signUpData.user.id);
-
-          if (updateError) {
+            .eq('id', userId);
+          if (perfilError) {
             const { error: insertError } = await supabase
               .from('perfiles')
               .upsert({
-                id: signUpData.user.id,
+                id: userId,
                 nombre: nombre.trim(),
                 rol,
                 permisos,
@@ -426,10 +414,8 @@ function MiembroModal({ open, onClose, miembro, onSaved }: {
             if (insertError) showToast('Error al actualizar perfil: ' + insertError.message, 'error');
           }
         }
-
         showToast('Miembro creado. Puede iniciar sesión con su email y contraseña.');
       }
-
       onSaved();
       onClose();
     } catch (err: any) {

@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import {
   BarChart, Bar, PieChart, Pie, Cell,
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -9,6 +9,8 @@ import {
   Calendar, BarChart3, PieChart as PieChartIcon
 } from 'lucide-react';
 import { usePrevisionalStats, useClientesPrevisional } from '../hooks/usePrevisional';
+import PrevisionalFilters, { PrevisionalFilters as FiltersType } from '../components/previsional/PrevisionalFilters';
+import ExportDashboardBtn from '../components/previsional/ExportDashboardBtn';
 import { PIPELINE_LABELS, PipelinePrevisional } from '../types/previsional';
 
 const PIPELINE_CHART_COLORS: Record<string, string> = {
@@ -41,49 +43,101 @@ const CustomTooltip = ({ active, payload, label }: any) => {
   );
 };
 
-export default function PrevisionalCharts() {
   const { stats, loading } = usePrevisionalStats();
   const { clientes } = useClientesPrevisional();
+  // Filtros
+  const [filters, setFilters] = useState<FiltersType>({
+    desde: '',
+    hasta: '',
+    pipeline: '',
+    responsable: '',
+    sexo: '',
+    edad: '',
+  });
+  // Obtener responsables únicos
+  const responsables = useMemo(() => {
+    const set = new Set<string>();
+    clientes.forEach(c => c.captado_por && set.add(c.captado_por));
+    return Array.from(set);
+  }, [clientes]);
+  // Filtrar clientes
+  const clientesFiltrados = useMemo(() => {
+    return clientes.filter(c => {
+      if (filters.desde && c.created_at < filters.desde) return false;
+      if (filters.hasta && c.created_at > filters.hasta) return false;
+      if (filters.pipeline && c.pipeline !== filters.pipeline) return false;
+      if (filters.responsable && c.captado_por !== filters.responsable) return false;
+      if (filters.sexo && c.sexo !== filters.sexo) return false;
+      if (filters.edad) {
+        if (!c.fecha_nacimiento) return false;
+        const edad = Math.floor((Date.now() - new Date(c.fecha_nacimiento).getTime()) / 31556952000);
+        if (filters.edad === '<50' && edad >= 50) return false;
+        if (filters.edad === '50-60' && (edad < 50 || edad > 60)) return false;
+        if (filters.edad === '>60' && edad <= 60) return false;
+      }
+      return true;
+    });
+  }, [clientes, filters]);
 
   // Pipeline data
   const pipelineData = useMemo(() => {
-    return Object.entries(stats.porPipeline).map(([key, value]) => ({
+    const count: Record<string, number> = {};
+    clientesFiltrados.forEach(c => { count[c.pipeline] = (count[c.pipeline] || 0) + 1; });
+    return Object.entries(count).map(([key, value]) => ({
       name: PIPELINE_LABELS[key as PipelinePrevisional] || key,
       value,
       fill: PIPELINE_CHART_COLORS[key] || '#6b7280',
     }));
-  }, [stats.porPipeline]);
+  }, [clientesFiltrados]);
 
   // Semáforo data
-  const semaforoData = useMemo(() => [
-    { name: 'Al día (0-7d)', value: stats.porSemaforo.verde, fill: SEMAFORO_CHART_COLORS.verde },
-    { name: 'Alerta (8-15d)', value: stats.porSemaforo.amarillo, fill: SEMAFORO_CHART_COLORS.amarillo },
-    { name: 'Urgente (>15d)', value: stats.porSemaforo.rojo, fill: SEMAFORO_CHART_COLORS.rojo },
-    { name: 'Sin contacto', value: stats.porSemaforo.gris, fill: SEMAFORO_CHART_COLORS.gris },
-  ].filter(d => d.value > 0), [stats.porSemaforo]);
+  const semaforoData = useMemo(() => {
+    const hoy = new Date();
+    let verde = 0, amarillo = 0, rojo = 0, gris = 0;
+    clientesFiltrados.forEach(c => {
+      if (!c.fecha_ultimo_contacto) gris++;
+      else {
+        const dias = Math.floor((hoy.getTime() - new Date(c.fecha_ultimo_contacto).getTime()) / 86400000);
+        if (dias <= 7) verde++;
+        else if (dias <= 15) amarillo++;
+        else rojo++;
+      }
+    });
+    return [
+      { name: 'Al día (0-7d)', value: verde, fill: SEMAFORO_CHART_COLORS.verde },
+      { name: 'Alerta (8-15d)', value: amarillo, fill: SEMAFORO_CHART_COLORS.amarillo },
+      { name: 'Urgente (>15d)', value: rojo, fill: SEMAFORO_CHART_COLORS.rojo },
+      { name: 'Sin contacto', value: gris, fill: SEMAFORO_CHART_COLORS.gris },
+    ].filter(d => d.value > 0);
+  }, [clientesFiltrados]);
 
   // Captadores data
   const captadoresData = useMemo(() => {
-    return Object.entries(stats.clientesPorCaptador)
+    const count: Record<string, number> = {};
+    clientesFiltrados.forEach(c => { if (c.captado_por) count[c.captado_por] = (count[c.captado_por] || 0) + 1; });
+    return Object.entries(count)
       .sort((a, b) => b[1] - a[1])
       .map(([name, value]) => ({ name, value }));
-  }, [stats.clientesPorCaptador]);
+  }, [clientesFiltrados]);
 
   // Cobro distribution
   const cobroData = useMemo(() => {
-    const cobrado = stats.cobradoTotal;
-    const pendiente = stats.pendienteTotal;
+    let cobrado = 0, pendiente = 0;
+    clientesFiltrados.forEach(c => {
+      cobrado += c.monto_cobrado || 0;
+      pendiente += c.saldo_pendiente || 0;
+    });
     if (cobrado === 0 && pendiente === 0) return [];
     return [
       { name: 'Cobrado', value: cobrado, fill: '#10b981' },
       { name: 'Pendiente', value: pendiente, fill: '#f59e0b' },
     ];
-  }, [stats.cobradoTotal, stats.pendienteTotal]);
+  }, [clientesFiltrados]);
 
   // Monthly trend from clientes created_at
   const trendData = useMemo(() => {
     const months: Record<string, { fichas: number; cobrado: number }> = {};
-    clientes.forEach(c => {
+    clientesFiltrados.forEach(c => {
       const d = new Date(c.created_at);
       const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
       if (!months[key]) months[key] = { fichas: 0, cobrado: 0 };
@@ -98,7 +152,7 @@ export default function PrevisionalCharts() {
         fichas: val.fichas,
         cobrado: val.cobrado,
       }));
-  }, [clientes]);
+  }, [clientesFiltrados]);
 
   if (loading) {
     return (
@@ -110,6 +164,11 @@ export default function PrevisionalCharts() {
 
   return (
     <div className="space-y-6">
+      {/* Filtros avanzados */}
+      <div className="flex flex-wrap items-center gap-4">
+        <PrevisionalFilters value={filters} onChange={setFilters} responsables={responsables} />
+        <ExportDashboardBtn data={clientesFiltrados} />
+      </div>
       {/* Header */}
       <div>
         <h1 className="text-2xl font-bold text-white flex items-center gap-3">
