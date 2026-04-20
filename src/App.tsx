@@ -16,6 +16,7 @@ const FichasClientes = lazy(() => import('./pages/FichasClientes'));
 const Seguimiento = lazy(() => import('./pages/Seguimiento'));
 const PrevisionalCharts = lazy(() => import('./pages/PrevisionalCharts'));
 const MiPanel = lazy(() => import('./pages/MiPanel'));
+const Perfil = lazy(() => import('./pages/Perfil'));
 
 function ProtectedRoute({ modulo, children }: { modulo: 'dashboard' | 'casos' | 'finanzas' | 'equipo' | 'agenda' | 'previsional'; children: React.ReactNode }) {
   const { canSee } = usePermisos();
@@ -72,6 +73,7 @@ export default function App() {
           <Route path="/previsional/seguimiento" element={<ProtectedRoute modulo="previsional"><Seguimiento /></ProtectedRoute>} />
           <Route path="/previsional/dashboard" element={<ProtectedRoute modulo="previsional"><PrevisionalCharts /></ProtectedRoute>} />
           <Route path="/previsional/mi-panel" element={<ProtectedRoute modulo="previsional"><MiPanel /></ProtectedRoute>} />
+          <Route path="/perfil" element={<Perfil />} />
           <Route path="*" element={<Navigate to="/casos" replace />} />
         </Route>
       </Routes>

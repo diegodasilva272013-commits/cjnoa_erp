@@ -10,9 +10,12 @@ import {
   ArrowUpRight,
   ArrowDownRight,
   Wallet,
+  FileText,
+  CalendarDays,
 } from 'lucide-react';
 import { useDashboardStats, useIngresos } from '../hooks/useFinances';
 import { useSocios } from '../hooks/useSocios';
+import { usePrevisionalStats } from '../hooks/usePrevisional';
 import ActivityFeed from '../components/ActivityFeed';
 import SmartAlerts from '../components/SmartAlerts';
 
@@ -20,6 +23,7 @@ export default function Dashboard() {
   const { stats, loading } = useDashboardStats();
   const { ingresos } = useIngresos();
   const socios = useSocios();
+  const { stats: prevStats, loading: prevLoading } = usePrevisionalStats();
 
   const formatMoney = (n: number) =>
     new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 }).format(n);
@@ -239,6 +243,61 @@ export default function Dashboard() {
 
       {/* Activity Feed */}
       <ActivityFeed />
+
+      {/* Previsional KPIs */}
+      {!prevLoading && (
+        <div className="glass-card p-6 animate-slide-up">
+          <h3 className="text-sm font-semibold text-white mb-4 flex items-center gap-2">
+            <FileText className="w-4 h-4 text-violet-400" />
+            Módulo Previsional
+          </h3>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div className="p-4 rounded-xl bg-violet-500/5 border border-violet-500/10">
+              <div className="flex items-center gap-2 mb-2">
+                <Users className="w-4 h-4 text-violet-400" />
+                <p className="text-[10px] text-gray-500 uppercase">Total Clientes</p>
+              </div>
+              <p className="text-2xl font-bold text-white">{prevStats.totalClientes}</p>
+            </div>
+            <div className="p-4 rounded-xl bg-emerald-500/5 border border-emerald-500/10">
+              <div className="flex items-center gap-2 mb-2">
+                <DollarSign className="w-4 h-4 text-emerald-400" />
+                <p className="text-[10px] text-gray-500 uppercase">Cobrado Prev.</p>
+              </div>
+              <p className="text-2xl font-bold text-emerald-400">
+                ${(prevStats.cobradoTotal / 1000).toFixed(0)}k
+              </p>
+            </div>
+            <div className="p-4 rounded-xl bg-amber-500/5 border border-amber-500/10">
+              <div className="flex items-center gap-2 mb-2">
+                <AlertTriangle className="w-4 h-4 text-amber-400" />
+                <p className="text-[10px] text-gray-500 uppercase">Tareas Activas</p>
+              </div>
+              <p className="text-2xl font-bold text-white">{prevStats.tareasActivas}</p>
+              {prevStats.tareasVencidas > 0 && (
+                <p className="text-[10px] text-red-400">{prevStats.tareasVencidas} vencidas</p>
+              )}
+            </div>
+            <div className="p-4 rounded-xl bg-purple-500/5 border border-purple-500/10">
+              <div className="flex items-center gap-2 mb-2">
+                <CalendarDays className="w-4 h-4 text-purple-400" />
+                <p className="text-[10px] text-gray-500 uppercase">Audiencias (7d)</p>
+              </div>
+              <p className="text-2xl font-bold text-white">{prevStats.audienciasProximas}</p>
+            </div>
+          </div>
+          <div className="mt-3 grid grid-cols-2 gap-3">
+            <div className="p-3 rounded-xl bg-white/[0.02] border border-white/5">
+              <p className="text-[10px] text-gray-500 uppercase mb-1">Pendiente de cobro</p>
+              <p className="text-lg font-bold text-amber-400">${prevStats.pendienteTotal.toLocaleString('es-AR')}</p>
+            </div>
+            <div className="p-3 rounded-xl bg-white/[0.02] border border-white/5">
+              <p className="text-[10px] text-gray-500 uppercase mb-1">Semáforo rojo</p>
+              <p className="text-lg font-bold text-red-400">{prevStats.porSemaforo.rojo} clientes sin contacto {'>'} 15d</p>
+            </div>
+          </div>
+        </div>
+      )}
       </div>
     </div>
   );

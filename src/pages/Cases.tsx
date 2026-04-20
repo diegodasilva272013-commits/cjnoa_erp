@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Plus, Download, LayoutList, LayoutGrid } from 'lucide-react';
+import { Plus, Download, LayoutList, LayoutGrid, Briefcase } from 'lucide-react';
 import { useCases, filterCases, emptyFilters } from '../hooks/useCases';
 import CaseTable from '../components/cases/CaseTable';
 import CaseKanban from '../components/cases/CaseKanban';
@@ -101,7 +101,29 @@ export default function Cases() {
       <CaseFilters filters={filters} onChange={setFilters} />
 
       {/* Table / Kanban */}
-      {viewMode === 'kanban' ? (
+      {filteredCasos.length === 0 && !loading ? (
+        <div className="flex flex-col items-center justify-center py-24 gap-5">
+          <div className="w-16 h-16 rounded-2xl bg-white/[0.04] border border-white/[0.06] flex items-center justify-center">
+            <Briefcase className="w-8 h-8 text-gray-600" />
+          </div>
+          <div className="text-center">
+            <p className="text-white font-medium">
+              {casos.length === 0 ? 'Aún no hay casos' : 'Sin resultados'}
+            </p>
+            <p className="text-sm text-gray-500 mt-1">
+              {casos.length === 0
+                ? 'Creá el primer caso para comenzar a gestionar tu estudio'
+                : 'Probá ajustando los filtros de búsqueda'}
+            </p>
+          </div>
+          {casos.length === 0 && (
+            <button onClick={handleNewCaso} className="btn-primary flex items-center gap-2 text-sm">
+              <Plus className="w-4 h-4" />
+              Crear primer caso
+            </button>
+          )}
+        </div>
+      ) : viewMode === 'kanban' ? (
         <CaseKanban casos={filteredCasos} onSelect={handleSelectCaso} />
       ) : (
         <CaseTable casos={filteredCasos} onSelect={handleSelectCaso} />

@@ -366,3 +366,60 @@ export function usePrevisionalStats() {
 
   return { stats, loading, refetch: fetch };
 }
+
+// ── Hook: Alertas Previsionales ──
+export interface AlertaPrevisional {
+  id: string;
+  cliente_prev_id: string | null;
+  tarea_id: string | null;
+  tipo: string;
+  mensaje: string | null;
+  leida: boolean;
+  creada_en: string;
+  cliente_nombre?: string;
+}
+
+export function useAlertasPrevisional() {
+  const [alertas, setAlertas] = useState<AlertaPrevisional[]>([]);
+  const [loading, setLoading] = useState(true);
+  const { showToast } = useToast();
+
+  const fetch = useCallback(async () => {
+    try {
+      const { data, error } = await supabase
+        .from('alertas_previsional')
+        .select('*, clientes_previsional(apellido_nombre)')
+        .eq('leida', false)
+        .order('creada_en', { ascending: false })
+        .limit(50);
+      if (error) throw error;
+      const mapped = (data || []).map((a: any) => ({
+        ...a,
+        cliente_nombre: a.clientes_previsional?.apellido_nombre || null,
+      }));
+      setAlertas(mapped as AlertaPrevisional[]);
+    } catch { /* silent */ }
+    finally { setLoading(false); }
+  }, []);
+
+  useEffect(() => {
+    fetch();
+    const ch = supabase.channel('alertas-prev-rt')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'alertas_previsional' }, () => fetch())
+      .subscribe();
+    return () => { supabase.removeChannel(ch); };
+  }, [fetch]);
+
+  const marcarLeida = async (id: string) => {
+    await supabase.from('alertas_previsional').update({ leida: true }).eq('id', id);
+    setAlertas(prev => prev.filter(a => a.id !== id));
+  };
+
+  const marcarTodasLeidas = async () => {
+    await supabase.from('alertas_previsional').update({ leida: true }).eq('leida', false);
+    setAlertas([]);
+    showToast('Alertas marcadas como leídas', 'success');
+  };
+
+  return { alertas, loading, marcarLeida, marcarTodasLeidas };
+}

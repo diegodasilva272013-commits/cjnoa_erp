@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Search, Users, DollarSign, ArrowDownCircle, ArrowUpCircle, BarChart3, Shield, Calendar, LayoutDashboard } from 'lucide-react';
+import { Search, Users, DollarSign, ArrowDownCircle, ArrowUpCircle, BarChart3, Shield, Calendar, LayoutDashboard, FileText } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 
 interface SearchResult {
   id: string;
-  type: 'caso' | 'ingreso' | 'egreso' | 'pagina';
+  type: 'caso' | 'ingreso' | 'egreso' | 'pagina' | 'previsional';
   title: string;
   subtitle: string;
   route: string;
@@ -19,6 +19,8 @@ const PAGES: SearchResult[] = [
   { id: 'p-flujo', type: 'pagina', title: 'Flujo de Caja', subtitle: 'Resultado financiero', route: '/flujo-caja' },
   { id: 'p-equipo', type: 'pagina', title: 'Equipo', subtitle: 'Gestión de usuarios', route: '/equipo' },
   { id: 'p-agenda', type: 'pagina', title: 'Agenda', subtitle: 'Recordatorios y calendario', route: '/agenda' },
+  { id: 'p-prev-fichas', type: 'pagina', title: 'Fichas Previsional', subtitle: 'Clientes previsionales', route: '/previsional/fichas' },
+  { id: 'p-prev-seg', type: 'pagina', title: 'Seguimiento Previsional', subtitle: 'Tareas y audiencias', route: '/previsional/seguimiento' },
 ];
 
 const ICONS: Record<string, React.ReactNode> = {
@@ -26,6 +28,7 @@ const ICONS: Record<string, React.ReactNode> = {
   ingreso: <ArrowDownCircle className="w-4 h-4 text-emerald-400" />,
   egreso: <ArrowUpCircle className="w-4 h-4 text-rose-400" />,
   pagina: <LayoutDashboard className="w-4 h-4 text-gray-400" />,
+  previsional: <FileText className="w-4 h-4 text-violet-400" />,
 };
 
 export default function CommandPalette() {
@@ -71,10 +74,11 @@ export default function CommandPalette() {
     const pageResults = PAGES.filter(p => p.title.toLowerCase().includes(lower) || p.subtitle.toLowerCase().includes(lower));
 
     try {
-      const [casosRes, ingresosRes, egresosRes] = await Promise.all([
+      const [casosRes, ingresosRes, egresosRes, prevRes] = await Promise.all([
         supabase.from('casos_completos').select('id, nombre_apellido, materia, estado').ilike('nombre_apellido', `%${q}%`).limit(5),
         supabase.from('ingresos').select('id, cliente_nombre, concepto, monto_cj_noa').or(`cliente_nombre.ilike.%${q}%,concepto.ilike.%${q}%`).limit(5),
         supabase.from('egresos').select('id, concepto, concepto_detalle, monto').or(`concepto.ilike.%${q}%,concepto_detalle.ilike.%${q}%`).limit(5),
+        supabase.from('clientes_previsional').select('id, apellido_nombre, pipeline, cuil').or(`apellido_nombre.ilike.%${q}%,cuil.ilike.%${q}%`).limit(5),
       ]);
 
       const casos: SearchResult[] = (casosRes.data || []).map(c => ({
@@ -101,7 +105,15 @@ export default function CommandPalette() {
         route: '/egresos',
       }));
 
-      setResults([...pageResults, ...casos, ...ingresos, ...egresos]);
+      const previsional: SearchResult[] = (prevRes.data || []).map((c: any) => ({
+        id: `prev-${c.id}`,
+        type: 'previsional' as const,
+        title: c.apellido_nombre,
+        subtitle: `Previsional · ${c.pipeline || ''}${c.cuil ? ' · ' + c.cuil : ''}`,
+        route: '/previsional/fichas',
+      }));
+
+      setResults([...pageResults, ...casos, ...ingresos, ...egresos, ...previsional]);
     } catch {
       setResults(pageResults);
     } finally {

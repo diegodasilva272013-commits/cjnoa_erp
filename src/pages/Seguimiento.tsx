@@ -1,12 +1,12 @@
 import { useState, useMemo } from 'react';
 import {
   Plus, Search, ListTodo, Columns3, Calendar as CalendarIcon,
-  Clock, CheckCircle, AlertTriangle, Trash2, User
+  Clock, CheckCircle, AlertTriangle, Trash2, User, Bell, X
 } from 'lucide-react';
 import { TareaPrevisional, EstadoTarea, PrioridadTarea,
   ESTADO_TAREA_LABELS, PRIORIDAD_LABELS, PRIORIDAD_COLORS,
 } from '../types/previsional';
-import { useTareasPrevisional, useClientesPrevisional, useAudiencias } from '../hooks/usePrevisional';
+import { useTareasPrevisional, useClientesPrevisional, useAudiencias, useAlertasPrevisional } from '../hooks/usePrevisional';
 import { useAuth } from '../context/AuthContext';
 import TareaModal from '../components/previsional/TareaModal';
 import AudienciaModal from '../components/previsional/AudienciaModal';
@@ -23,6 +23,7 @@ export default function Seguimiento() {
   const { tareas, loading, upsert, completar, remove } = useTareasPrevisional();
   const { clientes } = useClientesPrevisional();
   const { audiencias, loading: loadAud, upsert: upsertAud, remove: removeAud } = useAudiencias();
+  const { alertas, marcarLeida, marcarTodasLeidas } = useAlertasPrevisional();
 
   const [view, setView] = useState<'lista' | 'kanban' | 'audiencias'>('lista');
   const [search, setSearch] = useState('');
@@ -84,6 +85,37 @@ export default function Seguimiento() {
           </button>
         </div>
       </div>
+
+      {/* Alertas automáticas */}
+      {alertas.length > 0 && (
+        <div className="glass-card p-4 border border-red-500/20 bg-red-500/[0.03]">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <Bell className="w-4 h-4 text-red-400" />
+              <p className="text-sm font-semibold text-white">{alertas.length} alerta{alertas.length !== 1 ? 's' : ''} activa{alertas.length !== 1 ? 's' : ''}</p>
+            </div>
+            <button onClick={marcarTodasLeidas} className="text-[10px] text-gray-500 hover:text-white transition-colors">
+              Marcar todas leídas
+            </button>
+          </div>
+          <div className="space-y-2 max-h-48 overflow-y-auto">
+            {alertas.map(a => (
+              <div key={a.id} className="flex items-start justify-between gap-3 p-3 rounded-xl bg-white/[0.03] border border-white/5">
+                <div className="flex items-start gap-2 min-w-0">
+                  <div className={`w-1.5 h-1.5 rounded-full mt-1.5 flex-shrink-0 ${a.tipo === 'vencimiento' ? 'bg-red-500' : 'bg-amber-500'}`} />
+                  <div className="min-w-0">
+                    {a.cliente_nombre && <p className="text-[10px] text-gray-500 mb-0.5">{a.cliente_nombre}</p>}
+                    <p className="text-xs text-gray-300">{a.mensaje}</p>
+                  </div>
+                </div>
+                <button onClick={() => marcarLeida(a.id)} className="flex-shrink-0 p-1 hover:bg-white/10 rounded-lg text-gray-600 hover:text-white transition-colors">
+                  <X className="w-3 h-3" />
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Filters */}
       <div className="flex flex-col sm:flex-row gap-3">

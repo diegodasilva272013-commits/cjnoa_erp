@@ -1,4 +1,4 @@
-import { NavLink, useLocation } from 'react-router-dom';
+import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard,
   Users,
@@ -26,6 +26,7 @@ interface SidebarProps {
 
 export default function Sidebar({ open, onClose }: SidebarProps) {
   const location = useLocation();
+  const navigate = useNavigate();
   const { permisos } = usePermisos();
   const { perfil } = useAuth();
   const avatarUrl = useAvatarUrl(perfil?.avatar_url);
@@ -157,7 +158,10 @@ export default function Sidebar({ open, onClose }: SidebarProps) {
 
         {/* Footer */}
         <div className="px-5 py-4 border-t border-white/[0.06]">
-          <div className="flex items-center gap-3">
+          <button
+            onClick={() => { navigate('/perfil'); onClose(); }}
+            className="w-full flex items-center gap-3 rounded-xl p-1.5 hover:bg-white/[0.04] transition-colors text-left"
+          >
             <div className="w-8 h-8 rounded-lg overflow-hidden flex-shrink-0">
               {perfil?.avatar_url && avatarUrl ? (
                 <img src={avatarUrl} alt="" className="w-full h-full object-cover" />
@@ -169,9 +173,9 @@ export default function Sidebar({ open, onClose }: SidebarProps) {
             </div>
             <div className="min-w-0 flex-1">
               <p className="text-xs font-medium text-white truncate">{perfil?.nombre || 'Usuario'}</p>
-              <p className="text-[10px] text-gray-600">v1.0 · Centro Jurídico NOA</p>
+              <p className="text-[10px] text-gray-600">Ver perfil · v1.0</p>
             </div>
-          </div>
+          </button>
         </div>
       </aside>
     </>
