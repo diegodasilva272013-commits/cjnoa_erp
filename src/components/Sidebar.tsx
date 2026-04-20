@@ -14,6 +14,7 @@ import {
   ListTodo,
   PieChart,
   UserCheck,
+  Activity,
 } from 'lucide-react';
 import { usePermisos } from '../hooks/usePermisos';
 import { useAuth } from '../context/AuthContext';
@@ -154,6 +155,12 @@ export default function Sidebar({ open, onClose }: SidebarProps) {
               Agenda
             </NavLink>
           )}
+
+          {/* Timeline */}
+          <NavLink to="/timeline" onClick={onClose} className={({ isActive }) => linkClass(isActive)}>
+            <Activity className="w-5 h-5" />
+            Timeline
+          </NavLink>
         </nav>
 
         {/* Footer */}

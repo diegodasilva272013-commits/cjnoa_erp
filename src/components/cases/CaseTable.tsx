@@ -6,6 +6,9 @@ import { Mic } from 'lucide-react';
 interface CaseTableProps {
   casos: CasoCompleto[];
   onSelect: (caso: CasoCompleto) => void;
+  selected?: Set<string>;
+  onToggle?: (id: string) => void;
+  onToggleAll?: (ids: string[]) => void;
 }
 
 const formatMoney = (n: number) =>
@@ -52,7 +55,10 @@ const interesLabel: Record<string, string> = {
   'Poco interesante': 'Poco',
 };
 
-export default function CaseTable({ casos, onSelect }: CaseTableProps) {
+export default function CaseTable({ casos, onSelect, selected, onToggle, onToggleAll }: CaseTableProps) {
+  const allSelected = casos.length > 0 && casos.every(c => selected?.has(c.id));
+  const someSelected = !allSelected && casos.some(c => selected?.has(c.id));
+  const hasSelection = selected && selected.size > 0;
   if (casos.length === 0) {
     return (
       <div className="glass-card p-12 text-center">
@@ -67,6 +73,17 @@ export default function CaseTable({ casos, onSelect }: CaseTableProps) {
         <table className="w-full">
           <thead>
             <tr className="border-b border-white/5">
+              {onToggle && (
+                <th className="px-4 py-3 w-8">
+                  <input
+                    type="checkbox"
+                    checked={allSelected}
+                    ref={el => { if (el) el.indeterminate = someSelected; }}
+                    onChange={() => onToggleAll?.(casos.map(c => c.id))}
+                    className="w-4 h-4 rounded bg-white/10 border-white/20 accent-violet-500 cursor-pointer"
+                  />
+                </th>
+              )}
               <th className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider px-4 py-3">
                 Cliente
               </th>
@@ -94,9 +111,19 @@ export default function CaseTable({ casos, onSelect }: CaseTableProps) {
             {casos.map((caso) => (
               <tr
                 key={caso.id}
-                onClick={() => onSelect(caso)}
-                className={`table-row ${estadoBorder[caso.estado] || ''}`}
+                onClick={() => !hasSelection && onSelect(caso)}
+                className={`table-row ${estadoBorder[caso.estado] || ''} ${selected?.has(caso.id) ? 'bg-violet-500/5' : ''}`}
               >
+                {onToggle && (
+                  <td className="px-4 py-3" onClick={e => { e.stopPropagation(); onToggle(caso.id); }}>
+                    <input
+                      type="checkbox"
+                      checked={selected?.has(caso.id) ?? false}
+                      onChange={() => onToggle(caso.id)}
+                      className="w-4 h-4 rounded bg-white/10 border-white/20 accent-violet-500 cursor-pointer"
+                    />
+                  </td>
+                )}
                 {/* CLIENTE — nombre + teléfono + fecha debajo */}
                 <td className="px-4 py-3">
                   <div className="flex items-center gap-3">

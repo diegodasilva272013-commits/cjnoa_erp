@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Bell, AlertTriangle, Receipt, Wallet, UserPlus, X } from 'lucide-react';
+import { Bell, AlertTriangle, Receipt, Wallet, UserPlus, X, Clock } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 
 interface Notification {
@@ -15,20 +15,25 @@ interface NotifStats {
   sinPagarConsulta: number;
   casosFondosBajos: number;
   nuevosClientes7d: number;
+  tareasVencidasPrev: number;
+  fichasSinContacto14d: number;
 }
 
 function useNotificationStats() {
-  const [stats, setStats] = useState<NotifStats>({ cuotasVencidas: 0, sinPagarConsulta: 0, casosFondosBajos: 0, nuevosClientes7d: 0 });
+  const [stats, setStats] = useState<NotifStats>({ cuotasVencidas: 0, sinPagarConsulta: 0, casosFondosBajos: 0, nuevosClientes7d: 0, tareasVencidasPrev: 0, fichasSinContacto14d: 0 });
 
   const fetch = useCallback(async () => {
     try {
       const sevenDaysAgo = new Date(Date.now() - 7 * 86400000).toISOString();
+      const fourteenDaysAgo = new Date(Date.now() - 14 * 86400000).toISOString().split('T')[0];
       const today = new Date().toISOString().split('T')[0];
 
-      const [cuotasRes, casosRes, movRes] = await Promise.all([
+      const [cuotasRes, casosRes, movRes, tareasRes, fichasRes] = await Promise.all([
         supabase.from('cuotas').select('id').eq('estado', 'Pendiente').lt('fecha', today),
         supabase.from('casos_completos').select('id, modalidad_pago, pago_unico_pagado, created_at'),
         supabase.from('movimientos_caso').select('caso_id, tipo, monto, moneda'),
+        supabase.from('tareas_previsional').select('id').neq('estado', 'completada').lt('fecha_vencimiento', today),
+        supabase.from('clientes_previsional').select('id').not('pipeline', 'in', '(finalizado,descartado)').lt('fecha_ultimo_contacto', fourteenDaysAgo),
       ]);
 
       const casos = casosRes.data || [];
@@ -50,13 +55,15 @@ function useNotificationStats() {
           Object.values(currencies).some(f => f.depositos > 0 && (f.gastos / f.depositos) >= 0.8)
         ).length,
         nuevosClientes7d: casos.filter((c: any) => c.created_at >= sevenDaysAgo).length,
+        tareasVencidasPrev: tareasRes.data?.length || 0,
+        fichasSinContacto14d: fichasRes.data?.length || 0,
       });
     } catch { /* silent */ }
   }, []);
 
   useEffect(() => {
     fetch();
-    const id = setInterval(fetch, 60_000); // refresh every minute
+    const id = setInterval(fetch, 60_000);
     return () => clearInterval(id);
   }, [fetch]);
 
@@ -105,6 +112,20 @@ export default function NotificationBell() {
       color: 'text-blue-400 bg-blue-500/10',
       message: `${stats.nuevosClientes7d} cliente${stats.nuevosClientes7d > 1 ? 's' : ''} nuevo${stats.nuevosClientes7d > 1 ? 's' : ''} (7d)`,
       count: stats.nuevosClientes7d,
+    },
+    stats.tareasVencidasPrev > 0 && {
+      id: 'tareas-prev',
+      icon: <Clock className="w-4 h-4" />,
+      color: 'text-violet-400 bg-violet-500/10',
+      message: `${stats.tareasVencidasPrev} tarea${stats.tareasVencidasPrev > 1 ? 's' : ''} previsional${stats.tareasVencidasPrev > 1 ? 'es' : ''} vencida${stats.tareasVencidasPrev > 1 ? 's' : ''}`,
+      count: stats.tareasVencidasPrev,
+    },
+    stats.fichasSinContacto14d > 0 && {
+      id: 'sin-contacto',
+      icon: <AlertTriangle className="w-4 h-4" />,
+      color: 'text-amber-400 bg-amber-500/10',
+      message: `${stats.fichasSinContacto14d} ficha${stats.fichasSinContacto14d > 1 ? 's' : ''} sin contacto en 14 días`,
+      count: stats.fichasSinContacto14d,
     },
   ].filter(Boolean) as Notification[];
 

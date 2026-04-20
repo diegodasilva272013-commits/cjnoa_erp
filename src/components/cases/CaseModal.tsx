@@ -8,6 +8,7 @@ import { useCuotas } from '../../hooks/useCases';
 import { useDocumentos, uploadDocumento, deleteDocumento, downloadDocumento } from '../../hooks/useDocumentos';
 import { useMovimientosCaso, addMovimiento, deleteMovimiento } from '../../hooks/useMovimientosCaso';
 import { createRecordatorio } from '../../hooks/useRecordatorios';
+import CopilotoBtn from '../CopilotoBtn';
 import {
   CasoCompleto, Cuota, SOCIOS, MATERIAS, ESTADOS_CASO,
 } from '../../types/database';
@@ -303,6 +304,20 @@ export default function CaseModal({ open, onClose, caso, onSaved }: CaseModalPro
       title={isEditing ? 'Editar Caso' : 'Nuevo Caso'}
       subtitle={isEditing ? `${caso.nombre_apellido} · ${caso.materia}` : 'Registrar un nuevo caso'}
       maxWidth="max-w-3xl"
+      headerAction={isEditing && caso ? (
+        <CopilotoBtn
+          tipo="analizar_caso"
+          label="IA"
+          datos={{
+            nombre_apellido: caso.nombre_apellido,
+            materia: caso.materia,
+            estado: caso.estado,
+            honorarios_monto: caso.honorarios_monto,
+            saldo_pendiente: caso.saldo_pendiente,
+            observaciones: caso.observaciones,
+          }}
+        />
+      ) : undefined}
     >
       <div className="space-y-6">
         {/* Datos del Cliente */}

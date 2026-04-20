@@ -8,9 +8,10 @@ interface ModalProps {
   subtitle?: string;
   maxWidth?: string;
   children: ReactNode;
+  headerAction?: ReactNode;
 }
 
-export default function Modal({ open, onClose, title, subtitle, maxWidth = 'max-w-2xl', children }: ModalProps) {
+export default function Modal({ open, onClose, title, subtitle, maxWidth = 'max-w-2xl', children, headerAction }: ModalProps) {
   if (!open) return null;
 
   return (
@@ -21,16 +22,19 @@ export default function Modal({ open, onClose, title, subtitle, maxWidth = 'max-
 
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-white/5">
-          <div>
+          <div className="min-w-0 flex-1">
             <h2 className="text-lg font-semibold text-white">{title}</h2>
             {subtitle && <p className="text-sm text-gray-500 mt-0.5">{subtitle}</p>}
           </div>
-          <button
-            onClick={onClose}
-            className="p-2 text-gray-500 hover:text-white rounded-lg hover:bg-white/10 transition-all duration-200 hover:rotate-90"
-          >
-            <X className="w-5 h-5" />
-          </button>
+          <div className="flex items-center gap-2 flex-shrink-0">
+            {headerAction}
+            <button
+              onClick={onClose}
+              className="p-2 text-gray-500 hover:text-white rounded-lg hover:bg-white/10 transition-all duration-200 hover:rotate-90"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
         </div>
 
         {/* Body */}

@@ -14,6 +14,7 @@ import { useDocumentos, uploadDocumento, deleteDocumento, downloadDocumento } fr
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
 import { exportToPdf } from '../../lib/exportPdf';
+import CopilotoBtn from '../CopilotoBtn';
 import AportesTable from './AportesTable';
 import HistorialTimeline from './HistorialTimeline';
 import TareaModal from './TareaModal';
@@ -276,6 +277,23 @@ export default function FichaDetalle({ cliente, onBack, onEdit, onDelete }: Prop
           <button onClick={handleExportPdf} className="btn-secondary text-xs px-3 py-1.5 flex items-center gap-1.5">
             <Printer className="w-3 h-3" /> PDF
           </button>
+          <CopilotoBtn
+            tipo="analizar_previsional"
+            label="Analizar"
+            datos={{
+              apellido_nombre: cliente.apellido_nombre,
+              cuil: cliente.cuil,
+              fecha_nacimiento: cliente.fecha_nacimiento,
+              sexo: cliente.sexo,
+              pipeline: cliente.pipeline,
+              meses_laborados: aportes.reduce((s: number, a: any) => s + (a.total_meses || 0), 0),
+              meses_moratoria_24476: cliente.meses_moratoria_24476,
+              meses_moratoria_27705: cliente.meses_moratoria_27705,
+              total_consolidado: aportes.reduce((s: number, a: any) => s + (a.total_meses || 0), 0) + (cliente.meses_moratoria_24476 || 0) + (cliente.meses_moratoria_27705 || 0),
+              resumen_informe: cliente.resumen_informe,
+              historial: avances.slice(0, 5).map((a: any) => ({ fecha: a.fecha, nota: a.nota })),
+            }}
+          />
           {cliente.url_drive && (
             <a href={cliente.url_drive} target="_blank" rel="noopener noreferrer" className="btn-secondary text-xs px-3 py-1.5 flex items-center gap-1.5">
               <ExternalLink className="w-3 h-3" /> Drive
