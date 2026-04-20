@@ -12,8 +12,12 @@ const Egresos = lazy(() => import('./pages/Egresos'));
 const FlujoCaja = lazy(() => import('./pages/FlujoCaja'));
 const Equipo = lazy(() => import('./pages/Equipo'));
 const Agenda = lazy(() => import('./pages/Agenda'));
+const FichasClientes = lazy(() => import('./pages/FichasClientes'));
+const Seguimiento = lazy(() => import('./pages/Seguimiento'));
+const PrevisionalCharts = lazy(() => import('./pages/PrevisionalCharts'));
+const MiPanel = lazy(() => import('./pages/MiPanel'));
 
-function ProtectedRoute({ modulo, children }: { modulo: 'dashboard' | 'casos' | 'finanzas' | 'equipo' | 'agenda'; children: React.ReactNode }) {
+function ProtectedRoute({ modulo, children }: { modulo: 'dashboard' | 'casos' | 'finanzas' | 'equipo' | 'agenda' | 'previsional'; children: React.ReactNode }) {
   const { canSee } = usePermisos();
   if (!canSee(modulo)) return <Navigate to="/casos" replace />;
   return <>{children}</>;
@@ -64,6 +68,10 @@ export default function App() {
           <Route path="/flujo-caja" element={<ProtectedRoute modulo="finanzas"><FlujoCaja /></ProtectedRoute>} />
           <Route path="/equipo" element={<ProtectedRoute modulo="equipo"><Equipo /></ProtectedRoute>} />
           <Route path="/agenda" element={<ProtectedRoute modulo="agenda"><Agenda /></ProtectedRoute>} />
+          <Route path="/previsional/fichas" element={<ProtectedRoute modulo="previsional"><FichasClientes /></ProtectedRoute>} />
+          <Route path="/previsional/seguimiento" element={<ProtectedRoute modulo="previsional"><Seguimiento /></ProtectedRoute>} />
+          <Route path="/previsional/dashboard" element={<ProtectedRoute modulo="previsional"><PrevisionalCharts /></ProtectedRoute>} />
+          <Route path="/previsional/mi-panel" element={<ProtectedRoute modulo="previsional"><MiPanel /></ProtectedRoute>} />
           <Route path="*" element={<Navigate to="/casos" replace />} />
         </Route>
       </Routes>

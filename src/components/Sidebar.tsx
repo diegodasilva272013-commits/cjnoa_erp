@@ -10,6 +10,10 @@ import {
   Calendar,
   X,
   User,
+  FileText,
+  ListTodo,
+  PieChart,
+  UserCheck,
 } from 'lucide-react';
 import { usePermisos } from '../hooks/usePermisos';
 import { useAuth } from '../context/AuthContext';
@@ -34,6 +38,7 @@ export default function Sidebar({ open, onClose }: SidebarProps) {
     }`;
 
   const isFinanzasActive = ['/ingresos', '/egresos', '/flujo-caja'].includes(location.pathname);
+  const isPrevisionalActive = location.pathname.startsWith('/previsional');
 
   return (
     <>
@@ -113,6 +118,32 @@ export default function Sidebar({ open, onClose }: SidebarProps) {
               <Shield className="w-5 h-5" />
               Equipo
             </NavLink>
+          )}
+
+          {/* Previsional */}
+          {permisos.previsional && (
+            <div className="space-y-1">
+              <div className="flex items-center gap-3 px-4 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wider mt-4">
+                <FileText className="w-4 h-4" />
+                Previsional
+              </div>
+              <NavLink to="/previsional/fichas" onClick={onClose} className={({ isActive }) => `${linkClass(isActive)} pl-12`}>
+                <Users className="w-4 h-4" />
+                Fichas Clientes
+              </NavLink>
+              <NavLink to="/previsional/seguimiento" onClick={onClose} className={({ isActive }) => `${linkClass(isActive)} pl-12`}>
+                <ListTodo className="w-4 h-4" />
+                Seguimiento
+              </NavLink>
+              <NavLink to="/previsional/dashboard" onClick={onClose} className={({ isActive }) => `${linkClass(isActive)} pl-12`}>
+                <PieChart className="w-4 h-4" />
+                Dashboard
+              </NavLink>
+              <NavLink to="/previsional/mi-panel" onClick={onClose} className={({ isActive }) => `${linkClass(isActive)} pl-12`}>
+                <UserCheck className="w-4 h-4" />
+                Mi Panel
+              </NavLink>
+            </div>
           )}
 
           {/* Agenda */}

@@ -6,6 +6,7 @@ export interface PermisosUsuario {
   finanzas: boolean;
   equipo: boolean;
   agenda: boolean;
+  previsional: boolean;
 }
 
 export interface Perfil {
@@ -25,9 +26,9 @@ export const ROLES: { value: Rol; label: string; description: string }[] = [
 ];
 
 export const PERMISOS_DEFAULT: Record<Rol, PermisosUsuario> = {
-  admin: { dashboard: true, casos: true, finanzas: true, equipo: true, agenda: true },
-  socio: { dashboard: true, casos: true, finanzas: true, equipo: false, agenda: true },
-  empleado: { dashboard: false, casos: true, finanzas: false, equipo: false, agenda: true },
+  admin: { dashboard: true, casos: true, finanzas: true, equipo: true, agenda: true, previsional: true },
+  socio: { dashboard: true, casos: true, finanzas: true, equipo: false, agenda: true, previsional: true },
+  empleado: { dashboard: false, casos: true, finanzas: false, equipo: false, agenda: true, previsional: true },
 };
 
 export const MODULOS: { key: keyof PermisosUsuario; label: string; description: string }[] = [
@@ -36,6 +37,7 @@ export const MODULOS: { key: keyof PermisosUsuario; label: string; description: 
   { key: 'finanzas', label: 'Finanzas', description: 'Ingresos, egresos y flujo de caja' },
   { key: 'equipo', label: 'Equipo', description: 'ABM de colaboradores y permisos' },
   { key: 'agenda', label: 'Agenda', description: 'Recordatorios, notas de voz y calendario' },
+  { key: 'previsional', label: 'Previsional', description: 'Fichas, seguimiento y tareas previsionales' },
 ];
 
 export interface Cliente {
