@@ -17,6 +17,7 @@ import {
   Activity,
   Gavel,
   Wallet,
+  Clock,
 } from 'lucide-react';
 import { usePermisos } from '../hooks/usePermisos';
 import { useAuth } from '../context/AuthContext';
@@ -104,6 +105,12 @@ export default function Sidebar({ open, onClose }: SidebarProps) {
           <NavLink to="/audiencias" onClick={onClose} className={({ isActive }) => linkClass(isActive)}>
             <Gavel className="w-5 h-5" />
             Audiencias
+          </NavLink>
+
+          {/* Cargos de Hora - visible para todos */}
+          <NavLink to="/cargos-hora" onClick={onClose} className={({ isActive }) => linkClass(isActive)}>
+            <Clock className="w-5 h-5" />
+            Cargos de Hora
           </NavLink>
 
           {/* Honorarios y Cobros (spec seccion 8) - oculto a procurador */}

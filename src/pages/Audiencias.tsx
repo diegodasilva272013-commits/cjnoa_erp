@@ -136,12 +136,28 @@ export default function Audiencias() {
                       {a.notas && <p className="text-[11px] text-gray-400 mt-1.5 italic line-clamp-2">{a.notas}</p>}
                     </div>
                   </div>
-                  <button onClick={e => { e.stopPropagation(); handleDel(a); }}
-                    className={`p-1.5 rounded-lg transition-colors flex-shrink-0 ${
-                      confirmDel === a.id ? 'bg-red-500/20 text-red-400' : 'text-gray-600 hover:text-red-400 hover:bg-red-500/10'
-                    }`}>
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
+                  <div className="flex items-center gap-1 flex-shrink-0">
+                    <button
+                      onClick={async (e) => {
+                        e.stopPropagation();
+                        await upsert({ ...a, realizada: !a.realizada }, user?.id || '');
+                      }}
+                      title={a.realizada ? 'Marcar como pendiente' : 'Marcar como realizada'}
+                      className={`p-1.5 rounded-lg transition-colors ${
+                        a.realizada
+                          ? 'bg-emerald-500/15 text-emerald-400 hover:bg-emerald-500/25'
+                          : 'text-gray-600 hover:text-emerald-400 hover:bg-emerald-500/10'
+                      }`}
+                    >
+                      <CheckCircle className="w-3.5 h-3.5" />
+                    </button>
+                    <button onClick={e => { e.stopPropagation(); handleDel(a); }}
+                      className={`p-1.5 rounded-lg transition-colors ${
+                        confirmDel === a.id ? 'bg-red-500/20 text-red-400' : 'text-gray-600 hover:text-red-400 hover:bg-red-500/10'
+                      }`}>
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
                 </div>
               </div>
             );

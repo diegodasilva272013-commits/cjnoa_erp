@@ -9,10 +9,13 @@ import { useDocumentos, uploadDocumento, deleteDocumento, downloadDocumento } fr
 import { useMovimientosCaso, addMovimiento, deleteMovimiento } from '../../hooks/useMovimientosCaso';
 import { useConfigEstudio } from '../../hooks/useConfigEstudio';
 import HistorialCasoPanel from './HistorialCasoPanel';
+import ComentariosCasoPanel from './ComentariosCasoPanel';
+import CrossLinkPanel from './CrossLinkPanel';
 import { createRecordatorio } from '../../hooks/useRecordatorios';
 import { usePermisos } from '../../hooks/usePermisos';
 import CopilotoBtn from '../CopilotoBtn';
 import { syncCaseIncomeLedger } from '../../lib/caseIncomeLedger';
+import { validateDriveUrl } from '../../lib/driveUrl';
 import {
   CasoCompleto, Cuota, SOCIOS, MATERIAS, ESTADOS_CASO,
   SISTEMAS_JUDICIALES, PERSONERIAS, PRIORIDADES_CASO,
@@ -182,6 +185,13 @@ export default function CaseModal({ open, onClose, caso, onSaved }: CaseModalPro
     if (!form.nombre_apellido.trim()) {
       showToast('El nombre es obligatorio', 'error');
       return;
+    }
+    if (form.url_drive) {
+      const chk = validateDriveUrl(form.url_drive);
+      if (!chk.valid) {
+        showToast('URL de Drive inválida: ' + chk.error, 'error');
+        return;
+      }
     }
 
     setSaving(true);
@@ -519,6 +529,13 @@ export default function CaseModal({ open, onClose, caso, onSaved }: CaseModalPro
                 className="input-dark"
                 placeholder="https://drive.google.com/..."
               />
+              {(() => {
+                const chk = validateDriveUrl(form.url_drive);
+                if (form.url_drive && chk.error) return <p className="text-xs text-red-400 mt-1">⚠ {chk.error}</p>;
+                if (chk.warning) return <p className="text-xs text-amber-400 mt-1">ℹ {chk.warning}</p>;
+                if (form.url_drive && chk.valid) return <p className="text-xs text-emerald-400 mt-1">✓ Link válido</p>;
+                return null;
+              })()}
             </Field>
           </div>
           <label className="flex items-center gap-2 mt-3 text-sm text-gray-400 cursor-pointer">
@@ -839,7 +856,7 @@ export default function CaseModal({ open, onClose, caso, onSaved }: CaseModalPro
         )}
 
         {/* Fondos y Gastos (solo en edición) */}
-        {isEditing && caso && (() => {
+        {isEditing && caso && verHonorarios && (() => {
           const fmtARS = (n: number) => new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 }).format(n);
           const fmtUSD = (n: number) => 'US$ ' + new Intl.NumberFormat('es-AR', { maximumFractionDigits: 0 }).format(n);
 
@@ -1122,6 +1139,18 @@ export default function CaseModal({ open, onClose, caso, onSaved }: CaseModalPro
           <Section title="Historial y Resumen">
             <HistorialCasoPanel caso={caso} />
           </Section>
+        )}
+
+        {/* Comentarios libres (thread editable por el autor) */}
+        {isEditing && caso && (
+          <Section title="Comentarios">
+            <ComentariosCasoPanel casoId={caso.id} />
+          </Section>
+        )}
+
+        {/* Fichas previsionales vinculadas por nombre/teléfono */}
+        {isEditing && caso && caso.cliente_id && (
+          <CrossLinkPanel clienteId={caso.cliente_id} tipo="caso" />
         )}
 
         {/* Documentos (solo en edición) */}

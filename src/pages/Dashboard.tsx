@@ -1,4 +1,5 @@
 import { useMemo } from 'react';
+import { Link } from 'react-router-dom';
 import {
   DollarSign,
   TrendingUp,
@@ -13,11 +14,13 @@ import {
   Wallet,
   FileText,
   CalendarDays,
+  ChevronRight,
 } from 'lucide-react';
 import { useDashboardStats, useIngresos } from '../hooks/useFinances';
 import { useSocios } from '../hooks/useSocios';
 import { usePrevisionalStats } from '../hooks/usePrevisional';
 import { useNovedadesLogin } from '../hooks/useNovedadesLogin';
+import { useReminders } from '../context/ReminderContext';
 import ActivityFeed from '../components/ActivityFeed';
 import SmartAlerts from '../components/SmartAlerts';
 import { formatMoney } from '../lib/financeFormat';
@@ -73,33 +76,40 @@ export default function Dashboard() {
         <p className="text-gray-500 text-sm mt-1">Resumen general del estudio</p>
       </div>
 
+      <NotificationsBanner />
+
       {/* Novedades al iniciar sesion (spec seccion 7.1) */}
       {!novedades.loading && (
         (novedades.audienciasHoy.length + novedades.proximasAudiencias.length +
           novedades.tareasVencidas.length + novedades.tareasHoy.length +
           novedades.tareasPendientes.length + novedades.cargosHoraSemana.length) > 0 ? (
           <div className="glass-card p-5 border border-amber-500/20 bg-amber-500/[0.03] animate-slide-up space-y-4">
-            <div className="flex items-center gap-2">
-              <CalendarDays className="w-4 h-4 text-amber-400" />
-              <h3 className="text-sm font-semibold text-white">Novedades del día</h3>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <CalendarDays className="w-4 h-4 text-amber-400" />
+                <h3 className="text-sm font-semibold text-white">Novedades del día</h3>
+              </div>
+              <Link to="/tareas" className="text-[11px] text-amber-400 hover:text-amber-300 flex items-center gap-1">
+                Ver todo <ChevronRight className="w-3 h-3" />
+              </Link>
             </div>
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-              <div className="p-3 rounded-xl bg-white/[0.02] border border-white/5">
+              <Link to="/audiencias" className="p-3 rounded-xl bg-white/[0.02] border border-white/5 hover:bg-white/[0.04] transition">
                 <p className="text-[10px] uppercase tracking-wider text-gray-500">Audiencias hoy</p>
                 <p className="text-xl font-bold text-white mt-1">{novedades.audienciasHoy.length}</p>
-              </div>
-              <div className="p-3 rounded-xl bg-white/[0.02] border border-white/5">
+              </Link>
+              <Link to="/tareas" className="p-3 rounded-xl bg-white/[0.02] border border-white/5 hover:bg-white/[0.04] transition">
                 <p className="text-[10px] uppercase tracking-wider text-gray-500">Tareas vencen hoy</p>
                 <p className="text-xl font-bold text-amber-400 mt-1">{novedades.tareasHoy.length}</p>
-              </div>
-              <div className="p-3 rounded-xl bg-white/[0.02] border border-white/5">
+              </Link>
+              <Link to="/tareas" className="p-3 rounded-xl bg-white/[0.02] border border-white/5 hover:bg-white/[0.04] transition">
                 <p className="text-[10px] uppercase tracking-wider text-gray-500">Tareas vencidas</p>
                 <p className="text-xl font-bold text-red-400 mt-1">{novedades.tareasVencidas.length}</p>
-              </div>
-              <div className="p-3 rounded-xl bg-white/[0.02] border border-white/5">
+              </Link>
+              <Link to="/tareas" className="p-3 rounded-xl bg-white/[0.02] border border-white/5 hover:bg-white/[0.04] transition">
                 <p className="text-[10px] uppercase tracking-wider text-gray-500">Sin avanzar &gt;2d</p>
                 <p className="text-xl font-bold text-orange-400 mt-1">{novedades.tareasSinAvanzar}</p>
-              </div>
+              </Link>
             </div>
 
             {novedades.audienciasHoy.length > 0 && (
@@ -107,12 +117,12 @@ export default function Dashboard() {
                 <p className="text-[10px] uppercase tracking-wider text-gray-500 mb-2">Audiencias del día</p>
                 <div className="space-y-1.5">
                   {novedades.audienciasHoy.map(a => (
-                    <div key={a.id} className="flex items-center gap-3 p-2.5 rounded-lg bg-white/[0.02] border border-white/5 text-xs">
+                    <Link to="/audiencias" key={a.id} className="flex items-center gap-3 p-2.5 rounded-lg bg-white/[0.02] border border-white/5 text-xs hover:bg-white/[0.04]">
                       <span className="text-white font-mono">{new Date(a.fecha).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}</span>
                       <span className="text-gray-300">{a.cliente_nombre || 'Sin cliente'}</span>
                       {a.juzgado && <span className="text-gray-500">· {a.juzgado}</span>}
                       {a.tipo && <span className="text-gray-600">· {a.tipo}</span>}
-                    </div>
+                    </Link>
                   ))}
                 </div>
               </div>
@@ -123,11 +133,11 @@ export default function Dashboard() {
                 <p className="text-[10px] uppercase tracking-wider text-gray-500 mb-2">Próximas audiencias (7 días)</p>
                 <div className="space-y-1.5">
                   {novedades.proximasAudiencias.slice(0, 5).map(a => (
-                    <div key={a.id} className="flex items-center gap-3 p-2.5 rounded-lg bg-white/[0.02] border border-white/5 text-xs">
+                    <Link to="/audiencias" key={a.id} className="flex items-center gap-3 p-2.5 rounded-lg bg-white/[0.02] border border-white/5 text-xs hover:bg-white/[0.04]">
                       <span className="text-gray-300 font-mono">{new Date(a.fecha).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit' })} {new Date(a.fecha).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}</span>
                       <span className="text-gray-300">{a.cliente_nombre || 'Sin cliente'}</span>
                       {a.juzgado && <span className="text-gray-500">· {a.juzgado}</span>}
-                    </div>
+                    </Link>
                   ))}
                 </div>
               </div>
@@ -138,12 +148,33 @@ export default function Dashboard() {
                 <p className="text-[10px] uppercase tracking-wider text-amber-500 mb-2">Cargos de hora vigentes</p>
                 <div className="space-y-1.5">
                   {novedades.cargosHoraSemana.slice(0, 5).map(t => (
-                    <div key={t.id} className="flex items-center gap-3 p-2.5 rounded-lg bg-amber-500/[0.04] border border-amber-500/10 text-xs">
+                    <Link to="/tareas" key={t.id} className="flex items-center gap-3 p-2.5 rounded-lg bg-amber-500/[0.04] border border-amber-500/10 text-xs hover:bg-amber-500/[0.08]">
                       <span className="text-amber-300">⏰ {t.cargo_hora}</span>
                       <span className="text-gray-300">{t.titulo}</span>
                       {t.cliente_nombre && <span className="text-gray-500">· {t.cliente_nombre}</span>}
-                    </div>
+                    </Link>
                   ))}
+                </div>
+              </div>
+            )}
+
+            {novedades.tareasVencidas.length > 0 && (
+              <div>
+                <p className="text-[10px] uppercase tracking-wider text-red-400 mb-2">Tareas vencidas</p>
+                <div className="space-y-1">
+                  {novedades.tareasVencidas.slice(0, 6).map(t => (
+                    <Link to="/tareas" key={t.id} className="flex items-center gap-3 p-2 rounded-lg bg-red-500/[0.05] border border-red-500/15 text-xs hover:bg-red-500/[0.10]">
+                      <span className="w-1.5 h-1.5 rounded-full flex-shrink-0 bg-red-500" />
+                      <span className="text-gray-100 flex-1 truncate">{t.titulo}</span>
+                      {t.responsable_nombre && <span className="text-gray-500 hidden sm:inline truncate">{t.responsable_nombre}</span>}
+                      {t.fecha_limite && <span className="text-red-300 flex-shrink-0">{new Date(t.fecha_limite).toLocaleDateString('es-AR')}</span>}
+                    </Link>
+                  ))}
+                  {novedades.tareasVencidas.length > 6 && (
+                    <Link to="/tareas" className="block text-[11px] text-red-300/80 hover:text-red-300 pt-1">
+                      + {novedades.tareasVencidas.length - 6} más vencidas
+                    </Link>
+                  )}
                 </div>
               </div>
             )}
@@ -153,14 +184,14 @@ export default function Dashboard() {
                 <p className="text-[10px] uppercase tracking-wider text-gray-500 mb-2">Tareas pendientes (por prioridad)</p>
                 <div className="space-y-1">
                   {novedades.tareasPendientes.map(t => (
-                    <div key={t.id} className="flex items-center gap-3 p-2 rounded-lg bg-white/[0.02] border border-white/5 text-xs">
+                    <Link to="/tareas" key={t.id} className="flex items-center gap-3 p-2 rounded-lg bg-white/[0.02] border border-white/5 text-xs hover:bg-white/[0.04]">
                       <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
                         t.prioridad === 'alta' ? 'bg-red-500' : t.prioridad === 'media' ? 'bg-amber-500' : 'bg-gray-500'
                       }`} />
                       <span className="text-gray-200 flex-1 truncate">{t.titulo}</span>
                       {t.cliente_nombre && <span className="text-gray-600 truncate hidden sm:inline">{t.cliente_nombre}</span>}
                       {t.fecha_limite && <span className="text-gray-500 flex-shrink-0">{new Date(t.fecha_limite).toLocaleDateString('es-AR')}</span>}
-                    </div>
+                    </Link>
                   ))}
                 </div>
               </div>
@@ -429,6 +460,25 @@ function AlertItem({ icon, color, label, value }: { icon: React.ReactNode; color
         <span className="text-sm text-gray-300">{label}</span>
       </div>
       <span className={`text-lg font-bold ${textColor} count-up`}>{value}</span>
+    </div>
+  );
+}
+
+function NotificationsBanner() {
+  const { notificationsEnabled, requestNotifications } = useReminders();
+  if (notificationsEnabled) return null;
+  if (typeof window !== 'undefined' && !('Notification' in window)) return null;
+  return (
+    <div className="glass-card p-4 border border-blue-500/20 bg-blue-500/[0.03] flex flex-col sm:flex-row sm:items-center gap-3">
+      <div className="flex-1">
+        <p className="text-sm font-semibold text-white">🔔 Activá las notificaciones del navegador</p>
+        <p className="text-xs text-gray-400 mt-0.5">
+          Te avisaremos al instante de audiencias, vencimientos de tareas y recordatorios importantes.
+        </p>
+      </div>
+      <button onClick={requestNotifications} className="btn-primary text-sm whitespace-nowrap">
+        Activar notificaciones
+      </button>
     </div>
   );
 }

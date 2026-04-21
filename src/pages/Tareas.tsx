@@ -376,9 +376,9 @@ function ResponsableView({ tareas, perfiles, onOpen, isVencida }: {
   isVencida: (t: TareaCompleta) => boolean;
 }) {
   const grupos = useMemo(() => {
-    const map = new Map<string, { nombre: string; tareas: TareaCompleta[] }>();
+    const map = new Map<string, { nombre: string; rol?: string; tareas: TareaCompleta[] }>();
     map.set('__sin', { nombre: 'Sin responsable', tareas: [] });
-    perfiles.forEach(p => map.set(p.id, { nombre: p.nombre, tareas: [] }));
+    perfiles.forEach(p => map.set(p.id, { nombre: p.nombre, rol: p.rol, tareas: [] }));
     tareas.forEach(t => {
       const k = t.responsable_id || '__sin';
       if (!map.has(k)) map.set(k, { nombre: t.responsable_nombre || 'Otro', tareas: [] });
@@ -389,34 +389,78 @@ function ResponsableView({ tareas, perfiles, onOpen, isVencida }: {
 
   return (
     <div className="space-y-4">
-      {grupos.map(([id, g]) => (
-        <div key={id} className="glass-card p-4">
-          <h3 className="text-sm font-semibold text-white mb-3 flex items-center gap-2">
-            <User className="w-4 h-4 text-gray-500" /> {g.nombre} <span className="text-xs text-gray-600">({g.tareas.length})</span>
-          </h3>
-          <div className="space-y-1.5">
-            {g.tareas.map(t => (
-              <div key={t.id} onClick={() => onOpen(t)}
-                className={`flex items-center justify-between p-2 rounded-lg cursor-pointer hover:bg-white/[0.04] ${
-                  isVencida(t) ? 'border border-red-500/20' : ''
-                }`}>
-                <div className="flex items-center gap-2 min-w-0">
-                  <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
-                    t.prioridad === 'alta' ? 'bg-red-500' : t.prioridad === 'media' ? 'bg-amber-500' : 'bg-gray-500'
-                  }`} />
-                  <span className="text-xs text-white truncate">{t.titulo}</span>
-                  {t.cliente_nombre && <span className="text-[10px] text-gray-600 truncate">· {t.cliente_nombre}</span>}
-                </div>
-                {t.fecha_limite && (
-                  <span className={`text-[10px] flex-shrink-0 ${isVencida(t) ? 'text-red-400' : 'text-gray-600'}`}>
-                    {new Date(t.fecha_limite).toLocaleDateString('es-AR')}
+      {grupos.map(([id, g]) => {
+        const pendientes = g.tareas.filter(t => t.estado !== 'completada');
+        const vencidas = pendientes.filter(isVencida);
+        const completadas = g.tareas.length - pendientes.length;
+        const altas = pendientes.filter(t => t.prioridad === 'alta').length;
+        return (
+          <div key={id} className="glass-card p-4">
+            <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+              <h3 className="text-sm font-semibold text-white flex items-center gap-2">
+                <User className="w-4 h-4 text-gray-500" />
+                {g.nombre}
+                {g.rol && <span className="text-[10px] text-gray-600 uppercase">· {g.rol}</span>}
+              </h3>
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <span className="text-[10px] px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-400 border border-blue-500/20">
+                  {pendientes.length} pendientes
+                </span>
+                {vencidas.length > 0 && (
+                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-red-500/10 text-red-400 border border-red-500/20">
+                    {vencidas.length} vencidas
+                  </span>
+                )}
+                {altas > 0 && (
+                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                    {altas} alta prioridad
+                  </span>
+                )}
+                {completadas > 0 && (
+                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                    {completadas} completadas
                   </span>
                 )}
               </div>
-            ))}
+            </div>
+            <div className="space-y-1.5">
+              {g.tareas
+                .slice()
+                .sort((a, b) => {
+                  // vencidas primero, luego por prioridad, luego por fecha_limite
+                  const va = isVencida(a) ? 0 : 1;
+                  const vb = isVencida(b) ? 0 : 1;
+                  if (va !== vb) return va - vb;
+                  const pOrd: Record<string, number> = { alta: 0, media: 1, sin_prioridad: 2 };
+                  const pa = pOrd[a.prioridad] ?? 9;
+                  const pb = pOrd[b.prioridad] ?? 9;
+                  if (pa !== pb) return pa - pb;
+                  return (a.fecha_limite || '').localeCompare(b.fecha_limite || '');
+                })
+                .map(t => (
+                  <div key={t.id} onClick={() => onOpen(t)}
+                    className={`flex items-center justify-between p-2 rounded-lg cursor-pointer hover:bg-white/[0.04] ${
+                      isVencida(t) ? 'border border-red-500/20 bg-red-500/[0.03]' : ''
+                    } ${t.estado === 'completada' ? 'opacity-60' : ''}`}>
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
+                        t.prioridad === 'alta' ? 'bg-red-500' : t.prioridad === 'media' ? 'bg-amber-500' : 'bg-gray-500'
+                      }`} />
+                      <span className={`text-xs truncate ${t.estado === 'completada' ? 'text-gray-500 line-through' : 'text-white'}`}>{t.titulo}</span>
+                      {t.cliente_nombre && <span className="text-[10px] text-gray-600 truncate">· {t.cliente_nombre}</span>}
+                      {t.cargo_hora && <span className="text-[10px] text-amber-400 flex-shrink-0">⏰ {t.cargo_hora}</span>}
+                    </div>
+                    {t.fecha_limite && (
+                      <span className={`text-[10px] flex-shrink-0 ${isVencida(t) ? 'text-red-400' : 'text-gray-600'}`}>
+                        {new Date(t.fecha_limite).toLocaleDateString('es-AR')}
+                      </span>
+                    )}
+                  </div>
+                ))}
+            </div>
           </div>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }

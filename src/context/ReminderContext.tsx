@@ -8,9 +8,7 @@ interface ReminderAlert {
   id: string;
   recordatorio: Recordatorio;
   timestamp: number;
-}
-
-interface ReminderContextType {
+}interface ReminderContextType {
   notificationsEnabled: boolean;
   requestNotifications: () => Promise<void>;
   dismissAlert: (id: string) => void;
@@ -87,6 +85,82 @@ export function ReminderProvider({ children }: { children: ReactNode }) {
     return () => { if (fetchIntervalRef.current) clearInterval(fetchIntervalRef.current); };
   }, [fetchRecordatorios]);
 
+  // ── Audiencias próximas: dispara alertas a 24h y 1h del inicio ──
+  useEffect(() => {
+    if (!user) return;
+    let cancelled = false;
+
+    async function checkAudiencias() {
+      const now = new Date();
+      const horizonte = new Date(now.getTime() + 26 * 60 * 60 * 1000); // 26h
+      const { data } = await supabase
+        .from('audiencias_general_completas')
+        .select('id, fecha, juzgado, tipo, cliente_nombre, abogado_id, abogado_nombre, realizada')
+        .eq('realizada', false)
+        .gte('fecha', now.toISOString())
+        .lte('fecha', horizonte.toISOString())
+        .order('fecha', { ascending: true });
+
+      if (cancelled || !data) return;
+
+      for (const aud of data as Array<{
+        id: string; fecha: string; juzgado?: string | null; tipo?: string | null;
+        cliente_nombre?: string | null; abogado_id?: string | null;
+      }>) {
+        const inicio = new Date(aud.fecha).getTime();
+        const minutosResta = (inicio - Date.now()) / 60000;
+
+        const fireAt = (key: string, label: string) => {
+          if (notifiedRef.current.has(key)) return;
+          notifiedRef.current.add(key);
+          playNotificationSound();
+          const fakeId = `aud-${aud.id}-${key}`;
+          setAlerts(prev => [...prev, {
+            id: fakeId,
+            recordatorio: {
+              id: fakeId,
+              usuario_id: user?.id ?? '',
+              titulo: `Audiencia ${label}: ${aud.cliente_nombre ?? 'Cliente'}`,
+              descripcion: [aud.tipo, aud.juzgado].filter(Boolean).join(' · '),
+              fecha: new Date(aud.fecha).toISOString().split('T')[0],
+              hora: new Date(aud.fecha).toTimeString().slice(0, 8),
+              color: 'amber',
+              completado: false,
+              caso_id: null,
+              tiene_audio: false,
+              audio_path: null,
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            },
+            timestamp: Date.now(),
+          }]);
+          if (notificationsEnabled) {
+            try {
+              new Notification(`Audiencia ${label} - CJ NOA`, {
+                body: `${aud.cliente_nombre ?? ''} · ${aud.juzgado ?? ''}`,
+                icon: '/Logo NOA.jpeg',
+                tag: fakeId,
+              });
+            } catch { /* noop */ }
+          }
+        };
+
+        // 1 hora antes
+        if (minutosResta > 0 && minutosResta <= 60) {
+          fireAt(`aud-1h-${aud.id}`, 'en 1 hora');
+        }
+        // 24 horas antes (ventana 23.5h-24.5h)
+        if (minutosResta > 23.5 * 60 && minutosResta <= 24.5 * 60) {
+          fireAt(`aud-24h-${aud.id}`, 'mañana');
+        }
+      }
+    }
+
+    checkAudiencias();
+    const iv = setInterval(checkAudiencias, 5 * 60 * 1000); // cada 5 min
+    return () => { cancelled = true; clearInterval(iv); };
+  }, [user, notificationsEnabled]);
+
   // ── Check notification permission ──
   useEffect(() => {
     if ('Notification' in window && Notification.permission === 'granted') {
@@ -150,7 +224,10 @@ export function ReminderProvider({ children }: { children: ReactNode }) {
   }
 
   async function markDone(id: string) {
-    await supabase.from('recordatorios').update({ completado: true }).eq('id', id);
+    // Las alertas sintéticas (audiencias) no se persisten
+    if (!id.startsWith('aud-')) {
+      await supabase.from('recordatorios').update({ completado: true }).eq('id', id);
+    }
     setAlerts(prev => prev.filter(a => a.id !== id));
     fetchRecordatorios();
   }

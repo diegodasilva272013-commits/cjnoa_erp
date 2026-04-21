@@ -7,6 +7,7 @@ import Modal from '../Modal';
 import { ClientePrevisional, calcularMoratoria, SexoCliente, PipelinePrevisional, PIPELINE_LABELS, SubEstadoPrevisional, COSTO_MENSUAL_27705 } from '../../types/previsional';
 import { useAuth } from '../../context/AuthContext';
 import { SOCIOS } from '../../types/database';
+import { validateDriveUrl } from '../../lib/driveUrl';
 
 interface Props {
   open: boolean;
@@ -280,6 +281,13 @@ export default function FichaModal({ open, onClose, cliente, onSave }: Props) {
               className="input-dark"
               placeholder="https://drive.google.com/drive/folders/..."
             />
+            {(() => {
+              const chk = validateDriveUrl(form.url_drive || '');
+              if (form.url_drive && chk.error) return <p className="text-xs text-red-400 mt-1">⚠ {chk.error}</p>;
+              if (chk.warning) return <p className="text-xs text-amber-400 mt-1">ℹ {chk.warning}</p>;
+              if (form.url_drive && chk.valid) return <p className="text-xs text-emerald-400 mt-1">✓ Link válido</p>;
+              return null;
+            })()}
           </div>
         </div>
       )}

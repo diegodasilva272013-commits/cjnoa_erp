@@ -19,6 +19,7 @@ import AportesTable from './AportesTable';
 import HistorialTimeline from './HistorialTimeline';
 import TareaModal from './TareaModal';
 import AudienciaModal from './AudienciaModal';
+import CrossLinkPanel from '../cases/CrossLinkPanel';
 
 interface Props {
   cliente: ClientePrevisional;
@@ -401,6 +402,8 @@ export default function FichaDetalle({ cliente, onBack, onEdit, onDelete }: Prop
           </button>
         ))}
       </div>
+
+      <CrossLinkPanel clienteId={cliente.id} tipo="previsional" />
 
       {tab === 'aportes' && (
         <AportesTable aportes={aportes} loading={loadAp} hijos={cliente.hijos} sexo={cliente.sexo as SexoCliente} onAdd={addAporte} onRemove={removeAporte} />

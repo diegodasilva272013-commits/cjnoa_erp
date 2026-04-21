@@ -34,10 +34,13 @@ export default function SmartAlerts() {
       const hace2 = new Date(now.getTime() - 2 * 86400000).toISOString();
       const hoyStr = now.toISOString().split('T')[0];
       const in3 = new Date(now.getTime() + 3 * 86400000).toISOString().split('T')[0];
-      const [tareasStale, tareasPend, cargosRes] = await Promise.all([
+      const in7iso = new Date(now.getTime() + 7 * 86400000).toISOString();
+      const [tareasStale, tareasPend, cargosRes, audProx, tareasConCaso] = await Promise.all([
         supabase.from('tareas_previsional').select('id').neq('estado', 'completada').lt('updated_at', hace2),
         supabase.from('tareas_previsional').select('id').eq('estado', 'pendiente'),
         supabase.from('tareas_previsional').select('id,cargo_hora,cargo_hora_fecha').neq('estado', 'completada').not('cargo_hora_fecha', 'is', null).gte('cargo_hora_fecha', hoyStr).lte('cargo_hora_fecha', in3),
+        supabase.from('audiencias_general').select('id,caso_id,fecha,realizada').eq('realizada', false).gte('fecha', now.toISOString()).lte('fecha', in7iso),
+        supabase.from('tareas').select('caso_id').eq('archivada', false).neq('estado', 'completada').not('caso_id', 'is', null),
       ]);
 
       const curIngTotal = (curIng.data || []).reduce((s, r) => s + Number(r.monto_cj_noa || 0), 0);
@@ -148,6 +151,24 @@ export default function SmartAlerts() {
           icon: <Calendar className="w-4 h-4" />,
           message: `${cargos} cargo${cargos > 1 ? 's' : ''} de hora vence${cargos > 1 ? 'n' : ''} en los proximos 3 dias`,
           type: 'info',
+        });
+      }
+
+      // Audiencias de la semana SIN tarea asociada al caso (spec 7.2)
+      const casosConTarea = new Set(
+        (tareasConCaso.data ?? [])
+          .map((t: { caso_id: string | null }) => t.caso_id)
+          .filter((v): v is string => !!v)
+      );
+      const audSinTarea = (audProx.data ?? []).filter(
+        (a: { caso_id: string | null }) => a.caso_id && !casosConTarea.has(a.caso_id)
+      );
+      if (audSinTarea.length > 0) {
+        result.push({
+          id: 'aud-sin-tarea',
+          icon: <AlertTriangle className="w-4 h-4" />,
+          message: `${audSinTarea.length} audiencia${audSinTarea.length > 1 ? 's' : ''} esta semana sin tarea de preparación asignada`,
+          type: 'warning',
         });
       }
 

@@ -3,7 +3,7 @@ import { useAuth } from '../context/AuthContext';
 import { Eye, EyeOff, Loader2 } from 'lucide-react';
 
 export default function Login() {
-  const { signIn } = useAuth();
+  const { signIn, inactiveReason } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -17,7 +17,9 @@ export default function Login() {
 
     const { error } = await signIn(email, password);
     if (error) {
-      setError('Credenciales incorrectas. Intentá de nuevo.');
+      setError(error.message?.includes('deshabilitado')
+        ? error.message
+        : 'Credenciales incorrectas. Intentá de nuevo.');
     }
     setLoading(false);
   }
@@ -90,6 +92,13 @@ export default function Login() {
             <div className="flex items-center gap-2 text-red-400 text-sm bg-red-500/10 border border-red-500/20 rounded-xl px-4 py-3">
               <AlertCircle className="w-4 h-4 shrink-0" />
               {error}
+            </div>
+          )}
+
+          {!error && inactiveReason && (
+            <div className="flex items-center gap-2 text-amber-300 text-sm bg-amber-500/10 border border-amber-500/20 rounded-xl px-4 py-3">
+              <AlertCircle className="w-4 h-4 shrink-0" />
+              {inactiveReason}
             </div>
           )}
 

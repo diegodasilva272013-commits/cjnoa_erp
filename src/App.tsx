@@ -21,6 +21,7 @@ const Timeline = lazy(() => import('./pages/Timeline'));
 const Tareas = lazy(() => import('./pages/Tareas'));
 const Audiencias = lazy(() => import('./pages/Audiencias'));
 const Honorarios = lazy(() => import('./pages/Honorarios'));
+const CargosHora = lazy(() => import('./pages/CargosHora'));
 
 function ProtectedRoute({ modulo, children }: { modulo: 'dashboard' | 'casos' | 'finanzas' | 'equipo' | 'agenda' | 'previsional' | 'honorarios'; children: React.ReactNode }) {
   const { canSee } = usePermisos();
@@ -70,6 +71,7 @@ export default function App() {
           <Route path="/casos" element={<Cases />} />
           <Route path="/tareas" element={<Tareas />} />
           <Route path="/audiencias" element={<Audiencias />} />
+          <Route path="/cargos-hora" element={<CargosHora />} />
           <Route path="/honorarios" element={<ProtectedRoute modulo="honorarios"><Honorarios /></ProtectedRoute>} />
           <Route path="/ingresos" element={<ProtectedRoute modulo="finanzas"><Ingresos /></ProtectedRoute>} />
           <Route path="/egresos" element={<ProtectedRoute modulo="finanzas"><Egresos /></ProtectedRoute>} />

@@ -7,10 +7,12 @@ import { usePermisos } from '../hooks/usePermisos';
 import { useAvatarUrl } from '../hooks/useAvatarUrl';
 import { Perfil, Rol, ROLES, PermisosUsuario, PERMISOS_DEFAULT, MODULOS } from '../types/database';
 import Modal from '../components/Modal';
+import AuditLogPanel from '../components/AuditLogPanel';
 
 const rolIcons: Record<Rol, typeof Shield> = {
   admin: ShieldCheck,
   socio: Shield,
+  abogado: Shield,
   empleado: User,
   procurador: User,
 };
@@ -18,6 +20,7 @@ const rolIcons: Record<Rol, typeof Shield> = {
 const rolColors: Record<Rol, string> = {
   admin: 'text-purple-400 bg-purple-500/10 border-purple-500/20',
   socio: 'text-blue-400 bg-blue-500/10 border-blue-500/20',
+  abogado: 'text-sky-400 bg-sky-500/10 border-sky-500/20',
   empleado: 'text-gray-400 bg-gray-500/10 border-gray-500/20',
   procurador: 'text-amber-400 bg-amber-500/10 border-amber-500/20',
 };
@@ -287,6 +290,9 @@ export default function Equipo() {
           </table>
         </div>
       </div>
+
+      {/* Audit log de cambios de rol/permisos */}
+      <AuditLogPanel />
 
       {/* Modal Create/Edit */}
       <MiembroModal

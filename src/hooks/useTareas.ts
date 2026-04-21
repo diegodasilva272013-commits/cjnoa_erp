@@ -245,3 +245,74 @@ export function useHonorarios() {
 
   return { honorarios, loading, upsert, remove, refetch: fetch };
 }
+
+// ============================================
+// COMENTARIOS DE CASO (thread libre, editable por el autor)
+// ============================================
+export interface ComentarioCasoCompleto {
+  id: string;
+  caso_id: string;
+  contenido: string;
+  created_at: string;
+  updated_at: string;
+  created_by: string | null;
+  editado: boolean;
+  autor_nombre: string | null;
+  autor_avatar: string | null;
+}
+
+export function useComentariosCaso(casoId: string | null) {
+  const [comentarios, setComentarios] = useState<ComentarioCasoCompleto[]>([]);
+  const [loading, setLoading] = useState(false);
+  const { showToast } = useToast();
+
+  const fetch = useCallback(async () => {
+    if (!casoId) { setComentarios([]); return; }
+    setLoading(true);
+    const { data, error } = await supabase
+      .from('comentarios_caso_completo')
+      .select('*')
+      .eq('caso_id', casoId)
+      .order('created_at', { ascending: true });
+    if (error) {
+      showToast('Error al cargar comentarios: ' + error.message, 'error');
+    } else if (data) {
+      setComentarios(data as ComentarioCasoCompleto[]);
+    }
+    setLoading(false);
+  }, [casoId, showToast]);
+
+  useEffect(() => { fetch(); }, [fetch]);
+
+  const agregar = useCallback(async (contenido: string, userId: string) => {
+    if (!casoId || !contenido.trim()) return false;
+    const { error } = await supabase.from('comentarios_caso').insert({
+      caso_id: casoId,
+      contenido: contenido.trim(),
+      created_by: userId,
+    });
+    if (error) { showToast('Error: ' + error.message, 'error'); return false; }
+    fetch();
+    return true;
+  }, [casoId, showToast, fetch]);
+
+  const editar = useCallback(async (id: string, contenido: string) => {
+    const { error } = await supabase.from('comentarios_caso')
+      .update({ contenido: contenido.trim() })
+      .eq('id', id);
+    if (error) { showToast('Error: ' + error.message, 'error'); return false; }
+    fetch();
+    return true;
+  }, [showToast, fetch]);
+
+  const eliminar = useCallback(async (id: string) => {
+    const { error } = await supabase.from('comentarios_caso').delete().eq('id', id);
+    if (error) { showToast('Error: ' + error.message, 'error'); return false; }
+    fetch();
+    return true;
+  }, [showToast, fetch]);
+
+  return { comentarios, loading, agregar, editar, eliminar, refetch: fetch };
+}
+
+

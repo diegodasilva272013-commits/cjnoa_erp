@@ -99,7 +99,7 @@ export default function Topbar({ onMenuClick }: TopbarProps) {
           </div>
 
           <button
-            onClick={signOut}
+            onClick={() => signOut()}
             className="p-2.5 text-gray-500 hover:text-red-400 rounded-xl hover:bg-red-500/10 transition-all duration-200 min-w-[40px] min-h-[40px] flex items-center justify-center"
             title="Cerrar sesión"
           >

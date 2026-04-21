@@ -1,4 +1,4 @@
-export type Rol = 'admin' | 'socio' | 'empleado' | 'procurador';
+export type Rol = 'admin' | 'socio' | 'abogado' | 'empleado' | 'procurador';
 
 export interface PermisosUsuario {
   dashboard: boolean;
@@ -25,15 +25,17 @@ export interface Perfil {
 
 export const ROLES: { value: Rol; label: string; description: string }[] = [
   { value: 'admin', label: 'Administrador', description: 'Acceso total + gestión de usuarios' },
-  { value: 'socio', label: 'Socio', description: 'Ve todo pero no gestiona usuarios' },
-  { value: 'empleado', label: 'Secretaria/Empleado', description: 'Casos y agenda sin finanzas' },
-  { value: 'procurador', label: 'Procurador', description: 'Casos/agenda/previsional sin ver honorarios' },
+  { value: 'socio', label: 'Socio', description: 'Acceso total al sistema, incluye honorarios' },
+  { value: 'abogado', label: 'Abogado', description: 'Acceso total al sistema, incluye honorarios' },
+  { value: 'empleado', label: 'Secretaria', description: 'Acceso total al sistema, incluye honorarios' },
+  { value: 'procurador', label: 'Procurador', description: 'Todo excepto Honorarios y Cobros' },
 ];
 
 export const PERMISOS_DEFAULT: Record<Rol, PermisosUsuario> = {
   admin:     { dashboard: true,  casos: true, finanzas: true,  equipo: true,  agenda: true, previsional: true,  honorarios: true,  ver_honorarios: true  },
   socio:     { dashboard: true,  casos: true, finanzas: true,  equipo: false, agenda: true, previsional: true,  honorarios: true,  ver_honorarios: true  },
-  empleado:  { dashboard: false, casos: true, finanzas: false, equipo: false, agenda: true, previsional: true,  honorarios: true,  ver_honorarios: false },
+  abogado:   { dashboard: true,  casos: true, finanzas: true,  equipo: false, agenda: true, previsional: true,  honorarios: true,  ver_honorarios: true  },
+  empleado:  { dashboard: true,  casos: true, finanzas: true,  equipo: false, agenda: true, previsional: true,  honorarios: true,  ver_honorarios: true  },
   procurador:{ dashboard: false, casos: true, finanzas: false, equipo: false, agenda: true, previsional: true,  honorarios: false, ver_honorarios: false },
 };
 
@@ -349,3 +351,34 @@ export interface Honorario {
 export interface HonorarioCompleto extends Honorario {
   cliente_nombre: string | null;
 }
+
+// ============================================
+// CARGOS DE HORA (módulo independiente)
+// ============================================
+export type TipoCargoHora = 'a_favor' | 'en_contra' | 'neutro';
+
+export interface CargoHora {
+  id: string;
+  caso_id: string | null;
+  cliente_id: string | null;
+  tarea_id: string | null;
+  fecha: string;
+  hora: string | null;
+  tipo: TipoCargoHora;
+  titulo: string;
+  descripcion: string | null;
+  juzgado: string | null;
+  expediente: string | null;
+  realizado: boolean;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+export interface CargoHoraCompleto extends CargoHora {
+  caso_materia: string | null;
+  caso_expediente: string | null;
+  cliente_nombre: string | null;
+  tarea_titulo: string | null;
+  creado_por_nombre: string | null;
+}
+
