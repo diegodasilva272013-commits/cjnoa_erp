@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useState, ReactNode } from 'react';
 import { User, Session } from '@supabase/supabase-js';
 import { supabase } from '../lib/supabase';
 import { Perfil } from '../types/database';
@@ -19,41 +19,70 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [perfil, setPerfil] = useState<Perfil | null>(null);
   const [session, setSession] = useState<Session | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
+
+  const loadPerfil = useCallback(async (nextUser: User | null) => {
+    if (!nextUser) return null;
+
+    const { data } = await supabase
+      .from('perfiles')
+      .select('*')
+      .eq('id', nextUser.id)
+      .maybeSingle();
+
+    return data ?? null;
+  }, []);
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session: s } }) => {
-      setSession(s);
-      setUser(s?.user ?? null);
-      if (s?.user) {
-        supabase.from('perfiles').select('*').eq('id', s.user.id).single()
-          .then(({ data }) => setPerfil(data));
+    let active = true;
+
+    const applySession = async (nextSession: Session | null) => {
+      const nextUser = nextSession?.user ?? null;
+      const nextPerfil = await loadPerfil(nextUser);
+
+      if (!active) return;
+
+      setSession(nextSession);
+      setUser(nextUser);
+      setPerfil(nextPerfil);
+      setLoading(false);
+    };
+
+    const bootstrapSession = async () => {
+      setLoading(true);
+
+      try {
+        const { data: { session: currentSession } } = await supabase.auth.getSession();
+        await applySession(currentSession);
+      } catch {
+        if (!active) return;
+        setSession(null);
+        setUser(null);
+        setPerfil(null);
+        setLoading(false);
       }
-    }).catch(() => {});
+    };
+
+    void bootstrapSession();
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (_event, s) => {
-        setSession(s);
-        setUser(s?.user ?? null);
-        if (s?.user) {
-          supabase.from('perfiles').select('*').eq('id', s.user.id).single()
-            .then(({ data }) => setPerfil(data));
-        } else {
-          setPerfil(null);
-        }
+      (_event, nextSession) => {
+        void applySession(nextSession);
       }
     );
 
-    return () => subscription.unsubscribe();
-  }, []);
+    return () => {
+      active = false;
+      subscription.unsubscribe();
+    };
+  }, [loadPerfil]);
 
   async function signIn(email: string, password: string) {
     const { data, error } = await supabase.auth.signInWithPassword({ email, password });
     if (!error && data.session) {
       setSession(data.session);
       setUser(data.session.user);
-      const { data: perfilData } = await supabase
-        .from('perfiles').select('*').eq('id', data.session.user.id).single();
+      const perfilData = await loadPerfil(data.session.user);
       setPerfil(perfilData);
     }
     return { error: error as Error | null };
@@ -61,13 +90,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   async function refetchPerfil() {
     if (user) {
-      const { data } = await supabase.from('perfiles').select('*').eq('id', user.id).single();
-      if (data) setPerfil(data);
+      const data = await loadPerfil(user);
+      setPerfil(data);
     }
   }
 
   async function signOut() {
     await supabase.auth.signOut();
+    setSession(null);
+    setUser(null);
     setPerfil(null);
   }
 

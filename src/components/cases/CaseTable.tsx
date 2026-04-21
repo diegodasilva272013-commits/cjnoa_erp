@@ -2,10 +2,12 @@ import { CasoCompleto } from '../../types/database';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { Mic } from 'lucide-react';
+import { describeCaseFinanceAmounts } from '../../lib/caseFinance';
 
 interface CaseTableProps {
   casos: CasoCompleto[];
   onSelect: (caso: CasoCompleto) => void;
+  commissionPct: number;
   selected?: Set<string>;
   onToggle?: (id: string) => void;
   onToggleAll?: (ids: string[]) => void;
@@ -55,7 +57,7 @@ const interesLabel: Record<string, string> = {
   'Poco interesante': 'Poco',
 };
 
-export default function CaseTable({ casos, onSelect, selected, onToggle, onToggleAll }: CaseTableProps) {
+export default function CaseTable({ casos, onSelect, commissionPct, selected, onToggle, onToggleAll }: CaseTableProps) {
   const allSelected = casos.length > 0 && casos.every(c => selected?.has(c.id));
   const someSelected = !allSelected && casos.some(c => selected?.has(c.id));
   const hasSelection = selected && selected.size > 0;
@@ -100,15 +102,20 @@ export default function CaseTable({ casos, onSelect, selected, onToggle, onToggl
                 Honorarios
               </th>
               <th className="text-right text-xs font-medium text-gray-500 uppercase tracking-wider px-3 py-3 hidden sm:table-cell">
-                Cobrado
+                Cobrado neto
               </th>
               <th className="text-right text-xs font-medium text-gray-500 uppercase tracking-wider px-4 py-3 hidden sm:table-cell">
-                Saldo
+                Pendiente neto
               </th>
             </tr>
           </thead>
           <tbody>
-            {casos.map((caso) => (
+            {casos.map((caso) => {
+              const amounts = describeCaseFinanceAmounts(caso, commissionPct);
+              const showsCollectedGross = Math.abs(amounts.collectedGross - amounts.collectedNet) > 0.009;
+              const showsPendingGross = Math.abs(amounts.pendingGross - amounts.pendingNet) > 0.009;
+
+              return (
               <tr
                 key={caso.id}
                 onClick={() => !hasSelection && onSelect(caso)}
@@ -199,19 +206,29 @@ export default function CaseTable({ casos, onSelect, selected, onToggle, onToggl
 
                 {/* COBRADO */}
                 <td className="px-3 py-3 text-right hidden sm:table-cell">
-                  <span className="text-sm text-emerald-400">
-                    {caso.total_cobrado > 0 ? formatMoney(caso.total_cobrado) : '—'}
-                  </span>
+                  <div className="flex flex-col items-end">
+                    <span className="text-sm text-emerald-400">
+                      {amounts.collectedNet > 0 ? formatMoney(amounts.collectedNet) : '—'}
+                    </span>
+                    {showsCollectedGross && amounts.collectedGross > 0 && (
+                      <span className="text-[10px] text-gray-500">Bruto {formatMoney(amounts.collectedGross)}</span>
+                    )}
+                  </div>
                 </td>
 
                 {/* SALDO */}
                 <td className="px-4 py-3 text-right hidden sm:table-cell">
-                  <span className={`text-sm font-medium ${caso.saldo_pendiente > 0 ? 'text-yellow-400' : 'text-gray-600'}`}>
-                    {caso.saldo_pendiente > 0 ? formatMoney(caso.saldo_pendiente) : '—'}
-                  </span>
+                  <div className="flex flex-col items-end">
+                    <span className={`text-sm font-medium ${amounts.pendingNet > 0 ? 'text-yellow-400' : 'text-gray-600'}`}>
+                      {amounts.pendingNet > 0 ? formatMoney(amounts.pendingNet) : '—'}
+                    </span>
+                    {showsPendingGross && amounts.pendingGross > 0 && (
+                      <span className="text-[10px] text-gray-500">Bruto {formatMoney(amounts.pendingGross)}</span>
+                    )}
+                  </div>
                 </td>
               </tr>
-            ))}
+            );})}
           </tbody>
         </table>
       </div>

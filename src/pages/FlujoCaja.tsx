@@ -2,10 +2,11 @@ import { useMemo, useState } from 'react';
 import { BarChart3, FileSpreadsheet, PieChart, TrendingUp, Users } from 'lucide-react';
 import FinanceImportModal from '../components/finance/FinanceImportModal';
 import { FinanceBars, FinanceDonut, FinanceGroupedBars, FinanceLineChart, FinanceVerticalBars } from '../components/finance/FinanceCharts';
-import { useEgresos, useExcelFinanceSummaries, useIngresos } from '../hooks/useFinances';
+import { useCaseFinancePipeline, useEgresos, useExcelFinanceSummaries, useIngresos } from '../hooks/useFinances';
 import { useSocios } from '../hooks/useSocios';
 import { useConfigEstudio } from '../hooks/useConfigEstudio';
 import { buildFinanceOverview, buildRepartoOverview } from '../lib/financeAnalytics';
+import { toCaseNetAmount } from '../lib/caseFinance';
 import { formatMoney, pctChange } from '../lib/financeFormat';
 
 type PeriodOption = 6 | 12 | 18;
@@ -17,6 +18,7 @@ export default function FlujoCaja() {
   const { egresos, egresosCombinados, loading: loadingEgresos, refetch: refetchEgresos } = useEgresos();
   const { summaries: excelSummaries, loading: loadingSummaries, refetch: refetchSummaries } = useExcelFinanceSummaries();
   const [period, setPeriod] = useState<PeriodOption>(6);
+  const { pipeline, loading: loadingPipeline } = useCaseFinancePipeline(period);
   const [barView, setBarView] = useState<BarView>('resultado');
   const [donutView, setDonutView] = useState<DonutView>('ingresos');
   const [importModalOpen, setImportModalOpen] = useState(false);
@@ -59,7 +61,7 @@ export default function FlujoCaja() {
     return overview.incomeSourceBreakdown;
   }, [donutView, overview]);
 
-  const loading = loadingIngresos || loadingEgresos || loadingSummaries;
+  const loading = loadingIngresos || loadingEgresos || loadingSummaries || loadingPipeline;
 
   if (loading) {
     return (
@@ -107,13 +109,34 @@ export default function FlujoCaja() {
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div>
             <p className="text-sm font-semibold text-white">Motor financiero unificado</p>
-            <p className="mt-1 text-sm text-gray-500">Neto = ingresos CJ NOA - egresos consolidados. El flujo incluye gastos operativos y gastos de caso.</p>
+            <p className="mt-1 text-sm text-gray-500">Neto = ingresos CJ NOA - egresos consolidados. El flujo de arriba es caja real; la cartera pendiente y fondos de caso se muestran abajo sin mezclar devengado con cobrado.</p>
           </div>
           <div className="flex flex-wrap gap-2 text-xs text-gray-400">
             <span className="badge badge-green">Ingresos con formulas del Excel</span>
             <span className="badge badge-red">Egresos operativos y judiciales</span>
             <span className="badge badge-blue">Vista ERP consolidada</span>
           </div>
+        </div>
+      </div>
+
+      <div className="glass-card p-5">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <p className="text-sm font-semibold text-white">Conexión real entre casos y caja</p>
+            <p className="mt-1 text-sm text-gray-500">Los KPI de esta tarjeta usan neto estimado para el estudio. Los fondos de caso siguen siendo caja real de terceros y no se mezclan con ese neto.</p>
+          </div>
+          <div className="flex flex-wrap gap-2 text-xs text-gray-400">
+            <span className="badge badge-yellow">{pipeline.summary.activeDebtors} deudores activos</span>
+            <span className="badge badge-red">{pipeline.summary.overdueCount} vencidas</span>
+            <span className="badge badge-blue">Cobranza {pipeline.summary.collectionRate.toFixed(1)}%</span>
+          </div>
+        </div>
+        <div className="mt-4 grid gap-3 sm:gap-4 grid-cols-2 sm:grid-cols-3 md:grid-cols-3 xl:grid-cols-5">
+          <MetricCard label="Por cobrar neto est." value={formatMoney(pipeline.summary.totalPendingNet)} tone="amber" index={0} />
+          <MetricCard label="Vencido neto est." value={formatMoney(pipeline.summary.overdueNetAmount)} tone="rose" index={1} />
+          <MetricCard label="Prox. 30 dias neto" value={formatMoney(pipeline.summary.dueNext30DaysNet)} tone="sky" index={2} />
+          <MetricCard label="Fondos casos ARS" value={formatCurrencyAmount('ARS', pipeline.fundsByCurrency.ARS.disponible)} tone={pipeline.fundsByCurrency.ARS.disponible >= 0 ? 'emerald' : 'rose'} index={3} />
+          <MetricCard label="Fondos casos USD" value={formatCurrencyAmount('USD', pipeline.fundsByCurrency.USD.disponible)} tone={pipeline.fundsByCurrency.USD.disponible >= 0 ? 'sky' : 'rose'} index={4} />
         </div>
       </div>
 
@@ -201,6 +224,67 @@ export default function FlujoCaja() {
           </div>
         </div>
       )}
+
+      <div className="grid gap-4 xl:grid-cols-[0.9fr_1.1fr]">
+        <FinanceBars
+          title="Cobranza neta esperada de casos"
+          subtitle="Estimacion neta para el estudio agrupada por mes esperado de cobro"
+          data={pipeline.monthlyCollectionsNet.filter(item => item.value > 0)}
+        />
+
+        <div className="glass-card overflow-hidden">
+          <div className="border-b border-white/5 px-5 py-4">
+            <h3 className="text-sm font-semibold text-white">Pendientes y fondos de caso</h3>
+            <p className="mt-1 text-xs text-gray-500">Lectura operativa para que el flujo de caja no quede separado del estado comercial de los casos.</p>
+          </div>
+          <div className="grid gap-4 p-5 lg:grid-cols-[1.1fr_0.9fr]">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-gray-500">Siguientes cobros</p>
+              <div className="mt-3 space-y-2">
+                {pipeline.pendingItems.length === 0 ? (
+                  <div className="rounded-xl bg-white/[0.03] px-4 py-6 text-sm text-gray-500">No hay cobros pendientes.</div>
+                ) : (
+                  pipeline.pendingItems.slice(0, 6).map(item => (
+                    <div key={item.id} className="rounded-xl bg-white/[0.03] px-4 py-3">
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <p className="text-sm font-medium text-white">{item.clientName}</p>
+                          <p className="text-xs text-gray-500">{item.type === 'cuota' ? 'Cuota' : item.type === 'consulta' ? 'Consulta' : 'Saldo'} · {item.materia} · {item.socio}</p>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-sm font-semibold text-amber-300">{formatMoney(toCaseNetAmount(item.amount, item.captadora, repartoConfig.comision_captadora_pct))}</p>
+                          {item.captadora && <p className="text-[10px] text-gray-500">Bruto {formatMoney(item.amount)}</p>}
+                          <p className={`text-xs ${item.overdue ? 'text-rose-400' : 'text-gray-500'}`}>{item.dueDate || 'Sin fecha'}</p>
+                        </div>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-gray-500">Fondos por moneda</p>
+              <div className="mt-3 space-y-3">
+                {(['ARS', 'USD'] as const).map(currency => (
+                  <div key={currency} className="rounded-xl border border-white/8 bg-white/[0.03] p-4">
+                    <div className="flex items-center justify-between">
+                      <p className="text-sm font-semibold text-white">{currency}</p>
+                      <span className={`badge ${pipeline.fundsByCurrency[currency].disponible >= 0 ? 'badge-green' : 'badge-red'}`}>
+                        Disponible {formatCurrencyAmount(currency, pipeline.fundsByCurrency[currency].disponible)}
+                      </span>
+                    </div>
+                    <div className="mt-3 space-y-2 text-sm text-gray-300">
+                      <div className="flex items-center justify-between"><span>Depositos</span><span className="font-semibold text-emerald-300">{formatCurrencyAmount(currency, pipeline.fundsByCurrency[currency].depositos)}</span></div>
+                      <div className="flex items-center justify-between"><span>Gastos</span><span className="font-semibold text-rose-300">{formatCurrencyAmount(currency, pipeline.fundsByCurrency[currency].gastos)}</span></div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
 
       <FinanceLineChart
         title="Evolucion mensual del flujo"
@@ -354,6 +438,14 @@ function WorkbookSummaryCard({ summary }: { summary: { hoja: string; metricas: R
       </div>
     </div>
   );
+}
+
+function formatCurrencyAmount(currency: 'ARS' | 'USD', amount: number) {
+  if (currency === 'USD') {
+    return `US$ ${amount.toLocaleString('es-AR', { maximumFractionDigits: 0 })}`;
+  }
+
+  return formatMoney(amount);
 }
 
 function MetricCard({ label, value, tone, change, invertColor, index = 0 }: { label: string; value: string; tone: 'emerald' | 'rose' | 'sky' | 'amber'; change?: number | null; invertColor?: boolean; index?: number }) {

@@ -1,4 +1,4 @@
-import { useRef } from 'react';
+import { useMemo, useRef } from 'react';
 import { Menu, LogOut, User, Camera, Search } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
@@ -17,6 +17,15 @@ export default function Topbar({ onMenuClick }: TopbarProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const rolLabel = ROLES.find(r => r.value === perfil?.rol)?.label || perfil?.rol || 'Usuario';
   const avatarUrl = useAvatarUrl(perfil?.avatar_url);
+  const searchShortcut = useMemo(() => {
+    const platform = typeof navigator !== 'undefined' ? String(navigator.platform || '').toLowerCase() : '';
+
+    if (platform.includes('mac')) {
+      return { label: '⌘K', event: { key: 'k', metaKey: true } };
+    }
+
+    return { label: 'Ctrl+K', event: { key: 'k', ctrlKey: true } };
+  }, []);
 
   async function handleAvatarUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -54,13 +63,13 @@ export default function Topbar({ onMenuClick }: TopbarProps) {
 
         <div className="flex items-center gap-2 sm:gap-4">
           <button
-            onClick={() => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', ctrlKey: true }))}
+            onClick={() => window.dispatchEvent(new KeyboardEvent('keydown', searchShortcut.event))}
             className="flex items-center justify-center p-2 sm:px-3 sm:py-1.5 rounded-xl bg-white/[0.03] border border-white/[0.06] text-gray-500 hover:text-gray-300 hover:border-white/10 transition-all text-xs min-w-[40px] min-h-[40px] sm:min-w-0 sm:min-h-0"
-            title="Buscar (Ctrl+K)"
+            title={`Buscar (${searchShortcut.label})`}
           >
             <Search className="w-4 h-4 sm:w-3.5 sm:h-3.5" />
             <span className="hidden sm:inline ml-2">Buscar...</span>
-            <kbd className="hidden sm:inline ml-1 rounded border border-white/10 bg-white/5 px-1 py-0.5 text-[10px]">⌘K</kbd>
+            <kbd className="hidden sm:inline ml-1 rounded border border-white/10 bg-white/5 px-1 py-0.5 text-[10px]">{searchShortcut.label}</kbd>
           </button>
           <NotificationBell />
           <div className="flex items-center gap-2 sm:gap-3 px-2 sm:px-4 py-1.5 sm:py-2 rounded-xl bg-white/[0.03] border border-white/[0.06]">

@@ -65,20 +65,29 @@ export default function CommandPalette() {
 
   // Search
   const search = useCallback(async (q: string) => {
-    if (!q.trim()) {
+    const normalizedQuery = q.trim();
+
+    if (!normalizedQuery) {
       setResults(PAGES);
       return;
     }
+
     setSearching(true);
-    const lower = q.toLowerCase();
+    const lower = normalizedQuery.toLowerCase();
     const pageResults = PAGES.filter(p => p.title.toLowerCase().includes(lower) || p.subtitle.toLowerCase().includes(lower));
+
+    if (normalizedQuery.length < 2) {
+      setResults(pageResults);
+      setSearching(false);
+      return;
+    }
 
     try {
       const [casosRes, ingresosRes, egresosRes, prevRes] = await Promise.all([
-        supabase.from('casos_completos').select('id, nombre_apellido, materia, estado').ilike('nombre_apellido', `%${q}%`).limit(5),
-        supabase.from('ingresos').select('id, cliente_nombre, concepto, monto_cj_noa').or(`cliente_nombre.ilike.%${q}%,concepto.ilike.%${q}%`).limit(5),
-        supabase.from('egresos').select('id, concepto, concepto_detalle, monto').or(`concepto.ilike.%${q}%,concepto_detalle.ilike.%${q}%`).limit(5),
-        supabase.from('clientes_previsional').select('id, apellido_nombre, pipeline, cuil').or(`apellido_nombre.ilike.%${q}%,cuil.ilike.%${q}%`).limit(5),
+        supabase.from('casos_completos').select('id, nombre_apellido, materia, estado').ilike('nombre_apellido', `%${normalizedQuery}%`).limit(5),
+        supabase.from('ingresos').select('id, cliente_nombre, concepto, monto_cj_noa').or(`cliente_nombre.ilike.%${normalizedQuery}%,concepto.ilike.%${normalizedQuery}%`).limit(5),
+        supabase.from('egresos').select('id, concepto, concepto_detalle, monto').or(`concepto.ilike.%${normalizedQuery}%,concepto_detalle.ilike.%${normalizedQuery}%`).limit(5),
+        supabase.from('clientes_previsional').select('id, apellido_nombre, pipeline, cuil').or(`apellido_nombre.ilike.%${normalizedQuery}%,cuil.ilike.%${normalizedQuery}%`).limit(5),
       ]);
 
       const casos: SearchResult[] = (casosRes.data || []).map(c => ({

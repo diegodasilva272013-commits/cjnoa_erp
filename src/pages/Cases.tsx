@@ -1,17 +1,20 @@
 import { useState } from 'react';
 import { Plus, Download, LayoutList, LayoutGrid, Briefcase, CheckSquare, X, ChevronDown } from 'lucide-react';
 import { useCases, filterCases, emptyFilters } from '../hooks/useCases';
+import { useConfigEstudio } from '../hooks/useConfigEstudio';
 import CaseTable from '../components/cases/CaseTable';
 import CaseKanban from '../components/cases/CaseKanban';
 import CaseFilters from '../components/cases/CaseFilters';
 import CaseModal from '../components/cases/CaseModal';
 import PagoModal from '../components/finance/PagoModal';
 import { CasoCompleto, FilterState, EstadoCaso, ESTADOS_CASO } from '../types/database';
+import { describeCaseFinanceAmounts } from '../lib/caseFinance';
 import { exportToExcel } from '../lib/exportExcel';
 import { supabase } from '../lib/supabase';
 
 export default function Cases() {
   const { casos, loading, refetch } = useCases();
+  const { config } = useConfigEstudio();
   const [filters, setFilters] = useState<FilterState>(emptyFilters);
   const [modalOpen, setModalOpen] = useState(false);
   const [selectedCaso, setSelectedCaso] = useState<CasoCompleto | null>(null);
@@ -22,6 +25,31 @@ export default function Cases() {
   const [showBulkEstado, setShowBulkEstado] = useState(false);
 
   const filteredCasos = filterCases(casos, filters);
+
+  function mapCaseExportRow(caso: CasoCompleto) {
+    const amounts = describeCaseFinanceAmounts(caso, config.comision_captadora_pct);
+
+    return {
+      'Nombre': caso.nombre_apellido,
+      'Teléfono': caso.telefono || '',
+      'Materia': caso.materia === 'Otro' ? caso.materia_otro || 'Otro' : caso.materia,
+      'Estado': caso.estado,
+      'Socio': caso.socio,
+      'Interés': caso.interes || '',
+      'Fuente': caso.fuente || '',
+      'Captadora': caso.captadora || '',
+      'Honorarios Bruto': caso.honorarios_monto,
+      'Honorarios Neto Estudio': amounts.agreedNet,
+      'Modalidad Pago': caso.modalidad_pago || '',
+      'Cobrado Bruto': caso.total_cobrado,
+      'Cobrado Neto CJ NOA': amounts.collectedNet,
+      'Saldo Pendiente Bruto': caso.saldo_pendiente,
+      'Saldo Pendiente Neto Estudio': amounts.pendingNet,
+      'Observaciones': caso.observaciones || '',
+      'Fecha': caso.fecha || '',
+      'Creado por': caso.creado_por_nombre || '',
+    };
+  }
 
   function handleToggle(id: string) {
     setSelected(prev => {
@@ -51,40 +79,15 @@ export default function Cases() {
     refetch();
   }
 
-  function handleBulkExport() {
+  async function handleBulkExport() {
     const selCasos = filteredCasos.filter(c => selected.has(c.id));
-    const data = selCasos.map(c => ({
-      'Nombre': c.nombre_apellido,
-      'Teléfono': c.telefono || '',
-      'Materia': c.materia === 'Otro' ? c.materia_otro || 'Otro' : c.materia,
-      'Estado': c.estado,
-      'Socio': c.socio,
-      'Honorarios': c.honorarios_monto,
-      'Total Cobrado': c.total_cobrado,
-      'Saldo Pendiente': c.saldo_pendiente,
-    }));
-    exportToExcel(data, `Casos_seleccionados_${selCasos.length}`, 'Casos');
+    const data = selCasos.map(mapCaseExportRow);
+    await exportToExcel(data, `Casos_seleccionados_${selCasos.length}`, 'Casos');
   }
 
-  function handleExport() {
-    const data = filteredCasos.map(c => ({
-      'Nombre': c.nombre_apellido,
-      'Teléfono': c.telefono || '',
-      'Materia': c.materia === 'Otro' ? c.materia_otro || 'Otro' : c.materia,
-      'Estado': c.estado,
-      'Socio': c.socio,
-      'Interés': c.interes || '',
-      'Fuente': c.fuente || '',
-      'Captadora': c.captadora || '',
-      'Honorarios': c.honorarios_monto,
-      'Modalidad Pago': c.modalidad_pago || '',
-      'Total Cobrado': c.total_cobrado,
-      'Saldo Pendiente': c.saldo_pendiente,
-      'Observaciones': c.observaciones || '',
-      'Fecha': c.fecha || '',
-      'Creado por': c.creado_por_nombre || '',
-    }));
-    exportToExcel(data, 'Casos_CJ_NOA', 'Casos');
+  async function handleExport() {
+    const data = filteredCasos.map(mapCaseExportRow);
+    await exportToExcel(data, 'Casos_CJ_NOA', 'Casos');
   }
 
   function handleSelectCaso(caso: CasoCompleto) {
@@ -203,9 +206,9 @@ export default function Cases() {
           )}
         </div>
       ) : viewMode === 'kanban' ? (
-        <CaseKanban casos={filteredCasos} onSelect={handleSelectCaso} onRefetch={refetch} />
+        <CaseKanban casos={filteredCasos} onSelect={handleSelectCaso} onRefetch={refetch} commissionPct={config.comision_captadora_pct} />
       ) : (
-        <CaseTable casos={filteredCasos} onSelect={handleSelectCaso} selected={selected} onToggle={handleToggle} onToggleAll={handleToggleAll} />
+        <CaseTable casos={filteredCasos} onSelect={handleSelectCaso} selected={selected} onToggle={handleToggle} onToggleAll={handleToggleAll} commissionPct={config.comision_captadora_pct} />
       )}
 
       {/* Modals */}

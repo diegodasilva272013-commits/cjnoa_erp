@@ -5,6 +5,7 @@ import { supabase } from '../../lib/supabase';
 import { useToast } from '../../context/ToastContext';
 import { useSocios } from '../../hooks/useSocios';
 import { useConfigEstudio } from '../../hooks/useConfigEstudio';
+import { withIncomeReference } from '../../lib/financeRefs';
 
 interface PagoModalProps {
   open: boolean;
@@ -88,7 +89,7 @@ export default function PagoModal({
         captadora_nombre: esCaptadora ? captadora : null,
         socio_cobro: socioCobro,
         modalidad,
-        notas,
+        notas: withIncomeReference({ type: 'cuota', id: cuotaId }, notas),
       });
 
       if (errorIngreso) {

@@ -76,7 +76,7 @@ export default function Egresos() {
     };
   }, [analytics.monthlySeries]);
 
-  function handleExportEgresos() {
+  async function handleExportEgresos() {
     const data = filtered.map(item => ({
       Fecha: item.fecha,
       Origen: item.source === 'caso' ? 'Gasto del caso' : 'Operativo',
@@ -89,7 +89,7 @@ export default function Egresos() {
       Responsable: item.responsable || '',
       Observaciones: item.observaciones || '',
     }));
-    exportToExcel(data, 'Egresos_CJ_NOA', 'Egresos');
+    await exportToExcel(data, 'Egresos_CJ_NOA', 'Egresos');
   }
 
   function handleExportPdf() {

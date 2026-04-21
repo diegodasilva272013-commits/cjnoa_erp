@@ -2,3 +2,7 @@ node_modules/
 dist/
 .env
 .env.local
+test-results/
+playwright-report/
+playwright-login-state.png
+preview-login-ok.png

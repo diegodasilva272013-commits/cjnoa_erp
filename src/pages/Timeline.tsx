@@ -35,8 +35,8 @@ export default function Timeline() {
         supabase.from('casos_completos').select('id,nombre_apellido,materia,estado,created_at').order('created_at', { ascending: false }).limit(20),
         supabase.from('ingresos').select('id,cliente_nombre,concepto,monto_cj_noa,created_at').order('created_at', { ascending: false }).limit(20),
         supabase.from('egresos').select('id,concepto,concepto_detalle,monto,created_at').order('created_at', { ascending: false }).limit(20),
-        supabase.from('audiencias_previsional').select('id,tipo_audiencia,fecha_audiencia,resultado,created_at').order('created_at', { ascending: false }).limit(20),
-        supabase.from('tareas_previsional').select('id,descripcion,estado,prioridad,created_at').order('created_at', { ascending: false }).limit(20),
+        supabase.from('audiencias').select('id,tipo,fecha,hora,juzgado,notas,created_at').order('created_at', { ascending: false }).limit(20),
+        supabase.from('tareas_previsional').select('id,titulo,estado,prioridad,created_at').order('created_at', { ascending: false }).limit(20),
       ]);
 
       const all: TimelineEvent[] = [
@@ -64,14 +64,14 @@ export default function Timeline() {
         ...(audienciasRes.data || []).map((a: any) => ({
           id: `audiencia-${a.id}`,
           tipo: 'audiencia' as const,
-          titulo: a.tipo_audiencia || 'Audiencia',
-          subtitulo: a.resultado || a.fecha_audiencia || '',
+          titulo: a.tipo || 'Audiencia',
+          subtitulo: [a.juzgado, a.hora, a.notas].filter(Boolean).join(' · ') || a.fecha || '',
           fecha: a.created_at,
         })),
         ...(tareasRes.data || []).map((t: any) => ({
           id: `tarea-${t.id}`,
           tipo: 'tarea' as const,
-          titulo: t.descripcion,
+          titulo: t.titulo || 'Tarea',
           subtitulo: `${t.prioridad} · ${t.estado}`,
           fecha: t.created_at,
         })),

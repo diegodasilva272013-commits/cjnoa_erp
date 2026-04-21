@@ -7,8 +7,10 @@ import { useToast } from '../../context/ToastContext';
 import { useCuotas } from '../../hooks/useCases';
 import { useDocumentos, uploadDocumento, deleteDocumento, downloadDocumento } from '../../hooks/useDocumentos';
 import { useMovimientosCaso, addMovimiento, deleteMovimiento } from '../../hooks/useMovimientosCaso';
+import { useConfigEstudio } from '../../hooks/useConfigEstudio';
 import { createRecordatorio } from '../../hooks/useRecordatorios';
 import CopilotoBtn from '../CopilotoBtn';
+import { syncCaseIncomeLedger } from '../../lib/caseIncomeLedger';
 import {
   CasoCompleto, Cuota, SOCIOS, MATERIAS, ESTADOS_CASO,
 } from '../../types/database';
@@ -60,9 +62,14 @@ const emptyForm: FormData = {
   observaciones: '',
 };
 
+function getToday() {
+  return new Date().toISOString().split('T')[0];
+}
+
 export default function CaseModal({ open, onClose, caso, onSaved }: CaseModalProps) {
   const { user } = useAuth();
   const { showToast } = useToast();
+  const { config } = useConfigEstudio();
   const [form, setForm] = useState<FormData>(emptyForm);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -123,9 +130,7 @@ export default function CaseModal({ open, onClose, caso, onSaved }: CaseModalPro
   }, [caso]);
 
   useEffect(() => {
-    if (cuotas.length > 0) {
-      setLocalCuotas(cuotas);
-    }
+    setLocalCuotas(cuotas);
   }, [cuotas]);
 
   const update = (field: keyof FormData, value: string) =>
@@ -219,55 +224,82 @@ export default function CaseModal({ open, onClose, caso, onSaved }: CaseModalPro
         casoId = newCaso.id;
       }
 
-      // Handle cuotas if payment is "En cuotas"
-      if (form.modalidad_pago === 'En cuotas' && casoId) {
-        // Delete existing cuotas that aren't in localCuotas
-        if (isEditing) {
-          const existingIds = localCuotas.filter(c => c.id).map(c => c.id!);
-          if (existingIds.length > 0) {
-            await supabase.from('cuotas').delete().eq('caso_id', casoId).not('id', 'in', `(${existingIds.join(',')})`);
-          } else {
-            await supabase.from('cuotas').delete().eq('caso_id', casoId);
-          }
-        }
+      const savedCuotas: Cuota[] = [];
 
-        // Upsert cuotas
-        for (const cuota of localCuotas) {
-          if (cuota.id) {
-            await supabase.from('cuotas').update({
+      if (casoId) {
+        if (form.modalidad_pago === 'En cuotas') {
+          if (isEditing) {
+            const localIds = new Set(localCuotas.filter(c => c.id).map(c => c.id as string));
+            const cuotasToDelete = cuotas.filter(cuota => !localIds.has(cuota.id));
+            if (cuotasToDelete.length > 0) {
+              const { error: deleteCuotasError } = await supabase.from('cuotas').delete().in('id', cuotasToDelete.map(cuota => cuota.id));
+              if (deleteCuotasError) throw deleteCuotasError;
+            }
+          }
+
+          for (const cuota of localCuotas) {
+            if (!cuota.fecha || !cuota.monto) continue;
+
+            const cuotaEstado = cuota.estado || 'Pendiente';
+            const cuotaPayload = {
               fecha: cuota.fecha,
               monto: cuota.monto,
-              estado: cuota.estado,
-            }).eq('id', cuota.id);
-          } else if (cuota.fecha && cuota.monto) {
-            await supabase.from('cuotas').insert({
-              caso_id: casoId,
-              fecha: cuota.fecha,
-              monto: cuota.monto,
-              estado: cuota.estado || 'Pendiente',
-            });
+              estado: cuotaEstado,
+              fecha_pago: cuotaEstado === 'Pagado' ? cuota.fecha_pago || cuota.fecha || getToday() : null,
+              cobrado_por: cuotaEstado === 'Pagado' ? cuota.cobrado_por || form.socio : null,
+              modalidad_pago: cuotaEstado === 'Pagado' ? cuota.modalidad_pago || 'Efectivo' : null,
+              notas: cuota.notas || null,
+            };
+
+            if (cuota.id) {
+              const { data: updatedCuota, error: updateCuotaError } = await supabase
+                .from('cuotas')
+                .update(cuotaPayload)
+                .eq('id', cuota.id)
+                .select('*')
+                .single();
+              if (updateCuotaError) throw updateCuotaError;
+              savedCuotas.push(updatedCuota as Cuota);
+            } else {
+              const { data: insertedCuota, error: insertCuotaError } = await supabase
+                .from('cuotas')
+                .insert({
+                  caso_id: casoId,
+                  ...cuotaPayload,
+                })
+                .select('*')
+                .single();
+              if (insertCuotaError) throw insertCuotaError;
+              savedCuotas.push(insertedCuota as Cuota);
+            }
           }
+        } else if (isEditing && cuotas.length > 0) {
+          const { error: deleteCuotasError } = await supabase.from('cuotas').delete().eq('caso_id', casoId);
+          if (deleteCuotasError) throw deleteCuotasError;
         }
-      }
 
-      // If pago unico pagado, create ingreso automatically
-      if (form.modalidad_pago === 'Único' && form.pago_unico_pagado === 'si' && !isEditing) {
-        const montoTotal = parseFloat(form.pago_unico_monto) || 0;
-        const esCaptadora = form.fuente === 'Captadora' && form.captadora;
-        const comision = esCaptadora ? montoTotal * 0.2 : 0;
-
-        await supabase.from('ingresos').insert({
-          caso_id: casoId,
-          fecha: form.pago_unico_fecha || new Date().toISOString().split('T')[0],
-          cliente_nombre: form.nombre_apellido,
-          materia: form.materia,
-          concepto: 'Pago de consulta',
-          monto_total: montoTotal,
-          monto_cj_noa: montoTotal - comision,
-          comision_captadora: comision,
-          captadora_nombre: esCaptadora ? form.captadora : null,
-          socio_cobro: form.socio,
-          modalidad: 'Efectivo',
+        await syncCaseIncomeLedger({
+          sourceCase: {
+            id: casoId,
+            nombre_apellido: form.nombre_apellido.trim(),
+            materia: form.materia as CasoCompleto['materia'],
+            materia_otro: form.materia === 'Otro' ? form.materia_otro : null,
+            socio: form.socio as CasoCompleto['socio'],
+            fecha: form.fecha || null,
+            captadora: form.fuente === 'Captadora' ? (form.captadora as CasoCompleto['captadora']) || null : null,
+            honorarios_monto: parseFloat(form.honorarios_monto) || 0,
+            modalidad_pago: form.modalidad_pago as CasoCompleto['modalidad_pago'],
+            pago_unico_pagado: form.modalidad_pago === 'Único' ? form.pago_unico_pagado === 'si' : null,
+            pago_unico_monto: form.modalidad_pago === 'Único' && form.pago_unico_pagado === 'si'
+              ? parseFloat(form.pago_unico_monto) || parseFloat(form.honorarios_monto) || 0
+              : null,
+            pago_unico_fecha: form.modalidad_pago === 'Único' && form.pago_unico_pagado === 'si'
+              ? form.pago_unico_fecha || null
+              : null,
+          },
+          existingCuotas: cuotas,
+          savedCuotas,
+          commissionPct: config.comision_captadora_pct,
         });
       }
 
@@ -583,6 +615,7 @@ export default function CaseModal({ open, onClose, caso, onSaved }: CaseModalPro
                       </span>
                     </span>
                   </div>
+                  <p className="text-xs text-gray-500">Las cuotas marcadas como pagadas generan o actualizan su ingreso financiero al guardar el caso.</p>
                 </div>
               )}
             </div>

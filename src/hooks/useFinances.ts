@@ -2,6 +2,9 @@ import { useEffect, useState, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
 import { useToast } from '../context/ToastContext';
 import type { CasoCompleto, Egreso, FinanzaExcelResumen, Ingreso, MovimientoCaso } from '../types/database';
+import { reconcileAllCaseIncomeLedgers } from '../lib/caseIncomeLedger';
+import { describeCaseFinanceAmounts } from '../lib/caseFinance';
+import { buildCaseFinancePipeline, type CaseFinancePipelineOverview, type PipelineCaseSource, type PipelineCuotaSource, type PipelineMovimientoSource } from '../lib/financePipeline';
 
 export interface GastoCasoFinanciero {
   id: string;
@@ -47,32 +50,70 @@ function sortByFechaDesc<T extends { fecha: string; created_at: string }>(items:
   });
 }
 
+let historicalCaseIncomeSyncPromise: Promise<void> | null = null;
+
+async function ensureHistoricalCaseIncomeSync() {
+  if (!historicalCaseIncomeSyncPromise) {
+    historicalCaseIncomeSyncPromise = reconcileAllCaseIncomeLedgers()
+      .then(() => undefined)
+      .catch(error => {
+        historicalCaseIncomeSyncPromise = null;
+        throw error;
+      });
+  }
+
+  return historicalCaseIncomeSyncPromise;
+}
+
 export function useIngresos() {
   const [ingresos, setIngresos] = useState<Ingreso[]>([]);
   const [loading, setLoading] = useState(true);
+  const [syncingCases, setSyncingCases] = useState(false);
   const { showToast } = useToast();
 
-  const fetchIngresos = useCallback(async () => {
-    try {
-      const { data, error } = await supabase
-        .from('ingresos')
-        .select('*')
-        .order('fecha', { ascending: false });
+  const readIngresos = useCallback(async () => {
+    const { data, error } = await supabase
+      .from('ingresos')
+      .select('*')
+      .order('fecha', { ascending: false });
 
-      if (error) {
-        showToast('Error al cargar ingresos: ' + error.message, 'error');
-      } else if (data) {
-        setIngresos(data as Ingreso[]);
+    if (error) {
+      throw error;
+    }
+
+    setIngresos((data || []) as Ingreso[]);
+  }, []);
+
+  const fetchIngresos = useCallback(async (options?: { syncHistoricalCases?: boolean }) => {
+    const shouldSyncHistoricalCases = options?.syncHistoricalCases === true;
+
+    setLoading(true);
+    try {
+      if (shouldSyncHistoricalCases) {
+        await ensureHistoricalCaseIncomeSync().catch(() => undefined);
       }
+
+      await readIngresos();
     } catch (err) {
       showToast('Error al cargar ingresos', 'error');
     } finally {
       setLoading(false);
     }
-  }, [showToast]);
+  }, [readIngresos, showToast]);
+
+  const syncWithCases = useCallback(async () => {
+    setSyncingCases(true);
+    try {
+      const summary = await reconcileAllCaseIncomeLedgers();
+      await readIngresos();
+      return summary;
+    } finally {
+      setSyncingCases(false);
+    }
+  }, [readIngresos]);
 
   useEffect(() => {
-    fetchIngresos();
+    fetchIngresos({ syncHistoricalCases: true });
 
     const channel = supabase
       .channel('ingresos-realtime')
@@ -86,7 +127,7 @@ export function useIngresos() {
     };
   }, [fetchIngresos]);
 
-  return { ingresos, loading, refetch: fetchIngresos };
+  return { ingresos, loading, refetch: fetchIngresos, syncWithCases, syncingCases };
 }
 
 export function useEgresos() {
@@ -189,6 +230,70 @@ export function useEgresos() {
   return { egresos, gastosCaso, egresosCombinados, loading, refetch: fetchEgresos };
 }
 
+export function useCaseFinancePipeline(months = 6) {
+  const [pipeline, setPipeline] = useState<CaseFinancePipelineOverview>(() => buildCaseFinancePipeline([], [], [], months));
+  const [loading, setLoading] = useState(true);
+  const { showToast } = useToast();
+
+  const fetchPipeline = useCallback(async () => {
+    try {
+      const [casosRes, cuotasRes, movimientosRes, configRes] = await Promise.all([
+        supabase.from('casos_completos').select('id, nombre_apellido, materia, materia_otro, socio, fecha, captadora, modalidad_pago, pago_unico_pagado, pago_unico_fecha, total_acordado, total_cobrado, saldo_pendiente'),
+        supabase.from('cuotas').select('id, caso_id, fecha, monto, estado'),
+        supabase.from('movimientos_caso').select('caso_id, tipo, monto, moneda, fecha'),
+        supabase.from('configuracion_estudio').select('comision_captadora_pct').limit(1).single(),
+      ]);
+
+      if (casosRes.error) {
+        showToast('Error al cargar cartera de casos: ' + casosRes.error.message, 'error');
+      }
+      if (cuotasRes.error) {
+        showToast('Error al cargar cuotas pendientes: ' + cuotasRes.error.message, 'error');
+      }
+      if (movimientosRes.error) {
+        showToast('Error al cargar fondos de casos: ' + movimientosRes.error.message, 'error');
+      }
+
+      const commissionPct = Number(configRes.data?.comision_captadora_pct || 0.2);
+
+      setPipeline(buildCaseFinancePipeline(
+        (casosRes.data || []) as PipelineCaseSource[],
+        (cuotasRes.data || []) as PipelineCuotaSource[],
+        (movimientosRes.data || []) as PipelineMovimientoSource[],
+        months,
+        commissionPct,
+      ));
+    } catch (err) {
+      showToast('Error al cargar pipeline financiero de casos', 'error');
+    } finally {
+      setLoading(false);
+    }
+  }, [months, showToast]);
+
+  useEffect(() => {
+    fetchPipeline();
+
+    const channel = supabase
+      .channel(`finanzas-casos-pipeline-${months}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'casos' }, () => {
+        fetchPipeline();
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'cuotas' }, () => {
+        fetchPipeline();
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'movimientos_caso' }, () => {
+        fetchPipeline();
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [fetchPipeline, months]);
+
+  return { pipeline, loading, refetch: fetchPipeline };
+}
+
 export function useDashboardStats() {
   const [stats, setStats] = useState({
     porCobrar: 0,
@@ -209,18 +314,20 @@ export function useDashboardStats() {
 
   const fetchStats = useCallback(async () => {
     try {
+    await ensureHistoricalCaseIncomeSync().catch(() => undefined);
     const now = new Date();
     const firstDay = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
     const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().split('T')[0];
     const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString();
 
     // Fetch all data in parallel
-    const [casosRes, ingresosRes, egresosRes, cuotasRes, movimientosRes] = await Promise.all([
+    const [casosRes, ingresosRes, egresosRes, cuotasRes, movimientosRes, configRes] = await Promise.all([
       supabase.from('casos_completos').select('*'),
       supabase.from('ingresos').select('*').gte('fecha', firstDay).lte('fecha', lastDay),
       supabase.from('egresos').select('*').gte('fecha', firstDay).lte('fecha', lastDay),
       supabase.from('cuotas').select('*').eq('estado', 'Pendiente').lt('fecha', new Date().toISOString().split('T')[0]),
       supabase.from('movimientos_caso').select('caso_id, tipo, monto, moneda, fecha'),
+      supabase.from('configuracion_estudio').select('comision_captadora_pct').limit(1).single(),
     ]);
 
     if (casosRes.error) showToast('Error al cargar estadísticas de casos', 'error');
@@ -232,6 +339,7 @@ export function useDashboardStats() {
     const egresos = (egresosRes.data || []) as Egreso[];
     const cuotasVencidas = cuotasRes.data || [];
     const movimientos = (movimientosRes.data || []) as { caso_id: string; tipo: string; monto: number; moneda?: string; fecha?: string }[];
+    const commissionPct = Number(configRes.data?.comision_captadora_pct || 0.2);
 
     // Calculate cases with low funds (>=80% used or negative balance) - per currency
     const fondosPorCaso: Record<string, Record<string, { depositos: number; gastos: number }>> = {};
@@ -246,7 +354,7 @@ export function useDashboardStats() {
       Object.values(currencies).some(f => f.depositos > 0 && (f.gastos / f.depositos) >= 0.8)
     ).length;
 
-    const porCobrar = casos.reduce((sum, c) => sum + (c.saldo_pendiente || 0), 0);
+    const porCobrar = casos.reduce((sum, c) => sum + describeCaseFinanceAmounts(c, commissionPct).pendingNet, 0);
     const ingresosMes = ingresos.reduce((sum, i) => sum + (i.monto_cj_noa || 0), 0);
     const gastosCasoMes = movimientos
       .filter(m => m.tipo === 'gasto' && m.moneda !== 'USD' && m.fecha && m.fecha >= firstDay && m.fecha <= lastDay)

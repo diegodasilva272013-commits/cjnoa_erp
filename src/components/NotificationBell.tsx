@@ -32,7 +32,7 @@ function useNotificationStats() {
         supabase.from('cuotas').select('id').eq('estado', 'Pendiente').lt('fecha', today),
         supabase.from('casos_completos').select('id, modalidad_pago, pago_unico_pagado, created_at'),
         supabase.from('movimientos_caso').select('caso_id, tipo, monto, moneda'),
-        supabase.from('tareas_previsional').select('id').neq('estado', 'completada').lt('fecha_vencimiento', today),
+        supabase.from('tareas_previsional').select('id').neq('estado', 'completada').lt('fecha_limite', today),
         supabase.from('clientes_previsional').select('id').not('pipeline', 'in', '(finalizado,descartado)').lt('fecha_ultimo_contacto', fourteenDaysAgo),
       ]);
 
@@ -62,9 +62,41 @@ function useNotificationStats() {
   }, []);
 
   useEffect(() => {
-    fetch();
-    const id = setInterval(fetch, 60_000);
-    return () => clearInterval(id);
+    let intervalId: number | null = null;
+
+    const startPolling = () => {
+      if (intervalId !== null) return;
+
+      void fetch();
+      intervalId = window.setInterval(() => {
+        if (!document.hidden) {
+          void fetch();
+        }
+      }, 60_000);
+    };
+
+    const stopPolling = () => {
+      if (intervalId === null) return;
+      window.clearInterval(intervalId);
+      intervalId = null;
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        stopPolling();
+        return;
+      }
+
+      startPolling();
+    };
+
+    startPolling();
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      stopPolling();
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
   }, [fetch]);
 
   return stats;

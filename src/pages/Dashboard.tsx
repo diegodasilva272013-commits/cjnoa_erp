@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import {
   DollarSign,
   TrendingUp,
@@ -18,6 +19,7 @@ import { useSocios } from '../hooks/useSocios';
 import { usePrevisionalStats } from '../hooks/usePrevisional';
 import ActivityFeed from '../components/ActivityFeed';
 import SmartAlerts from '../components/SmartAlerts';
+import { formatMoney } from '../lib/financeFormat';
 
 export default function Dashboard() {
   const { stats, loading } = useDashboardStats();
@@ -25,8 +27,34 @@ export default function Dashboard() {
   const socios = useSocios();
   const { stats: prevStats, loading: prevLoading } = usePrevisionalStats();
 
-  const formatMoney = (n: number) =>
-    new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 }).format(n);
+  const materiaColors: Record<string, string> = {
+    'Jubilaciones': 'from-blue-500 to-blue-600',
+    'Sucesorios': 'from-purple-500 to-purple-600',
+    'Reajuste': 'from-emerald-500 to-emerald-600',
+    'Otro': 'from-gray-500 to-gray-600',
+  };
+
+  const materias = useMemo(() => Object.entries(stats.casosPorMateria), [stats.casosPorMateria]);
+
+  const cobranzaPorSocio = useMemo(() => {
+    const now = new Date();
+    const firstDay = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
+    const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().split('T')[0];
+
+    return socios.map(socio => {
+      const socioIngresos = ingresos.filter(ingreso => (
+        ingreso.socio_cobro === socio &&
+        ingreso.fecha >= firstDay &&
+        ingreso.fecha <= lastDay
+      ));
+
+      return {
+        socio,
+        neto: socioIngresos.reduce((sum, ingreso) => sum + Number(ingreso.monto_cj_noa || 0), 0),
+        registros: socioIngresos.length,
+      };
+    });
+  }, [ingresos, socios]);
 
   if (loading) {
     return (
@@ -35,14 +63,6 @@ export default function Dashboard() {
       </div>
     );
   }
-
-  const materias = Object.entries(stats.casosPorMateria);
-  const materiaColors: Record<string, string> = {
-    'Jubilaciones': 'from-blue-500 to-blue-600',
-    'Sucesorios': 'from-purple-500 to-purple-600',
-    'Reajuste': 'from-emerald-500 to-emerald-600',
-    'Otro': 'from-gray-500 to-gray-600',
-  };
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -59,7 +79,7 @@ export default function Dashboard() {
           <div className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-white/40 to-white/10" />
           <div className="flex items-start justify-between">
             <div>
-              <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">Por Cobrar</p>
+              <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">Por Cobrar Neto Est.</p>
               <p className="text-2xl font-bold text-white mt-2 count-up">{formatMoney(stats.porCobrar)}</p>
             </div>
             <div className="p-2.5 bg-white/[0.06] rounded-xl">
@@ -73,7 +93,7 @@ export default function Dashboard() {
           <div className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-emerald-500 to-emerald-600" />
           <div className="flex items-start justify-between">
             <div>
-              <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">Cobrado (este mes)</p>
+              <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">Cobrado Neto (mes)</p>
               <p className="text-2xl font-bold text-white mt-2 count-up">{formatMoney(stats.cobradoMes)}</p>
             </div>
             <div className="p-2.5 bg-emerald-500/10 rounded-xl">
@@ -223,13 +243,7 @@ export default function Dashboard() {
           Cobranza por Socio (este mes)
         </h3>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
-          {socios.map(socio => {
-            const now = new Date();
-            const firstDay = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
-            const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().split('T')[0];
-            const socioIngresos = ingresos.filter(i => i.socio_cobro === socio && i.fecha >= firstDay && i.fecha <= lastDay);
-            const neto = socioIngresos.reduce((s, i) => s + Number(i.monto_cj_noa || 0), 0);
-            const registros = socioIngresos.length;
+          {cobranzaPorSocio.map(({ socio, neto, registros }) => {
             return (
               <div key={socio} className="p-4 bg-white/[0.02] rounded-xl border border-white/5">
                 <p className="text-xs text-gray-500">{socio}</p>

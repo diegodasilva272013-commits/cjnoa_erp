@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
-import { Download, FileSpreadsheet, Plus, Sigma, Users, FileText, Rows3, Rows4 } from 'lucide-react';
-import { useIngresos } from '../hooks/useFinances';
+import { Download, FileSpreadsheet, Plus, Sigma, Users, FileText, RefreshCw, Rows3, Rows4 } from 'lucide-react';
+import { useCaseFinancePipeline, useIngresos } from '../hooks/useFinances';
 import { MATERIAS } from '../types/database';
 import { useSocios } from '../hooks/useSocios';
 import Modal from '../components/Modal';
@@ -15,11 +15,15 @@ import { exportToPdf } from '../lib/exportPdf';
 import { buildIncomeOverview } from '../lib/financeAnalytics';
 import { formatMoney, pctChange } from '../lib/financeFormat';
 import { usePerfilMap } from '../hooks/usePerfiles';
+import { countCaseIncomeLedgerChanges } from '../lib/caseIncomeLedger';
+import { stripIncomeReference } from '../lib/financeRefs';
 
 export default function Ingresos() {
-  const { ingresos, loading, refetch } = useIngresos();
+  const { ingresos, loading, refetch, syncWithCases, syncingCases } = useIngresos();
+  const { pipeline, loading: loadingPipeline } = useCaseFinancePipeline();
   const socios = useSocios();
   const perfilMap = usePerfilMap();
+  const { showToast } = useToast();
 
   function usePersistedFilter(key: string, fallback = '') {
     const [value, setValue] = useState(() => {
@@ -67,7 +71,7 @@ export default function Ingresos() {
     };
   }, [analytics.monthlySeries]);
 
-  function handleExportIngresos() {
+  async function handleExportIngresos() {
     const data = filtered.map(item => ({
       Fecha: item.fecha,
       Cliente: item.cliente_nombre || '',
@@ -79,9 +83,9 @@ export default function Ingresos() {
       Captadora: item.captadora_nombre || '',
       Socio: item.socio_cobro || '',
       Modalidad: item.modalidad || '',
-      Notas: item.notas || '',
+      Notas: stripIncomeReference(item.notas) || '',
     }));
-    exportToExcel(data, 'Ingresos_CJ_NOA', 'Ingresos');
+    await exportToExcel(data, 'Ingresos_CJ_NOA', 'Ingresos');
   }
 
   function handleExportPdf() {
@@ -111,7 +115,24 @@ export default function Ingresos() {
     });
   }
 
-  if (loading) {
+  async function handleSyncCases() {
+    try {
+      const summary = await syncWithCases();
+      const totalChanges = countCaseIncomeLedgerChanges(summary);
+
+      if (totalChanges === 0) {
+        showToast('Casos e ingresos ya estaban sincronizados');
+        return;
+      }
+
+      showToast(`Sincronizados ${totalChanges} movimientos desde casos`);
+      await refetch();
+    } catch (error: any) {
+      showToast(error.message || 'Error al sincronizar cobros desde casos', 'error');
+    }
+  }
+
+  if (loading || loadingPipeline) {
     return (
       <div className="flex h-64 items-center justify-center">
         <div className="h-8 w-8 animate-spin rounded-full border-2 border-white/30 border-t-transparent" />
@@ -124,7 +145,7 @@ export default function Ingresos() {
       <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
         <div>
           <h1 className="text-xl sm:text-2xl font-bold text-white">Ingresos</h1>
-          <p className="mt-1 text-sm text-gray-500 hidden sm:block">Modelo comercial del estudio con bruto, neto, comisiones y origen de cobro</p>
+          <p className="mt-1 text-sm text-gray-500 hidden sm:block">Cobros reales del estudio y cartera pendiente conectada con los casos</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <button onClick={handleExportIngresos} className="btn-secondary flex items-center gap-2 text-sm">
@@ -134,6 +155,10 @@ export default function Ingresos() {
           <button onClick={handleExportPdf} className="btn-secondary flex items-center gap-2 text-sm">
             <FileText className="h-4 w-4" />
             <span className="hidden sm:inline">Exportar PDF</span>
+          </button>
+          <button onClick={handleSyncCases} disabled={syncingCases} className="btn-secondary flex items-center gap-2 text-sm disabled:opacity-50">
+            <RefreshCw className={`h-4 w-4 ${syncingCases ? 'animate-spin' : ''}`} />
+            <span className="hidden sm:inline">Sincronizar casos</span>
           </button>
           <button onClick={() => setImportModalOpen(true)} className="btn-secondary flex items-center gap-2 text-sm">
             <FileSpreadsheet className="h-4 w-4" />
@@ -188,6 +213,30 @@ export default function Ingresos() {
         <KpiCard label="Comisiones captadora" value={formatMoney(analytics.totals.commissions)} tone="amber" index={2} change={changes.commission} />
         <KpiCard label="Ticket promedio" value={formatMoney(analytics.totals.averageTicket)} tone="cyan" index={3} />
         <KpiCard label="Registros activos" value={String(analytics.totals.records)} tone="slate" index={4} />
+      </div>
+
+      <div className="glass-card p-5">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <p className="text-sm font-semibold text-white">Pipeline de cobranzas por casos</p>
+            <p className="mt-1 text-xs text-gray-500">Los KPI de esta tarjeta muestran el neto estimado del estudio sobre lo pendiente. El detalle inferior conserva el bruto contractual del caso para no perder la referencia legal/comercial.</p>
+          </div>
+          <div className="flex flex-wrap gap-2 text-xs text-gray-400">
+            <span className="badge badge-yellow">{pipeline.summary.activeDebtors} deudores activos</span>
+            <span className="badge badge-red">{pipeline.summary.overdueCount} vencidas</span>
+            {pipeline.summary.noDueDateAmount > 0 && (
+              <span className="badge badge-blue">Sin fecha bruto {formatMoney(pipeline.summary.noDueDateAmount)}</span>
+            )}
+          </div>
+        </div>
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
+          <PipelineKpi label="Acordado bruto" value={formatMoney(pipeline.summary.totalAgreed)} tone="slate" />
+          <PipelineKpi label="Acordado neto est." value={formatMoney(pipeline.summary.totalAgreedNet)} tone="sky" />
+          <PipelineKpi label="Cobrado neto CJ NOA" value={formatMoney(pipeline.summary.totalCollectedNet)} tone="emerald" />
+          <PipelineKpi label="Pendiente neto est." value={formatMoney(pipeline.summary.totalPendingNet)} tone="amber" />
+          <PipelineKpi label="Vencido neto est." value={formatMoney(pipeline.summary.overdueNetAmount)} tone="rose" />
+          <PipelineKpi label="Prox. 30 dias neto est." value={formatMoney(pipeline.summary.dueNext30DaysNet)} tone="sky" />
+        </div>
       </div>
 
       {/* Distribucion calculada por socio */}
@@ -259,6 +308,62 @@ export default function Ingresos() {
       <div className="grid gap-4 xl:grid-cols-2">
         <FinanceBars title="Top clientes por ingreso neto" subtitle="Clientes que mas aportan al flujo del estudio" data={analytics.topClients} />
         <FinanceVerticalBars title="Rendimiento por socio" subtitle="Cobrado por cada socio filtrado" data={analytics.partnerBreakdown} height={220} />
+      </div>
+
+      <div className="grid gap-4 xl:grid-cols-[0.9fr_1.1fr]">
+        <FinanceBars
+          title="Vencimientos netos esperados"
+          subtitle="Estimacion neta para el estudio agrupada por mes esperado de cobro"
+          data={pipeline.monthlyCollectionsNet.filter(item => item.value > 0)}
+        />
+
+        <div className="glass-card overflow-hidden">
+          <div className="border-b border-white/5 px-5 py-4">
+            <h3 className="text-sm font-semibold text-white">Detalle de cartera pendiente</h3>
+            <p className="mt-1 text-xs text-gray-500">Casos que todavia no impactan en el libro de ingresos porque siguen pendientes de cobro.</p>
+          </div>
+          {pipeline.pendingItems.length === 0 ? (
+            <div className="px-5 py-10 text-sm text-gray-500">No hay cobros pendientes para mostrar.</div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b border-white/5">
+                    <th className="px-5 py-3 text-left text-xs font-medium uppercase text-gray-500">Cliente</th>
+                    <th className="px-5 py-3 text-left text-xs font-medium uppercase text-gray-500">Tipo</th>
+                    <th className="px-5 py-3 text-left text-xs font-medium uppercase text-gray-500">Vencimiento</th>
+                    <th className="px-5 py-3 text-right text-xs font-medium uppercase text-gray-500">Monto</th>
+                    <th className="px-5 py-3 text-left text-xs font-medium uppercase text-gray-500">Estado</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {pipeline.pendingItems.slice(0, 8).map(item => (
+                    <tr key={item.id} className="table-row">
+                      <td className="px-5 py-3">
+                        <div>
+                          <p className="text-sm font-medium text-white">{item.clientName}</p>
+                          <p className="text-xs text-gray-500">{item.materia} · {item.socio}</p>
+                        </div>
+                      </td>
+                      <td className="px-5 py-3 text-sm text-gray-300">
+                        {item.type === 'cuota' ? 'Cuota' : item.type === 'consulta' ? 'Consulta' : 'Saldo'}
+                      </td>
+                      <td className="px-5 py-3 text-sm text-gray-300">
+                        {item.dueDate ? format(new Date(`${item.dueDate}T12:00:00`), 'dd MMM yyyy', { locale: es }) : 'Sin fecha'}
+                      </td>
+                      <td className="px-5 py-3 text-right text-sm font-medium text-amber-300">{formatMoney(item.amount)}</td>
+                      <td className="px-5 py-3">
+                        <span className={`badge ${item.overdue ? 'badge-red' : 'badge-yellow'}`}>
+                          {item.overdue ? 'Vencido' : 'Pendiente'}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
       </div>
 
       <div className="glass-card overflow-hidden">
@@ -400,6 +505,23 @@ function KpiCard({ label, value, tone, change, index = 0 }: { label: string; val
           {change >= 0 ? '▲' : '▼'} {Math.abs(change).toFixed(1)}% vs mes ant.
         </p>
       )}
+    </div>
+  );
+}
+
+function PipelineKpi({ label, value, tone }: { label: string; value: string; tone: 'emerald' | 'sky' | 'amber' | 'rose' | 'slate' }) {
+  const borderTones: Record<'emerald' | 'sky' | 'amber' | 'rose' | 'slate', string> = {
+    emerald: 'border-emerald-500/30 text-emerald-300',
+    sky: 'border-sky-500/30 text-sky-300',
+    amber: 'border-amber-500/30 text-amber-300',
+    rose: 'border-rose-500/30 text-rose-300',
+    slate: 'border-white/10 text-white',
+  };
+
+  return (
+    <div className={`rounded-2xl border bg-white/[0.03] p-4 ${borderTones[tone]}`}>
+      <p className="text-[10px] uppercase tracking-[0.16em] text-gray-500">{label}</p>
+      <p className="mt-2 text-lg font-bold count-up">{value}</p>
     </div>
   );
 }
