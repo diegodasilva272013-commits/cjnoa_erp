@@ -88,6 +88,11 @@ export interface Caso {
   prioridad: 'Alta' | 'Media' | 'Sin prioridad';
   archivado: boolean;
   url_drive: string | null;
+  // Spec §4.1: estado general y resumen semanal
+  estadisticas: string | null;
+  actualizacion: string | null;
+  actualizacion_fecha: string | null;
+  actualizacion_por: string | null;
   created_at: string;
   created_by: string | null;
   updated_at: string;

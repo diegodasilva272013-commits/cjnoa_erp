@@ -53,6 +53,8 @@ interface FormData {
   prioridad: string;
   archivado: boolean;
   url_drive: string;
+  estadisticas: string;
+  actualizacion: string;
 }
 
 const emptyForm: FormData = {
@@ -80,6 +82,8 @@ const emptyForm: FormData = {
   prioridad: 'Sin prioridad',
   archivado: false,
   url_drive: '',
+  estadisticas: '',
+  actualizacion: '',
 };
 
 function getToday() {
@@ -142,6 +146,8 @@ export default function CaseModal({ open, onClose, caso, onSaved }: CaseModalPro
         prioridad: caso.prioridad || 'Sin prioridad',
         archivado: caso.archivado === true,
         url_drive: caso.url_drive || '',
+        estadisticas: caso.estadisticas || '',
+        actualizacion: caso.actualizacion || '',
       });
     } else {
       setForm(emptyForm);
@@ -249,6 +255,8 @@ export default function CaseModal({ open, onClose, caso, onSaved }: CaseModalPro
         prioridad: form.prioridad || 'Sin prioridad',
         archivado: !!form.archivado,
         url_drive: form.url_drive.trim() || null,
+        estadisticas: form.estadisticas.trim() || null,
+        actualizacion: form.actualizacion.trim() || null,
         updated_by: user?.id,
       };
 
@@ -754,6 +762,34 @@ export default function CaseModal({ open, onClose, caso, onSaved }: CaseModalPro
             placeholder="Notas adicionales sobre el caso..."
             rows={3}
           />
+        </Section>
+
+        {/* Estadísticas — Estado general del caso (spec §4.1) */}
+        <Section title="Estadísticas (estado general)">
+          <textarea
+            value={form.estadisticas}
+            onChange={(e) => update('estadisticas', e.target.value)}
+            className="input-dark min-h-[60px] resize-y"
+            placeholder='Ej: "al día", "con deuda de aportes", "esperando resolución"...'
+            rows={2}
+          />
+          <p className="text-[11px] text-gray-500 mt-1">Resumen rápido del estado general del expediente.</p>
+        </Section>
+
+        {/* Actualización — Resumen semanal (spec §4.1) */}
+        <Section title="Actualización semanal">
+          <textarea
+            value={form.actualizacion}
+            onChange={(e) => update('actualizacion', e.target.value)}
+            className="input-dark min-h-[80px] resize-y"
+            placeholder="Resumen semanal del estado del caso..."
+            rows={3}
+          />
+          {caso?.actualizacion_fecha && (
+            <p className="text-[11px] text-gray-500 mt-1">
+              Última actualización: {new Date(caso.actualizacion_fecha).toLocaleString('es-AR')}
+            </p>
+          )}
         </Section>
 
         {/* Nota de Voz del Caso (solo en edición) */}
