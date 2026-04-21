@@ -1,6 +1,6 @@
 import type { Ingreso } from '../types/database';
 import { buildRecentMonths } from './financeFormat';
-import { getIngresoSocioShares, resolveOperationalSocio, sameOperationalSocio } from './operationalSocios';
+import { getIngresoSocioShares, parseDistributionShares, resolveOperationalSocio, sameOperationalSocio, sortOperationalSocios } from './operationalSocios';
 
 /**
  * Aggregates per-socio totals over a list of ingresos using the same attribution rules
@@ -381,12 +381,25 @@ export function buildRepartoOverview(
   const filteredIngresos = ingresos.filter(i => monthKeys.has(monthFromDate(i.fecha)));
   const filteredExpenses = expenses.filter(e => monthKeys.has(monthFromDate(e.fecha)));
 
+  // Defensive: any socio que aparezca en ingresos/egresos del periodo TIENE que estar en
+  // el reparto, aunque la lista pasada por el caller no lo incluya. Si no, su cobro
+  // queda sin atribuir y el resto recibe base sin variable -> tarjetas con $0 ingreso
+  // pero base inflada (sintoma exacto de Rodrigo desaparecido).
+  const socioCandidates: Array<string | null> = [...socios];
+  filteredIngresos.forEach(i => {
+    socioCandidates.push(i.socio_cobro);
+    const distribution = parseDistributionShares(i.notas);
+    distribution?.forEach(share => socioCandidates.push(share.socio));
+  });
+  filteredExpenses.forEach(e => socioCandidates.push(e.responsable));
+  const effectiveSocios = sortOperationalSocios(socioCandidates);
+
   const totalIngresos = sumValues(filteredIngresos.map(i => Number(i.monto_cj_noa || 0)));
   const totalEgresos = sumValues(filteredExpenses.map(e => Number(e.monto || 0)));
   const totalARepartir = Math.max(totalIngresos - totalEgresos, 0);
   const reparto65 = totalARepartir * basePct;
   const reparto35 = totalARepartir * rendimientoPct;
-  const basePorPersona = socios.length > 0 ? reparto65 / socios.length : 0;
+  const basePorPersona = effectiveSocios.length > 0 ? reparto65 / effectiveSocios.length : 0;
 
   const clientesSet = new Set<string>();
   filteredIngresos.forEach(i => {
@@ -394,8 +407,8 @@ export function buildRepartoOverview(
   });
 
   // Per-socio global
-  const aggregatedGlobal = aggregateIngresosPorSocio(filteredIngresos, socios);
-  const sociosData: SocioReparto[] = socios.map((socio: string) => {
+  const aggregatedGlobal = aggregateIngresosPorSocio(filteredIngresos, effectiveSocios);
+  const sociosData: SocioReparto[] = effectiveSocios.map((socio: string) => {
     const totals = aggregatedGlobal.get(socio) || { ingresoNeto: 0, ingresoBruto: 0, comisiones: 0, registros: 0, clientes: new Set<string>() };
     const participacion = totalIngresos > 0 ? totals.ingresoNeto / totalIngresos : 0;
     const egresosResponsable = sumValues(
@@ -428,13 +441,13 @@ export function buildRepartoOverview(
     const mesRepartir = Math.max(mesTotal - mesEgresos, 0);
     const mesRepartoBase = mesRepartir * basePct;
     const mesRepartoVariable = mesRepartir * rendimientoPct;
-    const base = socios.length > 0 ? mesRepartoBase / socios.length : 0;
+    const base = effectiveSocios.length > 0 ? mesRepartoBase / effectiveSocios.length : 0;
 
     const mesClientes = new Set<string>();
     mesIngresos.forEach(i => { if (i.cliente_nombre) mesClientes.add(i.cliente_nombre.toLowerCase().trim()); });
 
-    const aggregatedMes = aggregateIngresosPorSocio(mesIngresos, socios);
-    const mesSocios: SocioReparto[] = socios.map((socio: string) => {
+    const aggregatedMes = aggregateIngresosPorSocio(mesIngresos, effectiveSocios);
+    const mesSocios: SocioReparto[] = effectiveSocios.map((socio: string) => {
       const totals = aggregatedMes.get(socio) || { ingresoNeto: 0, ingresoBruto: 0, comisiones: 0, registros: 0, clientes: new Set<string>() };
       const part = mesTotal > 0 ? totals.ingresoNeto / mesTotal : 0;
       const egr = sumValues(mesExpenses.filter(e => sameOperationalSocio(e.responsable, socio)).map(e => Number(e.monto || 0)));
