@@ -12,7 +12,7 @@ import './index.css'
 // chunks (assets/Layout-XXXX.js, etc.) que ya no existen tras un redeploy de Vercel.
 // Sin esto el usuario queda atascado con "Failed to fetch dynamically imported module"
 // hasta que hace Ctrl+Shift+R manual.
-const RELOAD_KEY = 'cjnoa-chunk-reload';
+const RELOAD_KEY = 'cjnoa-chunk-reload-ts';
 function handleChunkError(err: unknown) {
   const msg = String((err as any)?.message || err || '');
   const isChunkErr =
@@ -21,9 +21,10 @@ function handleChunkError(err: unknown) {
     msg.includes('error loading dynamically imported module') ||
     /ChunkLoadError/i.test(msg);
   if (!isChunkErr) return false;
-  // Evitar loop: solo recargamos una vez por sesion.
-  if (sessionStorage.getItem(RELOAD_KEY)) return false;
-  sessionStorage.setItem(RELOAD_KEY, '1');
+  // Evitar loop infinito: solo recargar si hace >60s del ultimo reload.
+  const last = Number(sessionStorage.getItem(RELOAD_KEY) || '0');
+  if (Date.now() - last < 60_000) return false;
+  sessionStorage.setItem(RELOAD_KEY, String(Date.now()));
   window.location.reload();
   return true;
 }

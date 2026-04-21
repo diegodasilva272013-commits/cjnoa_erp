@@ -23,8 +23,24 @@ export default class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBo
 
   componentDidCatch(error: Error, errorInfo: ErrorInfo) {
     console.error('Unhandled app error', error, errorInfo);
+    const msg = error.message || String(error);
+    // Chunk stale tras redeploy -> reload duro automatico (con guard anti-loop 60s).
+    const isChunkErr =
+      msg.includes('Failed to fetch dynamically imported module') ||
+      msg.includes('Importing a module script failed') ||
+      msg.includes('error loading dynamically imported module') ||
+      /ChunkLoadError/i.test(msg);
+    if (isChunkErr) {
+      const KEY = 'cjnoa-chunk-reload-ts';
+      const last = Number(sessionStorage.getItem(KEY) || '0');
+      if (Date.now() - last > 60_000) {
+        sessionStorage.setItem(KEY, String(Date.now()));
+        window.location.reload();
+        return;
+      }
+    }
     this.setState({
-      errorMessage: error.message || String(error),
+      errorMessage: msg,
       route: typeof window !== 'undefined' ? window.location.pathname : '',
     });
   }
