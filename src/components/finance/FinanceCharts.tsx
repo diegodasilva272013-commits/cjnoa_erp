@@ -457,8 +457,22 @@ export function FinanceGroupedBars({
     );
   }
 
+  const visibleSeries = series.filter(item => item.income > 0 || item.expense > 0);
+
+  if (visibleSeries.length === 0) {
+    return (
+      <div className="glass-card p-5">
+        <div className="mb-4">
+          <h3 className="text-sm font-semibold text-white">{title}</h3>
+          {subtitle && <p className="text-xs text-gray-500 mt-1">{subtitle}</p>}
+        </div>
+        <EmptyChart message="No hubo ingresos ni egresos en el periodo seleccionado." />
+      </div>
+    );
+  }
+
   const legend = labels || { income: 'Ingresos', expense: 'Egresos' };
-  const max = Math.max(...series.flatMap(s => [s.income, s.expense]), 1);
+  const max = Math.max(...visibleSeries.flatMap(s => [s.income, s.expense]), 1);
   const height = 200;
 
   return (
@@ -488,7 +502,7 @@ export function FinanceGroupedBars({
 
         {/* Bars area */}
         <div className="absolute left-8 right-0 bottom-8 flex items-end justify-around gap-2" style={{ height }}>
-          {series.map((s, i) => {
+          {visibleSeries.map((s, i) => {
             const incH = (s.income / max) * 100;
             const expH = (s.expense / max) * 100;
             return (
@@ -525,7 +539,7 @@ export function FinanceGroupedBars({
 
         {/* X-axis labels */}
         <div className="absolute left-8 right-0 bottom-0 flex justify-around gap-2">
-          {series.map(s => (
+          {visibleSeries.map(s => (
             <div key={s.label} className="flex-1 text-center" style={{ maxWidth: 80 }}>
               <p className="text-[9px] text-gray-500 truncate">{s.label}</p>
             </div>

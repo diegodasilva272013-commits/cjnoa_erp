@@ -1,5 +1,48 @@
 import type { Ingreso } from '../types/database';
 import { buildRecentMonths } from './financeFormat';
+import { getIngresoSocioShares, resolveOperationalSocio, sameOperationalSocio } from './operationalSocios';
+
+/**
+ * Aggregates per-socio totals over a list of ingresos using the same attribution rules
+ * as the rest of the analytics pipeline (canonical `socio_cobro` first, legacy `Distribucion:`
+ * note as fallback). Each ingreso contributes its `monto_*` values pro-rated by share ratio.
+ */
+export interface PerSocioIngresoTotals {
+  ingresoNeto: number;
+  ingresoBruto: number;
+  comisiones: number;
+  registros: number;
+  clientes: Set<string>;
+}
+
+export function aggregateIngresosPorSocio(ingresos: Ingreso[], socios: string[]): Map<string, PerSocioIngresoTotals> {
+  const result = new Map<string, PerSocioIngresoTotals>();
+  socios.forEach(socio => {
+    result.set(socio, { ingresoNeto: 0, ingresoBruto: 0, comisiones: 0, registros: 0, clientes: new Set<string>() });
+  });
+
+  ingresos.forEach(ingreso => {
+    const shares = getIngresoSocioShares(ingreso);
+    if (shares.length === 0) return;
+
+    const monto = Number(ingreso.monto_cj_noa || 0);
+    const bruto = Number(ingreso.monto_total || 0);
+    const comision = Number(ingreso.comision_captadora || 0);
+    const cliente = ingreso.cliente_nombre?.toLowerCase().trim() || '';
+
+    shares.forEach(({ socio, ratio }) => {
+      const bucket = result.get(socio);
+      if (!bucket) return;
+      bucket.ingresoNeto += monto * ratio;
+      bucket.ingresoBruto += bruto * ratio;
+      bucket.comisiones += comision * ratio;
+      bucket.registros += 1;
+      if (cliente) bucket.clientes.add(cliente);
+    });
+  });
+
+  return result;
+}
 
 export interface ExpenseLike {
   source: 'operativo' | 'caso';
@@ -55,6 +98,32 @@ function monthFromDate(value: string) {
   return value.slice(0, 7);
 }
 
+function parseFinanceDate(value: string | null | undefined) {
+  if (!value) return null;
+
+  const candidate = /^\d{4}-\d{2}-\d{2}$/.test(value)
+    ? new Date(`${value}T00:00:00`)
+    : new Date(value);
+
+  return Number.isNaN(candidate.getTime()) ? null : candidate;
+}
+
+function resolveLatestFinanceDate(...collections: Array<Array<{ fecha: string }>>) {
+  let latest: Date | null = null;
+
+  collections.forEach(collection => {
+    collection.forEach(item => {
+      const parsed = parseFinanceDate(item.fecha);
+      if (!parsed) return;
+      if (!latest || parsed > latest) {
+        latest = parsed;
+      }
+    });
+  });
+
+  return latest ?? new Date();
+}
+
 export function getExpenseCategory(concepto: string) {
   if (!concepto) return 'Sin categoría';
   if (concepto === 'Gasto del caso') return 'Gastos del caso';
@@ -69,15 +138,16 @@ function getIncomeSource(ingreso: Ingreso) {
   return 'Directo';
 }
 
-export function buildIncomeOverview(ingresos: Ingreso[], months = 6) {
+export function buildIncomeOverview(ingresos: Ingreso[], months = 6, anchorDate?: Date) {
   const grossIncome = sumValues(ingresos.map(item => Number(item.monto_total || 0)));
   const netIncome = sumValues(ingresos.map(item => Number(item.monto_cj_noa || 0)));
   const commissions = sumValues(ingresos.map(item => Number(item.comision_captadora || 0)));
   const averageTicket = ingresos.length > 0 ? netIncome / ingresos.length : 0;
   const collectionRate = ratio(netIncome, grossIncome);
   const captadoraRate = ratio(commissions, grossIncome);
+  const monthAnchor = anchorDate ?? resolveLatestFinanceDate(ingresos);
 
-  const monthlyBase = buildRecentMonths(months).map(month => ({
+  const monthlyBase = buildRecentMonths(months, monthAnchor).map(month => ({
     key: month.key,
     label: month.label,
     gross: 0,
@@ -104,7 +174,14 @@ export function buildIncomeOverview(ingresos: Ingreso[], months = 6) {
     }
 
     addToMap(sourceTotals, getIncomeSource(ingreso), net);
-    addToMap(partnerTotals, ingreso.socio_cobro || 'Sin asignar', net);
+    const partnerShares = getIngresoSocioShares(ingreso);
+    if (partnerShares.length === 0) {
+      addToMap(partnerTotals, 'Sin asignar', net);
+    } else {
+      partnerShares.forEach(({ socio, ratio }) => {
+        addToMap(partnerTotals, socio, net * ratio);
+      });
+    }
     addToMap(paymentTotals, ingreso.modalidad || 'Sin definir', net);
     addToMap(clientTotals, ingreso.cliente_nombre || 'Sin cliente', net);
   });
@@ -132,15 +209,16 @@ export function buildIncomeOverview(ingresos: Ingreso[], months = 6) {
   };
 }
 
-export function buildExpenseOverview(expenses: ExpenseLike[], months = 6) {
+export function buildExpenseOverview(expenses: ExpenseLike[], months = 6, anchorDate?: Date) {
   const total = sumValues(expenses.map(item => Number(item.monto || 0)));
   const operativo = sumValues(expenses.filter(item => item.source === 'operativo').map(item => Number(item.monto || 0)));
   const casos = sumValues(expenses.filter(item => item.source === 'caso').map(item => Number(item.monto || 0)));
   const averageTicket = expenses.length > 0 ? total / expenses.length : 0;
   const caseShare = ratio(casos, total);
   const highestExpense = expenses.reduce((highest, item) => Math.max(highest, Number(item.monto || 0)), 0);
+  const monthAnchor = anchorDate ?? resolveLatestFinanceDate(expenses);
 
-  const monthlyBase = buildRecentMonths(months).map(month => ({
+  const monthlyBase = buildRecentMonths(months, monthAnchor).map(month => ({
     key: month.key,
     label: month.label,
     operativo: 0,
@@ -162,7 +240,11 @@ export function buildExpenseOverview(expenses: ExpenseLike[], months = 6) {
     }
 
     addToMap(categoryTotals, getExpenseCategory(expense.concepto), value);
-    addToMap(responsibleTotals, expense.responsable || (expense.source === 'caso' ? 'Caso' : 'Sin asignar'), value);
+    addToMap(
+      responsibleTotals,
+      resolveOperationalSocio(expense.responsable) || (expense.source === 'caso' ? 'Caso' : 'Sin asignar'),
+      value,
+    );
     addToMap(sourceTotals, expense.source === 'caso' ? 'Gastos del caso' : 'Operativos', value);
   });
 
@@ -189,8 +271,9 @@ export function buildExpenseOverview(expenses: ExpenseLike[], months = 6) {
 }
 
 export function buildFinanceOverview(ingresos: Ingreso[], expenses: ExpenseLike[], months = 6) {
-  const income = buildIncomeOverview(ingresos, months);
-  const expense = buildExpenseOverview(expenses, months);
+  const anchorDate = resolveLatestFinanceDate(ingresos, expenses);
+  const income = buildIncomeOverview(ingresos, months, anchorDate);
+  const expense = buildExpenseOverview(expenses, months, anchorDate);
   const monthlySeries: FinanceMonthlyPoint[] = income.monthlySeries.map((item, index) => ({
     label: item.label,
     income: item.net,
@@ -226,6 +309,8 @@ export interface SocioReparto {
   ingresoNeto: number;
   comisiones: number;
   participacion: number;
+  baseAsignada: number;
+  variableRendimiento: number;
   egresosResponsable: number;
   montoACobrar: number;
   casosAtendidos: number;
@@ -266,6 +351,21 @@ export interface RepartoConfig {
 
 const DEFAULT_REPARTO: RepartoConfig = { basePct: 0.65, rendimientoPct: 0.35 };
 
+function normalizeRepartoConfig(repartoConfig: RepartoConfig): RepartoConfig {
+  const safeBasePct = Math.max(Number(repartoConfig.basePct) || 0, 0);
+  const safeRendimientoPct = Math.max(Number(repartoConfig.rendimientoPct) || 0, 0);
+  const totalPct = safeBasePct + safeRendimientoPct;
+
+  if (totalPct <= 0) {
+    return DEFAULT_REPARTO;
+  }
+
+  return {
+    basePct: safeBasePct / totalPct,
+    rendimientoPct: safeRendimientoPct / totalPct,
+  };
+}
+
 export function buildRepartoOverview(
   ingresos: Ingreso[],
   expenses: ExpenseLike[],
@@ -273,8 +373,8 @@ export function buildRepartoOverview(
   socios: string[] = [],
   repartoConfig: RepartoConfig = DEFAULT_REPARTO,
 ): RepartoOverview {
-  const { basePct, rendimientoPct } = repartoConfig;
-  const recentMonths = buildRecentMonths(months);
+  const { basePct, rendimientoPct } = normalizeRepartoConfig(repartoConfig);
+  const recentMonths = buildRecentMonths(months, resolveLatestFinanceDate(ingresos, expenses));
   const monthKeys = new Set(recentMonths.map(m => m.key));
 
   // Filter to period
@@ -284,9 +384,9 @@ export function buildRepartoOverview(
   const totalIngresos = sumValues(filteredIngresos.map(i => Number(i.monto_cj_noa || 0)));
   const totalEgresos = sumValues(filteredExpenses.map(e => Number(e.monto || 0)));
   const totalARepartir = Math.max(totalIngresos - totalEgresos, 0);
-  const basePorPersona = socios.length > 0 ? totalARepartir / socios.length : 0;
   const reparto65 = totalARepartir * basePct;
   const reparto35 = totalARepartir * rendimientoPct;
+  const basePorPersona = socios.length > 0 ? reparto65 / socios.length : 0;
 
   const clientesSet = new Set<string>();
   filteredIngresos.forEach(i => {
@@ -294,19 +394,29 @@ export function buildRepartoOverview(
   });
 
   // Per-socio global
+  const aggregatedGlobal = aggregateIngresosPorSocio(filteredIngresos, socios);
   const sociosData: SocioReparto[] = socios.map((socio: string) => {
-    const socioIngresos = filteredIngresos.filter(i => i.socio_cobro === socio);
-    const ingresoBruto = sumValues(socioIngresos.map(i => Number(i.monto_total || 0)));
-    const ingresoNeto = sumValues(socioIngresos.map(i => Number(i.monto_cj_noa || 0)));
-    const comisiones = sumValues(socioIngresos.map(i => Number(i.comision_captadora || 0)));
-    const participacion = totalIngresos > 0 ? ingresoNeto / totalIngresos : 0;
+    const totals = aggregatedGlobal.get(socio) || { ingresoNeto: 0, ingresoBruto: 0, comisiones: 0, registros: 0, clientes: new Set<string>() };
+    const participacion = totalIngresos > 0 ? totals.ingresoNeto / totalIngresos : 0;
     const egresosResponsable = sumValues(
-      filteredExpenses.filter(e => e.responsable === socio).map(e => Number(e.monto || 0)),
+      filteredExpenses.filter(e => sameOperationalSocio(e.responsable, socio)).map(e => Number(e.monto || 0)),
     );
-    const montoACobrar = basePorPersona + (ingresoNeto * rendimientoPct / (totalIngresos || 1)) * totalARepartir - egresosResponsable;
-    const casosAtendidos = new Set(socioIngresos.map(i => i.cliente_nombre?.toLowerCase().trim()).filter(Boolean)).size;
+    const variableRendimiento = participacion * reparto35;
+    // Los egresos ya fueron descontados al calcular totalARepartir; aqui solo distribuimos ese remanente.
+    const montoACobrar = basePorPersona + variableRendimiento;
 
-    return { socio, ingresoBruto, ingresoNeto, comisiones, participacion, egresosResponsable, montoACobrar, casosAtendidos };
+    return {
+      socio,
+      ingresoBruto: totals.ingresoBruto,
+      ingresoNeto: totals.ingresoNeto,
+      comisiones: totals.comisiones,
+      participacion,
+      baseAsignada: basePorPersona,
+      variableRendimiento,
+      egresosResponsable,
+      montoACobrar,
+      casosAtendidos: totals.clientes.size,
+    };
   });
 
   // Per-month breakdown
@@ -316,21 +426,32 @@ export function buildRepartoOverview(
     const mesTotal = sumValues(mesIngresos.map(i => Number(i.monto_cj_noa || 0)));
     const mesEgresos = sumValues(mesExpenses.map(e => Number(e.monto || 0)));
     const mesRepartir = Math.max(mesTotal - mesEgresos, 0);
+    const mesRepartoBase = mesRepartir * basePct;
+    const mesRepartoVariable = mesRepartir * rendimientoPct;
+    const base = socios.length > 0 ? mesRepartoBase / socios.length : 0;
 
     const mesClientes = new Set<string>();
     mesIngresos.forEach(i => { if (i.cliente_nombre) mesClientes.add(i.cliente_nombre.toLowerCase().trim()); });
 
+    const aggregatedMes = aggregateIngresosPorSocio(mesIngresos, socios);
     const mesSocios: SocioReparto[] = socios.map((socio: string) => {
-      const si = mesIngresos.filter(i => i.socio_cobro === socio);
-      const bruto = sumValues(si.map(i => Number(i.monto_total || 0)));
-      const neto = sumValues(si.map(i => Number(i.monto_cj_noa || 0)));
-      const com = sumValues(si.map(i => Number(i.comision_captadora || 0)));
-      const part = mesTotal > 0 ? neto / mesTotal : 0;
-      const egr = sumValues(mesExpenses.filter(e => e.responsable === socio).map(e => Number(e.monto || 0)));
-      const base = socios.length > 0 ? mesRepartir / socios.length : 0;
-      const cobrar = base + (neto * rendimientoPct / (mesTotal || 1)) * mesRepartir - egr;
-      const casos = new Set(si.map(i => i.cliente_nombre?.toLowerCase().trim()).filter(Boolean)).size;
-      return { socio, ingresoBruto: bruto, ingresoNeto: neto, comisiones: com, participacion: part, egresosResponsable: egr, montoACobrar: cobrar, casosAtendidos: casos };
+      const totals = aggregatedMes.get(socio) || { ingresoNeto: 0, ingresoBruto: 0, comisiones: 0, registros: 0, clientes: new Set<string>() };
+      const part = mesTotal > 0 ? totals.ingresoNeto / mesTotal : 0;
+      const egr = sumValues(mesExpenses.filter(e => sameOperationalSocio(e.responsable, socio)).map(e => Number(e.monto || 0)));
+      const variableRendimiento = part * mesRepartoVariable;
+      const cobrar = base + variableRendimiento;
+      return {
+        socio,
+        ingresoBruto: totals.ingresoBruto,
+        ingresoNeto: totals.ingresoNeto,
+        comisiones: totals.comisiones,
+        participacion: part,
+        baseAsignada: base,
+        variableRendimiento,
+        egresosResponsable: egr,
+        montoACobrar: cobrar,
+        casosAtendidos: totals.clientes.size,
+      };
     });
 
     return {
@@ -339,9 +460,9 @@ export function buildRepartoOverview(
       totalIngresos: mesTotal,
       totalEgresos: mesEgresos,
       totalARepartir: mesRepartir,
-      basePorPersona: socios.length > 0 ? mesRepartir / socios.length : 0,
-      reparto65: mesRepartir * basePct,
-      reparto35: mesRepartir * rendimientoPct,
+      basePorPersona: base,
+      reparto65: mesRepartoBase,
+      reparto35: mesRepartoVariable,
       socios: mesSocios,
       clientesUnicos: mesClientes.size,
     };

@@ -15,6 +15,7 @@ import { exportToPdf } from '../lib/exportPdf';
 import { buildExpenseOverview, getExpenseCategory } from '../lib/financeAnalytics';
 import { formatMoney, pctChange } from '../lib/financeFormat';
 import { usePerfilMap } from '../hooks/usePerfiles';
+import { resolveOperationalSocio, sameOperationalSocio, sortOperationalSocios } from '../lib/operationalSocios';
 
 export default function Egresos() {
   const { egresos, egresosCombinados, loading, refetch } = useEgresos();
@@ -46,7 +47,7 @@ export default function Egresos() {
   );
 
   const responsableOptions = useMemo(
-    () => Array.from(new Set(egresosCombinados.map(item => item.responsable).filter(Boolean) as string[])).sort(),
+    () => sortOperationalSocios(egresosCombinados.map(item => item.responsable).filter(Boolean) as string[]),
     [egresosCombinados],
   );
 
@@ -54,7 +55,7 @@ export default function Egresos() {
     if (filtroFechaDesde && egreso.fecha < filtroFechaDesde) return false;
     if (filtroFechaHasta && egreso.fecha > filtroFechaHasta) return false;
     if (filtroConcepto && getExpenseCategory(egreso.concepto) !== filtroConcepto) return false;
-    if (filtroResponsable && egreso.responsable !== filtroResponsable) return false;
+    if (filtroResponsable && !sameOperationalSocio(egreso.responsable, filtroResponsable)) return false;
     if (filtroModalidad && egreso.modalidad !== filtroModalidad) return false;
     return true;
   }), [egresosCombinados, filtroConcepto, filtroFechaDesde, filtroFechaHasta, filtroModalidad, filtroResponsable]);
@@ -203,7 +204,7 @@ export default function Egresos() {
         <div className="mt-1 text-xs text-gray-500">Calculado desde los egresos operativos y gastos de caso cargados en el sistema.</div>
         <div className="mt-4 grid gap-3 sm:gap-4 grid-cols-1 sm:grid-cols-2 xl:grid-cols-4">
           {[...socios, 'CJ NOA'].map((resp, i) => {
-            const respEgresos = filtered.filter(e => e.responsable === resp);
+            const respEgresos = filtered.filter(e => sameOperationalSocio(e.responsable, resp));
             const total = respEgresos.reduce((s, e) => s + Number(e.monto || 0), 0);
             const operativo = respEgresos.filter(e => e.source === 'operativo').reduce((s, e) => s + Number(e.monto || 0), 0);
             const caso = respEgresos.filter(e => e.source === 'caso').reduce((s, e) => s + Number(e.monto || 0), 0);
@@ -225,7 +226,10 @@ export default function Egresos() {
             );
           })}
           {(() => {
-            const sinResp = filtered.filter(e => !e.responsable || (e.responsable !== 'Rodrigo' && e.responsable !== 'Noelia' && e.responsable !== 'Fabricio' && e.responsable !== 'Alejandro' && e.responsable !== 'CJ NOA'));
+            const sinResp = filtered.filter(e => {
+              const resolved = resolveOperationalSocio(e.responsable);
+              return !resolved || ![...socios, 'CJ NOA'].includes(resolved);
+            });
             const total = sinResp.reduce((s, e) => s + Number(e.monto || 0), 0);
             if (total === 0) return null;
             return (
@@ -324,7 +328,7 @@ export default function Egresos() {
                   <td className={`${cp} text-right`}>
                     <span className="text-sm font-medium text-rose-400">{formatMoney(egreso.monto)}</span>
                   </td>
-                  <td className={`hidden ${cp} text-sm text-gray-400 md:table-cell`}>{egreso.responsable || 'Caso'}</td>
+                  <td className={`hidden ${cp} text-sm text-gray-400 md:table-cell`}>{resolveOperationalSocio(egreso.responsable) || 'Caso'}</td>
                   <td className={`hidden ${cp} lg:table-cell`}>
                     <span className={`badge ${egreso.modalidad === 'Efectivo' ? 'badge-green' : 'badge-blue'}`}>
                       {egreso.modalidad || 'Sin definir'}

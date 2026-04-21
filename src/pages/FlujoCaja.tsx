@@ -146,12 +146,12 @@ export default function FlujoCaja() {
           <Users className="h-4 w-4 text-violet-300" />
           Reparto y distribucion por socio (calculado)
         </div>
-        <div className="mt-2 text-xs text-gray-500">Calculado automaticamente desde todos los ingresos y egresos cargados en el sistema.</div>
+        <div className="mt-2 text-xs text-gray-500">Monto a cobrar = base comun + variable por rendimiento. Los egresos ya impactan en el total a repartir, por eso se muestran solo como referencia y no se descuentan dos veces.</div>
         <div className="mt-4 grid gap-3 sm:gap-3 grid-cols-2 md:grid-cols-4">
           <MiniKpi label="A repartir" value={formatMoney(reparto.global.totalARepartir)} tone="emerald" index={0} />
           <MiniKpi label="Base por socio" value={formatMoney(reparto.global.basePorPersona)} tone="sky" index={1} />
-          <MiniKpi label="Reparto 65%" value={formatMoney(reparto.global.reparto65)} tone="violet" index={2} />
-          <MiniKpi label="Reparto 35%" value={formatMoney(reparto.global.reparto35)} tone="amber" index={3} />
+          <MiniKpi label={`Base ${Math.round(repartoCfg.basePct * 100)}%`} value={formatMoney(reparto.global.reparto65)} tone="violet" index={2} />
+          <MiniKpi label={`Variable ${Math.round(repartoCfg.rendimientoPct * 100)}%`} value={formatMoney(reparto.global.reparto35)} tone="amber" index={3} />
         </div>
         <div className="mt-4 grid gap-3 sm:gap-4 grid-cols-1 sm:grid-cols-2 xl:grid-cols-4">
           {reparto.socios.map((s, i) => (
@@ -161,6 +161,8 @@ export default function FlujoCaja() {
                 <div className="flex justify-between"><span>Ingreso neto</span><span className="font-semibold text-emerald-300">{formatMoney(s.ingresoNeto)}</span></div>
                 <div className="flex justify-between"><span>Comisiones</span><span className="font-semibold text-amber-300">{formatMoney(s.comisiones)}</span></div>
                 <div className="flex justify-between"><span>Participacion</span><span className="font-semibold text-sky-300">{(s.participacion * 100).toFixed(1)}%</span></div>
+                <div className="flex justify-between"><span>Base comun</span><span className="font-semibold text-violet-200">{formatMoney(s.baseAsignada)}</span></div>
+                <div className="flex justify-between"><span>Variable</span><span className="font-semibold text-violet-300">{formatMoney(s.variableRendimiento)}</span></div>
                 <div className="flex justify-between"><span>Egresos resp.</span><span className="font-semibold text-rose-300">{formatMoney(s.egresosResponsable)}</span></div>
                 <div className="flex justify-between"><span>Clientes</span><span className="font-semibold text-white">{s.casosAtendidos}</span></div>
                 <div className="mt-2 rounded-lg bg-white/[0.06] px-3 py-2">
@@ -200,7 +202,7 @@ export default function FlujoCaja() {
                   <td className="px-5 py-3 text-right text-sm text-rose-400">{formatMoney(m.totalEgresos)}</td>
                   <td className="px-5 py-3 text-right text-sm font-semibold text-violet-300">{formatMoney(m.totalARepartir)}</td>
                   {m.socios.map(s => (
-                    <td key={s.socio} className="px-5 py-3 text-right text-sm text-sky-300">{formatMoney(s.ingresoNeto)}</td>
+                    <td key={s.socio} className="px-5 py-3 text-right text-sm text-sky-300">{formatMoney(s.montoACobrar)}</td>
                   ))}
                   <td className="px-5 py-3 text-right text-sm text-gray-400">{m.clientesUnicos}</td>
                 </tr>

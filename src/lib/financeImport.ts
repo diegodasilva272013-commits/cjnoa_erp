@@ -397,6 +397,7 @@ export function buildIngresoImportKey(record: ImportedIngresoRecord): string {
     normalizeHeader(record.concepto),
     record.monto_total.toFixed(2),
     record.monto_cj_noa.toFixed(2),
+    normalizeHeader(record.socio_cobro),
   ].join('|');
 }
 
@@ -420,50 +421,57 @@ function buildMonthlyIncomeNotes(sheetName: string, fuente: string, clienteTipo:
   return notes.join(' | ');
 }
 
-function parseMonthlyIngresoRow(row: unknown[], sheetName: string, rowNumber: number): ImportedIngresoRow | null {
+function parseMonthlyIngresoRow(row: unknown[], sheetName: string, rowNumber: number): ImportedIngresoRow[] {
   const fecha = parseDateValue(row[0]);
-  if (!fecha) return null;
+  if (!fecha) return [];
 
   const splitValues = MONTHLY_PARTNERS
     .map(partner => ({ socio: partner.socio, amount: parseNumberValue(row[partner.index]) ?? 0 }))
     .filter(item => item.amount > 0);
 
-  const montoTotal = splitValues.reduce((sum, item) => sum + item.amount, 0);
-  if (montoTotal <= 0) return null;
+  if (splitValues.length === 0) return [];
 
   const fuente = normalizeText(row[4]);
   const clienteTipo = normalizeText(row[5]);
   const concepto = normalizeText(row[6]) || 'Ingreso importado';
-  const socioCobro = splitValues.length === 1 ? splitValues[0].socio : null;
+  const cliente = normalizeText(row[1]) || null;
+  const materia = normalizeText(row[3]) || null;
+  const modalidad = parseModalidad(row[2]);
+  const extraNotes = normalizeText(row[11]);
 
-  const record: ImportedIngresoRecord = {
-    fecha,
-    cliente_nombre: normalizeText(row[1]) || null,
-    materia: normalizeText(row[3]) || null,
-    concepto,
-    monto_total: montoTotal,
-    monto_cj_noa: montoTotal,
-    comision_captadora: 0,
-    captadora_nombre: null,
-    socio_cobro: socioCobro,
-    modalidad: parseModalidad(row[2]),
-    notas: buildMonthlyIncomeNotes(sheetName, fuente, clienteTipo, normalizeText(row[11]), splitValues) || null,
-    es_manual: false,
-  };
+  // Emit one ingreso per socio share so the per-socio attribution is preserved at the
+  // row level. Each share keeps the original notes for auditability.
+  return splitValues.map(item => {
+    const record: ImportedIngresoRecord = {
+      fecha,
+      cliente_nombre: cliente,
+      materia,
+      concepto,
+      monto_total: item.amount,
+      monto_cj_noa: item.amount,
+      comision_captadora: 0,
+      captadora_nombre: null,
+      socio_cobro: item.socio,
+      modalidad,
+      notas: buildMonthlyIncomeNotes(sheetName, fuente, clienteTipo, extraNotes, [item]) || null,
+      es_manual: false,
+    };
 
-  return {
-    target: 'ingresos',
-    sheetName,
-    rowNumber,
-    dedupeKey: buildIngresoImportKey(record),
-    preview: {
-      Fecha: record.fecha,
-      Cliente: record.cliente_nombre,
-      Concepto: record.concepto,
-      'Monto CJ NOA': record.monto_cj_noa,
-    },
-    record,
-  };
+    return {
+      target: 'ingresos',
+      sheetName,
+      rowNumber,
+      dedupeKey: buildIngresoImportKey(record),
+      preview: {
+        Fecha: record.fecha,
+        Cliente: record.cliente_nombre,
+        Concepto: record.concepto,
+        Socio: record.socio_cobro,
+        'Monto CJ NOA': record.monto_cj_noa,
+      },
+      record,
+    };
+  });
 }
 
 function parseMonthlyEgresoRow(row: unknown[], sheetName: string, rowNumber: number): ImportedEgresoRow | null {
@@ -507,8 +515,8 @@ function parseMonthlyWorkbookSheet(sheetName: string, rows: unknown[][], formula
     const row = rows[index] || [];
     const rowNumber = index + 1;
 
-    const ingreso = parseMonthlyIngresoRow(row, sheetName, rowNumber);
-    if (ingreso) ingresos.push(ingreso);
+    const ingresoRows = parseMonthlyIngresoRow(row, sheetName, rowNumber);
+    ingresoRows.forEach(item => ingresos.push(item));
 
     const egreso = parseMonthlyEgresoRow(row, sheetName, rowNumber);
     if (egreso) egresos.push(egreso);

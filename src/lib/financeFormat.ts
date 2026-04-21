@@ -10,9 +10,12 @@ export function monthLabel(date: Date) {
   return label.charAt(0).toUpperCase() + label.slice(1);
 }
 
-export function buildRecentMonths(total: number) {
+export function buildRecentMonths(total: number, anchorDate: Date = new Date()) {
+  const parsedAnchor = new Date(anchorDate);
+  const baseDate = Number.isNaN(parsedAnchor.getTime()) ? new Date() : parsedAnchor;
+
   return Array.from({ length: total }, (_, index) => {
-    const date = new Date();
+    const date = new Date(baseDate);
     date.setDate(1);
     date.setMonth(date.getMonth() - (total - index - 1));
     return {

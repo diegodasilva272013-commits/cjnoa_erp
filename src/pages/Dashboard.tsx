@@ -20,6 +20,7 @@ import { usePrevisionalStats } from '../hooks/usePrevisional';
 import ActivityFeed from '../components/ActivityFeed';
 import SmartAlerts from '../components/SmartAlerts';
 import { formatMoney } from '../lib/financeFormat';
+import { aggregateIngresosPorSocio } from '../lib/financeAnalytics';
 
 export default function Dashboard() {
   const { stats, loading } = useDashboardStats();
@@ -41,17 +42,15 @@ export default function Dashboard() {
     const firstDay = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
     const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().split('T')[0];
 
-    return socios.map(socio => {
-      const socioIngresos = ingresos.filter(ingreso => (
-        ingreso.socio_cobro === socio &&
-        ingreso.fecha >= firstDay &&
-        ingreso.fecha <= lastDay
-      ));
+    const monthIngresos = ingresos.filter(ingreso => ingreso.fecha >= firstDay && ingreso.fecha <= lastDay);
+    const aggregated = aggregateIngresosPorSocio(monthIngresos, socios);
 
+    return socios.map(socio => {
+      const totals = aggregated.get(socio);
       return {
         socio,
-        neto: socioIngresos.reduce((sum, ingreso) => sum + Number(ingreso.monto_cj_noa || 0), 0),
-        registros: socioIngresos.length,
+        neto: totals?.ingresoNeto || 0,
+        registros: totals?.registros || 0,
       };
     });
   }, [ingresos, socios]);

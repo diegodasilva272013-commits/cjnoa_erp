@@ -12,11 +12,12 @@ import { supabase } from '../lib/supabase';
 import { useToast } from '../context/ToastContext';
 import { exportToExcel } from '../lib/exportExcel';
 import { exportToPdf } from '../lib/exportPdf';
-import { buildIncomeOverview } from '../lib/financeAnalytics';
+import { buildIncomeOverview, aggregateIngresosPorSocio } from '../lib/financeAnalytics';
 import { formatMoney, pctChange } from '../lib/financeFormat';
 import { usePerfilMap } from '../hooks/usePerfiles';
 import { countCaseIncomeLedgerChanges } from '../lib/caseIncomeLedger';
 import { stripIncomeReference } from '../lib/financeRefs';
+import { resolveOperationalSocio, sameOperationalSocio } from '../lib/operationalSocios';
 
 export default function Ingresos() {
   const { ingresos, loading, refetch, syncWithCases, syncingCases } = useIngresos();
@@ -47,7 +48,7 @@ export default function Ingresos() {
   const filtered = useMemo(() => ingresos.filter(ingreso => {
     if (filtroFechaDesde && ingreso.fecha < filtroFechaDesde) return false;
     if (filtroFechaHasta && ingreso.fecha > filtroFechaHasta) return false;
-    if (filtroSocio && ingreso.socio_cobro !== filtroSocio) return false;
+    if (filtroSocio && !sameOperationalSocio(ingreso.socio_cobro, filtroSocio)) return false;
     if (filtroModalidad && ingreso.modalidad !== filtroModalidad) return false;
     if (filtroFuente === 'Captadora' && !ingreso.captadora_nombre) return false;
     if (filtroFuente === 'Directo' && ingreso.captadora_nombre) return false;
@@ -81,7 +82,7 @@ export default function Ingresos() {
       'Monto CJ NOA': item.monto_cj_noa,
       'Comision Captadora': item.comision_captadora,
       Captadora: item.captadora_nombre || '',
-      Socio: item.socio_cobro || '',
+      Socio: resolveOperationalSocio(item.socio_cobro) || '',
       Modalidad: item.modalidad || '',
       Notas: stripIncomeReference(item.notas) || '',
     }));
@@ -105,7 +106,7 @@ export default function Ingresos() {
         concepto: i.concepto || '',
         bruto: formatMoney(i.monto_total || 0),
         neto: formatMoney(i.monto_cj_noa || 0),
-        socio: i.socio_cobro || '',
+        socio: resolveOperationalSocio(i.socio_cobro) || '',
       })),
       summary: [
         { label: 'Total Registros', value: String(filtered.length) },
@@ -247,27 +248,26 @@ export default function Ingresos() {
         </div>
         <div className="mt-1 text-xs text-gray-500">Calculado automaticamente desde los datos cargados (manuales + importados).</div>
         <div className="mt-4 grid gap-3 sm:gap-4 grid-cols-1 sm:grid-cols-2 xl:grid-cols-4">
-          {socios.map(socio => {
-            const socioIngresos = filtered.filter(i => i.socio_cobro === socio);
-            const neto = socioIngresos.reduce((s, i) => s + Number(i.monto_cj_noa || 0), 0);
-            const bruto = socioIngresos.reduce((s, i) => s + Number(i.monto_total || 0), 0);
-            const comisiones = socioIngresos.reduce((s, i) => s + Number(i.comision_captadora || 0), 0);
-            const participacion = analytics.totals.netIncome > 0 ? (neto / analytics.totals.netIncome * 100).toFixed(1) : '0.0';
-            const clientes = new Set(socioIngresos.map(i => i.cliente_nombre?.toLowerCase().trim()).filter(Boolean)).size;
-            return (
-              <div key={socio} className="rounded-2xl border border-white/8 bg-white/[0.03] p-4">
-                <p className="text-sm font-semibold text-white">{socio}</p>
-                <div className="mt-3 space-y-1.5 text-sm text-gray-300">
-                  <div className="flex justify-between"><span>Neto</span><span className="font-semibold text-emerald-300">{formatMoney(neto)}</span></div>
-                  <div className="flex justify-between"><span>Bruto</span><span className="font-semibold text-white">{formatMoney(bruto)}</span></div>
-                  <div className="flex justify-between"><span>Comisiones</span><span className="font-semibold text-amber-300">{formatMoney(comisiones)}</span></div>
-                  <div className="flex justify-between"><span>Participacion</span><span className="font-semibold text-sky-300">{participacion}%</span></div>
-                  <div className="flex justify-between"><span>Clientes</span><span className="font-semibold text-gray-200">{clientes}</span></div>
-                  <div className="flex justify-between"><span>Registros</span><span className="font-semibold text-gray-400">{socioIngresos.length}</span></div>
+          {(() => {
+            const aggregated = aggregateIngresosPorSocio(filtered, socios);
+            return socios.map(socio => {
+              const totals = aggregated.get(socio) || { ingresoNeto: 0, ingresoBruto: 0, comisiones: 0, registros: 0, clientes: new Set<string>() };
+              const participacion = analytics.totals.netIncome > 0 ? (totals.ingresoNeto / analytics.totals.netIncome * 100).toFixed(1) : '0.0';
+              return (
+                <div key={socio} className="rounded-2xl border border-white/8 bg-white/[0.03] p-4">
+                  <p className="text-sm font-semibold text-white">{socio}</p>
+                  <div className="mt-3 space-y-1.5 text-sm text-gray-300">
+                    <div className="flex justify-between"><span>Neto</span><span className="font-semibold text-emerald-300">{formatMoney(totals.ingresoNeto)}</span></div>
+                    <div className="flex justify-between"><span>Bruto</span><span className="font-semibold text-white">{formatMoney(totals.ingresoBruto)}</span></div>
+                    <div className="flex justify-between"><span>Comisiones</span><span className="font-semibold text-amber-300">{formatMoney(totals.comisiones)}</span></div>
+                    <div className="flex justify-between"><span>Participacion</span><span className="font-semibold text-sky-300">{participacion}%</span></div>
+                    <div className="flex justify-between"><span>Clientes</span><span className="font-semibold text-gray-200">{totals.clientes.size}</span></div>
+                    <div className="flex justify-between"><span>Registros</span><span className="font-semibold text-gray-400">{totals.registros}</span></div>
+                  </div>
                 </div>
-              </div>
-            );
-          })}
+              );
+            });
+          })()}
         </div>
       </div>
 
@@ -414,7 +414,7 @@ export default function Ingresos() {
                       <span className="text-sm text-gray-600">-</span>
                     )}
                   </td>
-                  <td className={`hidden ${cp} text-sm text-gray-400 md:table-cell`}>{ingreso.socio_cobro || 'Sin asignar'}</td>
+                  <td className={`hidden ${cp} text-sm text-gray-400 md:table-cell`}>{resolveOperationalSocio(ingreso.socio_cobro) || 'Sin asignar'}</td>
                   <td className={`hidden ${cp} lg:table-cell`}>
                     <span className={`badge ${ingreso.modalidad === 'Efectivo' ? 'badge-green' : 'badge-blue'}`}>
                       {ingreso.modalidad || 'Sin definir'}
