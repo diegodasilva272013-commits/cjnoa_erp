@@ -26,7 +26,7 @@ export function useSocios() {
         const merged = sortOperationalSocios([
           ...SOCIOS,
           ...(data || []).map(p => p.nombre),
-        ]);
+        ]).filter(s => s !== 'CJ NOA'); // CJ NOA es el estudio, no un socio
         setSocios(merged);
       });
   }, []);

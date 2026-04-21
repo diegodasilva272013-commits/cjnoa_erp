@@ -392,7 +392,11 @@ export function buildRepartoOverview(
     distribution?.forEach(share => socioCandidates.push(share.socio));
   });
   filteredExpenses.forEach(e => socioCandidates.push(e.responsable));
-  const effectiveSocios = sortOperationalSocios(socioCandidates);
+  // "CJ NOA" es el estudio (admin = Rodrigo), NO un socio del reparto.
+  // Si aparece como responsable de egresos lo contamos en totalEgresos, pero nunca
+  // como tarjeta de socio: eso inflaba el denominador de la base y bajaba el monto
+  // a cobrar del resto.
+  const effectiveSocios = sortOperationalSocios(socioCandidates).filter(s => s !== 'CJ NOA');
 
   const totalIngresos = sumValues(filteredIngresos.map(i => Number(i.monto_cj_noa || 0)));
   const totalEgresos = sumValues(filteredExpenses.map(e => Number(e.monto || 0)));

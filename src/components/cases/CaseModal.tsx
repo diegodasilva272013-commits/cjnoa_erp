@@ -9,10 +9,12 @@ import { useDocumentos, uploadDocumento, deleteDocumento, downloadDocumento } fr
 import { useMovimientosCaso, addMovimiento, deleteMovimiento } from '../../hooks/useMovimientosCaso';
 import { useConfigEstudio } from '../../hooks/useConfigEstudio';
 import { createRecordatorio } from '../../hooks/useRecordatorios';
+import { usePermisos } from '../../hooks/usePermisos';
 import CopilotoBtn from '../CopilotoBtn';
 import { syncCaseIncomeLedger } from '../../lib/caseIncomeLedger';
 import {
   CasoCompleto, Cuota, SOCIOS, MATERIAS, ESTADOS_CASO,
+  SISTEMAS_JUDICIALES, PERSONERIAS, PRIORIDADES_CASO,
 } from '../../types/database';
 
 interface CaseModalProps {
@@ -40,6 +42,13 @@ interface FormData {
   pago_unico_monto: string;
   pago_unico_fecha: string;
   observaciones: string;
+  expediente: string;
+  radicado: string;
+  sistema: string;
+  personeria: string;
+  prioridad: string;
+  archivado: boolean;
+  url_drive: string;
 }
 
 const emptyForm: FormData = {
@@ -60,6 +69,13 @@ const emptyForm: FormData = {
   pago_unico_monto: '',
   pago_unico_fecha: '',
   observaciones: '',
+  expediente: '',
+  radicado: '',
+  sistema: '',
+  personeria: '',
+  prioridad: 'Sin prioridad',
+  archivado: false,
+  url_drive: '',
 };
 
 function getToday() {
@@ -70,6 +86,8 @@ export default function CaseModal({ open, onClose, caso, onSaved }: CaseModalPro
   const { user } = useAuth();
   const { showToast } = useToast();
   const { config } = useConfigEstudio();
+  const { permisos } = usePermisos();
+  const verHonorarios = permisos.ver_honorarios !== false;
   const [form, setForm] = useState<FormData>(emptyForm);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -113,6 +131,13 @@ export default function CaseModal({ open, onClose, caso, onSaved }: CaseModalPro
         pago_unico_monto: caso.pago_unico_monto?.toString() || '',
         pago_unico_fecha: caso.pago_unico_fecha || '',
         observaciones: caso.observaciones || '',
+        expediente: caso.expediente || '',
+        radicado: caso.radicado || '',
+        sistema: caso.sistema || '',
+        personeria: caso.personeria || '',
+        prioridad: caso.prioridad || 'Sin prioridad',
+        archivado: caso.archivado === true,
+        url_drive: caso.url_drive || '',
       });
     } else {
       setForm(emptyForm);
@@ -133,8 +158,8 @@ export default function CaseModal({ open, onClose, caso, onSaved }: CaseModalPro
     setLocalCuotas(cuotas);
   }, [cuotas]);
 
-  const update = (field: keyof FormData, value: string) =>
-    setForm(prev => ({ ...prev, [field]: value }));
+  const update = (field: keyof FormData, value: string | boolean) =>
+    setForm(prev => ({ ...prev, [field]: value } as FormData));
 
   const addCuota = () => {
     setLocalCuotas(prev => [...prev, {
@@ -206,6 +231,13 @@ export default function CaseModal({ open, onClose, caso, onSaved }: CaseModalPro
         pago_unico_fecha: form.modalidad_pago === 'Único' && form.pago_unico_pagado === 'si'
           ? form.pago_unico_fecha || null : null,
         observaciones: form.observaciones || null,
+        expediente: form.expediente.trim() || null,
+        radicado: form.radicado.trim() || null,
+        sistema: form.sistema || null,
+        personeria: form.personeria || null,
+        prioridad: form.prioridad || 'Sin prioridad',
+        archivado: !!form.archivado,
+        url_drive: form.url_drive.trim() || null,
         updated_by: user?.id,
       };
 
@@ -428,6 +460,77 @@ export default function CaseModal({ open, onClose, caso, onSaved }: CaseModalPro
           </div>
         </Section>
 
+        {/* Datos judiciales (spec ficha ultra completa) */}
+        <Section title="Datos Judiciales">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <Field label="Expediente">
+              <input
+                type="text"
+                value={form.expediente}
+                onChange={(e) => update('expediente', e.target.value)}
+                className="input-dark"
+                placeholder="Nº de expediente"
+              />
+            </Field>
+            <Field label="Radicado (juzgado)">
+              <input
+                type="text"
+                value={form.radicado}
+                onChange={(e) => update('radicado', e.target.value)}
+                className="input-dark"
+                placeholder="Ej: Juzgado Federal Nº2 Jujuy"
+              />
+            </Field>
+            <Field label="Sistema">
+              <select
+                value={form.sistema}
+                onChange={(e) => update('sistema', e.target.value)}
+                className="select-dark"
+              >
+                <option value="">Sin especificar</option>
+                {SISTEMAS_JUDICIALES.map(s => <option key={s} value={s}>{s}</option>)}
+              </select>
+            </Field>
+            <Field label="Personería">
+              <select
+                value={form.personeria}
+                onChange={(e) => update('personeria', e.target.value)}
+                className="select-dark"
+              >
+                <option value="">Sin especificar</option>
+                {PERSONERIAS.map(p => <option key={p} value={p}>{p}</option>)}
+              </select>
+            </Field>
+            <Field label="Prioridad">
+              <select
+                value={form.prioridad}
+                onChange={(e) => update('prioridad', e.target.value)}
+                className="select-dark"
+              >
+                {PRIORIDADES_CASO.map(p => <option key={p} value={p}>{p}</option>)}
+              </select>
+            </Field>
+            <Field label="URL Drive">
+              <input
+                type="url"
+                value={form.url_drive}
+                onChange={(e) => update('url_drive', e.target.value)}
+                className="input-dark"
+                placeholder="https://drive.google.com/..."
+              />
+            </Field>
+          </div>
+          <label className="flex items-center gap-2 mt-3 text-sm text-gray-400 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={form.archivado}
+              onChange={(e) => update('archivado', e.target.checked)}
+              className="rounded border-white/20 bg-white/5 text-emerald-500 focus:ring-emerald-500/30"
+            />
+            Archivar caso (queda oculto de la vista principal)
+          </label>
+        </Section>
+
         {/* Campos condicionales: Vino a consulta */}
         {form.estado === 'Vino a consulta' && (
           <Section title="Detalles de Consulta">
@@ -488,6 +591,7 @@ export default function CaseModal({ open, onClose, caso, onSaved }: CaseModalPro
         )}
 
         {/* Honorarios */}
+        {verHonorarios && (
         <Section title="Honorarios">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Field label="Monto acordado ($)">
@@ -621,6 +725,7 @@ export default function CaseModal({ open, onClose, caso, onSaved }: CaseModalPro
             </div>
           )}
         </Section>
+        )}
 
         {/* Observaciones */}
         <Section title="Observaciones">

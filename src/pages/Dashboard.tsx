@@ -17,6 +17,7 @@ import {
 import { useDashboardStats, useIngresos } from '../hooks/useFinances';
 import { useSocios } from '../hooks/useSocios';
 import { usePrevisionalStats } from '../hooks/usePrevisional';
+import { useNovedadesLogin } from '../hooks/useNovedadesLogin';
 import ActivityFeed from '../components/ActivityFeed';
 import SmartAlerts from '../components/SmartAlerts';
 import { formatMoney } from '../lib/financeFormat';
@@ -27,6 +28,7 @@ export default function Dashboard() {
   const { ingresos } = useIngresos();
   const socios = useSocios();
   const { stats: prevStats, loading: prevLoading } = usePrevisionalStats();
+  const novedades = useNovedadesLogin();
 
   const materiaColors: Record<string, string> = {
     'Jubilaciones': 'from-blue-500 to-blue-600',
@@ -70,6 +72,47 @@ export default function Dashboard() {
         <h1 className="text-xl sm:text-2xl font-bold text-white">Panel de Control</h1>
         <p className="text-gray-500 text-sm mt-1">Resumen general del estudio</p>
       </div>
+
+      {/* Novedades al iniciar sesion (spec: audiencias hoy, tareas pendientes/vencidas) */}
+      {!novedades.loading && (novedades.audienciasHoy.length > 0 || novedades.tareasVencidas > 0 || novedades.tareasHoy > 0 || novedades.tareasSinAvanzar > 0) && (
+        <div className="glass-card p-5 border border-amber-500/20 bg-amber-500/[0.03] animate-slide-up">
+          <div className="flex items-center gap-2 mb-4">
+            <CalendarDays className="w-4 h-4 text-amber-400" />
+            <h3 className="text-sm font-semibold text-white">Novedades de hoy</h3>
+          </div>
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
+            <div className="p-3 rounded-xl bg-white/[0.02] border border-white/5">
+              <p className="text-[10px] uppercase tracking-wider text-gray-500">Audiencias hoy</p>
+              <p className="text-xl font-bold text-white mt-1">{novedades.audienciasHoy.length}</p>
+            </div>
+            <div className="p-3 rounded-xl bg-white/[0.02] border border-white/5">
+              <p className="text-[10px] uppercase tracking-wider text-gray-500">Tareas vencen hoy</p>
+              <p className="text-xl font-bold text-amber-400 mt-1">{novedades.tareasHoy}</p>
+            </div>
+            <div className="p-3 rounded-xl bg-white/[0.02] border border-white/5">
+              <p className="text-[10px] uppercase tracking-wider text-gray-500">Tareas vencidas</p>
+              <p className="text-xl font-bold text-red-400 mt-1">{novedades.tareasVencidas}</p>
+            </div>
+            <div className="p-3 rounded-xl bg-white/[0.02] border border-white/5">
+              <p className="text-[10px] uppercase tracking-wider text-gray-500">Sin avanzar &gt;2d</p>
+              <p className="text-xl font-bold text-orange-400 mt-1">{novedades.tareasSinAvanzar}</p>
+            </div>
+          </div>
+          {novedades.audienciasHoy.length > 0 && (
+            <div className="space-y-1.5">
+              <p className="text-[10px] uppercase tracking-wider text-gray-500 mb-2">Audiencias del dia</p>
+              {novedades.audienciasHoy.map(a => (
+                <div key={a.id} className="flex items-center gap-3 p-2.5 rounded-lg bg-white/[0.02] border border-white/5 text-xs">
+                  <span className="text-white font-mono">{a.hora || '—'}</span>
+                  <span className="text-gray-300">{a.cliente_nombre || 'Sin cliente'}</span>
+                  {a.juzgado && <span className="text-gray-500">· {a.juzgado}</span>}
+                  {a.tipo && <span className="text-gray-600">· {a.tipo}</span>}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Main stat cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">

@@ -12,12 +12,14 @@ const rolIcons: Record<Rol, typeof Shield> = {
   admin: ShieldCheck,
   socio: Shield,
   empleado: User,
+  procurador: User,
 };
 
 const rolColors: Record<Rol, string> = {
   admin: 'text-purple-400 bg-purple-500/10 border-purple-500/20',
   socio: 'text-blue-400 bg-blue-500/10 border-blue-500/20',
   empleado: 'text-gray-400 bg-gray-500/10 border-gray-500/20',
+  procurador: 'text-amber-400 bg-amber-500/10 border-amber-500/20',
 };
 
 function MiembroAvatar({ path, fallback, isActivo }: { path: string | null | undefined; fallback: React.ReactNode; isActivo: boolean }) {

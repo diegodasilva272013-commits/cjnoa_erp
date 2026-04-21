@@ -30,6 +30,16 @@ export default function SmartAlerts() {
         supabase.from('cuotas').select('id, fecha').eq('estado', 'Pendiente').gte('fecha', now.toISOString().split('T')[0]).lte('fecha', new Date(now.getTime() + 7 * 86400000).toISOString().split('T')[0]),
       ]);
 
+      // Spec alertas: tareas sin avanzar >2d, tareas acumuladas, cargos cerca sin tarea
+      const hace2 = new Date(now.getTime() - 2 * 86400000).toISOString();
+      const hoyStr = now.toISOString().split('T')[0];
+      const in3 = new Date(now.getTime() + 3 * 86400000).toISOString().split('T')[0];
+      const [tareasStale, tareasPend, cargosRes] = await Promise.all([
+        supabase.from('tareas_previsional').select('id').neq('estado', 'completada').lt('updated_at', hace2),
+        supabase.from('tareas_previsional').select('id').eq('estado', 'pendiente'),
+        supabase.from('tareas_previsional').select('id,cargo_hora,cargo_hora_fecha').neq('estado', 'completada').not('cargo_hora_fecha', 'is', null).gte('cargo_hora_fecha', hoyStr).lte('cargo_hora_fecha', in3),
+      ]);
+
       const curIngTotal = (curIng.data || []).reduce((s, r) => s + Number(r.monto_cj_noa || 0), 0);
       const prevIngTotal = (prevIng.data || []).reduce((s, r) => s + Number(r.monto_cj_noa || 0), 0);
       const curEgrTotal = (curEgr.data || []).reduce((s, r) => s + Number(r.monto || 0), 0);
@@ -109,6 +119,35 @@ export default function SmartAlerts() {
           icon: <Zap className="w-4 h-4" />,
           message: `Ritmo de cobranza por encima de lo esperado para este punto del mes`,
           type: 'positive',
+        });
+      }
+
+      // Tareas acumuladas / sin avanzar / cargos proximos (spec)
+      const stale = tareasStale.data?.length || 0;
+      const pend = tareasPend.data?.length || 0;
+      const cargos = cargosRes.data?.length || 0;
+      if (stale > 0) {
+        result.push({
+          id: 'tareas-stale',
+          icon: <AlertTriangle className="w-4 h-4" />,
+          message: `${stale} tarea${stale > 1 ? 's' : ''} sin avanzar hace mas de 2 dias`,
+          type: 'warning',
+        });
+      }
+      if (pend >= 10) {
+        result.push({
+          id: 'tareas-acum',
+          icon: <AlertTriangle className="w-4 h-4" />,
+          message: `${pend} tareas pendientes acumuladas — priorizar esta semana`,
+          type: 'warning',
+        });
+      }
+      if (cargos > 0) {
+        result.push({
+          id: 'cargos-cerca',
+          icon: <Calendar className="w-4 h-4" />,
+          message: `${cargos} cargo${cargos > 1 ? 's' : ''} de hora vence${cargos > 1 ? 'n' : ''} en los proximos 3 dias`,
+          type: 'info',
         });
       }
 
