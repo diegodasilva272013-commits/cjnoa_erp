@@ -8,6 +8,7 @@ import { useCuotas } from '../../hooks/useCases';
 import { useDocumentos, uploadDocumento, deleteDocumento, downloadDocumento } from '../../hooks/useDocumentos';
 import { useMovimientosCaso, addMovimiento, deleteMovimiento } from '../../hooks/useMovimientosCaso';
 import { useConfigEstudio } from '../../hooks/useConfigEstudio';
+import HistorialCasoPanel from './HistorialCasoPanel';
 import { createRecordatorio } from '../../hooks/useRecordatorios';
 import { usePermisos } from '../../hooks/usePermisos';
 import CopilotoBtn from '../CopilotoBtn';
@@ -1115,6 +1116,13 @@ export default function CaseModal({ open, onClose, caso, onSaved }: CaseModalPro
             </Section>
           );
         })()}
+
+        {/* Historial inmutable (spec seccion 4.2) - solo en edicion */}
+        {isEditing && caso && (
+          <Section title="Historial y Resumen">
+            <HistorialCasoPanel caso={caso} />
+          </Section>
+        )}
 
         {/* Documentos (solo en edición) */}
         {isEditing && caso && (

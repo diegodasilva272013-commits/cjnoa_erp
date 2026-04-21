@@ -6,7 +6,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) return res.status(500).json({ error: 'OPENAI_API_KEY no configurada' });
 
-  const { tipo, datos } = req.body as { tipo: 'analizar_caso' | 'analizar_previsional' | 'calcular_score'; datos: Record<string, unknown> };
+  const { tipo, datos } = req.body as { tipo: 'analizar_caso' | 'analizar_previsional' | 'calcular_score' | 'resumen_caso'; datos: Record<string, unknown> };
 
   let prompt = '';
 
@@ -59,6 +59,36 @@ Criterios a evaluar:
 - Pipeline actual: ${datos.pipeline}
 
 Respondé SOLO un JSON con: { "score": número_entre_0_y_100, "justificacion": "texto breve de 1-2 oraciones" }`;
+  } else if (tipo === 'resumen_caso') {
+    prompt = `Sos un asistente legal argentino. Generá un resumen ejecutivo del caso para que cualquier abogado del estudio se ponga al día sin consultar al procurador.
+
+Datos generales del caso:
+- Cliente: ${datos.cliente_nombre}
+- Expediente: ${datos.expediente || 'sin número'}
+- Radicado: ${datos.radicado || 'no informado'}
+- Materia: ${datos.materia}
+- Sistema: ${datos.sistema || 'no informado'}
+- Personería: ${datos.personeria || 'no informado'}
+- Estado: ${datos.estado}
+- Prioridad: ${datos.prioridad}
+- Archivado: ${datos.archivado ? 'sí' : 'no'}
+
+Historial cronológico de avances (más reciente primero):
+${JSON.stringify(datos.historial || [], null, 2)}
+
+Tareas activas vinculadas:
+${JSON.stringify(datos.tareas || [], null, 2)}
+
+Próximas audiencias:
+${JSON.stringify(datos.audiencias || [], null, 2)}
+
+Respondé en español argentino, formato JSON con claves:
+{
+  "resumen": "2-4 oraciones del estado actual",
+  "ultimos_avances": ["punto 1", "punto 2", "punto 3"],
+  "proximos_pasos": ["acción 1", "acción 2"],
+  "alertas": ["alerta 1 si la hay", ...]
+}`;
   }
 
   if (!prompt) return res.status(400).json({ error: 'Tipo no válido' });

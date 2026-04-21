@@ -15,6 +15,8 @@ import {
   PieChart,
   UserCheck,
   Activity,
+  Gavel,
+  Wallet,
 } from 'lucide-react';
 import { usePermisos } from '../hooks/usePermisos';
 import { useAuth } from '../context/AuthContext';
@@ -91,6 +93,26 @@ export default function Sidebar({ open, onClose }: SidebarProps) {
             <Users className="w-5 h-5" />
             Casos
           </NavLink>
+
+          {/* Tareas (spec seccion 5) - visible para todos */}
+          <NavLink to="/tareas" onClick={onClose} className={({ isActive }) => linkClass(isActive)}>
+            <ListTodo className="w-5 h-5" />
+            Tareas
+          </NavLink>
+
+          {/* Audiencias (spec seccion 6) - visible para todos */}
+          <NavLink to="/audiencias" onClick={onClose} className={({ isActive }) => linkClass(isActive)}>
+            <Gavel className="w-5 h-5" />
+            Audiencias
+          </NavLink>
+
+          {/* Honorarios y Cobros (spec seccion 8) - oculto a procurador */}
+          {permisos.honorarios && (
+            <NavLink to="/honorarios" onClick={onClose} className={({ isActive }) => linkClass(isActive)}>
+              <Wallet className="w-5 h-5" />
+              Honorarios y Cobros
+            </NavLink>
+          )}
 
           {/* Finanzas - visible para admin y socio */}
           {permisos.finanzas && (

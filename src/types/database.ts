@@ -7,6 +7,8 @@ export interface PermisosUsuario {
   equipo: boolean;
   agenda: boolean;
   previsional: boolean;
+  /** Acceso al modulo Honorarios y Cobros. Spec seccion 8: oculto a procurador. */
+  honorarios: boolean;
   /** Ver montos de honorarios en la ficha de caso. Spec: Procurador NO ve honorarios. */
   ver_honorarios: boolean;
 }
@@ -29,10 +31,10 @@ export const ROLES: { value: Rol; label: string; description: string }[] = [
 ];
 
 export const PERMISOS_DEFAULT: Record<Rol, PermisosUsuario> = {
-  admin:     { dashboard: true,  casos: true, finanzas: true,  equipo: true,  agenda: true, previsional: true,  ver_honorarios: true  },
-  socio:     { dashboard: true,  casos: true, finanzas: true,  equipo: false, agenda: true, previsional: true,  ver_honorarios: true  },
-  empleado:  { dashboard: false, casos: true, finanzas: false, equipo: false, agenda: true, previsional: true,  ver_honorarios: false },
-  procurador:{ dashboard: false, casos: true, finanzas: false, equipo: false, agenda: true, previsional: true,  ver_honorarios: false },
+  admin:     { dashboard: true,  casos: true, finanzas: true,  equipo: true,  agenda: true, previsional: true,  honorarios: true,  ver_honorarios: true  },
+  socio:     { dashboard: true,  casos: true, finanzas: true,  equipo: false, agenda: true, previsional: true,  honorarios: true,  ver_honorarios: true  },
+  empleado:  { dashboard: false, casos: true, finanzas: false, equipo: false, agenda: true, previsional: true,  honorarios: true,  ver_honorarios: false },
+  procurador:{ dashboard: false, casos: true, finanzas: false, equipo: false, agenda: true, previsional: true,  honorarios: false, ver_honorarios: false },
 };
 
 export const MODULOS: { key: keyof PermisosUsuario; label: string; description: string }[] = [
@@ -42,6 +44,7 @@ export const MODULOS: { key: keyof PermisosUsuario; label: string; description: 
   { key: 'equipo', label: 'Equipo', description: 'ABM de colaboradores y permisos' },
   { key: 'agenda', label: 'Agenda', description: 'Recordatorios, notas de voz y calendario' },
   { key: 'previsional', label: 'Previsional', description: 'Fichas, seguimiento y tareas previsionales' },
+  { key: 'honorarios', label: 'Honorarios y Cobros', description: 'Modulo de honorarios (oculto a procurador)' },
   { key: 'ver_honorarios', label: 'Ver Honorarios', description: 'Permite ver montos de honorarios en casos' },
 ];
 
@@ -242,4 +245,107 @@ export interface FilterState {
   soloCuotasVencidas: boolean;
   fechaDesde: string;
   fechaHasta: string;
+}
+
+// ============================================
+// SPEC v1.0 - Modulos top-level (Tareas / Audiencias / Historial / Honorarios)
+// ============================================
+
+export type EstadoTareaGeneral = 'en_curso' | 'completada';
+export type PrioridadTareaGeneral = 'alta' | 'media' | 'sin_prioridad';
+
+export const ESTADO_TAREA_GENERAL_LABELS: Record<EstadoTareaGeneral, string> = {
+  en_curso: 'En curso',
+  completada: 'Completada',
+};
+export const PRIORIDAD_TAREA_GENERAL_LABELS: Record<PrioridadTareaGeneral, string> = {
+  alta: 'Alta',
+  media: 'Media',
+  sin_prioridad: 'Sin prioridad',
+};
+export const PRIORIDAD_TAREA_GENERAL_COLORS: Record<PrioridadTareaGeneral, string> = {
+  alta: 'bg-red-500/10 text-red-400 border-red-500/20',
+  media: 'bg-amber-500/10 text-amber-400 border-amber-500/20',
+  sin_prioridad: 'bg-gray-500/10 text-gray-400 border-gray-500/20',
+};
+
+export interface Tarea {
+  id: string;
+  titulo: string;
+  caso_id: string | null;
+  descripcion: string | null;
+  culminacion: string | null;
+  cargo_hora: string | null;
+  estado: EstadoTareaGeneral;
+  prioridad: PrioridadTareaGeneral;
+  fecha_limite: string | null;
+  responsable_id: string | null;
+  observaciones_demora: string | null;
+  adjunto_path: string | null;
+  adjunto_nombre: string | null;
+  archivada: boolean;
+  fecha_completada: string | null;
+  created_at: string;
+  updated_at: string;
+  created_by: string | null;
+  updated_by: string | null;
+}
+export interface TareaCompleta extends Tarea {
+  cliente_nombre: string | null;
+  expediente: string | null;
+  responsable_nombre: string | null;
+  creado_por_nombre: string | null;
+}
+
+export interface AudienciaGeneral {
+  id: string;
+  caso_id: string | null;
+  fecha: string;
+  juzgado: string | null;
+  tipo: string | null;
+  abogado_id: string | null;
+  notas: string | null;
+  realizada: boolean;
+  created_at: string;
+  updated_at: string;
+  created_by: string | null;
+}
+export interface AudienciaGeneralCompleta extends AudienciaGeneral {
+  cliente_nombre: string | null;
+  abogado_nombre: string | null;
+}
+
+export interface HistorialCaso {
+  id: string;
+  caso_id: string;
+  titulo: string;
+  descripcion: string | null;
+  tarea_siguiente: string | null;
+  created_at: string;
+  created_by: string | null;
+}
+export interface HistorialCasoCompleto extends HistorialCaso {
+  autor_nombre: string | null;
+}
+
+export type EstadoCobroHonorario = 'pendiente' | 'parcial' | 'cobrado';
+export const ESTADO_COBRO_HONORARIO_LABELS: Record<EstadoCobroHonorario, string> = {
+  pendiente: 'Pendiente',
+  parcial: 'Cobrado parcialmente',
+  cobrado: 'Cobrado',
+};
+export interface Honorario {
+  id: string;
+  caso_id: string | null;
+  concepto: string;
+  monto: number;
+  estado_cobro: EstadoCobroHonorario;
+  fecha: string;
+  notas: string | null;
+  created_at: string;
+  updated_at: string;
+  created_by: string | null;
+}
+export interface HonorarioCompleto extends Honorario {
+  cliente_nombre: string | null;
 }

@@ -73,45 +73,104 @@ export default function Dashboard() {
         <p className="text-gray-500 text-sm mt-1">Resumen general del estudio</p>
       </div>
 
-      {/* Novedades al iniciar sesion (spec: audiencias hoy, tareas pendientes/vencidas) */}
-      {!novedades.loading && (novedades.audienciasHoy.length > 0 || novedades.tareasVencidas > 0 || novedades.tareasHoy > 0 || novedades.tareasSinAvanzar > 0) && (
-        <div className="glass-card p-5 border border-amber-500/20 bg-amber-500/[0.03] animate-slide-up">
-          <div className="flex items-center gap-2 mb-4">
-            <CalendarDays className="w-4 h-4 text-amber-400" />
-            <h3 className="text-sm font-semibold text-white">Novedades de hoy</h3>
-          </div>
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
-            <div className="p-3 rounded-xl bg-white/[0.02] border border-white/5">
-              <p className="text-[10px] uppercase tracking-wider text-gray-500">Audiencias hoy</p>
-              <p className="text-xl font-bold text-white mt-1">{novedades.audienciasHoy.length}</p>
+      {/* Novedades al iniciar sesion (spec seccion 7.1) */}
+      {!novedades.loading && (
+        (novedades.audienciasHoy.length + novedades.proximasAudiencias.length +
+          novedades.tareasVencidas.length + novedades.tareasHoy.length +
+          novedades.tareasPendientes.length + novedades.cargosHoraSemana.length) > 0 ? (
+          <div className="glass-card p-5 border border-amber-500/20 bg-amber-500/[0.03] animate-slide-up space-y-4">
+            <div className="flex items-center gap-2">
+              <CalendarDays className="w-4 h-4 text-amber-400" />
+              <h3 className="text-sm font-semibold text-white">Novedades del día</h3>
             </div>
-            <div className="p-3 rounded-xl bg-white/[0.02] border border-white/5">
-              <p className="text-[10px] uppercase tracking-wider text-gray-500">Tareas vencen hoy</p>
-              <p className="text-xl font-bold text-amber-400 mt-1">{novedades.tareasHoy}</p>
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+              <div className="p-3 rounded-xl bg-white/[0.02] border border-white/5">
+                <p className="text-[10px] uppercase tracking-wider text-gray-500">Audiencias hoy</p>
+                <p className="text-xl font-bold text-white mt-1">{novedades.audienciasHoy.length}</p>
+              </div>
+              <div className="p-3 rounded-xl bg-white/[0.02] border border-white/5">
+                <p className="text-[10px] uppercase tracking-wider text-gray-500">Tareas vencen hoy</p>
+                <p className="text-xl font-bold text-amber-400 mt-1">{novedades.tareasHoy.length}</p>
+              </div>
+              <div className="p-3 rounded-xl bg-white/[0.02] border border-white/5">
+                <p className="text-[10px] uppercase tracking-wider text-gray-500">Tareas vencidas</p>
+                <p className="text-xl font-bold text-red-400 mt-1">{novedades.tareasVencidas.length}</p>
+              </div>
+              <div className="p-3 rounded-xl bg-white/[0.02] border border-white/5">
+                <p className="text-[10px] uppercase tracking-wider text-gray-500">Sin avanzar &gt;2d</p>
+                <p className="text-xl font-bold text-orange-400 mt-1">{novedades.tareasSinAvanzar}</p>
+              </div>
             </div>
-            <div className="p-3 rounded-xl bg-white/[0.02] border border-white/5">
-              <p className="text-[10px] uppercase tracking-wider text-gray-500">Tareas vencidas</p>
-              <p className="text-xl font-bold text-red-400 mt-1">{novedades.tareasVencidas}</p>
-            </div>
-            <div className="p-3 rounded-xl bg-white/[0.02] border border-white/5">
-              <p className="text-[10px] uppercase tracking-wider text-gray-500">Sin avanzar &gt;2d</p>
-              <p className="text-xl font-bold text-orange-400 mt-1">{novedades.tareasSinAvanzar}</p>
-            </div>
-          </div>
-          {novedades.audienciasHoy.length > 0 && (
-            <div className="space-y-1.5">
-              <p className="text-[10px] uppercase tracking-wider text-gray-500 mb-2">Audiencias del dia</p>
-              {novedades.audienciasHoy.map(a => (
-                <div key={a.id} className="flex items-center gap-3 p-2.5 rounded-lg bg-white/[0.02] border border-white/5 text-xs">
-                  <span className="text-white font-mono">{a.hora || '—'}</span>
-                  <span className="text-gray-300">{a.cliente_nombre || 'Sin cliente'}</span>
-                  {a.juzgado && <span className="text-gray-500">· {a.juzgado}</span>}
-                  {a.tipo && <span className="text-gray-600">· {a.tipo}</span>}
+
+            {novedades.audienciasHoy.length > 0 && (
+              <div>
+                <p className="text-[10px] uppercase tracking-wider text-gray-500 mb-2">Audiencias del día</p>
+                <div className="space-y-1.5">
+                  {novedades.audienciasHoy.map(a => (
+                    <div key={a.id} className="flex items-center gap-3 p-2.5 rounded-lg bg-white/[0.02] border border-white/5 text-xs">
+                      <span className="text-white font-mono">{new Date(a.fecha).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}</span>
+                      <span className="text-gray-300">{a.cliente_nombre || 'Sin cliente'}</span>
+                      {a.juzgado && <span className="text-gray-500">· {a.juzgado}</span>}
+                      {a.tipo && <span className="text-gray-600">· {a.tipo}</span>}
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
-          )}
-        </div>
+              </div>
+            )}
+
+            {novedades.proximasAudiencias.length > 0 && (
+              <div>
+                <p className="text-[10px] uppercase tracking-wider text-gray-500 mb-2">Próximas audiencias (7 días)</p>
+                <div className="space-y-1.5">
+                  {novedades.proximasAudiencias.slice(0, 5).map(a => (
+                    <div key={a.id} className="flex items-center gap-3 p-2.5 rounded-lg bg-white/[0.02] border border-white/5 text-xs">
+                      <span className="text-gray-300 font-mono">{new Date(a.fecha).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit' })} {new Date(a.fecha).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}</span>
+                      <span className="text-gray-300">{a.cliente_nombre || 'Sin cliente'}</span>
+                      {a.juzgado && <span className="text-gray-500">· {a.juzgado}</span>}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {novedades.cargosHoraSemana.length > 0 && (
+              <div>
+                <p className="text-[10px] uppercase tracking-wider text-amber-500 mb-2">Cargos de hora vigentes</p>
+                <div className="space-y-1.5">
+                  {novedades.cargosHoraSemana.slice(0, 5).map(t => (
+                    <div key={t.id} className="flex items-center gap-3 p-2.5 rounded-lg bg-amber-500/[0.04] border border-amber-500/10 text-xs">
+                      <span className="text-amber-300">⏰ {t.cargo_hora}</span>
+                      <span className="text-gray-300">{t.titulo}</span>
+                      {t.cliente_nombre && <span className="text-gray-500">· {t.cliente_nombre}</span>}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {novedades.tareasPendientes.length > 0 && (
+              <div>
+                <p className="text-[10px] uppercase tracking-wider text-gray-500 mb-2">Tareas pendientes (por prioridad)</p>
+                <div className="space-y-1">
+                  {novedades.tareasPendientes.map(t => (
+                    <div key={t.id} className="flex items-center gap-3 p-2 rounded-lg bg-white/[0.02] border border-white/5 text-xs">
+                      <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
+                        t.prioridad === 'alta' ? 'bg-red-500' : t.prioridad === 'media' ? 'bg-amber-500' : 'bg-gray-500'
+                      }`} />
+                      <span className="text-gray-200 flex-1 truncate">{t.titulo}</span>
+                      {t.cliente_nombre && <span className="text-gray-600 truncate hidden sm:inline">{t.cliente_nombre}</span>}
+                      {t.fecha_limite && <span className="text-gray-500 flex-shrink-0">{new Date(t.fecha_limite).toLocaleDateString('es-AR')}</span>}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="glass-card p-4 text-center text-sm text-gray-500 animate-slide-up">
+            No hay cargos de hora ni audiencias importantes esta semana.
+          </div>
+        )
       )}
 
       {/* Main stat cards */}
