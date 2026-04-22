@@ -89,11 +89,19 @@ export default function Sidebar({ open, onClose }: SidebarProps) {
             </NavLink>
           )}
 
-          {/* Casos - visible para todos */}
-          <NavLink to="/casos" onClick={onClose} className={({ isActive }) => linkClass(isActive)}>
+          {/* Casos - TRABAJO: visible para todos */}
+          <NavLink to="/casos-trabajo" onClick={onClose} className={({ isActive }) => linkClass(isActive || location.pathname === '/casos')}>
             <Users className="w-5 h-5" />
-            Casos
+            Casos — Trabajo
           </NavLink>
+
+          {/* Casos - PAGOS: solo socios */}
+          {perfil?.rol === 'socio' && (
+            <NavLink to="/casos-pagos" onClick={onClose} className={({ isActive }) => linkClass(isActive)}>
+              <DollarSign className="w-5 h-5" />
+              Casos — Pagos
+            </NavLink>
+          )}
 
           {/* Tareas (spec seccion 5) - visible para todos */}
           <NavLink to="/tareas" onClick={onClose} className={({ isActive }) => linkClass(isActive)}>

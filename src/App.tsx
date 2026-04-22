@@ -7,6 +7,7 @@ const Layout = lazy(() => import('./components/Layout'));
 const Login = lazy(() => import('./pages/Login'));
 const Dashboard = lazy(() => import('./pages/Dashboard'));
 const Cases = lazy(() => import('./pages/Cases'));
+const CasosPagos = lazy(() => import('./pages/CasosPagos'));
 const Ingresos = lazy(() => import('./pages/Ingresos'));
 const Egresos = lazy(() => import('./pages/Egresos'));
 const FlujoCaja = lazy(() => import('./pages/FlujoCaja'));
@@ -69,6 +70,8 @@ export default function App() {
         <Route element={<Layout />}>
           <Route path="/" element={<ProtectedRoute modulo="dashboard"><Dashboard /></ProtectedRoute>} />
           <Route path="/casos" element={<Cases />} />
+          <Route path="/casos-trabajo" element={<Cases />} />
+          <Route path="/casos-pagos" element={<CasosPagos />} />
           <Route path="/tareas" element={<Tareas />} />
           <Route path="/audiencias" element={<Audiencias />} />
           <Route path="/cargos-hora" element={<CargosHora />} />

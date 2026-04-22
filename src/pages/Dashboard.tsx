@@ -296,30 +296,35 @@ export default function Dashboard() {
               color="text-red-400 bg-red-500/10"
               label="Cuotas vencidas"
               value={stats.cuotasVencidas}
+              to="/honorarios"
             />
             <AlertItem
               icon={<Receipt className="w-4 h-4" />}
               color="text-yellow-400 bg-yellow-500/10"
               label="Sin pagar consulta"
               value={stats.sinPagarConsulta}
+              to="/casos"
             />
             <AlertItem
               icon={<Star className="w-4 h-4" />}
               color="text-purple-400 bg-purple-500/10"
               label="Casos muy interesantes en consulta"
               value={stats.muyInteresantes}
+              to="/casos"
             />
             <AlertItem
               icon={<UserPlus className="w-4 h-4" />}
               color="text-blue-400 bg-blue-500/10"
               label="Nuevos clientes (7 días)"
               value={stats.nuevosClientes7d}
+              to="/fichas-clientes"
             />
             <AlertItem
               icon={<Wallet className="w-4 h-4" />}
               color="text-orange-400 bg-orange-500/10"
               label="Casos con fondos bajos"
               value={stats.casosFondosBajos}
+              to="/flujo-caja"
             />
           </div>
         </div>
@@ -332,7 +337,7 @@ export default function Dashboard() {
           Resumen Financiero del Mes
         </h3>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
-          <div className="flex items-center gap-3 p-4 bg-white/[0.02] rounded-xl border border-white/5 hover:bg-white/[0.05] hover:border-white/10 transition-all duration-200">
+          <Link to="/ingresos" className="flex items-center gap-3 p-4 bg-white/[0.02] rounded-xl border border-white/5 hover:bg-white/[0.05] hover:border-white/10 transition-all duration-200">
             <div className="p-2 bg-emerald-500/10 rounded-lg">
               <ArrowUpRight className="w-4 h-4 text-emerald-400" />
             </div>
@@ -340,8 +345,8 @@ export default function Dashboard() {
               <p className="text-xs text-gray-500">Ingresos CJ NOA</p>
               <p className="text-lg font-bold text-emerald-400 count-up">{formatMoney(stats.ingresosMes)}</p>
             </div>
-          </div>
-          <div className="flex items-center gap-3 p-4 bg-white/[0.02] rounded-xl border border-white/5 hover:bg-white/[0.05] hover:border-white/10 transition-all duration-200">
+          </Link>
+          <Link to="/egresos" className="flex items-center gap-3 p-4 bg-white/[0.02] rounded-xl border border-white/5 hover:bg-white/[0.05] hover:border-white/10 transition-all duration-200">
             <div className="p-2 bg-red-500/10 rounded-lg">
               <ArrowDownRight className="w-4 h-4 text-red-400" />
             </div>
@@ -349,8 +354,8 @@ export default function Dashboard() {
               <p className="text-xs text-gray-500">Egresos</p>
               <p className="text-lg font-bold text-red-400 count-up">{formatMoney(stats.egresosMes)}</p>
             </div>
-          </div>
-          <div className="flex items-center gap-3 p-4 bg-white/[0.02] rounded-xl border border-white/5 hover:bg-white/[0.05] hover:border-white/10 transition-all duration-200">
+          </Link>
+          <Link to="/flujo-caja" className="flex items-center gap-3 p-4 bg-white/[0.02] rounded-xl border border-white/5 hover:bg-white/[0.05] hover:border-white/10 transition-all duration-200">
             <div className={`p-2 rounded-lg ${stats.flujoNeto >= 0 ? 'bg-emerald-500/10' : 'bg-red-500/10'}`}>
               <TrendingUp className={`w-4 h-4 ${stats.flujoNeto >= 0 ? 'text-emerald-400' : 'text-red-400'}`} />
             </div>
@@ -360,7 +365,7 @@ export default function Dashboard() {
                 {stats.flujoNeto >= 0 ? '+' : ''}{formatMoney(stats.flujoNeto)}
               </p>
             </div>
-          </div>
+          </Link>
         </div>
       </div>
 
@@ -449,10 +454,10 @@ export default function Dashboard() {
   );
 }
 
-function AlertItem({ icon, color, label, value }: { icon: React.ReactNode; color: string; label: string; value: number }) {
+function AlertItem({ icon, color, label, value, to }: { icon: React.ReactNode; color: string; label: string; value: number; to?: string }) {
   const [textColor, bgColor] = color.split(' ');
-  return (
-    <div className="flex items-center justify-between p-3 bg-white/[0.02] rounded-xl border border-white/5 hover:bg-white/[0.05] hover:border-white/10 transition-all duration-200 animate-slide-right">
+  const content = (
+    <>
       <div className="flex items-center gap-3">
         <div className={`p-2 rounded-lg ${bgColor}`}>
           <span className={textColor}>{icon}</span>
@@ -460,8 +465,13 @@ function AlertItem({ icon, color, label, value }: { icon: React.ReactNode; color
         <span className="text-sm text-gray-300">{label}</span>
       </div>
       <span className={`text-lg font-bold ${textColor} count-up`}>{value}</span>
-    </div>
+    </>
   );
+  const className = "flex items-center justify-between p-3 bg-white/[0.02] rounded-xl border border-white/5 hover:bg-white/[0.05] hover:border-white/10 transition-all duration-200 animate-slide-right";
+  if (to) {
+    return <Link to={to} className={className}>{content}</Link>;
+  }
+  return <div className={className}>{content}</div>;
 }
 
 function NotificationsBanner() {
