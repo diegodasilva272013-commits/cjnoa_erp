@@ -69,7 +69,7 @@ export default function App() {
       <Routes>
         <Route element={<Layout />}>
           <Route path="/" element={<ProtectedRoute modulo="dashboard"><Dashboard /></ProtectedRoute>} />
-          <Route path="/casos" element={<Cases />} />
+          <Route path="/casos" element={<Navigate to="/casos-trabajo" replace />} />
           <Route path="/casos-trabajo" element={<Cases />} />
           <Route path="/casos-pagos" element={<CasosPagos />} />
           <Route path="/tareas" element={<Tareas />} />

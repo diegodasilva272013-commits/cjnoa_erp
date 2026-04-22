@@ -89,19 +89,25 @@ export default function Sidebar({ open, onClose }: SidebarProps) {
             </NavLink>
           )}
 
-          {/* Casos - TRABAJO: visible para todos */}
-          <NavLink to="/casos-trabajo" onClick={onClose} className={({ isActive }) => linkClass(isActive || location.pathname === '/casos')}>
-            <Users className="w-5 h-5" />
-            Casos — Trabajo
-          </NavLink>
-
-          {/* Casos - PAGOS: solo socios */}
-          {perfil?.rol === 'socio' && (
-            <NavLink to="/casos-pagos" onClick={onClose} className={({ isActive }) => linkClass(isActive)}>
-              <DollarSign className="w-5 h-5" />
-              Casos — Pagos
+          {/* === CASOS (grupo) === */}
+          <div className="space-y-1">
+            <div className="flex items-center gap-3 px-4 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wider mt-4">
+              <Users className="w-4 h-4" />
+              Casos
+            </div>
+            {/* Casos - TRABAJO: visible para todos */}
+            <NavLink to="/casos-trabajo" onClick={onClose} className={({ isActive }) => `${linkClass(isActive || location.pathname === '/casos')} pl-12`}>
+              <FileText className="w-4 h-4" />
+              Trabajo
             </NavLink>
-          )}
+            {/* Casos - PAGOS: solo socios */}
+            {perfil?.rol === 'socio' && (
+              <NavLink to="/casos-pagos" onClick={onClose} className={({ isActive }) => `${linkClass(isActive)} pl-12`}>
+                <DollarSign className="w-4 h-4" />
+                Pagos
+              </NavLink>
+            )}
+          </div>
 
           {/* Tareas (spec seccion 5) - visible para todos */}
           <NavLink to="/tareas" onClick={onClose} className={({ isActive }) => linkClass(isActive)}>
