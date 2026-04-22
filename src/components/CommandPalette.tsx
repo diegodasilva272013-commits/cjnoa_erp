@@ -46,7 +46,7 @@ export default function CommandPalette() {
   const inputRef = useRef<HTMLInputElement>(null);
   const navigate = useNavigate();
   const pages = useMemo(
-    () => [...BASE_PAGES, ...(perfil?.rol === 'socio' ? SOCIO_PAGES : [])],
+    () => [...BASE_PAGES, ...((perfil?.rol === 'socio' || perfil?.rol === 'admin') ? SOCIO_PAGES : [])],
     [perfil?.rol],
   );
 

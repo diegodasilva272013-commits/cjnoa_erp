@@ -63,7 +63,7 @@ CREATE INDEX IF NOT EXISTS idx_casos_pagos_fecha_consulta ON public.casos_pagos(
 CREATE INDEX IF NOT EXISTS idx_casos_pagos_socio_carga ON public.casos_pagos(socio_carga);
 
 -- ============================================================================
--- RLS: solo socios pueden ver / escribir CASOS-PAGOS
+-- RLS: solo socios y administradores pueden ver / escribir CASOS-PAGOS
 -- ============================================================================
 ALTER TABLE public.casos_pagos ENABLE ROW LEVEL SECURITY;
 
@@ -74,19 +74,19 @@ DROP POLICY IF EXISTS "casos_pagos_delete_socios" ON public.casos_pagos;
 
 CREATE POLICY "casos_pagos_select_socios" ON public.casos_pagos
   FOR SELECT TO authenticated
-  USING (EXISTS (SELECT 1 FROM public.perfiles p WHERE p.id = auth.uid() AND p.rol = 'socio'));
+  USING (EXISTS (SELECT 1 FROM public.perfiles p WHERE p.id = auth.uid() AND p.rol IN ('socio', 'admin')));
 
 CREATE POLICY "casos_pagos_insert_socios" ON public.casos_pagos
   FOR INSERT TO authenticated
-  WITH CHECK (EXISTS (SELECT 1 FROM public.perfiles p WHERE p.id = auth.uid() AND p.rol = 'socio'));
+  WITH CHECK (EXISTS (SELECT 1 FROM public.perfiles p WHERE p.id = auth.uid() AND p.rol IN ('socio', 'admin')));
 
 CREATE POLICY "casos_pagos_update_socios" ON public.casos_pagos
   FOR UPDATE TO authenticated
-  USING (EXISTS (SELECT 1 FROM public.perfiles p WHERE p.id = auth.uid() AND p.rol = 'socio'));
+  USING (EXISTS (SELECT 1 FROM public.perfiles p WHERE p.id = auth.uid() AND p.rol IN ('socio', 'admin')));
 
 CREATE POLICY "casos_pagos_delete_socios" ON public.casos_pagos
   FOR DELETE TO authenticated
-  USING (EXISTS (SELECT 1 FROM public.perfiles p WHERE p.id = auth.uid() AND p.rol = 'socio'));
+  USING (EXISTS (SELECT 1 FROM public.perfiles p WHERE p.id = auth.uid() AND p.rol IN ('socio', 'admin')));
 
 -- ============================================================================
 -- TRIGGER: auto-set updated_at + updated_by

@@ -48,7 +48,7 @@ export default function CasosPagos() {
   const [editing, setEditing] = useState<CasoPago | null>(null);
   const [search, setSearch] = useState('');
 
-  const isSocio = perfil?.rol === 'socio';
+  const canAccessCasosPagos = perfil?.rol === 'socio' || perfil?.rol === 'admin';
 
   async function load() {
     setLoading(true);
@@ -66,8 +66,8 @@ export default function CasosPagos() {
   }
 
   useEffect(() => {
-    if (isSocio) load();
-  }, [isSocio]);
+    if (canAccessCasosPagos) load();
+  }, [canAccessCasosPagos]);
 
   async function handleDelete(id: string) {
     if (!confirm('¿Eliminar este registro? Si tenía ingresos vinculados, también se eliminarán.')) return;
@@ -87,11 +87,11 @@ export default function CasosPagos() {
     );
   }, [items, search]);
 
-  if (!isSocio) {
+  if (!canAccessCasosPagos) {
     return (
       <div className="glass-card p-8 text-center">
         <h2 className="text-lg font-semibold text-white mb-2">Acceso restringido</h2>
-        <p className="text-sm text-gray-400">El módulo "Casos - Pagos" es exclusivo para socios.</p>
+        <p className="text-sm text-gray-400">El módulo "Casos - Pagos" es exclusivo para socios y administradores.</p>
       </div>
     );
   }
@@ -101,7 +101,7 @@ export default function CasosPagos() {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
           <h1 className="text-xl sm:text-2xl font-bold text-white">Casos - Pagos</h1>
-          <p className="text-sm text-gray-500 mt-1">Gestión financiera y agendamiento de consultas (solo socios)</p>
+          <p className="text-sm text-gray-500 mt-1">Gestión financiera y agendamiento de consultas (socios y administradores)</p>
         </div>
         <button
           onClick={() => { setEditing(null); setModalOpen(true); }}

@@ -95,8 +95,8 @@ export default function Sidebar({ open, onClose }: SidebarProps) {
             Casos - Trabajo
           </NavLink>
 
-          {/* CASOS - PAGOS: visible unicamente para socios */}
-          {perfil?.rol === 'socio' && (
+          {/* CASOS - PAGOS: visible para socios y admin */}
+          {(perfil?.rol === 'socio' || perfil?.rol === 'admin') && (
             <NavLink to="/casos-pagos" onClick={onClose} className={({ isActive }) => linkClass(isActive)}>
               <DollarSign className="w-5 h-5" />
               Casos - Pagos
