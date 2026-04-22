@@ -25,6 +25,7 @@ CREATE TABLE IF NOT EXISTS public.casos_pagos (
   -- Datos cliente / consulta
   cliente_nombre text NOT NULL,
   telefono text,
+  estado_caso text CHECK (estado_caso IN ('Vino a consulta','Trámite no judicial','Cliente Judicial') OR estado_caso IS NULL),
   detalle_consulta text,
   socio_carga text NOT NULL CHECK (socio_carga IN ('Rodrigo','Noelia','Fabricio','Alejandro')),
   fecha_carga date NOT NULL DEFAULT current_date,

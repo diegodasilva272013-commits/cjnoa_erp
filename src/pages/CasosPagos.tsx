@@ -10,6 +10,7 @@ import { formatMoney } from '../lib/financeFormat';
 interface CasoPago {
   id: string;
   caso_id: string | null;
+  estado_caso: string | null;
   cliente_nombre: string;
   telefono: string | null;
   detalle_consulta: string | null;
@@ -34,7 +35,7 @@ interface CasoPago {
   created_at: string;
 }
 
-const ESTADOS_RESULTADO = ['Vino a consulta', 'Trámite no judicial', 'Cliente Judicial'] as const;
+const ESTADOS_CASO = ['Vino a consulta', 'Trámite no judicial', 'Cliente Judicial'] as const;
 const MODALIDADES = ['Efectivo', 'Transferencia'] as const;
 
 export default function CasosPagos() {
@@ -99,7 +100,7 @@ export default function CasosPagos() {
     <div className="space-y-4 animate-fade-in">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
-          <h1 className="text-xl sm:text-2xl font-bold text-white">Casos — Pagos</h1>
+          <h1 className="text-xl sm:text-2xl font-bold text-white">Casos - Pagos</h1>
           <p className="text-sm text-gray-500 mt-1">Gestión financiera y agendamiento de consultas (solo socios)</p>
         </div>
         <button
@@ -134,7 +135,7 @@ export default function CasosPagos() {
                   <th className="px-4 py-3 text-left">Cliente</th>
                   <th className="px-4 py-3 text-left">Consulta</th>
                   <th className="px-4 py-3 text-left">Abogado</th>
-                  <th className="px-4 py-3 text-left">Estado</th>
+                  <th className="px-4 py-3 text-left">Estado del caso</th>
                   <th className="px-4 py-3 text-right">Reserva</th>
                   <th className="px-4 py-3 text-right">Saldo</th>
                   <th className="px-4 py-3 text-right">Total</th>
@@ -161,7 +162,11 @@ export default function CasosPagos() {
                       </td>
                       <td className="px-4 py-3 text-gray-300">{it.abogado_asignado || '—'}</td>
                       <td className="px-4 py-3">
-                        {it.consulta_realizada ? (
+                        {it.estado_caso ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-sky-500/10 text-sky-400 border border-sky-500/20">
+                            <CheckCircle2 className="w-3 h-3" /> {it.estado_caso}
+                          </span>
+                        ) : it.consulta_realizada ? (
                           <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
                             <CheckCircle2 className="w-3 h-3" /> {it.resultado_estado || 'Realizada'}
                           </span>
@@ -226,9 +231,28 @@ interface ModalProps {
 function CasoPagoModal({ open, onClose, editing, socios, onSaved }: ModalProps) {
   const { showToast } = useToast();
   const isEditing = !!editing;
+  const [casos, setCasos] = useState<Array<{ id: string; label: string }>>([]);
+
+  useEffect(() => {
+    if (!open) return;
+    (async () => {
+      const { data } = await supabase
+        .from('casos')
+        .select('id, expediente, materia, clientes(nombre_apellido)')
+        .order('created_at', { ascending: false })
+        .limit(500);
+      const list = (data || []).map((c: any) => ({
+        id: c.id,
+        label: `${c.clientes?.nombre_apellido || 'Sin cliente'} — ${c.materia}${c.expediente ? ` (${c.expediente})` : ''}`,
+      }));
+      setCasos(list);
+    })();
+  }, [open]);
 
   const [form, setForm] = useState({
     cliente_nombre: '',
+    caso_id: '',
+    estado_caso: '',
     telefono: '',
     detalle_consulta: '',
     socio_carga: socios[0] || 'Rodrigo',
@@ -256,6 +280,8 @@ function CasoPagoModal({ open, onClose, editing, socios, onSaved }: ModalProps) 
     if (editing) {
       setForm({
         cliente_nombre: editing.cliente_nombre,
+        caso_id: editing.caso_id || '',
+        estado_caso: editing.estado_caso || '',
         telefono: editing.telefono || '',
         detalle_consulta: editing.detalle_consulta || '',
         socio_carga: editing.socio_carga,
@@ -277,7 +303,8 @@ function CasoPagoModal({ open, onClose, editing, socios, onSaved }: ModalProps) 
       });
     } else {
       setForm({
-        cliente_nombre: '', telefono: '', detalle_consulta: '',
+        cliente_nombre: '', caso_id: '', estado_caso: '',
+        telefono: '', detalle_consulta: '',
         socio_carga: socios[0] || 'Rodrigo',
         fecha_carga: new Date().toISOString().split('T')[0],
         fecha_consulta: '', hora_consulta: '', abogado_asignado: '',
@@ -295,6 +322,14 @@ function CasoPagoModal({ open, onClose, editing, socios, onSaved }: ModalProps) 
       showToast('El nombre del cliente es obligatorio', 'error');
       return;
     }
+    if (!form.caso_id) {
+      showToast('Debes vincular un caso de Casos - Trabajo', 'error');
+      return;
+    }
+    if (!form.estado_caso) {
+      showToast('Debes indicar el estado del caso', 'error');
+      return;
+    }
     if (form.reserva_pagada && (!parseFloat(form.monto_reserva) || parseFloat(form.monto_reserva) <= 0)) {
       showToast('Para marcar reserva como pagada, indicá el monto', 'error');
       return;
@@ -306,6 +341,8 @@ function CasoPagoModal({ open, onClose, editing, socios, onSaved }: ModalProps) 
     setSaving(true);
     const payload = {
       cliente_nombre: form.cliente_nombre.trim(),
+      caso_id: form.caso_id || null,
+      estado_caso: form.estado_caso || null,
       telefono: form.telefono.trim() || null,
       detalle_consulta: form.detalle_consulta.trim() || null,
       socio_carga: form.socio_carga,
@@ -352,8 +389,20 @@ function CasoPagoModal({ open, onClose, editing, socios, onSaved }: ModalProps) 
             <Field label="Nombre *">
               <input type="text" value={form.cliente_nombre} onChange={e => setForm({ ...form, cliente_nombre: e.target.value })} className="input-dark" />
             </Field>
+            <Field label="Caso *">
+              <select value={form.caso_id} onChange={e => setForm({ ...form, caso_id: e.target.value })} className="input-dark">
+                <option value="">Sin vincular</option>
+                {casos.map(caso => <option key={caso.id} value={caso.id}>{caso.label}</option>)}
+              </select>
+            </Field>
             <Field label="Teléfono">
               <input type="tel" value={form.telefono} onChange={e => setForm({ ...form, telefono: e.target.value })} className="input-dark" />
+            </Field>
+            <Field label="Estado del caso *">
+              <select value={form.estado_caso} onChange={e => setForm({ ...form, estado_caso: e.target.value })} className="input-dark">
+                <option value="">—</option>
+                {ESTADOS_CASO.map(estado => <option key={estado} value={estado}>{estado}</option>)}
+              </select>
             </Field>
             <Field label="Socio que carga *">
               <select value={form.socio_carga} onChange={e => setForm({ ...form, socio_carga: e.target.value })} className="input-dark">
@@ -412,7 +461,7 @@ function CasoPagoModal({ open, onClose, editing, socios, onSaved }: ModalProps) 
               <Field label="Resultado">
                 <select value={form.resultado_estado} onChange={e => setForm({ ...form, resultado_estado: e.target.value })} className="input-dark">
                   <option value="">—</option>
-                  {ESTADOS_RESULTADO.map(e => <option key={e} value={e}>{e}</option>)}
+                  {ESTADOS_CASO.map(e => <option key={e} value={e}>{e}</option>)}
                 </select>
               </Field>
               <Field label="Honorarios">
