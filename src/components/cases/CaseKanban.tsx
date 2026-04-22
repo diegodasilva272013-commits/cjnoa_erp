@@ -7,13 +7,11 @@ import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-
 import { CSS } from '@dnd-kit/utilities';
 import { useState } from 'react';
 import { CasoCompleto, ESTADOS_CASO, EstadoCaso } from '../../types/database';
-import { describeCaseFinanceAmounts } from '../../lib/caseFinance';
 import { supabase } from '../../lib/supabase';
 
 interface CaseKanbanProps {
   casos: CasoCompleto[];
   onSelect: (caso: CasoCompleto) => void;
-  commissionPct: number;
   onRefetch?: () => void;
 }
 
@@ -23,13 +21,8 @@ const COLUMN_COLORS: Record<EstadoCaso, { border: string; badge: string; dot: st
   'Cliente Judicial': { border: 'border-t-emerald-500', badge: 'bg-emerald-500/10 text-emerald-400', dot: 'bg-emerald-500' },
 };
 
-const formatMoney = (n: number) =>
-  new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 }).format(n);
-
-function KanbanCard({ caso, onSelect, commissionPct, isDragging }: { caso: CasoCompleto; onSelect: (c: CasoCompleto) => void; commissionPct: number; isDragging?: boolean }) {
+function KanbanCard({ caso, onSelect, isDragging }: { caso: CasoCompleto; onSelect: (c: CasoCompleto) => void; isDragging?: boolean }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging: sorting } = useSortable({ id: caso.id });
-  const amounts = describeCaseFinanceAmounts(caso, commissionPct);
-  const showsPendingGross = Math.abs(amounts.pendingGross - amounts.pendingNet) > 0.009;
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
@@ -55,23 +48,13 @@ function KanbanCard({ caso, onSelect, commissionPct, isDragging }: { caso: CasoC
               <Star className="w-3 h-3" /> Muy int.
             </span>
           )}
-          {amounts.pendingNet > 0 && (
-            <div className="flex flex-col">
-              <span className="text-[10px] text-emerald-400 font-medium">
-                {formatMoney(amounts.pendingNet)} neto pend.
-              </span>
-              {showsPendingGross && amounts.pendingGross > 0 && (
-                <span className="text-[10px] text-gray-500">Bruto {formatMoney(amounts.pendingGross)}</span>
-              )}
-            </div>
-          )}
         </div>
       </button>
     </div>
   );
 }
 
-export default function CaseKanban({ casos, onSelect, commissionPct, onRefetch }: CaseKanbanProps) {
+export default function CaseKanban({ casos, onSelect, onRefetch }: CaseKanbanProps) {
   const [items, setItems] = useState<CasoCompleto[]>(casos);
   const [activeCaso, setActiveCaso] = useState<CasoCompleto | null>(null);
 
@@ -147,7 +130,7 @@ export default function CaseKanban({ casos, onSelect, commissionPct, onRefetch }
                     <p className="text-xs text-gray-600 text-center py-6">Sin casos</p>
                   ) : (
                     colItems.map(caso => (
-                      <KanbanCard key={caso.id} caso={caso} onSelect={onSelect} commissionPct={commissionPct} />
+                      <KanbanCard key={caso.id} caso={caso} onSelect={onSelect} />
                     ))
                   )}
                 </div>

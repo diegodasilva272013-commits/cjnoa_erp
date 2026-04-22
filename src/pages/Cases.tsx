@@ -1,24 +1,19 @@
 import { useState } from 'react';
 import { Plus, Download, LayoutList, LayoutGrid, Briefcase, CheckSquare, X, ChevronDown } from 'lucide-react';
 import { useCases, filterCases, emptyFilters } from '../hooks/useCases';
-import { useConfigEstudio } from '../hooks/useConfigEstudio';
 import CaseTable from '../components/cases/CaseTable';
 import CaseKanban from '../components/cases/CaseKanban';
 import CaseFilters from '../components/cases/CaseFilters';
 import CaseModal from '../components/cases/CaseModal';
-import PagoModal from '../components/finance/PagoModal';
 import { CasoCompleto, FilterState, EstadoCaso, ESTADOS_CASO } from '../types/database';
-import { describeCaseFinanceAmounts } from '../lib/caseFinance';
 import { exportToExcel } from '../lib/exportExcel';
 import { supabase } from '../lib/supabase';
 
 export default function Cases() {
   const { casos, loading, refetch } = useCases();
-  const { config } = useConfigEstudio();
   const [filters, setFilters] = useState<FilterState>(emptyFilters);
   const [modalOpen, setModalOpen] = useState(false);
   const [selectedCaso, setSelectedCaso] = useState<CasoCompleto | null>(null);
-  const [pagoModalOpen, setPagoModalOpen] = useState(false);
   const [viewMode, setViewMode] = useState<'list' | 'kanban'>(() => (sessionStorage.getItem('cases-view') as 'list' | 'kanban') || 'list');
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkLoading, setBulkLoading] = useState(false);
@@ -27,8 +22,6 @@ export default function Cases() {
   const filteredCasos = filterCases(casos, filters);
 
   function mapCaseExportRow(caso: CasoCompleto) {
-    const amounts = describeCaseFinanceAmounts(caso, config.comision_captadora_pct);
-
     return {
       'Nombre': caso.nombre_apellido,
       'Teléfono': caso.telefono || '',
@@ -38,13 +31,11 @@ export default function Cases() {
       'Interés': caso.interes || '',
       'Fuente': caso.fuente || '',
       'Captadora': caso.captadora || '',
-      'Honorarios Bruto': caso.honorarios_monto,
-      'Honorarios Neto Estudio': amounts.agreedNet,
-      'Modalidad Pago': caso.modalidad_pago || '',
-      'Cobrado Bruto': caso.total_cobrado,
-      'Cobrado Neto CJ NOA': amounts.collectedNet,
-      'Saldo Pendiente Bruto': caso.saldo_pendiente,
-      'Saldo Pendiente Neto Estudio': amounts.pendingNet,
+      'Expediente': caso.expediente || '',
+      'Radicado': caso.radicado || '',
+      'Sistema': caso.sistema || '',
+      'Personería': caso.personeria || '',
+      'Prioridad': caso.prioridad || '',
       'Observaciones': caso.observaciones || '',
       'Fecha': caso.fecha || '',
       'Creado por': caso.creado_por_nombre || '',
@@ -82,12 +73,12 @@ export default function Cases() {
   async function handleBulkExport() {
     const selCasos = filteredCasos.filter(c => selected.has(c.id));
     const data = selCasos.map(mapCaseExportRow);
-    await exportToExcel(data, `Casos_seleccionados_${selCasos.length}`, 'Casos');
+    await exportToExcel(data, `Casos_Trabajo_seleccionados_${selCasos.length}`, 'Casos Trabajo');
   }
 
   async function handleExport() {
     const data = filteredCasos.map(mapCaseExportRow);
-    await exportToExcel(data, 'Casos_CJ_NOA', 'Casos');
+    await exportToExcel(data, 'Casos_Trabajo_CJ_NOA', 'Casos Trabajo');
   }
 
   function handleSelectCaso(caso: CasoCompleto) {
@@ -113,8 +104,10 @@ export default function Cases() {
       {/* Header */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-xl sm:text-2xl font-bold text-white">Casos</h1>
+          <h1 className="text-xl sm:text-2xl font-bold text-white">Casos - Trabajo</h1>
           <p className="text-gray-500 text-sm mt-1">
+            Seguimiento operativo de casos
+            {' · '}
             {filteredCasos.length} {filteredCasos.length === 1 ? 'caso' : 'casos'}
             {filters.busqueda && ` · Buscando "${filters.busqueda}"`}
           </p>
@@ -206,9 +199,9 @@ export default function Cases() {
           )}
         </div>
       ) : viewMode === 'kanban' ? (
-        <CaseKanban casos={filteredCasos} onSelect={handleSelectCaso} onRefetch={refetch} commissionPct={config.comision_captadora_pct} />
+        <CaseKanban casos={filteredCasos} onSelect={handleSelectCaso} onRefetch={refetch} />
       ) : (
-        <CaseTable casos={filteredCasos} onSelect={handleSelectCaso} selected={selected} onToggle={handleToggle} onToggleAll={handleToggleAll} commissionPct={config.comision_captadora_pct} />
+        <CaseTable casos={filteredCasos} onSelect={handleSelectCaso} selected={selected} onToggle={handleToggle} onToggleAll={handleToggleAll} />
       )}
 
       {/* Modals */}

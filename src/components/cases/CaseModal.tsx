@@ -12,7 +12,6 @@ import HistorialCasoPanel from './HistorialCasoPanel';
 import ComentariosCasoPanel from './ComentariosCasoPanel';
 import CrossLinkPanel from './CrossLinkPanel';
 import { createRecordatorio } from '../../hooks/useRecordatorios';
-import { usePermisos } from '../../hooks/usePermisos';
 import CopilotoBtn from '../CopilotoBtn';
 import { syncCaseIncomeLedger } from '../../lib/caseIncomeLedger';
 import { validateDriveUrl } from '../../lib/driveUrl';
@@ -94,17 +93,16 @@ export default function CaseModal({ open, onClose, caso, onSaved }: CaseModalPro
   const { user } = useAuth();
   const { showToast } = useToast();
   const { config } = useConfigEstudio();
-  const { permisos } = usePermisos();
-  const verHonorarios = permisos.ver_honorarios !== false;
+  const showFinancialSections = false;
   const [form, setForm] = useState<FormData>(emptyForm);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
-  const { cuotas, refetch: refetchCuotas } = useCuotas(caso?.id || null);
+  const { cuotas, refetch: refetchCuotas } = useCuotas(showFinancialSections ? caso?.id || null : null);
   const { documentos, loading: docsLoading, refetch: refetchDocs } = useDocumentos(caso?.id || null);
   const [localCuotas, setLocalCuotas] = useState<Partial<Cuota>[]>([]);
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const { movimientos, loading: movLoading, refetch: refetchMov } = useMovimientosCaso(caso?.id || null);
+  const { movimientos, loading: movLoading, refetch: refetchMov } = useMovimientosCaso(showFinancialSections ? caso?.id || null : null);
   const [showMovForm, setShowMovForm] = useState(false);
   const [movForm, setMovForm] = useState({ tipo: 'deposito' as 'deposito' | 'gasto', monto: '', moneda: 'ARS' as 'ARS' | 'USD', concepto: '', fecha: new Date().toISOString().split('T')[0], observaciones: '' });
   const [savingMov, setSavingMov] = useState(false);
@@ -228,6 +226,32 @@ export default function CaseModal({ open, onClose, caso, onSaved }: CaseModalPro
         clienteId = newCliente.id;
       }
 
+      const financeData = showFinancialSections
+        ? {
+            honorarios_monto: parseFloat(form.honorarios_monto) || 0,
+            modalidad_pago: form.modalidad_pago,
+            pago_unico_pagado: form.modalidad_pago === 'Único' ? form.pago_unico_pagado === 'si' : null,
+            pago_unico_monto: form.modalidad_pago === 'Único' && form.pago_unico_pagado === 'si'
+              ? parseFloat(form.pago_unico_monto) || null : null,
+            pago_unico_fecha: form.modalidad_pago === 'Único' && form.pago_unico_pagado === 'si'
+              ? form.pago_unico_fecha || null : null,
+          }
+        : isEditing && caso
+          ? {
+              honorarios_monto: caso.honorarios_monto || 0,
+              modalidad_pago: caso.modalidad_pago,
+              pago_unico_pagado: caso.pago_unico_pagado,
+              pago_unico_monto: caso.pago_unico_monto,
+              pago_unico_fecha: caso.pago_unico_fecha,
+            }
+          : {
+              honorarios_monto: 0,
+              modalidad_pago: null,
+              pago_unico_pagado: null,
+              pago_unico_monto: null,
+              pago_unico_fecha: null,
+            };
+
       const casoData = {
         cliente_id: clienteId,
         materia: form.materia,
@@ -240,13 +264,7 @@ export default function CaseModal({ open, onClose, caso, onSaved }: CaseModalPro
           ? form.interes_porque : null,
         fuente: form.estado === 'Vino a consulta' ? form.fuente || null : null,
         captadora: form.fuente === 'Captadora' ? form.captadora || null : null,
-        honorarios_monto: parseFloat(form.honorarios_monto) || 0,
-        modalidad_pago: form.modalidad_pago,
-        pago_unico_pagado: form.modalidad_pago === 'Único' ? form.pago_unico_pagado === 'si' : null,
-        pago_unico_monto: form.modalidad_pago === 'Único' && form.pago_unico_pagado === 'si'
-          ? parseFloat(form.pago_unico_monto) || null : null,
-        pago_unico_fecha: form.modalidad_pago === 'Único' && form.pago_unico_pagado === 'si'
-          ? form.pago_unico_fecha || null : null,
+        ...financeData,
         observaciones: form.observaciones || null,
         expediente: form.expediente.trim() || null,
         radicado: form.radicado.trim() || null,
@@ -275,9 +293,8 @@ export default function CaseModal({ open, onClose, caso, onSaved }: CaseModalPro
         casoId = newCaso.id;
       }
 
-      const savedCuotas: Cuota[] = [];
-
-      if (casoId) {
+      if (showFinancialSections && casoId) {
+        const savedCuotas: Cuota[] = [];
         if (form.modalidad_pago === 'En cuotas') {
           if (isEditing) {
             const localIds = new Set(localCuotas.filter(c => c.id).map(c => c.id as string));
@@ -617,7 +634,7 @@ export default function CaseModal({ open, onClose, caso, onSaved }: CaseModalPro
         )}
 
         {/* Honorarios */}
-        {verHonorarios && (
+        {showFinancialSections && (
         <Section title="Honorarios">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Field label="Monto acordado ($)">
@@ -892,7 +909,7 @@ export default function CaseModal({ open, onClose, caso, onSaved }: CaseModalPro
         )}
 
         {/* Fondos y Gastos (solo en edición) */}
-        {isEditing && caso && verHonorarios && (() => {
+        {isEditing && caso && showFinancialSections && (() => {
           const fmtARS = (n: number) => new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 }).format(n);
           const fmtUSD = (n: number) => 'US$ ' + new Intl.NumberFormat('es-AR', { maximumFractionDigits: 0 }).format(n);
 
