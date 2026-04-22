@@ -390,7 +390,7 @@ function CasoPagoModal({ open, onClose, editing, socios, onSaved }: ModalProps) 
               <input type="text" value={form.cliente_nombre} onChange={e => setForm({ ...form, cliente_nombre: e.target.value })} className="input-dark" />
             </Field>
             <Field label="Caso *">
-              <select value={form.caso_id} onChange={e => setForm({ ...form, caso_id: e.target.value })} className="input-dark">
+              <select value={form.caso_id} onChange={e => setForm({ ...form, caso_id: e.target.value })} className="select-dark">
                 <option value="">Sin vincular</option>
                 {casos.map(caso => <option key={caso.id} value={caso.id}>{caso.label}</option>)}
               </select>
@@ -399,13 +399,13 @@ function CasoPagoModal({ open, onClose, editing, socios, onSaved }: ModalProps) 
               <input type="tel" value={form.telefono} onChange={e => setForm({ ...form, telefono: e.target.value })} className="input-dark" />
             </Field>
             <Field label="Estado del caso *">
-              <select value={form.estado_caso} onChange={e => setForm({ ...form, estado_caso: e.target.value })} className="input-dark">
+              <select value={form.estado_caso} onChange={e => setForm({ ...form, estado_caso: e.target.value })} className="select-dark">
                 <option value="">—</option>
                 {ESTADOS_CASO.map(estado => <option key={estado} value={estado}>{estado}</option>)}
               </select>
             </Field>
             <Field label="Socio que carga *">
-              <select value={form.socio_carga} onChange={e => setForm({ ...form, socio_carga: e.target.value })} className="input-dark">
+              <select value={form.socio_carga} onChange={e => setForm({ ...form, socio_carga: e.target.value })} className="select-dark">
                 {socios.map(s => <option key={s} value={s}>{s}</option>)}
               </select>
             </Field>
@@ -437,14 +437,14 @@ function CasoPagoModal({ open, onClose, editing, socios, onSaved }: ModalProps) 
               <input type="number" step="0.01" value={form.monto_a_cancelar} onChange={e => setForm({ ...form, monto_a_cancelar: e.target.value })} className="input-dark" />
             </Field>
             <Field label="Modalidad reserva">
-              <select value={form.reserva_modalidad} onChange={e => setForm({ ...form, reserva_modalidad: e.target.value })} className="input-dark">
+              <select value={form.reserva_modalidad} onChange={e => setForm({ ...form, reserva_modalidad: e.target.value })} className="select-dark">
                 <option value="">—</option>
                 {MODALIDADES.map(m => <option key={m} value={m}>{m}</option>)}
               </select>
             </Field>
           </div>
           <label className="flex items-center gap-2 mt-3 cursor-pointer text-sm text-gray-300">
-            <input type="checkbox" checked={form.reserva_pagada} onChange={e => setForm({ ...form, reserva_pagada: e.target.checked })} className="w-4 h-4" />
+            <input type="checkbox" checked={form.reserva_pagada} onChange={e => setForm({ ...form, reserva_pagada: e.target.checked })} className="checkbox-dark" />
             <DollarSign className="w-4 h-4 text-emerald-400" />
             Reserva pagada (genera ingreso automático)
           </label>
@@ -453,13 +453,13 @@ function CasoPagoModal({ open, onClose, editing, socios, onSaved }: ModalProps) 
         {/* Paso 2 */}
         <Section title="Paso 2 — Resultado" badge="Después de la consulta">
           <label className="flex items-center gap-2 mb-3 cursor-pointer text-sm text-gray-300">
-            <input type="checkbox" checked={form.consulta_realizada} onChange={e => setForm({ ...form, consulta_realizada: e.target.checked })} className="w-4 h-4" />
+            <input type="checkbox" checked={form.consulta_realizada} onChange={e => setForm({ ...form, consulta_realizada: e.target.checked })} className="checkbox-dark" />
             Consulta realizada
           </label>
           {form.consulta_realizada && (
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <Field label="Resultado">
-                <select value={form.resultado_estado} onChange={e => setForm({ ...form, resultado_estado: e.target.value })} className="input-dark">
+                <select value={form.resultado_estado} onChange={e => setForm({ ...form, resultado_estado: e.target.value })} className="select-dark">
                   <option value="">—</option>
                   {ESTADOS_CASO.map(e => <option key={e} value={e}>{e}</option>)}
                 </select>
@@ -471,7 +471,7 @@ function CasoPagoModal({ open, onClose, editing, socios, onSaved }: ModalProps) 
                 <input type="number" step="0.01" value={form.saldo_monto_real} onChange={e => setForm({ ...form, saldo_monto_real: e.target.value })} className="input-dark" />
               </Field>
               <Field label="Modalidad saldo">
-                <select value={form.saldo_modalidad} onChange={e => setForm({ ...form, saldo_modalidad: e.target.value })} className="input-dark">
+                <select value={form.saldo_modalidad} onChange={e => setForm({ ...form, saldo_modalidad: e.target.value })} className="select-dark">
                   <option value="">—</option>
                   {MODALIDADES.map(m => <option key={m} value={m}>{m}</option>)}
                 </select>
@@ -483,7 +483,7 @@ function CasoPagoModal({ open, onClose, editing, socios, onSaved }: ModalProps) 
           )}
           {form.consulta_realizada && (
             <label className="flex items-center gap-2 mt-3 cursor-pointer text-sm text-gray-300">
-              <input type="checkbox" checked={form.saldo_pagado} onChange={e => setForm({ ...form, saldo_pagado: e.target.checked })} className="w-4 h-4" />
+              <input type="checkbox" checked={form.saldo_pagado} onChange={e => setForm({ ...form, saldo_pagado: e.target.checked })} className="checkbox-dark" />
               <DollarSign className="w-4 h-4 text-emerald-400" />
               Saldo cobrado (genera ingreso automático)
             </label>
