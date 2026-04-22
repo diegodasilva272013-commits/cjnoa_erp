@@ -77,7 +77,7 @@ export default function CaseTable({ casos, onSelect, selected, onToggle, onToggl
                     checked={allSelected}
                     ref={el => { if (el) el.indeterminate = someSelected; }}
                     onChange={() => onToggleAll?.(casos.map(c => c.id))}
-                    className="w-4 h-4 rounded bg-white/10 border-white/20 accent-violet-500 cursor-pointer"
+                    className="checkbox-dark"
                   />
                 </th>
               )}
@@ -109,7 +109,7 @@ export default function CaseTable({ casos, onSelect, selected, onToggle, onToggl
                       type="checkbox"
                       checked={selected?.has(caso.id) ?? false}
                       onChange={() => onToggle(caso.id)}
-                      className="w-4 h-4 rounded bg-white/10 border-white/20 accent-violet-500 cursor-pointer"
+                      className="checkbox-dark"
                     />
                   </td>
                 )}
