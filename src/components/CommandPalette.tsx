@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Search, Users, DollarSign, ArrowDownCircle, ArrowUpCircle, BarChart3, Shield, Calendar, LayoutDashboard, FileText } from 'lucide-react';
 import { supabase } from '../lib/supabase';
+import { useAuth } from '../context/AuthContext';
 
 interface SearchResult {
   id: string;
@@ -11,9 +12,9 @@ interface SearchResult {
   route: string;
 }
 
-const PAGES: SearchResult[] = [
+const BASE_PAGES: SearchResult[] = [
   { id: 'p-dashboard', type: 'pagina', title: 'Panel de Control', subtitle: 'Dashboard principal', route: '/' },
-  { id: 'p-casos', type: 'pagina', title: 'Casos', subtitle: 'Gestión de casos y clientes', route: '/casos' },
+  { id: 'p-casos-trabajo', type: 'pagina', title: 'Casos - Trabajo', subtitle: 'Seguimiento operativo de casos', route: '/casos-trabajo' },
   { id: 'p-ingresos', type: 'pagina', title: 'Ingresos', subtitle: 'Módulo de ingresos', route: '/ingresos' },
   { id: 'p-egresos', type: 'pagina', title: 'Egresos', subtitle: 'Módulo de egresos', route: '/egresos' },
   { id: 'p-flujo', type: 'pagina', title: 'Flujo de Caja', subtitle: 'Resultado financiero', route: '/flujo-caja' },
@@ -21,6 +22,10 @@ const PAGES: SearchResult[] = [
   { id: 'p-agenda', type: 'pagina', title: 'Agenda', subtitle: 'Recordatorios y calendario', route: '/agenda' },
   { id: 'p-prev-fichas', type: 'pagina', title: 'Fichas Previsional', subtitle: 'Clientes previsionales', route: '/previsional/fichas' },
   { id: 'p-prev-seg', type: 'pagina', title: 'Seguimiento Previsional', subtitle: 'Tareas y audiencias', route: '/previsional/seguimiento' },
+];
+
+const SOCIO_PAGES: SearchResult[] = [
+  { id: 'p-casos-pagos', type: 'pagina', title: 'Casos - Pagos', subtitle: 'Consultas, reservas y cobros', route: '/casos-pagos' },
 ];
 
 const ICONS: Record<string, React.ReactNode> = {
@@ -32,6 +37,7 @@ const ICONS: Record<string, React.ReactNode> = {
 };
 
 export default function CommandPalette() {
+  const { perfil } = useAuth();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<SearchResult[]>([]);
@@ -39,6 +45,10 @@ export default function CommandPalette() {
   const [searching, setSearching] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const navigate = useNavigate();
+  const pages = useMemo(
+    () => [...BASE_PAGES, ...(perfil?.rol === 'socio' ? SOCIO_PAGES : [])],
+    [perfil?.rol],
+  );
 
   // Cmd+K / Ctrl+K to open
   useEffect(() => {
@@ -68,13 +78,13 @@ export default function CommandPalette() {
     const normalizedQuery = q.trim();
 
     if (!normalizedQuery) {
-      setResults(PAGES);
+      setResults(pages);
       return;
     }
 
     setSearching(true);
     const lower = normalizedQuery.toLowerCase();
-    const pageResults = PAGES.filter(p => p.title.toLowerCase().includes(lower) || p.subtitle.toLowerCase().includes(lower));
+    const pageResults = pages.filter(p => p.title.toLowerCase().includes(lower) || p.subtitle.toLowerCase().includes(lower));
 
     if (normalizedQuery.length < 2) {
       setResults(pageResults);
@@ -95,7 +105,7 @@ export default function CommandPalette() {
         type: 'caso',
         title: c.nombre_apellido,
         subtitle: `${c.materia} · ${c.estado}`,
-        route: '/casos',
+        route: '/casos-trabajo',
       }));
 
       const ingresos: SearchResult[] = (ingresosRes.data || []).map(i => ({
@@ -128,7 +138,7 @@ export default function CommandPalette() {
     } finally {
       setSearching(false);
     }
-  }, []);
+  }, [pages]);
 
   // Debounced search
   useEffect(() => {
@@ -169,7 +179,7 @@ export default function CommandPalette() {
             value={query}
             onChange={e => { setQuery(e.target.value); setSelected(0); }}
             onKeyDown={handleKeyDown}
-            placeholder="Buscar casos, ingresos, egresos, paginas..."
+            placeholder="Buscar módulos, casos, ingresos, egresos..."
             className="flex-1 bg-transparent text-sm text-white placeholder-gray-500 outline-none"
           />
           <kbd className="hidden sm:inline-flex items-center gap-0.5 rounded-md border border-white/10 bg-white/5 px-1.5 py-0.5 text-[10px] text-gray-500">

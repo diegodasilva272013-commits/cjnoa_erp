@@ -26,7 +26,7 @@ const CargosHora = lazy(() => import('./pages/CargosHora'));
 
 function ProtectedRoute({ modulo, children }: { modulo: 'dashboard' | 'casos' | 'finanzas' | 'equipo' | 'agenda' | 'previsional' | 'honorarios'; children: React.ReactNode }) {
   const { canSee } = usePermisos();
-  if (!canSee(modulo)) return <Navigate to="/casos" replace />;
+  if (!canSee(modulo)) return <Navigate to="/casos-trabajo" replace />;
   return <>{children}</>;
 }
 
@@ -87,7 +87,7 @@ export default function App() {
           <Route path="/previsional/mi-panel" element={<ProtectedRoute modulo="previsional"><MiPanel /></ProtectedRoute>} />
           <Route path="/perfil" element={<Perfil />} />
           <Route path="/timeline" element={<Timeline />} />
-          <Route path="*" element={<Navigate to="/casos" replace />} />
+          <Route path="*" element={<Navigate to="/casos-trabajo" replace />} />
         </Route>
       </Routes>
     </Suspense>

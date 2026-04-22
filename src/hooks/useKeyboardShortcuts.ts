@@ -21,7 +21,7 @@ export function useKeyboardShortcuts() {
       if (e.ctrlKey || e.metaKey) {
         const routes: Record<string, string> = {
           '1': '/',
-          '2': '/casos',
+          '2': '/casos-trabajo',
           '3': '/ingresos',
           '4': '/egresos',
           '5': '/flujo-caja',

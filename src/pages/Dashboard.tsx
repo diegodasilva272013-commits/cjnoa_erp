@@ -303,14 +303,14 @@ export default function Dashboard() {
               color="text-yellow-400 bg-yellow-500/10"
               label="Sin pagar consulta"
               value={stats.sinPagarConsulta}
-              to="/casos"
+              to="/casos-pagos"
             />
             <AlertItem
               icon={<Star className="w-4 h-4" />}
               color="text-purple-400 bg-purple-500/10"
               label="Casos muy interesantes en consulta"
               value={stats.muyInteresantes}
-              to="/casos"
+              to="/casos-trabajo"
             />
             <AlertItem
               icon={<UserPlus className="w-4 h-4" />}
