@@ -6,30 +6,14 @@ import ErrorBoundary from './components/ErrorBoundary'
 import { AuthProvider } from './context/AuthContext'
 import { ToastProvider } from './context/ToastContext'
 import { ReminderProvider } from './context/ReminderContext'
+import { rearmChunkRecovery, tryRecoverChunkError } from './lib/chunkRecovery'
 import './index.css'
 
-// Auto-reload cuando el navegador tiene cacheado un index.html viejo que referencia
-// chunks (assets/Layout-XXXX.js, etc.) que ya no existen tras un redeploy de Vercel.
-// Sin esto el usuario queda atascado con "Failed to fetch dynamically imported module"
-// hasta que hace Ctrl+Shift+R manual.
-const RELOAD_KEY = 'cjnoa-chunk-reload-ts';
-function handleChunkError(err: unknown) {
-  const msg = String((err as any)?.message || err || '');
-  const isChunkErr =
-    msg.includes('Failed to fetch dynamically imported module') ||
-    msg.includes('Importing a module script failed') ||
-    msg.includes('error loading dynamically imported module') ||
-    /ChunkLoadError/i.test(msg);
-  if (!isChunkErr) return false;
-  // Evitar loop infinito: solo recargar si hace >60s del ultimo reload.
-  const last = Number(sessionStorage.getItem(RELOAD_KEY) || '0');
-  if (Date.now() - last < 60_000) return false;
-  sessionStorage.setItem(RELOAD_KEY, String(Date.now()));
-  window.location.reload();
-  return true;
-}
-window.addEventListener('error', (ev) => { handleChunkError(ev.error || ev.message); });
-window.addEventListener('unhandledrejection', (ev) => { handleChunkError(ev.reason); });
+// Rearm the chunk recovery guard after a successful app boot so repeated deploys
+// in the same tab still recover automatically instead of leaving the user stuck.
+rearmChunkRecovery();
+window.addEventListener('error', (ev) => { tryRecoverChunkError(ev.error || ev.message); });
+window.addEventListener('unhandledrejection', (ev) => { tryRecoverChunkError(ev.reason); });
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
