@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
-import { Download, FileSpreadsheet, Plus, Sigma, Users, FileText, RefreshCw, Rows3, Rows4 } from 'lucide-react';
+import { Download, FileSpreadsheet, Plus, Sigma, Users, FileText, RefreshCw, Rows3, Rows4, Trash2, ExternalLink } from 'lucide-react';
+import { Link, useNavigate } from 'react-router-dom';
 import { useCaseFinancePipeline, useIngresos } from '../hooks/useFinances';
 import { MATERIAS } from '../types/database';
 import { useSocios } from '../hooks/useSocios';
@@ -25,6 +26,7 @@ export default function Ingresos() {
   const socios = useSocios();
   const perfilMap = usePerfilMap();
   const { showToast } = useToast();
+  const navigate = useNavigate();
 
   function usePersistedFilter(key: string, fallback = '') {
     const [value, setValue] = useState(() => {
@@ -43,7 +45,27 @@ export default function Ingresos() {
   const [importModalOpen, setImportModalOpen] = useState(false);
   const [page, setPage] = useState(0);
   const [compact, setCompact] = useState(() => sessionStorage.getItem('ingresos_compact') === '1');
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const pageSize = 50;
+
+  function getIngresoOrigen(ingreso: { es_manual: boolean; concepto: string | null }): { label: string; to: string | null; badge: string } {
+    if (ingreso.es_manual) return { label: 'Manual', to: null, badge: 'badge-purple' };
+    const c = ingreso.concepto || '';
+    if (c.toLowerCase().includes('reserva')) return { label: 'Agendamiento', to: '/agendamiento-consultas', badge: 'badge-blue' };
+    if (c.toLowerCase().includes('saldo consulta')) return { label: 'Casos-Pagos', to: '/casos-pagos', badge: 'badge-blue' };
+    if (c.toLowerCase().includes('cuota')) return { label: 'Cuotas', to: '/casos-pagos', badge: 'badge-yellow' };
+    return { label: 'Casos', to: '/casos-trabajo', badge: 'badge-green' };
+  }
+
+  async function handleDeleteIngreso(id: string) {
+    if (!window.confirm('¿Eliminás este ingreso manual?')) return;
+    setDeletingId(id);
+    const { error } = await supabase.from('ingresos').delete().eq('id', id);
+    setDeletingId(null);
+    if (error) { showToast('Error al eliminar el ingreso', 'error'); return; }
+    showToast('Ingreso eliminado');
+    await refetch();
+  }
 
   const filtered = useMemo(() => ingresos.filter(ingreso => {
     if (filtroFechaDesde && ingreso.fecha < filtroFechaDesde) return false;
@@ -337,8 +359,15 @@ export default function Ingresos() {
                   </tr>
                 </thead>
                 <tbody>
-                  {pipeline.pendingItems.slice(0, 8).map(item => (
-                    <tr key={item.id} className="table-row">
+                  {pipeline.pendingItems.slice(0, 8).map(item => {
+                    const destino = item.type === 'cuota' ? '/honorarios' : '/casos-trabajo';
+                    return (
+                    <tr
+                      key={item.id}
+                      className="table-row cursor-pointer hover:bg-white/[0.03] transition-colors"
+                      onClick={() => navigate(destino)}
+                      title={`Ir a ${item.type === 'cuota' ? 'Honorarios' : 'Casos - Trabajo'}`}
+                    >
                       <td className="px-5 py-3">
                         <div>
                           <p className="text-sm font-medium text-white">{item.clientName}</p>
@@ -346,7 +375,9 @@ export default function Ingresos() {
                         </div>
                       </td>
                       <td className="px-5 py-3 text-sm text-gray-300">
-                        {item.type === 'cuota' ? 'Cuota' : item.type === 'consulta' ? 'Consulta' : 'Saldo'}
+                        <span className={`badge ${item.type === 'cuota' ? 'badge-yellow' : item.type === 'consulta' ? 'badge-blue' : 'badge-green'}`}>
+                          {item.type === 'cuota' ? 'Cuota' : item.type === 'consulta' ? 'Consulta' : 'Saldo'}
+                        </span>
                       </td>
                       <td className="px-5 py-3 text-sm text-gray-300">
                         {item.dueDate ? format(new Date(`${item.dueDate}T12:00:00`), 'dd MMM yyyy', { locale: es }) : 'Sin fecha'}
@@ -358,7 +389,8 @@ export default function Ingresos() {
                         </span>
                       </td>
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -389,6 +421,7 @@ export default function Ingresos() {
                 <th className={`hidden ${compact ? 'px-3 py-2' : 'px-5 py-3'} text-left text-xs font-medium uppercase text-gray-500 md:table-cell`}>Socio</th>
                 <th className={`hidden ${compact ? 'px-3 py-2' : 'px-5 py-3'} text-left text-xs font-medium uppercase text-gray-500 lg:table-cell`}>Modalidad</th>
                 <th className={`hidden ${compact ? 'px-3 py-2' : 'px-5 py-3'} text-left text-xs font-medium uppercase text-gray-500 md:table-cell`}>Cargado por</th>
+                <th className={`${compact ? 'px-3 py-2' : 'px-5 py-3'} text-left text-xs font-medium uppercase text-gray-500`}>Origen</th>
               </tr>
             </thead>
             <tbody>
@@ -425,6 +458,32 @@ export default function Ingresos() {
                       <span className="text-violet-300 font-medium">{ingreso.created_by ? perfilMap.get(ingreso.created_by) || 'Usuario' : 'Importación'}</span>
                       <span className="block text-gray-500 mt-0.5">{format(new Date(ingreso.created_at), 'dd/MM/yy HH:mm', { locale: es })}</span>
                     </div>
+                  </td>
+                  <td className={cp}>
+                    {(() => {
+                      const origen = getIngresoOrigen(ingreso);
+                      return (
+                        <div className="flex items-center gap-2">
+                          {origen.to ? (
+                            <Link to={origen.to} className={`badge ${origen.badge} flex items-center gap-1 hover:opacity-80 transition-opacity`}>
+                              {origen.label} <ExternalLink className="w-2.5 h-2.5" />
+                            </Link>
+                          ) : (
+                            <span className={`badge ${origen.badge}`}>{origen.label}</span>
+                          )}
+                          {ingreso.es_manual && (
+                            <button
+                              onClick={() => handleDeleteIngreso(ingreso.id)}
+                              disabled={deletingId === ingreso.id}
+                              className="p-1 rounded text-gray-600 hover:text-red-400 hover:bg-red-500/10 transition-colors disabled:opacity-40"
+                              title="Eliminar ingreso manual"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })()}
                   </td>
                 </tr>
                 );

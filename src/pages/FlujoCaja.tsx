@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { BarChart3, FileSpreadsheet, PieChart, TrendingUp, Users } from 'lucide-react';
 import FinanceImportModal from '../components/finance/FinanceImportModal';
 import { FinanceBars, FinanceDonut, FinanceGroupedBars, FinanceLineChart, FinanceVerticalBars } from '../components/finance/FinanceCharts';
@@ -246,8 +247,10 @@ export default function FlujoCaja() {
                 {pipeline.pendingItems.length === 0 ? (
                   <div className="rounded-xl bg-white/[0.03] px-4 py-6 text-sm text-gray-500">No hay cobros pendientes.</div>
                 ) : (
-                  pipeline.pendingItems.slice(0, 6).map(item => (
-                    <div key={item.id} className="rounded-xl bg-white/[0.03] px-4 py-3">
+                  pipeline.pendingItems.slice(0, 6).map(item => {
+                    const destino = item.type === 'cuota' ? '/honorarios' : '/casos-trabajo';
+                    return (
+                    <Link key={item.id} to={destino} className="rounded-xl bg-white/[0.03] px-4 py-3 hover:bg-white/[0.06] transition-colors block">
                       <div className="flex items-center justify-between gap-3">
                         <div>
                           <p className="text-sm font-medium text-white">{item.clientName}</p>
@@ -259,8 +262,9 @@ export default function FlujoCaja() {
                           <p className={`text-xs ${item.overdue ? 'text-rose-400' : 'text-gray-500'}`}>{item.dueDate || 'Sin fecha'}</p>
                         </div>
                       </div>
-                    </div>
-                  ))
+                    </Link>
+                    );
+                  })
                 )}
               </div>
             </div>
