@@ -18,6 +18,7 @@ import {
   Gavel,
   Wallet,
   Clock,
+  CalendarClock,
 } from 'lucide-react';
 import { usePermisos } from '../hooks/usePermisos';
 import { useAuth } from '../context/AuthContext';
@@ -94,6 +95,14 @@ export default function Sidebar({ open, onClose }: SidebarProps) {
             <Users className="w-5 h-5" />
             Casos - Trabajo
           </NavLink>
+
+          {/* AGENDAMIENTO: visible para empleados, socios y admin */}
+          {(perfil?.rol === 'empleado' || perfil?.rol === 'socio' || perfil?.rol === 'admin') && (
+            <NavLink to="/agendamiento-consultas" onClick={onClose} className={({ isActive }) => linkClass(isActive)}>
+              <CalendarClock className="w-5 h-5" />
+              Agendamiento
+            </NavLink>
+          )}
 
           {/* CASOS - PAGOS: visible para socios y admin */}
           {(perfil?.rol === 'socio' || perfil?.rol === 'admin') && (

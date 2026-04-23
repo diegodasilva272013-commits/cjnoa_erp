@@ -7,6 +7,7 @@ const Layout = lazy(() => import('./components/Layout'));
 const Login = lazy(() => import('./pages/Login'));
 const Dashboard = lazy(() => import('./pages/Dashboard'));
 const Cases = lazy(() => import('./pages/Cases'));
+const AgendamientoConsultas = lazy(() => import('./pages/AgendamientoConsultas'));
 const CasosPagos = lazy(() => import('./pages/CasosPagos'));
 const Ingresos = lazy(() => import('./pages/Ingresos'));
 const Egresos = lazy(() => import('./pages/Egresos'));
@@ -71,6 +72,7 @@ export default function App() {
           <Route path="/" element={<ProtectedRoute modulo="dashboard"><Dashboard /></ProtectedRoute>} />
           <Route path="/casos" element={<Navigate to="/casos-trabajo" replace />} />
           <Route path="/casos-trabajo" element={<Cases />} />
+          <Route path="/agendamiento-consultas" element={<AgendamientoConsultas />} />
           <Route path="/casos-pagos" element={<CasosPagos />} />
           <Route path="/tareas" element={<Tareas />} />
           <Route path="/audiencias" element={<Audiencias />} />

@@ -24,8 +24,12 @@ const BASE_PAGES: SearchResult[] = [
   { id: 'p-prev-seg', type: 'pagina', title: 'Seguimiento Previsional', subtitle: 'Tareas y audiencias', route: '/previsional/seguimiento' },
 ];
 
+const AGENDAMIENTO_PAGES: SearchResult[] = [
+  { id: 'p-agendamiento', type: 'pagina', title: 'Agendamiento', subtitle: 'Consultas previas y reservas', route: '/agendamiento-consultas' },
+];
+
 const SOCIO_PAGES: SearchResult[] = [
-  { id: 'p-casos-pagos', type: 'pagina', title: 'Casos - Pagos', subtitle: 'Consultas, reservas y cobros', route: '/casos-pagos' },
+  { id: 'p-casos-pagos', type: 'pagina', title: 'Casos - Pagos', subtitle: 'Gestión comercial y cobros', route: '/casos-pagos' },
 ];
 
 const ICONS: Record<string, React.ReactNode> = {
@@ -45,9 +49,14 @@ export default function CommandPalette() {
   const [searching, setSearching] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const navigate = useNavigate();
+  const canAccessAgendamiento = perfil?.rol === 'empleado' || perfil?.rol === 'socio' || perfil?.rol === 'admin';
   const pages = useMemo(
-    () => [...BASE_PAGES, ...((perfil?.rol === 'socio' || perfil?.rol === 'admin') ? SOCIO_PAGES : [])],
-    [perfil?.rol],
+    () => [
+      ...BASE_PAGES,
+      ...(canAccessAgendamiento ? AGENDAMIENTO_PAGES : []),
+      ...((perfil?.rol === 'socio' || perfil?.rol === 'admin') ? SOCIO_PAGES : []),
+    ],
+    [canAccessAgendamiento, perfil?.rol],
   );
 
   // Cmd+K / Ctrl+K to open
