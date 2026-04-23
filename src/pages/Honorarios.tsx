@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Plus, DollarSign, X, Trash2, Edit2, Search, Lock } from 'lucide-react';
 import { useHonorarios } from '../hooks/useTareas';
@@ -26,6 +26,14 @@ export default function Honorarios() {
   const [modalOpen, setModalOpen] = useState(false);
   const [selected, setSelected] = useState<HonorarioCompleto | null>(null);
   const [confirmDel, setConfirmDel] = useState<string | null>(null);
+
+  // Auto-open record when navigated from another module
+  useEffect(() => {
+    const openId = searchParams.get('openId');
+    if (!openId || honorarios.length === 0) return;
+    const target = honorarios.find(h => h.id === openId);
+    if (target) { setSelected(target); setModalOpen(true); }
+  }, [honorarios]);
 
   if (!canSee('honorarios')) {
     return (

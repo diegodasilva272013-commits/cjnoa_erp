@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Plus, Download, LayoutList, LayoutGrid, Briefcase, CheckSquare, X, ChevronDown } from 'lucide-react';
 import { useCases, filterCases, emptyFilters } from '../hooks/useCases';
@@ -95,6 +95,14 @@ export default function Cases() {
     setSelectedCaso(null);
     setModalOpen(true);
   }
+
+  // Auto-open record when navigated from another module
+  useEffect(() => {
+    const openId = searchParams.get('openId');
+    if (!openId || casos.length === 0) return;
+    const target = casos.find(c => c.id === openId);
+    if (target) handleSelectCaso(target);
+  }, [casos]);
 
   if (loading) {
     return (

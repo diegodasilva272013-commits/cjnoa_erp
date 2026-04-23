@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Plus, Pencil, Trash2, CalendarClock, CheckCircle2, Clock, DollarSign, Search } from 'lucide-react';
+import { useSearchParams } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
@@ -37,6 +38,15 @@ export default function AgendamientoConsultas() {
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<ConsultaAgendada | null>(null);
   const [search, setSearch] = useState('');
+  const [searchParams] = useSearchParams();
+
+  // Auto-open record when navigated from another module
+  useEffect(() => {
+    const openId = searchParams.get('openId');
+    if (!openId || items.length === 0) return;
+    const target = items.find(i => i.id === openId);
+    if (target) { setEditing(target); setModalOpen(true); }
+  }, [items, searchParams]);
 
   const canAccessAgendamiento = perfil?.rol === 'empleado' || perfil?.rol === 'socio' || perfil?.rol === 'admin';
 

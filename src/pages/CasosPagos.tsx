@@ -1,5 +1,6 @@
 import { useEffect, useState, useMemo } from 'react';
 import { Plus, Pencil, Trash2, CalendarClock, CheckCircle2, Clock, DollarSign, Search } from 'lucide-react';
+import { useSearchParams } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
@@ -42,11 +43,20 @@ export default function CasosPagos() {
   const { perfil } = useAuth();
   const { showToast } = useToast();
   const socios = useSocios();
+  const [searchParams] = useSearchParams();
   const [items, setItems] = useState<CasoPago[]>([]);
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<CasoPago | null>(null);
-  const [search, setSearch] = useState('');
+  const [search, setSearch] = useState(() => searchParams.get('q') || '');
+
+  // Auto-open record when navigated from another module
+  useEffect(() => {
+    const openId = searchParams.get('openId');
+    if (!openId || items.length === 0) return;
+    const target = items.find(i => i.id === openId);
+    if (target) { setEditing(target); setModalOpen(true); }
+  }, [items, searchParams]);
 
   const canAccessCasosPagos = perfil?.rol === 'socio' || perfil?.rol === 'admin';
 

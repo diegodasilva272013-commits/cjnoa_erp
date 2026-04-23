@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
-import { Download, FileSpreadsheet, Plus, Sigma, Users, FileText, Rows3, Rows4, ArrowRight, Trash2, Info } from 'lucide-react';
+import { Download, FileSpreadsheet, Plus, Sigma, Users, FileText, Rows3, Rows4, Trash2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useEgresos, type EgresoFinanciero } from '../hooks/useFinances';
 import { CONCEPTOS_EGRESO, CategoriaEgreso } from '../types/database';
@@ -25,9 +25,9 @@ export default function Egresos() {
   const [modalOpen, setModalOpen] = useState(false);
   const [importModalOpen, setImportModalOpen] = useState(false);
   const [editingEgreso, setEditingEgreso] = useState<EgresoFinanciero | null>(null);
-  const [detalleEgreso, setDetalleEgreso] = useState<EgresoFinanciero | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const navigate = useNavigate();
+  const { showToast } = useToast();
 
   function usePersistedFilter(key: string, fallback = '') {
     const [value, setValue] = useState(() => {
@@ -86,7 +86,12 @@ export default function Egresos() {
     if (egreso.source === 'operativo') {
       setEditingEgreso(egreso);
     } else {
-      setDetalleEgreso(egreso);
+      // Gasto de caso: navegar directamente al caso
+      if (egreso.caso_id) {
+        navigate(`/casos-trabajo?openId=${egreso.caso_id}`);
+      } else {
+        navigate(`/casos-trabajo?q=${encodeURIComponent(egreso.cliente_nombre || '')}`);
+      }
     }
   }
 
@@ -411,7 +416,6 @@ export default function Egresos() {
         editing={editingEgreso}
         onDelete={async (id) => { await handleDeleteEgreso(id); setEditingEgreso(null); }}
       />
-      <EgresoDetalleModal egreso={detalleEgreso} onClose={() => setDetalleEgreso(null)} navigate={navigate} />
       <FinanceImportModal
         open={importModalOpen}
         onClose={() => setImportModalOpen(false)}
@@ -469,41 +473,6 @@ function InsightRow({ label, value }: { label: string; value: string }) {
       <span>{label}</span>
       <span className="font-semibold text-white">{value}</span>
     </div>
-  );
-}
-
-function EgresoDetalleModal({ egreso, onClose, navigate }: {
-  egreso: EgresoFinanciero | null;
-  onClose: () => void;
-  navigate: ReturnType<typeof useNavigate>;
-}) {
-  if (!egreso) return null;
-  return (
-    <Modal open={!!egreso} onClose={onClose} title="Gasto de caso" subtitle="Generado automáticamente desde el módulo de casos" maxWidth="max-w-lg">
-      <div className="space-y-4">
-        <div className="rounded-xl border border-white/10 bg-white/[0.02] p-4 space-y-3 text-sm">
-          <div className="flex justify-between"><span className="text-gray-500">Fecha</span><span className="font-medium text-white">{egreso.fecha}</span></div>
-          <div className="flex justify-between"><span className="text-gray-500">Concepto</span><span className="font-medium text-white">{egreso.concepto}</span></div>
-          {egreso.concepto_detalle && <div className="flex justify-between"><span className="text-gray-500">Detalle</span><span className="font-medium text-white">{egreso.concepto_detalle}</span></div>}
-          <div className="flex justify-between"><span className="text-gray-500">Monto</span><span className="font-semibold text-rose-400">{formatMoney(egreso.monto)}</span></div>
-          {egreso.cliente_nombre && <div className="flex justify-between"><span className="text-gray-500">Cliente</span><span className="font-medium text-white">{egreso.cliente_nombre}</span></div>}
-          {egreso.materia && <div className="flex justify-between"><span className="text-gray-500">Materia</span><span className="font-medium text-white">{egreso.materia}</span></div>}
-        </div>
-        <div className="rounded-xl border border-amber-500/20 bg-amber-500/[0.04] p-4">
-          <p className="text-xs text-amber-300 font-semibold mb-1">Egreso generado desde un caso</p>
-          <p className="text-xs text-gray-400">Para editarlo o eliminarlo, hacelo desde el módulo <span className="text-white font-medium">Casos - Trabajo</span>.</p>
-        </div>
-        <div className="flex gap-3">
-          <button onClick={onClose} className="btn-secondary flex-1">Cerrar</button>
-          <button
-            onClick={() => { onClose(); navigate(`/casos-trabajo?q=${encodeURIComponent(egreso.cliente_nombre || '')}`); }}
-            className="btn-primary flex-1 flex items-center justify-center gap-2"
-          >
-            Ir al caso <ArrowRight className="w-4 h-4" />
-          </button>
-        </div>
-      </div>
-    </Modal>
   );
 }
 

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
-import { Download, FileSpreadsheet, Plus, Sigma, Users, FileText, RefreshCw, Rows3, Rows4, Trash2, ExternalLink, Pencil, Info, ArrowRight } from 'lucide-react';
+import { Download, FileSpreadsheet, Plus, Sigma, Users, FileText, RefreshCw, Rows3, Rows4, Trash2, ExternalLink, Pencil } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import type { Ingreso } from '../types/database';
 import { useCaseFinancePipeline, useIngresos } from '../hooks/useFinances';
@@ -18,7 +18,7 @@ import { buildIncomeOverview, aggregateIngresosPorSocio } from '../lib/financeAn
 import { formatMoney, pctChange } from '../lib/financeFormat';
 import { usePerfilMap } from '../hooks/usePerfiles';
 import { countCaseIncomeLedgerChanges } from '../lib/caseIncomeLedger';
-import { stripIncomeReference } from '../lib/financeRefs';
+import { stripIncomeReference, parseIncomeReference } from '../lib/financeRefs';
 import { resolveOperationalSocio, sameOperationalSocio } from '../lib/operationalSocios';
 
 export default function Ingresos() {
@@ -44,7 +44,6 @@ export default function Ingresos() {
   const [filtroModalidad, setFiltroModalidad] = usePersistedFilter('modalidad');
   const [manualModalOpen, setManualModalOpen] = useState(false);
   const [editingIngreso, setEditingIngreso] = useState<Ingreso | null>(null);
-  const [detalleIngreso, setDetalleIngreso] = useState<Ingreso | null>(null);
   const [importModalOpen, setImportModalOpen] = useState(false);
   const [page, setPage] = useState(0);
   const [compact, setCompact] = useState(() => sessionStorage.getItem('ingresos_compact') === '1');
@@ -60,12 +59,37 @@ export default function Ingresos() {
     return { label: 'Casos', to: '/casos-trabajo', badge: 'badge-green' };
   }
 
-  function handleRowClick(ingreso: Ingreso) {
+  async function handleRowClick(ingreso: Ingreso) {
     if (ingreso.es_manual) {
       setEditingIngreso(ingreso);
-    } else {
-      setDetalleIngreso(ingreso);
+      return;
     }
+    // Auto-resolve source record and navigate directly
+    const { reference } = parseIncomeReference(ingreso.notas);
+    if (reference?.type === 'cuota') {
+      navigate(`/honorarios?openId=${reference.id}`);
+      return;
+    }
+    if (reference?.type === 'pago_unico') {
+      navigate(`/casos-trabajo?openId=${reference.caseId}`);
+      return;
+    }
+    const c = (ingreso.concepto || '').toLowerCase();
+    if (c.includes('reserva')) {
+      const { data } = await supabase.from('consultas_agendadas').select('id').eq('ingreso_reserva_id', ingreso.id).maybeSingle();
+      navigate(data ? `/agendamiento-consultas?openId=${data.id}` : `/agendamiento-consultas?q=${encodeURIComponent(ingreso.cliente_nombre || '')}`);
+      return;
+    }
+    if (c.includes('saldo consulta')) {
+      const { data } = await supabase.from('casos_pagos').select('id').eq('ingreso_saldo_id', ingreso.id).maybeSingle();
+      navigate(data ? `/casos-pagos?openId=${data.id}` : `/casos-pagos?q=${encodeURIComponent(ingreso.cliente_nombre || '')}`);
+      return;
+    }
+    if (ingreso.caso_id) {
+      navigate(`/casos-trabajo?openId=${ingreso.caso_id}`);
+      return;
+    }
+    navigate(`/casos-trabajo?q=${encodeURIComponent(ingreso.cliente_nombre || '')}`);
   }
 
   async function handleDeleteIngreso(id: string) {
@@ -546,11 +570,6 @@ export default function Ingresos() {
         editing={editingIngreso}
         onDelete={async (id) => { await handleDeleteIngreso(id); setEditingIngreso(null); }}
       />
-      <IngresoDetalleModal
-        ingreso={detalleIngreso}
-        onClose={() => setDetalleIngreso(null)}
-        getOrigen={getIngresoOrigen}
-      />
       <FinanceImportModal
         open={importModalOpen}
         onClose={() => setImportModalOpen(false)}
@@ -624,60 +643,6 @@ function InsightRow({ label, value }: { label: string; value: string }) {
     <div className="flex items-center justify-between rounded-xl bg-white/[0.03] px-3 py-2 hover:bg-white/[0.06] transition-all duration-200 animate-slide-right">
       <span>{label}</span>
       <span className="font-semibold text-white">{value}</span>
-    </div>
-  );
-}
-
-function IngresoDetalleModal({ ingreso, onClose, getOrigen }: {
-  ingreso: Ingreso | null;
-  onClose: () => void;
-  getOrigen: (ingreso: { es_manual: boolean; concepto: string | null }) => { label: string; to: string | null; badge: string };
-}) {
-  const navigate = useNavigate();
-  if (!ingreso) return null;
-  const origen = getOrigen(ingreso);
-  return (
-    <Modal open={!!ingreso} onClose={onClose} title="Detalle del ingreso" subtitle={`Cargado en: ${origen.label}`} maxWidth="max-w-xl">
-      <div className="space-y-4">
-        <div className="rounded-xl border border-white/10 bg-white/[0.02] p-4 space-y-3 text-sm">
-          <Row label="Fecha" value={ingreso.fecha} />
-          <Row label="Cliente" value={ingreso.cliente_nombre || '—'} />
-          <Row label="Materia" value={ingreso.materia || '—'} />
-          <Row label="Concepto" value={ingreso.concepto || '—'} />
-          <Row label="Monto bruto" value={formatMoney(ingreso.monto_total)} />
-          <Row label="Neto CJ NOA" value={formatMoney(ingreso.monto_cj_noa)} accent="emerald" />
-          {Number(ingreso.comision_captadora) > 0 && <Row label="Comisión captadora" value={formatMoney(ingreso.comision_captadora)} accent="amber" />}
-          {ingreso.captadora_nombre && <Row label="Captadora" value={ingreso.captadora_nombre} />}
-          <Row label="Socio" value={ingreso.socio_cobro || '—'} />
-          <Row label="Modalidad" value={ingreso.modalidad || '—'} />
-          {ingreso.notas && <Row label="Notas" value={ingreso.notas} />}
-        </div>
-        <div className="rounded-xl border border-amber-500/20 bg-amber-500/[0.04] p-4">
-          <p className="text-xs text-amber-300 font-semibold mb-1">Este ingreso fue generado automáticamente</p>
-          <p className="text-xs text-gray-400">Para editarlo o eliminarlo, hacelo desde el módulo de origen: <span className="text-white font-medium">{origen.label}</span>.</p>
-        </div>
-        <div className="flex gap-3">
-          <button onClick={onClose} className="btn-secondary flex-1">Cerrar</button>
-          {origen.to && (
-            <button
-              onClick={() => { onClose(); navigate(`${origen.to}?q=${encodeURIComponent(ingreso.cliente_nombre || '')}`); }}
-              className="btn-primary flex-1 flex items-center justify-center gap-2"
-            >
-              Ir a {origen.label} <ArrowRight className="w-4 h-4" />
-            </button>
-          )}
-        </div>
-      </div>
-    </Modal>
-  );
-}
-
-function Row({ label, value, accent }: { label: string; value: string; accent?: 'emerald' | 'amber' }) {
-  const color = accent === 'emerald' ? 'text-emerald-300' : accent === 'amber' ? 'text-amber-300' : 'text-white';
-  return (
-    <div className="flex items-start justify-between gap-4">
-      <span className="text-gray-500 shrink-0">{label}</span>
-      <span className={`font-medium text-right ${color}`}>{value}</span>
     </div>
   );
 }
