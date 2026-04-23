@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
-import { Download, FileSpreadsheet, Plus, Sigma, Users, FileText, Rows3, Rows4 } from 'lucide-react';
-import { useEgresos } from '../hooks/useFinances';
+import { Download, FileSpreadsheet, Plus, Sigma, Users, FileText, Rows3, Rows4, ArrowRight, Trash2, Info } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { useEgresos, type EgresoFinanciero } from '../hooks/useFinances';
 import { CONCEPTOS_EGRESO, CategoriaEgreso } from '../types/database';
 import { useSocios } from '../hooks/useSocios';
 import Modal from '../components/Modal';
@@ -23,6 +24,10 @@ export default function Egresos() {
   const perfilMap = usePerfilMap();
   const [modalOpen, setModalOpen] = useState(false);
   const [importModalOpen, setImportModalOpen] = useState(false);
+  const [editingEgreso, setEditingEgreso] = useState<EgresoFinanciero | null>(null);
+  const [detalleEgreso, setDetalleEgreso] = useState<EgresoFinanciero | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const navigate = useNavigate();
 
   function usePersistedFilter(key: string, fallback = '') {
     const [value, setValue] = useState(() => {
@@ -76,6 +81,24 @@ export default function Egresos() {
       casos: pctChange(cur.expense, prev.expense),
     };
   }, [analytics.monthlySeries]);
+
+  function handleRowClick(egreso: EgresoFinanciero) {
+    if (egreso.source === 'operativo') {
+      setEditingEgreso(egreso);
+    } else {
+      setDetalleEgreso(egreso);
+    }
+  }
+
+  async function handleDeleteEgreso(id: string) {
+    if (!window.confirm('¿Eliminás este egreso operativo?')) return;
+    setDeletingId(id);
+    const { error } = await supabase.from('egresos').delete().eq('id', id);
+    setDeletingId(null);
+    if (error) { showToast('Error al eliminar el egreso', 'error'); return; }
+    showToast('Egreso eliminado');
+    await refetch();
+  }
 
   async function handleExportEgresos() {
     const data = filtered.map(item => ({
@@ -313,7 +336,7 @@ export default function Egresos() {
               {filtered.slice(page * pageSize, (page + 1) * pageSize).map((egreso, i) => {
                 const cp = compact ? 'px-3 py-1.5' : 'px-5 py-3';
                 return (
-                <tr key={egreso.id} className="table-row row-enter" style={{ animationDelay: `${Math.min(i, 15) * 30}ms` }}>
+                <tr key={egreso.id} className="table-row row-enter cursor-pointer hover:bg-white/[0.04]" style={{ animationDelay: `${Math.min(i, 15) * 30}ms` }} onClick={() => handleRowClick(egreso)}>
                   <td className={`${cp} text-sm text-gray-300`}>{format(new Date(egreso.fecha), 'dd MMM yyyy', { locale: es })}</td>
                   <td className={cp}>
                     <span className={`badge ${egreso.source === 'caso' ? 'badge-blue' : 'badge-red'}`}>
@@ -381,7 +404,14 @@ export default function Egresos() {
         )}
       </div>
 
-      <EgresoModal open={modalOpen} onClose={() => setModalOpen(false)} onSaved={refetch} />
+      <EgresoModal
+        open={modalOpen || !!editingEgreso}
+        onClose={() => { setModalOpen(false); setEditingEgreso(null); }}
+        onSaved={refetch}
+        editing={editingEgreso}
+        onDelete={async (id) => { await handleDeleteEgreso(id); setEditingEgreso(null); }}
+      />
+      <EgresoDetalleModal egreso={detalleEgreso} onClose={() => setDetalleEgreso(null)} navigate={navigate} />
       <FinanceImportModal
         open={importModalOpen}
         onClose={() => setImportModalOpen(false)}
@@ -442,9 +472,51 @@ function InsightRow({ label, value }: { label: string; value: string }) {
   );
 }
 
-function EgresoModal({ open, onClose, onSaved }: { open: boolean; onClose: () => void; onSaved: () => void }) {
+function EgresoDetalleModal({ egreso, onClose, navigate }: {
+  egreso: EgresoFinanciero | null;
+  onClose: () => void;
+  navigate: ReturnType<typeof useNavigate>;
+}) {
+  if (!egreso) return null;
+  return (
+    <Modal open={!!egreso} onClose={onClose} title="Gasto de caso" subtitle="Generado automáticamente desde el módulo de casos" maxWidth="max-w-lg">
+      <div className="space-y-4">
+        <div className="rounded-xl border border-white/10 bg-white/[0.02] p-4 space-y-3 text-sm">
+          <div className="flex justify-between"><span className="text-gray-500">Fecha</span><span className="font-medium text-white">{egreso.fecha}</span></div>
+          <div className="flex justify-between"><span className="text-gray-500">Concepto</span><span className="font-medium text-white">{egreso.concepto}</span></div>
+          {egreso.concepto_detalle && <div className="flex justify-between"><span className="text-gray-500">Detalle</span><span className="font-medium text-white">{egreso.concepto_detalle}</span></div>}
+          <div className="flex justify-between"><span className="text-gray-500">Monto</span><span className="font-semibold text-rose-400">{formatMoney(egreso.monto)}</span></div>
+          {egreso.cliente_nombre && <div className="flex justify-between"><span className="text-gray-500">Cliente</span><span className="font-medium text-white">{egreso.cliente_nombre}</span></div>}
+          {egreso.materia && <div className="flex justify-between"><span className="text-gray-500">Materia</span><span className="font-medium text-white">{egreso.materia}</span></div>}
+        </div>
+        <div className="rounded-xl border border-amber-500/20 bg-amber-500/[0.04] p-4">
+          <p className="text-xs text-amber-300 font-semibold mb-1">Egreso generado desde un caso</p>
+          <p className="text-xs text-gray-400">Para editarlo o eliminarlo, hacelo desde el módulo <span className="text-white font-medium">Casos - Trabajo</span>.</p>
+        </div>
+        <div className="flex gap-3">
+          <button onClick={onClose} className="btn-secondary flex-1">Cerrar</button>
+          <button
+            onClick={() => { onClose(); navigate(`/casos-trabajo?q=${encodeURIComponent(egreso.cliente_nombre || '')}`); }}
+            className="btn-primary flex-1 flex items-center justify-center gap-2"
+          >
+            Ir al caso <ArrowRight className="w-4 h-4" />
+          </button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+function EgresoModal({ open, onClose, onSaved, editing, onDelete }: {
+  open: boolean;
+  onClose: () => void;
+  onSaved: () => void;
+  editing?: EgresoFinanciero | null;
+  onDelete?: (id: string) => void;
+}) {
   const { showToast } = useToast();
   const socios = useSocios();
+  const isEditing = !!editing;
   const [fecha, setFecha] = useState(new Date().toISOString().split('T')[0]);
   const [categoria, setCategoria] = useState<CategoriaEgreso>('Sueldos');
   const [subcategoria, setSubcategoria] = useState('');
@@ -456,6 +528,33 @@ function EgresoModal({ open, onClose, onSaved }: { open: boolean; onClose: () =>
   const [observaciones, setObservaciones] = useState('');
   const [saving, setSaving] = useState(false);
 
+  useEffect(() => {
+    if (editing) {
+      setFecha(editing.fecha);
+      setMonto(String(editing.monto || ''));
+      setModalidad(editing.modalidad || 'Efectivo');
+      setResponsable(editing.responsable || socios[0] || '');
+      setObservaciones(editing.observaciones || '');
+      const c = editing.concepto || '';
+      const colonIdx = c.indexOf(':');
+      if (colonIdx > -1) {
+        const cat = c.slice(0, colonIdx).trim();
+        const sub = c.slice(colonIdx + 1).trim();
+        if (cat in CONCEPTOS_EGRESO) { setCategoria(cat as CategoriaEgreso); setSubcategoria(sub); setConceptoLibre(''); }
+        else { setCategoria('Otro'); setSubcategoria(''); setConceptoLibre(c); }
+      } else {
+        const knownCat = Object.keys(CONCEPTOS_EGRESO).find(k => k === c);
+        if (knownCat) { setCategoria(knownCat as CategoriaEgreso); setSubcategoria(''); setConceptoLibre(''); }
+        else { setCategoria('Otro'); setSubcategoria(''); setConceptoLibre(c); }
+      }
+      setCasoDesc(editing.concepto_detalle || '');
+    } else {
+      setFecha(new Date().toISOString().split('T')[0]);
+      setCategoria('Sueldos'); setSubcategoria(''); setConceptoLibre(''); setCasoDesc('');
+      setMonto(''); setModalidad('Efectivo'); setObservaciones('');
+    }
+  }, [editing, open]);
+
   const subcategorias = CONCEPTOS_EGRESO[categoria] || [];
 
   let conceptoFinal: string = categoria;
@@ -465,7 +564,7 @@ function EgresoModal({ open, onClose, onSaved }: { open: boolean; onClose: () =>
   async function handleSave() {
     setSaving(true);
     try {
-      await supabase.from('egresos').insert({
+      const payload = {
         fecha,
         concepto: conceptoFinal,
         concepto_detalle: categoria === 'Gastos Judiciales' ? casoDesc : (categoria === 'Otro' ? conceptoLibre : null),
@@ -473,19 +572,25 @@ function EgresoModal({ open, onClose, onSaved }: { open: boolean; onClose: () =>
         modalidad,
         responsable,
         observaciones: observaciones || null,
-      });
-      showToast('Egreso registrado');
+      };
+      if (isEditing && editing) {
+        await supabase.from('egresos').update(payload).eq('id', editing.id);
+        showToast('Egreso actualizado');
+      } else {
+        await supabase.from('egresos').insert(payload);
+        showToast('Egreso registrado');
+      }
       onSaved();
       onClose();
     } catch (error: any) {
-      showToast(error.message || 'Error al registrar egreso', 'error');
+      showToast(error.message || 'Error al guardar egreso', 'error');
     } finally {
       setSaving(false);
     }
   }
 
   return (
-    <Modal open={open} onClose={onClose} title="Nuevo egreso" maxWidth="max-w-md">
+    <Modal open={open} onClose={onClose} title={isEditing ? 'Editar egreso' : 'Nuevo egreso'} maxWidth="max-w-md">
       <div className="space-y-4">
         <div>
           <label className="mb-1.5 block text-sm text-gray-400">Fecha</label>
@@ -550,8 +655,16 @@ function EgresoModal({ open, onClose, onSaved }: { open: boolean; onClose: () =>
 
         <div className="flex gap-3 pt-2">
           <button onClick={onClose} className="btn-secondary flex-1">Cancelar</button>
+          {isEditing && onDelete && editing && (
+            <button
+              onClick={() => onDelete(editing.id)}
+              className="btn-secondary flex items-center gap-2 text-red-400 border-red-500/30 hover:bg-red-500/10"
+            >
+              <Trash2 className="w-4 h-4" /> Eliminar
+            </button>
+          )}
           <button onClick={handleSave} disabled={saving} className="btn-primary flex-1">
-            {saving ? 'Guardando...' : 'Registrar egreso'}
+            {saving ? 'Guardando...' : isEditing ? 'Guardar cambios' : 'Registrar egreso'}
           </button>
         </div>
       </div>
