@@ -360,13 +360,15 @@ export default function Ingresos() {
                 </thead>
                 <tbody>
                   {pipeline.pendingItems.slice(0, 8).map(item => {
-                    const destino = item.type === 'cuota' ? '/honorarios' : '/casos-trabajo';
+                    const destino = item.type === 'cuota'
+                      ? `/honorarios?q=${encodeURIComponent(item.clientName)}`
+                      : `/casos-trabajo?q=${encodeURIComponent(item.clientName)}`;
                     return (
                     <tr
                       key={item.id}
                       className="table-row cursor-pointer hover:bg-white/[0.03] transition-colors"
                       onClick={() => navigate(destino)}
-                      title={`Ir a ${item.type === 'cuota' ? 'Honorarios' : 'Casos - Trabajo'}`}
+                      title={`Ir a ${item.type === 'cuota' ? 'Honorarios' : 'Casos - Trabajo'}: ${item.clientName}`}
                     >
                       <td className="px-5 py-3">
                         <div>

@@ -248,7 +248,9 @@ export default function FlujoCaja() {
                   <div className="rounded-xl bg-white/[0.03] px-4 py-6 text-sm text-gray-500">No hay cobros pendientes.</div>
                 ) : (
                   pipeline.pendingItems.slice(0, 6).map(item => {
-                    const destino = item.type === 'cuota' ? '/honorarios' : '/casos-trabajo';
+                    const destino = item.type === 'cuota'
+                      ? `/honorarios?q=${encodeURIComponent(item.clientName)}`
+                      : `/casos-trabajo?q=${encodeURIComponent(item.clientName)}`;
                     return (
                     <Link key={item.id} to={destino} className="rounded-xl bg-white/[0.03] px-4 py-3 hover:bg-white/[0.06] transition-colors block">
                       <div className="flex items-center justify-between gap-3">

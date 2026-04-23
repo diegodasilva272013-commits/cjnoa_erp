@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { Plus, Download, LayoutList, LayoutGrid, Briefcase, CheckSquare, X, ChevronDown } from 'lucide-react';
 import { useCases, filterCases, emptyFilters } from '../hooks/useCases';
 import CaseTable from '../components/cases/CaseTable';
@@ -11,7 +12,11 @@ import { supabase } from '../lib/supabase';
 
 export default function Cases() {
   const { casos, loading, refetch } = useCases();
-  const [filters, setFilters] = useState<FilterState>(emptyFilters);
+  const [searchParams] = useSearchParams();
+  const [filters, setFilters] = useState<FilterState>(() => ({
+    ...emptyFilters,
+    busqueda: searchParams.get('q') || '',
+  }));
   const [modalOpen, setModalOpen] = useState(false);
   const [selectedCaso, setSelectedCaso] = useState<CasoCompleto | null>(null);
   const [viewMode, setViewMode] = useState<'list' | 'kanban'>(() => (sessionStorage.getItem('cases-view') as 'list' | 'kanban') || 'list');

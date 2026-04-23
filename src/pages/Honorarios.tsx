@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { Plus, DollarSign, X, Trash2, Edit2, Search, Lock } from 'lucide-react';
 import { useHonorarios } from '../hooks/useTareas';
 import { useCases } from '../hooks/useCases';
@@ -15,11 +16,12 @@ const ESTADO_COLORS: Record<EstadoCobroHonorario, string> = {
 const fmtAr = (n: number) => new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 }).format(n);
 
 export default function Honorarios() {
+  const [searchParams] = useSearchParams();
   const { canSee } = usePermisos();
   const { user } = useAuth();
   const { honorarios, loading, upsert, remove } = useHonorarios();
   const { casos } = useCases();
-  const [search, setSearch] = useState('');
+  const [search, setSearch] = useState(() => searchParams.get('q') || '');
   const [filterEstado, setFilterEstado] = useState<EstadoCobroHonorario | 'all'>('all');
   const [modalOpen, setModalOpen] = useState(false);
   const [selected, setSelected] = useState<HonorarioCompleto | null>(null);

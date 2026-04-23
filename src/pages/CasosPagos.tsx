@@ -1,26 +1,11 @@
-import { useEffect, useMemo, useState } from 'react';
-import { Plus, Pencil, Trash2, CheckCircle2, DollarSign, Search, Receipt, X } from 'lucide-react';
+import { useEffect, useState, useMemo } from 'react';
+import { Plus, Pencil, Trash2, CalendarClock, CheckCircle2, Clock, DollarSign, Search } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import { useSocios } from '../hooks/useSocios';
 import Modal from '../components/Modal';
 import { formatMoney } from '../lib/financeFormat';
-
-interface CasoPagoCuota {
-  id: string;
-  caso_pago_id: string;
-  numero: number;
-  fecha_vencimiento: string;
-  monto: number;
-  estado: 'Pendiente' | 'Pagada';
-  fecha_pago: string | null;
-  modalidad_pago: string | null;
-  cobrado_por: string | null;
-  observaciones: string | null;
-  ingreso_id: string | null;
-  created_at: string;
-}
 
 interface CasoPago {
   id: string;
@@ -31,6 +16,13 @@ interface CasoPago {
   detalle_consulta: string | null;
   socio_carga: string;
   fecha_carga: string;
+  fecha_consulta: string | null;
+  hora_consulta: string | null;
+  abogado_asignado: string | null;
+  monto_reserva: number;
+  monto_a_cancelar: number;
+  reserva_pagada: boolean;
+  reserva_modalidad: string | null;
   consulta_realizada: boolean;
   resultado_estado: string | null;
   saldo_pagado: boolean;
@@ -38,62 +30,13 @@ interface CasoPago {
   saldo_modalidad: string | null;
   honorarios: number;
   observaciones: string | null;
+  ingreso_reserva_id: string | null;
+  ingreso_saldo_id: string | null;
   created_at: string;
-  cuotas: CasoPagoCuota[];
-}
-
-interface EditableCuota {
-  fecha_vencimiento: string;
-  monto: string;
-  pagada: boolean;
-  fecha_pago: string;
-  modalidad_pago: string;
-  cobrado_por: string;
-  observaciones: string;
 }
 
 const ESTADOS_CASO = ['Vino a consulta', 'Trámite no judicial', 'Cliente Judicial'] as const;
 const MODALIDADES = ['Efectivo', 'Transferencia'] as const;
-
-function createEmptyCuota(socio: string): EditableCuota {
-  return {
-    fecha_vencimiento: '',
-    monto: '',
-    pagada: false,
-    fecha_pago: new Date().toISOString().split('T')[0],
-    modalidad_pago: '',
-    cobrado_por: socio,
-    observaciones: '',
-  };
-}
-
-function summarizeCuotas(cuotas: CasoPagoCuota[]) {
-  const pagas = cuotas.filter(cuota => cuota.estado === 'Pagada');
-  const montoPagado = pagas.reduce((total, cuota) => total + Number(cuota.monto || 0), 0);
-  const montoPactado = cuotas.reduce((total, cuota) => total + Number(cuota.monto || 0), 0);
-
-  return {
-    pactadas: cuotas.length,
-    pagas: pagas.length,
-    pendientes: cuotas.length - pagas.length,
-    montoPagado,
-    montoPactado,
-  };
-}
-
-function summarizeEditableCuotas(cuotas: EditableCuota[]) {
-  const pagas = cuotas.filter(cuota => cuota.pagada);
-  const montoPagado = pagas.reduce((total, cuota) => total + (parseFloat(cuota.monto) || 0), 0);
-  const montoPactado = cuotas.reduce((total, cuota) => total + (parseFloat(cuota.monto) || 0), 0);
-
-  return {
-    pactadas: cuotas.length,
-    pagas: pagas.length,
-    pendientes: cuotas.length - pagas.length,
-    montoPagado,
-    montoPactado,
-  };
-}
 
 export default function CasosPagos() {
   const { perfil } = useAuth();
@@ -109,57 +52,28 @@ export default function CasosPagos() {
 
   async function load() {
     setLoading(true);
-    const [casosRes, cuotasRes] = await Promise.all([
-      supabase
-        .from('casos_pagos')
-        .select('*')
-        .order('fecha_carga', { ascending: false })
-        .order('created_at', { ascending: false }),
-      supabase
-        .from('casos_pagos_cuotas')
-        .select('*')
-        .order('numero', { ascending: true }),
-    ]);
-
-    if (casosRes.error) {
-      showToast(casosRes.error.message || 'Error al cargar', 'error');
-    } else if (cuotasRes.error) {
-      showToast(cuotasRes.error.message || 'Error al cargar cuotas', 'error');
+    const { data, error } = await supabase
+      .from('casos_pagos')
+      .select('*')
+      .order('fecha_consulta', { ascending: false, nullsFirst: false })
+      .order('created_at', { ascending: false });
+    if (error) {
+      showToast(error.message || 'Error al cargar', 'error');
     } else {
-      const cuotasByCasoPago = new Map<string, CasoPagoCuota[]>();
-
-      (cuotasRes.data || []).forEach((cuota: any) => {
-        const current = cuotasByCasoPago.get(cuota.caso_pago_id) || [];
-        current.push(cuota as CasoPagoCuota);
-        cuotasByCasoPago.set(cuota.caso_pago_id, current);
-      });
-
-      setItems((casosRes.data || []).map((item: any) => ({
-        ...item,
-        cuotas: cuotasByCasoPago.get(item.id) || [],
-      })));
+      setItems(data || []);
     }
-
     setLoading(false);
   }
 
   useEffect(() => {
-    if (canAccessCasosPagos) {
-      load();
-    }
+    if (canAccessCasosPagos) load();
   }, [canAccessCasosPagos]);
 
   async function handleDelete(id: string) {
     if (!confirm('¿Eliminar este registro? Si tenía ingresos vinculados, también se eliminarán.')) return;
-
     const { error } = await supabase.from('casos_pagos').delete().eq('id', id);
-    if (error) {
-      showToast(error.message, 'error');
-      return;
-    }
-
-    showToast('Eliminado');
-    load();
+    if (error) showToast(error.message, 'error');
+    else { showToast('Eliminado'); load(); }
   }
 
   const filtered = useMemo(() => {
@@ -168,9 +82,8 @@ export default function CasosPagos() {
     return items.filter(it =>
       it.cliente_nombre.toLowerCase().includes(q) ||
       (it.telefono || '').toLowerCase().includes(q) ||
-      (it.estado_caso || '').toLowerCase().includes(q) ||
-      (it.resultado_estado || '').toLowerCase().includes(q) ||
-      it.socio_carga.toLowerCase().includes(q),
+      (it.abogado_asignado || '').toLowerCase().includes(q) ||
+      it.socio_carga.toLowerCase().includes(q)
     );
   }, [items, search]);
 
@@ -188,7 +101,7 @@ export default function CasosPagos() {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
           <h1 className="text-xl sm:text-2xl font-bold text-white">Casos - Pagos</h1>
-          <p className="text-sm text-gray-500 mt-1">Gestión comercial, honorarios y cobros posteriores a la consulta</p>
+          <p className="text-sm text-gray-500 mt-1">Gestión financiera y agendamiento de consultas (socios y administradores)</p>
         </div>
         <button
           onClick={() => { setEditing(null); setModalOpen(true); }}
@@ -202,7 +115,7 @@ export default function CasosPagos() {
         <Search className="w-4 h-4 text-gray-500" />
         <input
           type="text"
-          placeholder="Buscar por cliente, teléfono, socio o estado..."
+          placeholder="Buscar por cliente, teléfono, abogado..."
           value={search}
           onChange={e => setSearch(e.target.value)}
           className="flex-1 bg-transparent text-sm text-white placeholder-gray-500 focus:outline-none"
@@ -220,54 +133,62 @@ export default function CasosPagos() {
               <thead className="bg-white/[0.02] text-xs uppercase text-gray-500">
                 <tr>
                   <th className="px-4 py-3 text-left">Cliente</th>
+                  <th className="px-4 py-3 text-left">Consulta</th>
+                  <th className="px-4 py-3 text-left">Abogado</th>
                   <th className="px-4 py-3 text-left">Estado del caso</th>
-                  <th className="px-4 py-3 text-right">Honorarios</th>
-                  <th className="px-4 py-3 text-left">Cuotas</th>
-                  <th className="px-4 py-3 text-right">Cobrado</th>
-                  <th className="px-4 py-3 text-right">Pendiente</th>
+                  <th className="px-4 py-3 text-right">Reserva</th>
+                  <th className="px-4 py-3 text-right">Saldo</th>
+                  <th className="px-4 py-3 text-right">Total</th>
                   <th className="px-4 py-3 text-left">Socio</th>
                   <th className="px-4 py-3"></th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/[0.04]">
                 {filtered.map(it => {
-                  const cuotaStats = summarizeCuotas(it.cuotas || []);
-                  const usaCuotas = cuotaStats.pactadas > 0;
-                  const cobrado = usaCuotas ? cuotaStats.montoPagado : (it.saldo_pagado ? Number(it.saldo_monto_real || 0) : 0);
-                  const pendiente = Math.max(Number(it.honorarios || 0) - cobrado, 0);
-                  const estado = it.estado_caso || it.resultado_estado || 'Sin estado';
-
+                  const total = (it.reserva_pagada ? Number(it.monto_reserva) : 0) + (it.saldo_pagado ? Number(it.saldo_monto_real) : 0);
                   return (
                     <tr key={it.id} className="hover:bg-white/[0.02]">
                       <td className="px-4 py-3 text-white">
                         <div className="font-medium">{it.cliente_nombre}</div>
                         {it.telefono && <div className="text-xs text-gray-500">{it.telefono}</div>}
                       </td>
-                      <td className="px-4 py-3">
-                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-sky-500/10 text-sky-400 border border-sky-500/20">
-                          <CheckCircle2 className="w-3 h-3" /> {estado}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-right text-white font-semibold">{formatMoney(Number(it.honorarios || 0))}</td>
                       <td className="px-4 py-3 text-gray-300">
-                        {usaCuotas ? (
-                          <div className="space-y-0.5">
-                            <div className="text-white">Pactadas {cuotaStats.pactadas}</div>
-                            <div className="text-[10px] text-emerald-500">Pagas {cuotaStats.pagas}</div>
-                            <div className="text-[10px] text-amber-400">Pendientes {cuotaStats.pendientes}</div>
+                        {it.fecha_consulta ? (
+                          <div className="flex items-center gap-1.5">
+                            <CalendarClock className="w-3.5 h-3.5 text-blue-400" />
+                            <span>{it.fecha_consulta}{it.hora_consulta ? ` ${it.hora_consulta.slice(0,5)}` : ''}</span>
                           </div>
+                        ) : <span className="text-gray-600">—</span>}
+                      </td>
+                      <td className="px-4 py-3 text-gray-300">{it.abogado_asignado || '—'}</td>
+                      <td className="px-4 py-3">
+                        {it.estado_caso ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-sky-500/10 text-sky-400 border border-sky-500/20">
+                            <CheckCircle2 className="w-3 h-3" /> {it.estado_caso}
+                          </span>
+                        ) : it.consulta_realizada ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                            <CheckCircle2 className="w-3 h-3" /> {it.resultado_estado || 'Realizada'}
+                          </span>
                         ) : (
-                          <span className="text-gray-500">Pago único</span>
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                            <Clock className="w-3 h-3" /> Agendada
+                          </span>
                         )}
                       </td>
                       <td className="px-4 py-3 text-right">
-                        <span className={cobrado > 0 ? 'text-emerald-400' : 'text-gray-500'}>{formatMoney(cobrado)}</span>
-                        <div className="text-[10px] text-gray-600">{usaCuotas ? 'Cuotas pagas' : 'Cobro único'}</div>
+                        <span className={it.reserva_pagada ? 'text-emerald-400' : 'text-gray-500'}>
+                          {formatMoney(Number(it.monto_reserva))}
+                        </span>
+                        {it.reserva_pagada && <div className="text-[10px] text-emerald-500">Cobrada</div>}
                       </td>
                       <td className="px-4 py-3 text-right">
-                        <span className={pendiente > 0 ? 'text-amber-400' : 'text-emerald-400'}>{formatMoney(pendiente)}</span>
-                        <div className="text-[10px] text-gray-600">Saldo comercial</div>
+                        <span className={it.saldo_pagado ? 'text-emerald-400' : 'text-gray-500'}>
+                          {formatMoney(Number(it.saldo_monto_real))}
+                        </span>
+                        {it.saldo_pagado && <div className="text-[10px] text-emerald-500">Cobrado</div>}
                       </td>
+                      <td className="px-4 py-3 text-right text-white font-semibold">{formatMoney(total)}</td>
                       <td className="px-4 py-3 text-gray-400">{it.socio_carga}</td>
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-1 justify-end">
@@ -311,24 +232,19 @@ function CasoPagoModal({ open, onClose, editing, socios, onSaved }: ModalProps) 
   const { showToast } = useToast();
   const isEditing = !!editing;
   const [casos, setCasos] = useState<Array<{ id: string; label: string }>>([]);
-  const [honorariosEnCuotas, setHonorariosEnCuotas] = useState(false);
-  const [cuotas, setCuotas] = useState<EditableCuota[]>([]);
 
   useEffect(() => {
     if (!open) return;
-
     (async () => {
       const { data } = await supabase
         .from('casos')
         .select('id, expediente, materia, clientes(nombre_apellido)')
         .order('created_at', { ascending: false })
         .limit(500);
-
       const list = (data || []).map((c: any) => ({
         id: c.id,
         label: `${c.clientes?.nombre_apellido || 'Sin cliente'} — ${c.materia}${c.expediente ? ` (${c.expediente})` : ''}`,
       }));
-
       setCasos(list);
     })();
   }, [open]);
@@ -341,6 +257,17 @@ function CasoPagoModal({ open, onClose, editing, socios, onSaved }: ModalProps) 
     detalle_consulta: '',
     socio_carga: socios[0] || 'Rodrigo',
     fecha_carga: new Date().toISOString().split('T')[0],
+    // Paso 1
+    fecha_consulta: '',
+    hora_consulta: '',
+    abogado_asignado: '',
+    monto_reserva: '',
+    monto_a_cancelar: '',
+    reserva_pagada: false,
+    reserva_modalidad: '' as string,
+    // Paso 2
+    consulta_realizada: false,
+    resultado_estado: '' as string,
     saldo_pagado: false,
     saldo_monto_real: '',
     saldo_modalidad: '' as string,
@@ -348,7 +275,6 @@ function CasoPagoModal({ open, onClose, editing, socios, onSaved }: ModalProps) 
     observaciones: '',
   });
   const [saving, setSaving] = useState(false);
-  const cuotasSummary = useMemo(() => summarizeEditableCuotas(cuotas), [cuotas]);
 
   useEffect(() => {
     if (editing) {
@@ -360,76 +286,36 @@ function CasoPagoModal({ open, onClose, editing, socios, onSaved }: ModalProps) 
         detalle_consulta: editing.detalle_consulta || '',
         socio_carga: editing.socio_carga,
         fecha_carga: editing.fecha_carga,
+        fecha_consulta: editing.fecha_consulta || '',
+        hora_consulta: editing.hora_consulta?.slice(0, 5) || '',
+        abogado_asignado: editing.abogado_asignado || '',
+        monto_reserva: String(editing.monto_reserva || ''),
+        monto_a_cancelar: String(editing.monto_a_cancelar || ''),
+        reserva_pagada: editing.reserva_pagada,
+        reserva_modalidad: editing.reserva_modalidad || '',
+        consulta_realizada: editing.consulta_realizada,
+        resultado_estado: editing.resultado_estado || '',
         saldo_pagado: editing.saldo_pagado,
         saldo_monto_real: String(editing.saldo_monto_real || ''),
         saldo_modalidad: editing.saldo_modalidad || '',
         honorarios: String(editing.honorarios || ''),
         observaciones: editing.observaciones || '',
       });
-
-      const editingCuotas = [...(editing.cuotas || [])]
-        .sort((left, right) => left.numero - right.numero)
-        .map(cuota => ({
-          fecha_vencimiento: cuota.fecha_vencimiento || '',
-          monto: String(cuota.monto || ''),
-          pagada: cuota.estado === 'Pagada',
-          fecha_pago: cuota.fecha_pago || new Date().toISOString().split('T')[0],
-          modalidad_pago: cuota.modalidad_pago || '',
-          cobrado_por: cuota.cobrado_por || editing.socio_carga,
-          observaciones: cuota.observaciones || '',
-        }));
-
-      setHonorariosEnCuotas(editingCuotas.length > 0);
-      setCuotas(editingCuotas);
-      return;
+    } else {
+      setForm({
+        cliente_nombre: '', caso_id: '', estado_caso: '',
+        telefono: '', detalle_consulta: '',
+        socio_carga: socios[0] || 'Rodrigo',
+        fecha_carga: new Date().toISOString().split('T')[0],
+        fecha_consulta: '', hora_consulta: '', abogado_asignado: '',
+        monto_reserva: '', monto_a_cancelar: '',
+        reserva_pagada: false, reserva_modalidad: '',
+        consulta_realizada: false, resultado_estado: '',
+        saldo_pagado: false, saldo_monto_real: '', saldo_modalidad: '',
+        honorarios: '', observaciones: '',
+      });
     }
-
-    setForm({
-      cliente_nombre: '',
-      caso_id: '',
-      estado_caso: '',
-      telefono: '',
-      detalle_consulta: '',
-      socio_carga: socios[0] || 'Rodrigo',
-      fecha_carga: new Date().toISOString().split('T')[0],
-      saldo_pagado: false,
-      saldo_monto_real: '',
-      saldo_modalidad: '',
-      honorarios: '',
-      observaciones: '',
-    });
-    setHonorariosEnCuotas(false);
-    setCuotas([]);
   }, [editing, open, socios]);
-
-  function addCuota() {
-    setCuotas(current => [...current, createEmptyCuota(form.socio_carga)]);
-  }
-
-  function updateCuota(index: number, patch: Partial<EditableCuota>) {
-    setCuotas(current => current.map((cuota, cuotaIndex) => (
-      cuotaIndex === index ? { ...cuota, ...patch } : cuota
-    )));
-  }
-
-  function removeCuota(index: number) {
-    setCuotas(current => current.filter((_, cuotaIndex) => cuotaIndex !== index));
-  }
-
-  function activateCuotas() {
-    setHonorariosEnCuotas(true);
-    setForm(current => ({ ...current, saldo_pagado: false, saldo_monto_real: '', saldo_modalidad: '' }));
-    setCuotas(current => current.length > 0 ? current : [createEmptyCuota(form.socio_carga)]);
-  }
-
-  function activatePagoUnico() {
-    if (cuotas.length > 0 && !confirm('Esto eliminará el plan de cuotas actual al guardar. ¿Querés continuar con cobro único?')) {
-      return;
-    }
-
-    setHonorariosEnCuotas(false);
-    setCuotas([]);
-  }
 
   async function handleSave() {
     if (!form.cliente_nombre.trim()) {
@@ -444,63 +330,14 @@ function CasoPagoModal({ open, onClose, editing, socios, onSaved }: ModalProps) 
       showToast('Debes indicar el estado del caso', 'error');
       return;
     }
-
-    const honorarios = parseFloat(form.honorarios) || 0;
-    if (honorarios <= 0) {
-      showToast('Debes indicar los honorarios del caso', 'error');
+    if (form.reserva_pagada && (!parseFloat(form.monto_reserva) || parseFloat(form.monto_reserva) <= 0)) {
+      showToast('Para marcar reserva como pagada, indicá el monto', 'error');
       return;
     }
-
-    const cuotasPreparadas = cuotas.map((cuota, index) => ({
-      numero: index + 1,
-      fecha_vencimiento: cuota.fecha_vencimiento,
-      monto: parseFloat(cuota.monto) || 0,
-      estado: cuota.pagada ? 'Pagada' : 'Pendiente',
-      fecha_pago: cuota.pagada ? (cuota.fecha_pago || new Date().toISOString().split('T')[0]) : null,
-      modalidad_pago: cuota.pagada ? (cuota.modalidad_pago || null) : null,
-      cobrado_por: cuota.pagada ? (cuota.cobrado_por || form.socio_carga) : null,
-      observaciones: cuota.observaciones.trim() || null,
-    }));
-
-    if (honorariosEnCuotas) {
-      if (cuotasPreparadas.length === 0) {
-        showToast('Debes cargar al menos una cuota pactada', 'error');
-        return;
-      }
-
-      const cuotaInvalida = cuotasPreparadas.find(cuota => !cuota.fecha_vencimiento || cuota.monto <= 0);
-      if (cuotaInvalida) {
-        showToast('Todas las cuotas deben tener vencimiento y monto válido', 'error');
-        return;
-      }
-
-      const cuotaPagadaInvalida = cuotasPreparadas.find(cuota => cuota.estado === 'Pagada' && (!cuota.fecha_pago || !cuota.modalidad_pago || !cuota.cobrado_por));
-      if (cuotaPagadaInvalida) {
-        showToast('Las cuotas pagadas deben indicar fecha, modalidad y quién cobró', 'error');
-        return;
-      }
-
-      const totalCuotas = cuotasPreparadas.reduce((total, cuota) => total + cuota.monto, 0);
-      if (Math.abs(totalCuotas - honorarios) > 0.01) {
-        showToast('La suma de cuotas pactadas debe coincidir con los honorarios', 'error');
-        return;
-      }
-    } else {
-      const saldoCobrado = parseFloat(form.saldo_monto_real) || 0;
-      if (form.saldo_pagado && saldoCobrado <= 0) {
-        showToast('Para marcar el cobro como realizado, indicá un monto válido', 'error');
-        return;
-      }
-      if (form.saldo_pagado && !form.saldo_modalidad) {
-        showToast('Indicá la modalidad del cobro único', 'error');
-        return;
-      }
-      if (saldoCobrado > honorarios) {
-        showToast('El cobro no puede superar los honorarios cargados', 'error');
-        return;
-      }
+    if (form.saldo_pagado && (!parseFloat(form.saldo_monto_real) || parseFloat(form.saldo_monto_real) <= 0)) {
+      showToast('Para marcar saldo como pagado, indicá el monto', 'error');
+      return;
     }
-
     setSaving(true);
     const payload = {
       cliente_nombre: form.cliente_nombre.trim(),
@@ -510,61 +347,31 @@ function CasoPagoModal({ open, onClose, editing, socios, onSaved }: ModalProps) 
       detalle_consulta: form.detalle_consulta.trim() || null,
       socio_carga: form.socio_carga,
       fecha_carga: form.fecha_carga,
-      fecha_consulta: null,
-      hora_consulta: null,
-      abogado_asignado: null,
-      monto_reserva: 0,
-      monto_a_cancelar: 0,
-      reserva_pagada: false,
-      reserva_modalidad: null,
-      consulta_realizada: true,
-      resultado_estado: form.estado_caso || null,
-      saldo_pagado: honorariosEnCuotas ? false : form.saldo_pagado,
-      saldo_monto_real: honorariosEnCuotas ? 0 : (form.saldo_pagado ? (parseFloat(form.saldo_monto_real) || 0) : 0),
-      saldo_modalidad: honorariosEnCuotas ? null : (form.saldo_pagado ? (form.saldo_modalidad || null) : null),
-      honorarios,
+      fecha_consulta: form.fecha_consulta || null,
+      hora_consulta: form.hora_consulta || null,
+      abogado_asignado: form.abogado_asignado.trim() || null,
+      monto_reserva: parseFloat(form.monto_reserva) || 0,
+      monto_a_cancelar: parseFloat(form.monto_a_cancelar) || 0,
+      reserva_pagada: form.reserva_pagada,
+      reserva_modalidad: form.reserva_modalidad || null,
+      consulta_realizada: form.consulta_realizada,
+      resultado_estado: form.resultado_estado || null,
+      saldo_pagado: form.saldo_pagado,
+      saldo_monto_real: parseFloat(form.saldo_monto_real) || 0,
+      saldo_modalidad: form.saldo_modalidad || null,
+      honorarios: parseFloat(form.honorarios) || 0,
       observaciones: form.observaciones.trim() || null,
     };
-
     try {
-      let casoPagoId = editing?.id || null;
-
       if (isEditing && editing) {
         const { error } = await supabase.from('casos_pagos').update(payload).eq('id', editing.id);
         if (error) throw error;
-        casoPagoId = editing.id;
+        showToast('Registro actualizado');
       } else {
-        const { data, error } = await supabase.from('casos_pagos').insert(payload).select('id').single();
+        const { error } = await supabase.from('casos_pagos').insert(payload);
         if (error) throw error;
-        casoPagoId = data?.id || null;
+        showToast('Registro creado');
       }
-
-      if (!casoPagoId) {
-        throw new Error('No se pudo identificar el caso de pago guardado');
-      }
-
-      const { error: deleteCuotasError } = await supabase.from('casos_pagos_cuotas').delete().eq('caso_pago_id', casoPagoId);
-      if (deleteCuotasError) throw deleteCuotasError;
-
-      if (honorariosEnCuotas) {
-        const { error: cuotasError } = await supabase.from('casos_pagos_cuotas').insert(
-          cuotasPreparadas.map(cuota => ({
-            caso_pago_id: casoPagoId,
-            numero: cuota.numero,
-            fecha_vencimiento: cuota.fecha_vencimiento,
-            monto: cuota.monto,
-            estado: cuota.estado,
-            fecha_pago: cuota.fecha_pago,
-            modalidad_pago: cuota.modalidad_pago,
-            cobrado_por: cuota.cobrado_por,
-            observaciones: cuota.observaciones,
-          })),
-        );
-
-        if (cuotasError) throw cuotasError;
-      }
-
-      showToast(isEditing ? 'Registro actualizado' : 'Registro creado');
       onSaved();
     } catch (err: any) {
       showToast(err.message || 'Error al guardar', 'error');
@@ -574,8 +381,9 @@ function CasoPagoModal({ open, onClose, editing, socios, onSaved }: ModalProps) 
   }
 
   return (
-    <Modal open={open} onClose={onClose} title={isEditing ? 'Editar caso de pago' : 'Nuevo caso de pago'} subtitle="Módulo comercial separado del agendamiento" maxWidth="max-w-4xl">
+    <Modal open={open} onClose={onClose} title={isEditing ? 'Editar caso de pago' : 'Nuevo caso de pago'} subtitle="Paso 1: Agendamiento · Paso 2: Resultado" maxWidth="max-w-3xl">
       <div className="space-y-4 max-h-[70vh] overflow-y-auto pr-2">
+        {/* Datos cliente */}
         <Section title="Cliente">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Field label="Nombre *">
@@ -583,7 +391,7 @@ function CasoPagoModal({ open, onClose, editing, socios, onSaved }: ModalProps) 
             </Field>
             <Field label="Caso *">
               <select value={form.caso_id} onChange={e => setForm({ ...form, caso_id: e.target.value })} className="select-dark">
-                <option value="">Seleccionar caso</option>
+                <option value="">Sin vincular</option>
                 {casos.map(caso => <option key={caso.id} value={caso.id}>{caso.label}</option>)}
               </select>
             </Field>
@@ -598,7 +406,7 @@ function CasoPagoModal({ open, onClose, editing, socios, onSaved }: ModalProps) 
             </Field>
             <Field label="Socio que carga *">
               <select value={form.socio_carga} onChange={e => setForm({ ...form, socio_carga: e.target.value })} className="select-dark">
-                {socios.map(socio => <option key={socio} value={socio}>{socio}</option>)}
+                {socios.map(s => <option key={s} value={s}>{s}</option>)}
               </select>
             </Field>
             <Field label="Fecha de carga">
@@ -610,120 +418,77 @@ function CasoPagoModal({ open, onClose, editing, socios, onSaved }: ModalProps) 
           </div>
         </Section>
 
-        <Section title="Comercial" badge="Honorarios y cobro">
+        {/* Paso 1 */}
+        <Section title="Paso 1 — Agendamiento" badge="Antes de la consulta">
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <Field label="Honorarios *">
-              <input type="number" step="0.01" value={form.honorarios} onChange={e => setForm({ ...form, honorarios: e.target.value })} className="input-dark" />
+            <Field label="Fecha consulta">
+              <input type="date" value={form.fecha_consulta} onChange={e => setForm({ ...form, fecha_consulta: e.target.value })} className="input-dark" />
             </Field>
-            <Field label="Modalidad de cobro" full>
-              <div className="inline-flex rounded-xl border border-white/[0.08] bg-white/[0.03] p-1">
-                <button
-                  type="button"
-                  onClick={activatePagoUnico}
-                  className={`px-3 py-2 text-sm rounded-lg transition ${!honorariosEnCuotas ? 'bg-white/[0.12] text-white' : 'text-gray-400 hover:text-white'}`}
-                >
-                  <Receipt className="w-4 h-4 inline mr-2" /> Pago único
-                </button>
-                <button
-                  type="button"
-                  onClick={activateCuotas}
-                  className={`px-3 py-2 text-sm rounded-lg transition ${honorariosEnCuotas ? 'bg-white/[0.12] text-white' : 'text-gray-400 hover:text-white'}`}
-                >
-                  <DollarSign className="w-4 h-4 inline mr-2" /> En cuotas
-                </button>
-              </div>
+            <Field label="Hora">
+              <input type="time" value={form.hora_consulta} onChange={e => setForm({ ...form, hora_consulta: e.target.value })} className="input-dark" />
             </Field>
-            <Field label="Observaciones" full>
-              <textarea value={form.observaciones} onChange={e => setForm({ ...form, observaciones: e.target.value })} className="input-dark" rows={2} />
+            <Field label="Abogado asignado">
+              <input type="text" value={form.abogado_asignado} onChange={e => setForm({ ...form, abogado_asignado: e.target.value })} className="input-dark" placeholder="Nombre del abogado" />
+            </Field>
+            <Field label="Monto de reserva">
+              <input type="number" step="0.01" value={form.monto_reserva} onChange={e => setForm({ ...form, monto_reserva: e.target.value })} className="input-dark" />
+            </Field>
+            <Field label="Monto a cancelar en consulta">
+              <input type="number" step="0.01" value={form.monto_a_cancelar} onChange={e => setForm({ ...form, monto_a_cancelar: e.target.value })} className="input-dark" />
+            </Field>
+            <Field label="Modalidad reserva">
+              <select value={form.reserva_modalidad} onChange={e => setForm({ ...form, reserva_modalidad: e.target.value })} className="select-dark">
+                <option value="">—</option>
+                {MODALIDADES.map(m => <option key={m} value={m}>{m}</option>)}
+              </select>
             </Field>
           </div>
+          <label className="flex items-center gap-2 mt-3 cursor-pointer text-sm text-gray-300">
+            <input type="checkbox" checked={form.reserva_pagada} onChange={e => setForm({ ...form, reserva_pagada: e.target.checked })} className="checkbox-dark" />
+            <DollarSign className="w-4 h-4 text-emerald-400" />
+            Reserva pagada (genera ingreso automático)
+          </label>
         </Section>
 
-        {!honorariosEnCuotas ? (
-          <Section title="Cobro único" badge="Ingreso automático a Ingresos">
+        {/* Paso 2 */}
+        <Section title="Paso 2 — Resultado" badge="Después de la consulta">
+          <label className="flex items-center gap-2 mb-3 cursor-pointer text-sm text-gray-300">
+            <input type="checkbox" checked={form.consulta_realizada} onChange={e => setForm({ ...form, consulta_realizada: e.target.checked })} className="checkbox-dark" />
+            Consulta realizada
+          </label>
+          {form.consulta_realizada && (
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <Field label="Monto cobrado">
-                <input type="number" step="0.01" value={form.saldo_monto_real} onChange={e => setForm({ ...form, saldo_monto_real: e.target.value })} className="input-dark" />
-              </Field>
-              <Field label="Modalidad del cobro">
-                <select value={form.saldo_modalidad} onChange={e => setForm({ ...form, saldo_modalidad: e.target.value })} className="select-dark">
+              <Field label="Resultado">
+                <select value={form.resultado_estado} onChange={e => setForm({ ...form, resultado_estado: e.target.value })} className="select-dark">
                   <option value="">—</option>
-                  {MODALIDADES.map(modalidad => <option key={modalidad} value={modalidad}>{modalidad}</option>)}
+                  {ESTADOS_CASO.map(e => <option key={e} value={e}>{e}</option>)}
                 </select>
               </Field>
+              <Field label="Honorarios">
+                <input type="number" step="0.01" value={form.honorarios} onChange={e => setForm({ ...form, honorarios: e.target.value })} className="input-dark" />
+              </Field>
+              <Field label="Saldo cobrado real">
+                <input type="number" step="0.01" value={form.saldo_monto_real} onChange={e => setForm({ ...form, saldo_monto_real: e.target.value })} className="input-dark" />
+              </Field>
+              <Field label="Modalidad saldo">
+                <select value={form.saldo_modalidad} onChange={e => setForm({ ...form, saldo_modalidad: e.target.value })} className="select-dark">
+                  <option value="">—</option>
+                  {MODALIDADES.map(m => <option key={m} value={m}>{m}</option>)}
+                </select>
+              </Field>
+              <Field label="Observaciones" full>
+                <textarea value={form.observaciones} onChange={e => setForm({ ...form, observaciones: e.target.value })} className="input-dark" rows={2} />
+              </Field>
             </div>
+          )}
+          {form.consulta_realizada && (
             <label className="flex items-center gap-2 mt-3 cursor-pointer text-sm text-gray-300">
               <input type="checkbox" checked={form.saldo_pagado} onChange={e => setForm({ ...form, saldo_pagado: e.target.checked })} className="checkbox-dark" />
               <DollarSign className="w-4 h-4 text-emerald-400" />
-              Cobro realizado (genera ingreso automático)
+              Saldo cobrado (genera ingreso automático)
             </label>
-          </Section>
-        ) : (
-          <Section title="Plan de cuotas" badge="Cada cuota pagada genera ingreso automático">
-            <div className="flex flex-wrap items-center gap-2 mb-4">
-              <span className="px-2.5 py-1 rounded-full text-[10px] uppercase tracking-wider bg-white/[0.06] text-white">Pactadas {cuotasSummary.pactadas}</span>
-              <span className="px-2.5 py-1 rounded-full text-[10px] uppercase tracking-wider bg-emerald-500/10 text-emerald-400">Pagas {cuotasSummary.pagas}</span>
-              <span className="px-2.5 py-1 rounded-full text-[10px] uppercase tracking-wider bg-amber-500/10 text-amber-400">Pendientes {cuotasSummary.pendientes}</span>
-              <span className="px-2.5 py-1 rounded-full text-[10px] uppercase tracking-wider bg-sky-500/10 text-sky-400">Total {formatMoney(cuotasSummary.montoPactado)}</span>
-              {Math.abs(cuotasSummary.montoPactado - (parseFloat(form.honorarios) || 0)) > 0.01 && (
-                <span className="px-2.5 py-1 rounded-full text-[10px] uppercase tracking-wider bg-red-500/10 text-red-400">Las cuotas deben coincidir con honorarios</span>
-              )}
-            </div>
-
-            <div className="space-y-3">
-              {cuotas.map((cuota, index) => (
-                <div key={`${index}-${cuota.fecha_vencimiento}`} className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-4 space-y-3">
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <h4 className="text-sm font-semibold text-white">Cuota {index + 1}</h4>
-                      <p className="text-[11px] text-gray-500">Pactada dentro de Casos - Pagos</p>
-                    </div>
-                    <button type="button" onClick={() => removeCuota(index)} className="p-2 rounded-lg hover:bg-red-500/10 text-gray-500 hover:text-red-400">
-                      <X className="w-4 h-4" />
-                    </button>
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                    <Field label="Vencimiento *">
-                      <input type="date" value={cuota.fecha_vencimiento} onChange={e => updateCuota(index, { fecha_vencimiento: e.target.value })} className="input-dark" />
-                    </Field>
-                    <Field label="Monto *">
-                      <input type="number" step="0.01" value={cuota.monto} onChange={e => updateCuota(index, { monto: e.target.value })} className="input-dark" />
-                    </Field>
-                    <Field label="Quién cobró">
-                      <select value={cuota.cobrado_por} onChange={e => updateCuota(index, { cobrado_por: e.target.value })} className="select-dark">
-                        <option value="">—</option>
-                        {socios.map(socio => <option key={socio} value={socio}>{socio}</option>)}
-                      </select>
-                    </Field>
-                    <Field label="Modalidad pago">
-                      <select value={cuota.modalidad_pago} onChange={e => updateCuota(index, { modalidad_pago: e.target.value })} className="select-dark">
-                        <option value="">—</option>
-                        {MODALIDADES.map(modalidad => <option key={modalidad} value={modalidad}>{modalidad}</option>)}
-                      </select>
-                    </Field>
-                    <Field label="Fecha pago">
-                      <input type="date" value={cuota.fecha_pago} onChange={e => updateCuota(index, { fecha_pago: e.target.value })} className="input-dark" />
-                    </Field>
-                    <Field label="Observaciones" full>
-                      <textarea value={cuota.observaciones} onChange={e => updateCuota(index, { observaciones: e.target.value })} className="input-dark" rows={2} />
-                    </Field>
-                  </div>
-
-                  <label className="flex items-center gap-2 cursor-pointer text-sm text-gray-300">
-                    <input type="checkbox" checked={cuota.pagada} onChange={e => updateCuota(index, { pagada: e.target.checked })} className="checkbox-dark" />
-                    <DollarSign className="w-4 h-4 text-emerald-400" />
-                    Cuota pagada (genera ingreso automático)
-                  </label>
-                </div>
-              ))}
-            </div>
-
-            <button type="button" onClick={addCuota} className="mt-4 inline-flex items-center gap-2 px-4 py-2 rounded-xl border border-white/[0.08] text-sm text-white hover:bg-white/[0.04]">
-              <Plus className="w-4 h-4" /> Agregar cuota
-            </button>
-          </Section>
-        )}
+          )}
+        </Section>
       </div>
 
       <div className="flex items-center justify-end gap-2 pt-4 border-t border-white/[0.06] mt-4">
