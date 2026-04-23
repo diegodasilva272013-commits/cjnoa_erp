@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
-import { Download, FileSpreadsheet, Plus, Sigma, Users, FileText, RefreshCw, Rows3, Rows4, Trash2, ExternalLink } from 'lucide-react';
+import { Download, FileSpreadsheet, Plus, Sigma, Users, FileText, RefreshCw, Rows3, Rows4, Trash2, ExternalLink, Pencil, Info, ArrowRight } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
+import type { Ingreso } from '../types/database';
 import { useCaseFinancePipeline, useIngresos } from '../hooks/useFinances';
 import { MATERIAS } from '../types/database';
 import { useSocios } from '../hooks/useSocios';
@@ -42,6 +43,8 @@ export default function Ingresos() {
   const [filtroFuente, setFiltroFuente] = usePersistedFilter('fuente');
   const [filtroModalidad, setFiltroModalidad] = usePersistedFilter('modalidad');
   const [manualModalOpen, setManualModalOpen] = useState(false);
+  const [editingIngreso, setEditingIngreso] = useState<Ingreso | null>(null);
+  const [detalleIngreso, setDetalleIngreso] = useState<Ingreso | null>(null);
   const [importModalOpen, setImportModalOpen] = useState(false);
   const [page, setPage] = useState(0);
   const [compact, setCompact] = useState(() => sessionStorage.getItem('ingresos_compact') === '1');
@@ -55,6 +58,14 @@ export default function Ingresos() {
     if (c.toLowerCase().includes('saldo consulta')) return { label: 'Casos-Pagos', to: '/casos-pagos', badge: 'badge-blue' };
     if (c.toLowerCase().includes('cuota')) return { label: 'Cuotas', to: '/casos-pagos', badge: 'badge-yellow' };
     return { label: 'Casos', to: '/casos-trabajo', badge: 'badge-green' };
+  }
+
+  function handleRowClick(ingreso: Ingreso) {
+    if (ingreso.es_manual) {
+      setEditingIngreso(ingreso);
+    } else {
+      setDetalleIngreso(ingreso);
+    }
   }
 
   async function handleDeleteIngreso(id: string) {
@@ -430,7 +441,7 @@ export default function Ingresos() {
               {filtered.slice(page * pageSize, (page + 1) * pageSize).map((ingreso, i) => {
                 const cp = compact ? 'px-3 py-1.5' : 'px-5 py-3';
                 return (
-                <tr key={ingreso.id} className="table-row row-enter" style={{ animationDelay: `${Math.min(i, 15) * 30}ms` }}>
+                <tr key={ingreso.id} className="table-row row-enter cursor-pointer hover:bg-white/[0.04] transition-colors" style={{ animationDelay: `${Math.min(i, 15) * 30}ms` }} onClick={() => handleRowClick(ingreso)}>
                   <td className={`${cp} text-sm text-gray-300`}>{format(new Date(ingreso.fecha), 'dd MMM yyyy', { locale: es })}</td>
                   <td className={cp}>
                     <div>
@@ -475,7 +486,7 @@ export default function Ingresos() {
                           )}
                           {ingreso.es_manual && (
                             <button
-                              onClick={() => handleDeleteIngreso(ingreso.id)}
+                              onClick={e => { e.stopPropagation(); handleDeleteIngreso(ingreso.id); }}
                               disabled={deletingId === ingreso.id}
                               className="p-1 rounded text-gray-600 hover:text-red-400 hover:bg-red-500/10 transition-colors disabled:opacity-40"
                               title="Eliminar ingreso manual"
@@ -528,7 +539,18 @@ export default function Ingresos() {
         )}
       </div>
 
-      <IngresoManualModal open={manualModalOpen} onClose={() => setManualModalOpen(false)} onSaved={refetch} />
+      <IngresoManualModal
+        open={manualModalOpen || !!editingIngreso}
+        onClose={() => { setManualModalOpen(false); setEditingIngreso(null); }}
+        onSaved={refetch}
+        editing={editingIngreso}
+        onDelete={async (id) => { await handleDeleteIngreso(id); setEditingIngreso(null); }}
+      />
+      <IngresoDetalleModal
+        ingreso={detalleIngreso}
+        onClose={() => setDetalleIngreso(null)}
+        getOrigen={getIngresoOrigen}
+      />
       <FinanceImportModal
         open={importModalOpen}
         onClose={() => setImportModalOpen(false)}
@@ -606,9 +628,71 @@ function InsightRow({ label, value }: { label: string; value: string }) {
   );
 }
 
-function IngresoManualModal({ open, onClose, onSaved }: { open: boolean; onClose: () => void; onSaved: () => void }) {
+function IngresoDetalleModal({ ingreso, onClose, getOrigen }: {
+  ingreso: Ingreso | null;
+  onClose: () => void;
+  getOrigen: (ingreso: { es_manual: boolean; concepto: string | null }) => { label: string; to: string | null; badge: string };
+}) {
+  const navigate = useNavigate();
+  if (!ingreso) return null;
+  const origen = getOrigen(ingreso);
+  return (
+    <Modal open={!!ingreso} onClose={onClose} title="Detalle del ingreso" subtitle={`Cargado en: ${origen.label}`} maxWidth="max-w-xl">
+      <div className="space-y-4">
+        <div className="rounded-xl border border-white/10 bg-white/[0.02] p-4 space-y-3 text-sm">
+          <Row label="Fecha" value={ingreso.fecha} />
+          <Row label="Cliente" value={ingreso.cliente_nombre || '—'} />
+          <Row label="Materia" value={ingreso.materia || '—'} />
+          <Row label="Concepto" value={ingreso.concepto || '—'} />
+          <Row label="Monto bruto" value={formatMoney(ingreso.monto_total)} />
+          <Row label="Neto CJ NOA" value={formatMoney(ingreso.monto_cj_noa)} accent="emerald" />
+          {Number(ingreso.comision_captadora) > 0 && <Row label="Comisión captadora" value={formatMoney(ingreso.comision_captadora)} accent="amber" />}
+          {ingreso.captadora_nombre && <Row label="Captadora" value={ingreso.captadora_nombre} />}
+          <Row label="Socio" value={ingreso.socio_cobro || '—'} />
+          <Row label="Modalidad" value={ingreso.modalidad || '—'} />
+          {ingreso.notas && <Row label="Notas" value={ingreso.notas} />}
+        </div>
+        <div className="rounded-xl border border-amber-500/20 bg-amber-500/[0.04] p-4">
+          <p className="text-xs text-amber-300 font-semibold mb-1">Este ingreso fue generado automáticamente</p>
+          <p className="text-xs text-gray-400">Para editarlo o eliminarlo, hacelo desde el módulo de origen: <span className="text-white font-medium">{origen.label}</span>.</p>
+        </div>
+        <div className="flex gap-3">
+          <button onClick={onClose} className="btn-secondary flex-1">Cerrar</button>
+          {origen.to && (
+            <button
+              onClick={() => { onClose(); navigate(`${origen.to}?q=${encodeURIComponent(ingreso.cliente_nombre || '')}`); }}
+              className="btn-primary flex-1 flex items-center justify-center gap-2"
+            >
+              Ir a {origen.label} <ArrowRight className="w-4 h-4" />
+            </button>
+          )}
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+function Row({ label, value, accent }: { label: string; value: string; accent?: 'emerald' | 'amber' }) {
+  const color = accent === 'emerald' ? 'text-emerald-300' : accent === 'amber' ? 'text-amber-300' : 'text-white';
+  return (
+    <div className="flex items-start justify-between gap-4">
+      <span className="text-gray-500 shrink-0">{label}</span>
+      <span className={`font-medium text-right ${color}`}>{value}</span>
+    </div>
+  );
+}
+
+function IngresoManualModal({ open, onClose, onSaved, editing, onDelete }: {
+  open: boolean;
+  onClose: () => void;
+  onSaved: () => void;
+  editing?: Ingreso | null;
+  onDelete?: (id: string) => void;
+}) {
   const { showToast } = useToast();
   const socios = useSocios();
+  const isEditing = !!editing;
+
   const [fecha, setFecha] = useState(new Date().toISOString().split('T')[0]);
   const [cliente, setCliente] = useState('');
   const [materia, setMateria] = useState('');
@@ -622,21 +706,38 @@ function IngresoManualModal({ open, onClose, onSaved }: { open: boolean; onClose
   const [notas, setNotas] = useState('');
   const [saving, setSaving] = useState(false);
 
+  // Populate fields when editing
+  useEffect(() => {
+    if (editing) {
+      setFecha(editing.fecha);
+      setCliente(editing.cliente_nombre || '');
+      setMateria(editing.materia || '');
+      setConcepto(editing.concepto || '');
+      setMontoTotal(String(editing.monto_total || ''));
+      setMontoCjNoa(String(editing.monto_cj_noa || ''));
+      setComision(String(editing.comision_captadora || ''));
+      setCaptadora(editing.captadora_nombre || '');
+      setModalidad(editing.modalidad || 'Efectivo');
+      setSocio(editing.socio_cobro || socios[0] || '');
+      setNotas(editing.notas || '');
+    } else {
+      setFecha(new Date().toISOString().split('T')[0]);
+      setCliente(''); setMateria(''); setConcepto(''); setMontoTotal('');
+      setMontoCjNoa(''); setComision(''); setCaptadora('');
+      setModalidad('Efectivo'); setNotas('');
+    }
+  }, [editing, open]);
+
   const montoTotalNum = parseFloat(montoTotal) || 0;
   const comisionNum = parseFloat(comision) || 0;
   const netoAutoCalc = montoTotalNum - comisionNum;
-
-  // Si el usuario no toco el neto, se calcula solo
   const netoFinal = montoCjNoa !== '' ? (parseFloat(montoCjNoa) || 0) : netoAutoCalc;
 
   async function handleSave() {
-    if (montoTotalNum <= 0) {
-      showToast('El monto total es obligatorio', 'error');
-      return;
-    }
+    if (montoTotalNum <= 0) { showToast('El monto total es obligatorio', 'error'); return; }
     setSaving(true);
     try {
-      await supabase.from('ingresos').insert({
+      const payload = {
         fecha,
         cliente_nombre: cliente || null,
         materia: materia || null,
@@ -649,21 +750,31 @@ function IngresoManualModal({ open, onClose, onSaved }: { open: boolean; onClose
         modalidad,
         notas: notas || null,
         es_manual: true,
-      });
-      showToast('Ingreso registrado');
+      };
+      if (isEditing && editing) {
+        await supabase.from('ingresos').update(payload).eq('id', editing.id);
+        showToast('Ingreso actualizado');
+      } else {
+        await supabase.from('ingresos').insert(payload);
+        showToast('Ingreso registrado');
+      }
       onSaved();
       onClose();
-      // Reset
-      setCliente(''); setMateria(''); setConcepto(''); setMontoTotal(''); setMontoCjNoa(''); setComision(''); setCaptadora(''); setNotas('');
     } catch (error: any) {
-      showToast(error.message || 'Error al registrar ingreso', 'error');
+      showToast(error.message || 'Error al guardar ingreso', 'error');
     } finally {
       setSaving(false);
     }
   }
 
   return (
-    <Modal open={open} onClose={onClose} title="Nuevo ingreso" subtitle="Registra un cobro con desglose bruto, neto y comisiones" maxWidth="max-w-2xl">
+    <Modal
+      open={open}
+      onClose={onClose}
+      title={isEditing ? 'Editar ingreso' : 'Nuevo ingreso'}
+      subtitle={isEditing ? 'Modificá los datos del ingreso manual' : 'Registra un cobro con desglose bruto, neto y comisiones'}
+      maxWidth="max-w-2xl"
+    >
       <div className="space-y-4">
         <div className="grid grid-cols-2 gap-3">
           <div>
@@ -744,8 +855,16 @@ function IngresoManualModal({ open, onClose, onSaved }: { open: boolean; onClose
 
         <div className="flex gap-3 pt-2">
           <button onClick={onClose} className="btn-secondary flex-1">Cancelar</button>
+          {isEditing && onDelete && editing && (
+            <button
+              onClick={() => onDelete(editing.id)}
+              className="btn-secondary flex items-center gap-2 text-red-400 border-red-500/30 hover:bg-red-500/10"
+            >
+              <Trash2 className="w-4 h-4" /> Eliminar
+            </button>
+          )}
           <button onClick={handleSave} disabled={saving || montoTotalNum <= 0} className="btn-primary flex-1">
-            {saving ? 'Guardando...' : 'Registrar ingreso'}
+            {saving ? 'Guardando...' : isEditing ? 'Guardar cambios' : 'Registrar ingreso'}
           </button>
         </div>
       </div>
