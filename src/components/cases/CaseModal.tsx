@@ -288,17 +288,31 @@ export default function CaseModal({ open, onClose, caso, onSaved }: CaseModalPro
 
       let casoId = caso?.id;
 
+      // Helper: save caso with graceful fallback if migration not yet applied
+      const saveCaso = async (data: Record<string, any>, id?: string) => {
+        const trySave = async (d: Record<string, any>) => {
+          if (id) {
+            const { error } = await supabase.from('casos').update(d).eq('id', id);
+            return error;
+          } else {
+            const { data: newCaso, error } = await supabase.from('casos').insert({ ...d, created_by: user?.id }).select().single();
+            if (!error) casoId = newCaso.id;
+            return error;
+          }
+        };
+        let err = await trySave(data);
+        if (err && (err.message?.includes('caratula') || err.message?.includes('apoderado'))) {
+          // Migration not applied yet – retry without the new columns
+          const { caratula: _c, apoderado: _a, ...fallback } = data;
+          err = await trySave(fallback);
+        }
+        if (err) throw err;
+      };
+
       if (isEditing && casoId) {
-        const { error } = await supabase.from('casos').update(casoData).eq('id', casoId);
-        if (error) throw error;
+        await saveCaso(casoData, casoId);
       } else {
-        const { data: newCaso, error } = await supabase
-          .from('casos')
-          .insert({ ...casoData, created_by: user?.id })
-          .select()
-          .single();
-        if (error) throw error;
-        casoId = newCaso.id;
+        await saveCaso(casoData);
       }
 
       if (showFinancialSections && casoId) {
