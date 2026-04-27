@@ -370,6 +370,12 @@ export default function FichaDetalle({ cliente, onBack, onEdit, onDelete }: Prop
             <p className="text-xs text-gray-300 leading-relaxed">{cliente.situacion_actual}</p>
           </div>
         )}
+        {cliente.resumen_informe && (
+          <div className="mt-3 p-3 rounded-xl bg-white/[0.02] border border-white/5">
+            <p className="text-[10px] text-gray-500 uppercase mb-1">Resumen / Informe Administrativo</p>
+            <p className="text-xs text-gray-300 leading-relaxed whitespace-pre-wrap">{cliente.resumen_informe}</p>
+          </div>
+        )}
         {cliente.cobro_total > 0 && (
           <div className="mt-4">
             <div className="flex items-center justify-between mb-1">

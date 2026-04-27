@@ -8,7 +8,7 @@ import { CSS } from '@dnd-kit/utilities';
 import { ClientePrevisional, PipelinePrevisional, PIPELINE_LABELS, calcularSemaforo, SEMAFORO_COLORS } from '../../types/previsional';
 import { supabase } from '../../lib/supabase';
 
-const ORDERED_PIPELINES: PipelinePrevisional[] = ['consulta', 'seguimiento', 'ingreso', 'cobro', 'finalizado', 'descartado'];
+const ORDERED_PIPELINES: PipelinePrevisional[] = ['seguimiento', 'jubi_especiales', 'ucap', 'jubi_ordinarias', 'finalizado', 'descartado'];
 
 const COLUMN_STYLES: Record<PipelinePrevisional, { border: string; badge: string; dot: string }> = {
   consulta:    { border: 'border-t-blue-500',    badge: 'bg-blue-500/10 text-blue-400',    dot: 'bg-blue-500' },

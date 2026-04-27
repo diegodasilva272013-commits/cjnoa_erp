@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { Search, Plus, Filter, ExternalLink, Phone, ChevronRight } from 'lucide-react';
-import { ClientePrevisional, PIPELINE_LABELS, PIPELINE_COLORS, calcularSemaforo, SEMAFORO_COLORS, SEMAFORO_LABELS, PipelinePrevisional } from '../../types/previsional';
+import { Search, Plus, Filter, ExternalLink, Phone, ChevronRight, Copy, Check } from 'lucide-react';
+import { ClientePrevisional, PIPELINE_LABELS, PIPELINE_COLORS, PIPELINE_GRADIENT, calcularSemaforo, SEMAFORO_COLORS, SEMAFORO_LABELS, PipelinePrevisional } from '../../types/previsional';
 
 interface Props {
   clientes: ClientePrevisional[];
@@ -8,12 +8,20 @@ interface Props {
   onNew: () => void;
 }
 
-const PIPELINES: PipelinePrevisional[] = ['consulta', 'seguimiento', 'ingreso', 'cobro', 'finalizado', 'descartado'];
+const PIPELINES: PipelinePrevisional[] = ['seguimiento', 'jubi_especiales', 'ucap', 'jubi_ordinarias', 'finalizado', 'descartado'];
 
 export default function FichasList({ clientes, onSelect, onNew }: Props) {
   const [busqueda, setBusqueda] = useState('');
   const [filtroPipeline, setFiltroPipeline] = useState<PipelinePrevisional | 'todos'>('todos');
   const [vista, setVista] = useState<'tabla' | 'pipeline'>('tabla');
+  const [copiado, setCopiado] = useState<string | null>(null);
+
+  const copiar = (e: React.MouseEvent, texto: string, id: string) => {
+    e.stopPropagation();
+    navigator.clipboard.writeText(texto).catch(() => {});
+    setCopiado(id);
+    setTimeout(() => setCopiado(null), 1500);
+  };
 
   const filtrados = clientes.filter(c => {
     const matchBusqueda = !busqueda ||
@@ -23,9 +31,6 @@ export default function FichasList({ clientes, onSelect, onNew }: Props) {
     const matchPipeline = filtroPipeline === 'todos' || c.pipeline === filtroPipeline;
     return matchBusqueda && matchPipeline;
   });
-
-  const formatMoney = (n: number) =>
-    new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 }).format(n);
 
   return (
     <div className="space-y-4">
@@ -98,10 +103,11 @@ export default function FichasList({ clientes, onSelect, onNew }: Props) {
                 <tr className="border-b border-white/10">
                   <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Contacto</th>
                   <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Cliente</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase hidden md:table-cell">CUIL</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase hidden lg:table-cell">Captado por</th>
+                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase">CUIL</th>
+                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase hidden md:table-cell">Clave ANSES</th>
+                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase hidden lg:table-cell">Situación Actual</th>
+                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase hidden xl:table-cell">Edad Jubilatoria</th>
                   <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Pipeline</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase hidden lg:table-cell">Cobro</th>
                   <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase w-10"></th>
                 </tr>
               </thead>
@@ -133,26 +139,44 @@ export default function FichasList({ clientes, onSelect, onNew }: Props) {
                             )}
                           </div>
                         </td>
-                        <td className="px-4 py-3 text-gray-400 hidden md:table-cell font-mono text-xs">
-                          {c.cuil || '—'}
+                        <td className="px-4 py-3">
+                          {c.cuil ? (
+                            <button
+                              onClick={e => copiar(e, c.cuil!, `cuil-${c.id}`)}
+                              className="flex items-center gap-1.5 font-mono text-xs text-gray-300 hover:text-white group"
+                              title="Copiar CUIL"
+                            >
+                              {c.cuil}
+                              {copiado === `cuil-${c.id}` ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3 opacity-0 group-hover:opacity-100 text-gray-500" />}
+                            </button>
+                          ) : <span className="text-gray-600 text-xs">—</span>}
                         </td>
-                        <td className="px-4 py-3 text-gray-400 hidden lg:table-cell text-xs">
-                          {c.captado_por || '—'}
+                        <td className="px-4 py-3 hidden md:table-cell">
+                          {c.clave_social ? (
+                            <button
+                              onClick={e => copiar(e, c.clave_social!, `clave-${c.id}`)}
+                              className="flex items-center gap-1.5 font-mono text-xs text-gray-300 hover:text-white group"
+                              title="Copiar Clave ANSES"
+                            >
+                              {'*'.repeat(Math.min(c.clave_social.length, 6))}
+                              {copiado === `clave-${c.id}` ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3 opacity-0 group-hover:opacity-100 text-gray-500" />}
+                            </button>
+                          ) : <span className="text-gray-600 text-xs">—</span>}
+                        </td>
+                        <td className="px-4 py-3 hidden lg:table-cell max-w-[200px]">
+                          {c.situacion_actual ? (
+                            <p className="text-xs text-gray-300 truncate" title={c.situacion_actual}>{c.situacion_actual}</p>
+                          ) : <span className="text-gray-600 text-xs">—</span>}
+                        </td>
+                        <td className="px-4 py-3 hidden xl:table-cell">
+                          {c.fecha_edad_jubilatoria ? (
+                            <span className="text-xs text-gray-300">{new Date(c.fecha_edad_jubilatoria).toLocaleDateString('es-AR')}</span>
+                          ) : <span className="text-gray-600 text-xs">—</span>}
                         </td>
                         <td className="px-4 py-3">
                           <span className={`badge border ${PIPELINE_COLORS[c.pipeline]}`}>
                             {PIPELINE_LABELS[c.pipeline]}
                           </span>
-                        </td>
-                        <td className="px-4 py-3 hidden lg:table-cell">
-                          {c.cobro_total > 0 ? (
-                            <div>
-                              <p className="text-xs text-emerald-400">{formatMoney(c.monto_cobrado)}</p>
-                              <p className="text-[10px] text-gray-600">de {formatMoney(c.cobro_total)}</p>
-                            </div>
-                          ) : (
-                            <span className="text-xs text-gray-600">—</span>
-                          )}
                         </td>
                         <td className="px-4 py-3">
                           <ChevronRight className="w-4 h-4 text-gray-600" />
@@ -175,14 +199,7 @@ export default function FichasList({ clientes, onSelect, onNew }: Props) {
             return (
               <div key={pipeline} className="glass-card p-3">
                 <div className="flex items-center gap-2 mb-3">
-                  <div className={`w-2 h-2 rounded-full bg-gradient-to-r ${
-                    pipeline === 'consulta' ? 'from-blue-500 to-blue-600' :
-                    pipeline === 'seguimiento' ? 'from-amber-500 to-amber-600' :
-                    pipeline === 'ingreso' ? 'from-purple-500 to-purple-600' :
-                    pipeline === 'cobro' ? 'from-emerald-500 to-emerald-600' :
-                    pipeline === 'finalizado' ? 'from-gray-500 to-gray-600' :
-                    'from-red-500 to-red-600'
-                  }`} />
+                  <div className={`w-2 h-2 rounded-full bg-gradient-to-r ${PIPELINE_GRADIENT[pipeline]}`} />
                   <h4 className="text-xs font-semibold text-white uppercase tracking-wider">{PIPELINE_LABELS[pipeline]}</h4>
                   <span className="text-[10px] text-gray-600 ml-auto">{items.length}</span>
                 </div>

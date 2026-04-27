@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Plus, Trash2, Briefcase, Calendar, AlertCircle, CheckCircle } from 'lucide-react';
+import { Plus, Trash2, Briefcase, Calendar, AlertCircle, CheckCircle, ClipboardPaste, Loader2 } from 'lucide-react';
 import { AporteLaboral, calcularResumenAportes, SexoCliente, COSTO_MENSUAL_27705 } from '../../types/previsional';
 
 interface Props {
@@ -21,6 +21,59 @@ export default function AportesTable({ aportes, loading, hijos, sexo, onAdd, onR
     es_simultaneo: false,
     observaciones: '',
   });
+  const [showPaste, setShowPaste] = useState(false);
+  const [pasteText, setPasteText] = useState('');
+  const [importing, setImporting] = useState(false);
+  const [importResult, setImportResult] = useState<{ ok: number; err: number } | null>(null);
+
+  // Parse pasted Excel data: each line = empleador\tfecha_desde\tfecha_hasta (or just dates)
+  const parsePasteLines = (text: string): Array<Partial<AporteLaboral>> => {
+    return text
+      .split('\n')
+      .map(l => l.trim())
+      .filter(l => l.length > 0)
+      .map(line => {
+        const parts = line.split(/[\t;]/).map(p => p.trim());
+        // Normalize date: accepts MM/YY, MM/YYYY, DD/MM/YYYY, YYYY-MM-DD
+        const normalizeDate = (s: string): string => {
+          if (!s) return '';
+          // Already ISO
+          if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+          // DD/MM/YYYY
+          const dmy = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+          if (dmy) return `${dmy[3]}-${dmy[2].padStart(2,'0')}-${dmy[1].padStart(2,'0')}`;
+          // MM/YYYY
+          const my = s.match(/^(\d{1,2})\/(\d{4})$/);
+          if (my) return `${my[2]}-${my[1].padStart(2,'0')}-01`;
+          // MM/YY
+          const m2 = s.match(/^(\d{1,2})\/(\d{2})$/);
+          if (m2) return `20${m2[2]}-${m2[1].padStart(2,'0')}-01`;
+          return '';
+        };
+        if (parts.length >= 3) {
+          return { empleador: parts[0] || null, fecha_desde: normalizeDate(parts[1]), fecha_hasta: normalizeDate(parts[2]) };
+        } else if (parts.length === 2) {
+          return { empleador: null, fecha_desde: normalizeDate(parts[0]), fecha_hasta: normalizeDate(parts[1]) };
+        }
+        return {};
+      })
+      .filter(a => a.fecha_desde && a.fecha_hasta);
+  };
+
+  const handleBulkImport = async () => {
+    const rows = parsePasteLines(pasteText);
+    if (!rows.length) return;
+    setImporting(true);
+    let ok = 0; let err = 0;
+    for (const row of rows) {
+      const success = await onAdd(row);
+      if (success) ok++; else err++;
+    }
+    setImporting(false);
+    setImportResult({ ok, err });
+    setPasteText('');
+    setTimeout(() => { setImportResult(null); setShowPaste(false); }, 3000);
+  };
 
   const resumen = sexo
     ? calcularResumenAportes(aportes, hijos, sexo, 0)
@@ -44,10 +97,57 @@ export default function AportesTable({ aportes, loading, hijos, sexo, onAdd, onR
           <h3 className="text-sm font-semibold text-white">Historial de Aportes Laborales</h3>
           <span className="text-xs text-gray-500">({aportes.length})</span>
         </div>
-        <button onClick={() => setAdding(!adding)} className="btn-primary text-xs px-3 py-1.5 flex items-center gap-1.5">
-          <Plus className="w-3 h-3" /> Agregar
-        </button>
+        <div className="flex gap-2">
+          <button onClick={() => { setShowPaste(!showPaste); setAdding(false); }}
+            className="btn-secondary text-xs px-3 py-1.5 flex items-center gap-1.5"
+            title="Pegar lista desde Excel">
+            <ClipboardPaste className="w-3 h-3" /> Pegar Excel
+          </button>
+          <button onClick={() => { setAdding(!adding); setShowPaste(false); }} className="btn-primary text-xs px-3 py-1.5 flex items-center gap-1.5">
+            <Plus className="w-3 h-3" /> Agregar
+          </button>
+        </div>
       </div>
+
+      {/* Importación masiva desde Excel */}
+      {showPaste && (
+        <div className="glass-card p-4 space-y-3 border border-cyan-500/20 bg-cyan-500/[0.03]">
+          <p className="text-xs text-cyan-300 font-medium">Pegar historial laboral desde Excel</p>
+          <p className="text-[10px] text-gray-500">
+            Copia las filas del Excel y pegálas acá. Formato por columna: <span className="text-gray-400">Empleador &nbsp;| Fecha Desde &nbsp;| Fecha Hasta</span>
+            <br />Si solo pegás 2 columnas, se asumen Fecha Desde y Fecha Hasta sin empleador.
+            <br />Fechas aceptadas: MM/AAAA · DD/MM/AAAA · AAAA-MM-DD
+          </p>
+          <textarea
+            value={pasteText}
+            onChange={e => setPasteText(e.target.value)}
+            className="input-dark text-xs font-mono w-full"
+            rows={6}
+            placeholder={'YPF\t01/01/2005\t31/12/2010\nCOMODIN\t01/2011\t12/2015'}
+          />
+          {pasteText && (
+            <p className="text-[10px] text-gray-400">
+              {parsePasteLines(pasteText).length} fila(s) válida(s) detectada(s)
+            </p>
+          )}
+          {importResult && (
+            <p className="text-xs font-medium {importResult.err > 0 ? 'text-amber-400' : 'text-emerald-400'}">
+              ✓ {importResult.ok} importado(s){importResult.err > 0 ? ` · ${importResult.err} con error` : ''}
+            </p>
+          )}
+          <div className="flex gap-2 justify-end">
+            <button onClick={() => setShowPaste(false)} className="btn-secondary text-xs px-3 py-1.5">Cancelar</button>
+            <button
+              onClick={handleBulkImport}
+              disabled={importing || !parsePasteLines(pasteText).length}
+              className="btn-primary text-xs px-3 py-1.5 flex items-center gap-1.5"
+            >
+              {importing && <Loader2 className="w-3 h-3 animate-spin" />}
+              Importar {parsePasteLines(pasteText).length > 0 ? `(${parsePasteLines(pasteText).length})` : ''}
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Formulario de nuevo aporte */}
       {adding && (
