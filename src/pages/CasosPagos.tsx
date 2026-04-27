@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo } from 'react';
-import { Plus, Pencil, Trash2, CheckCircle2, Clock, DollarSign, Search } from 'lucide-react';
+import { Plus, Pencil, Trash2, CheckCircle2, DollarSign, Search, ListChecks } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
@@ -34,6 +34,8 @@ interface CasoPago {
   ingreso_reserva_id: string | null;
   ingreso_saldo_id: string | null;
   created_at: string;
+  // modalidad_pago may not exist in DB yet, handled with fallback
+  modalidad_pago?: 'Único' | 'En cuotas' | null;
 }
 
 const ESTADOS_CASO = ['Vino a consulta', 'Trámite no judicial', 'Cliente Judicial'] as const;
@@ -143,15 +145,21 @@ export default function CasosPagos() {
               <thead className="bg-white/[0.02] text-xs uppercase text-gray-500">
                 <tr>
                   <th className="px-4 py-3 text-left">Cliente</th>
-                  <th className="px-4 py-3 text-left">Estado del caso</th>
-                  <th className="px-4 py-3 text-right">Honorarios</th>
-                  <th className="px-4 py-3 text-right">Saldo cobrado</th>
+                  <th className="px-4 py-3 text-left">Estado</th>
+                  <th className="px-4 py-3 text-left">Modalidad</th>
+                  <th className="px-4 py-3 text-right">Total acordado</th>
+                  <th className="px-4 py-3 text-right">Cobrado</th>
+                  <th className="px-4 py-3 text-right">Pendiente</th>
                   <th className="px-4 py-3 text-left">Socio</th>
                   <th className="px-4 py-3"></th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/[0.04]">
                 {filtered.map(it => {
+                  const esCuotas = it.modalidad_pago === 'En cuotas';
+                  const cobrado = esCuotas ? 0 : (it.saldo_pagado ? Number(it.saldo_monto_real) : 0);
+                  const total = Number(it.honorarios) || 0;
+                  const pendiente = Math.max(0, total - cobrado);
                   return (
                     <tr key={it.id} className="hover:bg-white/[0.02]">
                       <td className="px-4 py-3 text-white">
@@ -163,22 +171,35 @@ export default function CasosPagos() {
                           <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-sky-500/10 text-sky-400 border border-sky-500/20">
                             <CheckCircle2 className="w-3 h-3" /> {it.estado_caso}
                           </span>
-                        ) : it.consulta_realizada ? (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                            <CheckCircle2 className="w-3 h-3" /> {it.resultado_estado || 'Realizada'}
+                        ) : (
+                          <span className="text-gray-600 text-xs">—</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3">
+                        {esCuotas ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-violet-500/10 text-violet-400 border border-violet-500/20">
+                            <ListChecks className="w-3 h-3" /> En cuotas
                           </span>
                         ) : (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-500/10 text-amber-400 border border-amber-500/20">
-                            <Clock className="w-3 h-3" /> Sin resultado
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-blue-500/10 text-blue-400 border border-blue-500/20">
+                            <DollarSign className="w-3 h-3" /> Único
                           </span>
                         )}
                       </td>
-                      <td className="px-4 py-3 text-right text-gray-300">{Number(it.honorarios) > 0 ? formatMoney(Number(it.honorarios)) : <span className="text-gray-600">—</span>}</td>
+                      <td className="px-4 py-3 text-right text-white font-medium">{total > 0 ? formatMoney(total) : <span className="text-gray-600">—</span>}</td>
                       <td className="px-4 py-3 text-right">
-                        <span className={it.saldo_pagado ? 'text-emerald-400' : 'text-gray-500'}>
-                          {formatMoney(Number(it.saldo_monto_real))}
-                        </span>
-                        {it.saldo_pagado && <div className="text-[10px] text-emerald-500">Cobrado</div>}
+                        {esCuotas ? (
+                          <span className="text-gray-500 text-xs">Ver cuotas</span>
+                        ) : (
+                          <span className={cobrado > 0 ? 'text-emerald-400' : 'text-gray-600'}>{cobrado > 0 ? formatMoney(cobrado) : '—'}</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        {esCuotas ? (
+                          <span className="text-gray-500 text-xs">Ver cuotas</span>
+                        ) : (
+                          <span className={pendiente > 0 ? 'text-amber-400' : 'text-gray-600'}>{pendiente > 0 ? formatMoney(pendiente) : '—'}</span>
+                        )}
                       </td>
                       <td className="px-4 py-3 text-gray-400">{it.socio_carga}</td>
                       <td className="px-4 py-3">
@@ -233,11 +254,21 @@ interface Cuota {
   ingreso_id: string | null;
 }
 
+// Local cuota row before saving to DB
+interface PendingCuota {
+  localId: string;
+  fecha_vencimiento: string;
+  monto: string;
+  observaciones: string;
+}
+
 function CasoPagoModal({ open, onClose, editing, socios, onSaved }: ModalProps) {
   const { showToast } = useToast();
   const isEditing = !!editing;
-  const [casos, setCasos] = useState<Array<{ id: string; label: string }>>([]);
+  // Cuotas already in DB (editing mode)
   const [cuotas, setCuotas] = useState<Cuota[]>([]);
+  // Cuotas pending save (new record mode)
+  const [pendingCuotas, setPendingCuotas] = useState<PendingCuota[]>([]);
   const [cuotaForm, setCuotaForm] = useState({ fecha_vencimiento: '', monto: '', observaciones: '' });
   const [savingCuota, setSavingCuota] = useState(false);
   const [payingCuota, setPayingCuota] = useState<string | null>(null);
@@ -245,76 +276,63 @@ function CasoPagoModal({ open, onClose, editing, socios, onSaved }: ModalProps) 
 
   useEffect(() => {
     if (!open) return;
-    (async () => {
-      const { data } = await supabase
-        .from('casos')
-        .select('id, expediente, materia, clientes(nombre_apellido)')
-        .order('created_at', { ascending: false })
-        .limit(500);
-      const list = (data || []).map((c: any) => ({
-        id: c.id,
-        label: `${c.clientes?.nombre_apellido || 'Sin cliente'} — ${c.materia}${c.expediente ? ` (${c.expediente})` : ''}`,
-      }));
-      setCasos(list);
-
-      if (editing) {
+    if (editing) {
+      (async () => {
         const { data: cuotasData } = await supabase
           .from('casos_pagos_cuotas')
           .select('*')
           .eq('caso_pago_id', editing.id)
           .order('numero');
         setCuotas((cuotasData || []) as Cuota[]);
-      } else {
-        setCuotas([]);
-      }
-    })();
+      })();
+    } else {
+      setCuotas([]);
+      setPendingCuotas([]);
+    }
   }, [open, editing]);
 
   const [form, setForm] = useState({
     cliente_nombre: '',
-    caso_id: '',
-    estado_caso: '',
     telefono: '',
-    detalle_consulta: '',
+    estado_caso: '',
     socio_carga: socios[0] || 'Rodrigo',
-    fecha_carga: new Date().toISOString().split('T')[0],
-    consulta_realizada: false,
-    resultado_estado: '' as string,
+    honorarios: '',
+    modalidad_pago: 'Único' as 'Único' | 'En cuotas',
+    // Único mode fields
     saldo_pagado: false,
     saldo_monto_real: '',
     saldo_modalidad: '' as string,
-    honorarios: '',
+    fecha_cobro: '',
+    // Misc
     observaciones: '',
+    caso_id: '',
   });
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     if (editing) {
+      const hasCuotasFlag = editing.modalidad_pago === 'En cuotas';
       setForm({
         cliente_nombre: editing.cliente_nombre,
-        caso_id: editing.caso_id || '',
-        estado_caso: editing.estado_caso || '',
         telefono: editing.telefono || '',
-        detalle_consulta: editing.detalle_consulta || '',
+        estado_caso: editing.estado_caso || '',
         socio_carga: editing.socio_carga,
-        fecha_carga: editing.fecha_carga,
-        consulta_realizada: editing.consulta_realizada,
-        resultado_estado: editing.resultado_estado || '',
+        honorarios: String(editing.honorarios || ''),
+        modalidad_pago: hasCuotasFlag ? 'En cuotas' : 'Único',
         saldo_pagado: editing.saldo_pagado,
         saldo_monto_real: String(editing.saldo_monto_real || ''),
         saldo_modalidad: editing.saldo_modalidad || '',
-        honorarios: String(editing.honorarios || ''),
+        fecha_cobro: editing.fecha_consulta || '',
         observaciones: editing.observaciones || '',
+        caso_id: editing.caso_id || '',
       });
     } else {
       setForm({
-        cliente_nombre: '', caso_id: '', estado_caso: '',
-        telefono: '', detalle_consulta: '',
+        cliente_nombre: '', telefono: '', estado_caso: '',
         socio_carga: socios[0] || 'Rodrigo',
-        fecha_carga: new Date().toISOString().split('T')[0],
-        consulta_realizada: false, resultado_estado: '',
-        saldo_pagado: false, saldo_monto_real: '', saldo_modalidad: '',
-        honorarios: '', observaciones: '',
+        honorarios: '', modalidad_pago: 'Único',
+        saldo_pagado: false, saldo_monto_real: '', saldo_modalidad: '', fecha_cobro: '',
+        observaciones: '', caso_id: '',
       });
     }
   }, [editing, open, socios]);
@@ -324,63 +342,64 @@ function CasoPagoModal({ open, onClose, editing, socios, onSaved }: ModalProps) 
       showToast('El nombre del cliente es obligatorio', 'error');
       return;
     }
-    if (!form.estado_caso) {
-      showToast('Debes indicar el estado del caso', 'error');
-      return;
-    }
-    if (form.saldo_pagado && (!parseFloat(form.saldo_monto_real) || parseFloat(form.saldo_monto_real) <= 0)) {
-      showToast('Para marcar saldo como cobrado, indicá el monto', 'error');
+    if (form.modalidad_pago === 'Único' && form.saldo_pagado &&
+        (!parseFloat(form.saldo_monto_real) || parseFloat(form.saldo_monto_real) <= 0)) {
+      showToast('Ingresá el monto cobrado', 'error');
       return;
     }
     setSaving(true);
-    const payload = {
+    const basePayload: Record<string, any> = {
       cliente_nombre: form.cliente_nombre.trim(),
       caso_id: form.caso_id || null,
       estado_caso: form.estado_caso || null,
       telefono: form.telefono.trim() || null,
-      detalle_consulta: form.detalle_consulta.trim() || null,
       socio_carga: form.socio_carga,
-      fecha_carga: form.fecha_carga,
-      consulta_realizada: form.consulta_realizada,
-      resultado_estado: form.resultado_estado || null,
-      saldo_pagado: form.saldo_pagado,
-      saldo_monto_real: parseFloat(form.saldo_monto_real) || 0,
-      saldo_modalidad: form.saldo_modalidad || null,
       honorarios: parseFloat(form.honorarios) || 0,
+      saldo_pagado: form.modalidad_pago === 'Único' ? form.saldo_pagado : false,
+      saldo_monto_real: form.modalidad_pago === 'Único' ? (parseFloat(form.saldo_monto_real) || 0) : 0,
+      saldo_modalidad: form.modalidad_pago === 'Único' ? (form.saldo_modalidad || null) : null,
+      fecha_consulta: form.modalidad_pago === 'Único' && form.fecha_cobro ? form.fecha_cobro : null,
       observaciones: form.observaciones.trim() || null,
     };
-    try {
-      let savedId: string | null = null;
-      let triggerCreatedIngreso = false;
 
-      if (isEditing && editing) {
-        const { data: updated, error } = await supabase
-          .from('casos_pagos').update(payload).eq('id', editing.id)
-          .select('id, ingreso_saldo_id').single();
-        if (error) throw error;
-        savedId = updated?.id ?? editing.id;
-        triggerCreatedIngreso = !!updated?.ingreso_saldo_id;
-        showToast('Registro actualizado');
-      } else {
-        const { data: inserted, error } = await supabase
-          .from('casos_pagos').insert(payload)
-          .select('id, ingreso_saldo_id').single();
-        if (error) throw error;
-        savedId = inserted?.id ?? null;
-        triggerCreatedIngreso = !!inserted?.ingreso_saldo_id;
-        showToast('Registro creado');
+    try {
+      // Try with modalidad_pago column first; fall back without it if column missing
+      async function trySave(payload: Record<string, any>, recordId?: string) {
+        if (isEditing && recordId) {
+          const { data, error } = await supabase.from('casos_pagos').update(payload).eq('id', recordId).select('id, ingreso_saldo_id').single();
+          if (error) throw error;
+          return data;
+        } else {
+          const { data, error } = await supabase.from('casos_pagos').insert(payload).select('id, ingreso_saldo_id').single();
+          if (error) throw error;
+          return data;
+        }
       }
 
-      // Fallback: si el trigger de DB no creó el ingreso de saldo, crearlo desde el frontend
-      if (savedId && form.saldo_pagado && parseFloat(form.saldo_monto_real) > 0 && !triggerCreatedIngreso) {
-        const saldoMonto = parseFloat(form.saldo_monto_real);
+      let saved: any;
+      try {
+        saved = await trySave({ ...basePayload, modalidad_pago: form.modalidad_pago }, editing?.id);
+      } catch (e: any) {
+        if (e.message?.includes('modalidad_pago')) {
+          // Column doesn’t exist yet — retry without it
+          saved = await trySave(basePayload, editing?.id);
+        } else {
+          throw e;
+        }
+      }
+
+      const savedId: string = saved?.id ?? editing?.id;
+
+      // Ingreso fallback for único payment
+      if (form.modalidad_pago === 'Único' && form.saldo_pagado && parseFloat(form.saldo_monto_real) > 0 && !saved?.ingreso_saldo_id) {
+        const monto = parseFloat(form.saldo_monto_real);
         const { data: ingreso } = await supabase.from('ingresos').insert({
           caso_id: form.caso_id || null,
-          fecha: new Date().toISOString().slice(0, 10),
+          fecha: form.fecha_cobro || new Date().toISOString().slice(0, 10),
           cliente_nombre: form.cliente_nombre.trim(),
-          concepto: 'Saldo consulta - ' + form.cliente_nombre.trim(),
-          monto_total: saldoMonto,
-          monto_cj_noa: saldoMonto,
+          concepto: 'Honorarios - ' + form.cliente_nombre.trim(),
+          monto_total: monto,
+          monto_cj_noa: monto,
           socio_cobro: form.socio_carga,
           modalidad: form.saldo_modalidad || null,
           es_manual: false,
@@ -390,6 +409,21 @@ function CasoPagoModal({ open, onClose, editing, socios, onSaved }: ModalProps) 
         }
       }
 
+      // Save pending cuotas for new record
+      if (!isEditing && savedId && pendingCuotas.length > 0) {
+        for (let i = 0; i < pendingCuotas.length; i++) {
+          const c = pendingCuotas[i];
+          await supabase.from('casos_pagos_cuotas').insert({
+            caso_pago_id: savedId,
+            numero: i + 1,
+            fecha_vencimiento: c.fecha_vencimiento,
+            monto: parseFloat(c.monto),
+            observaciones: c.observaciones || null,
+          });
+        }
+      }
+
+      showToast(isEditing ? 'Registro actualizado' : 'Registro creado');
       onSaved();
     } catch (err: any) {
       showToast(err.message || 'Error al guardar', 'error');
@@ -398,16 +432,27 @@ function CasoPagoModal({ open, onClose, editing, socios, onSaved }: ModalProps) 
     }
   }
 
+  // Add cuota to pending list (for new records) or directly to DB (for editing)
   async function handleAddCuota() {
-    if (!editing) return;
     if (!cuotaForm.fecha_vencimiento || !cuotaForm.monto) {
       showToast('Fecha y monto son obligatorios', 'error');
+      return;
+    }
+    if (!isEditing) {
+      // Store locally, will be saved together with the record
+      setPendingCuotas(prev => [...prev, {
+        localId: crypto.randomUUID(),
+        fecha_vencimiento: cuotaForm.fecha_vencimiento,
+        monto: cuotaForm.monto,
+        observaciones: cuotaForm.observaciones,
+      }]);
+      setCuotaForm({ fecha_vencimiento: '', monto: '', observaciones: '' });
       return;
     }
     setSavingCuota(true);
     const nextNumero = cuotas.length > 0 ? Math.max(...cuotas.map(c => c.numero)) + 1 : 1;
     const { error } = await supabase.from('casos_pagos_cuotas').insert({
-      caso_pago_id: editing.id,
+      caso_pago_id: editing!.id,
       numero: nextNumero,
       fecha_vencimiento: cuotaForm.fecha_vencimiento,
       monto: parseFloat(cuotaForm.monto),
@@ -416,7 +461,7 @@ function CasoPagoModal({ open, onClose, editing, socios, onSaved }: ModalProps) 
     if (error) { showToast(error.message, 'error'); }
     else {
       setCuotaForm({ fecha_vencimiento: '', monto: '', observaciones: '' });
-      const { data } = await supabase.from('casos_pagos_cuotas').select('*').eq('caso_pago_id', editing.id).order('numero');
+      const { data } = await supabase.from('casos_pagos_cuotas').select('*').eq('caso_pago_id', editing!.id).order('numero');
       setCuotas((data || []) as Cuota[]);
     }
     setSavingCuota(false);
@@ -481,173 +526,263 @@ function CasoPagoModal({ open, onClose, editing, socios, onSaved }: ModalProps) 
 
   const totalCuotas = cuotas.reduce((s, c) => s + Number(c.monto), 0);
   const cobradoCuotas = cuotas.filter(c => c.estado === 'Pagada').reduce((s, c) => s + Number(c.monto), 0);
+  const totalPendingCuotas = pendingCuotas.reduce((s, c) => s + (parseFloat(c.monto) || 0), 0);
 
   return (
     <Modal open={open} onClose={onClose}
       title={isEditing ? 'Editar caso de pago' : 'Nuevo caso de pago'}
-      subtitle="Resultado · Honorarios · Cuotas"
-      maxWidth="max-w-3xl">
-      <div className="space-y-4 max-h-[70vh] overflow-y-auto pr-2">
-        {/* Datos cliente */}
+      subtitle="Honorarios · Modalidad · Estado"
+      maxWidth="max-w-2xl">
+      <div className="space-y-4 max-h-[75vh] overflow-y-auto pr-2">
+
+        {/* Datos del cliente */}
         <Section title="Cliente">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <Field label="Nombre *">
-              <input type="text" value={form.cliente_nombre} onChange={e => setForm({ ...form, cliente_nombre: e.target.value })} className="input-dark" />
-            </Field>
-            <Field label="Caso">
-              <select value={form.caso_id} onChange={e => setForm({ ...form, caso_id: e.target.value })} className="select-dark">
-                <option value="">Sin vincular</option>
-                {casos.map(caso => <option key={caso.id} value={caso.id}>{caso.label}</option>)}
-              </select>
+            <Field label="Nombre y Apellido *">
+              <input type="text" value={form.cliente_nombre}
+                onChange={e => setForm({ ...form, cliente_nombre: e.target.value })}
+                className="input-dark" placeholder="Ej: Juan Pérez" />
             </Field>
             <Field label="Teléfono">
-              <input type="tel" value={form.telefono} onChange={e => setForm({ ...form, telefono: e.target.value })} className="input-dark" />
+              <input type="tel" value={form.telefono}
+                onChange={e => setForm({ ...form, telefono: e.target.value })}
+                className="input-dark" placeholder="Ej: 3885 123456" />
             </Field>
-            <Field label="Estado del caso *">
-              <select value={form.estado_caso} onChange={e => setForm({ ...form, estado_caso: e.target.value })} className="select-dark">
-                <option value="">—</option>
-                {ESTADOS_CASO.map(estado => <option key={estado} value={estado}>{estado}</option>)}
-              </select>
-            </Field>
-            <Field label="Socio que carga *">
-              <select value={form.socio_carga} onChange={e => setForm({ ...form, socio_carga: e.target.value })} className="select-dark">
-                {socios.map(s => <option key={s} value={s}>{s}</option>)}
-              </select>
-            </Field>
-            <Field label="Fecha de carga">
-              <input type="date" value={form.fecha_carga} onChange={e => setForm({ ...form, fecha_carga: e.target.value })} className="input-dark" />
-            </Field>
-            <Field label="Detalle (opcional)" full>
-              <textarea value={form.detalle_consulta} onChange={e => setForm({ ...form, detalle_consulta: e.target.value })} className="input-dark" rows={2} />
-            </Field>
-          </div>
-        </Section>
-
-        {/* Resultado */}
-        <Section title="Resultado de la consulta">
-          <label className="flex items-center gap-2 mb-3 cursor-pointer text-sm text-gray-300">
-            <input type="checkbox" checked={form.consulta_realizada} onChange={e => setForm({ ...form, consulta_realizada: e.target.checked })} className="checkbox-dark" />
-            Consulta realizada
-          </label>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <Field label="Resultado">
-              <select value={form.resultado_estado} onChange={e => setForm({ ...form, resultado_estado: e.target.value })} className="select-dark">
+            <Field label="Estado del caso">
+              <select value={form.estado_caso}
+                onChange={e => setForm({ ...form, estado_caso: e.target.value })}
+                className="select-dark">
                 <option value="">—</option>
                 {ESTADOS_CASO.map(e => <option key={e} value={e}>{e}</option>)}
               </select>
             </Field>
-            <Field label="Honorarios acordados">
-              <input type="number" step="0.01" value={form.honorarios} onChange={e => setForm({ ...form, honorarios: e.target.value })} className="input-dark" />
-            </Field>
-            <Field label="Saldo cobrado">
-              <input type="number" step="0.01" value={form.saldo_monto_real} onChange={e => setForm({ ...form, saldo_monto_real: e.target.value })} className="input-dark" />
-            </Field>
-            <Field label="Modalidad saldo">
-              <select value={form.saldo_modalidad} onChange={e => setForm({ ...form, saldo_modalidad: e.target.value })} className="select-dark">
-                <option value="">—</option>
-                {MODALIDADES.map(m => <option key={m} value={m}>{m}</option>)}
+            <Field label="Socio que carga">
+              <select value={form.socio_carga}
+                onChange={e => setForm({ ...form, socio_carga: e.target.value })}
+                className="select-dark">
+                {socios.map(s => <option key={s} value={s}>{s}</option>)}
               </select>
             </Field>
-            <Field label="Observaciones" full>
-              <textarea value={form.observaciones} onChange={e => setForm({ ...form, observaciones: e.target.value })} className="input-dark" rows={2} />
-            </Field>
           </div>
-          <label className="flex items-center gap-2 mt-3 cursor-pointer text-sm text-gray-300">
-            <input type="checkbox" checked={form.saldo_pagado} onChange={e => setForm({ ...form, saldo_pagado: e.target.checked })} className="checkbox-dark" />
-            <DollarSign className="w-4 h-4 text-emerald-400" />
-            Saldo cobrado (genera ingreso automático)
-          </label>
         </Section>
 
-        {/* Cuotas — solo cuando editando */}
-        {isEditing && (
-          <Section title="Cuotas / Plan de pago">
-            {cuotas.length > 0 && (
-              <div className="flex items-center gap-4 mb-3 text-xs text-gray-400">
-                <span>Total: <span className="text-white font-semibold">{formatMoney(totalCuotas)}</span></span>
-                <span>Cobrado: <span className="text-emerald-400 font-semibold">{formatMoney(cobradoCuotas)}</span></span>
-                <span>Pendiente: <span className="text-amber-400 font-semibold">{formatMoney(totalCuotas - cobradoCuotas)}</span></span>
+        {/* Honorarios */}
+        <Section title="Honorarios">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <Field label="Monto acordado">
+              <input type="number" step="0.01" placeholder="0"
+                value={form.honorarios}
+                onChange={e => setForm({ ...form, honorarios: e.target.value })}
+                className="input-dark" />
+            </Field>
+            <Field label="Modalidad de pago">
+              <div className="flex rounded-xl overflow-hidden border border-white/10">
+                {(['Único', 'En cuotas'] as const).map(opt => (
+                  <button
+                    key={opt}
+                    type="button"
+                    onClick={() => setForm({ ...form, modalidad_pago: opt })}
+                    className={`flex-1 py-2.5 text-sm font-medium transition-colors ${
+                      form.modalidad_pago === opt
+                        ? opt === 'Único'
+                          ? 'bg-blue-500/20 text-blue-300 border-r border-white/10'
+                          : 'bg-violet-500/20 text-violet-300'
+                        : 'bg-white/[0.03] text-gray-500 hover:text-gray-300 border-r border-white/10 last:border-r-0'
+                    }`}
+                  >
+                    {opt === 'Único' ? '💵 Pago Único' : '📋 En Cuotas'}
+                  </button>
+                ))}
               </div>
-            )}
-            {cuotas.length > 0 && (
-              <div className="space-y-1.5 mb-3">
-                {cuotas.map(cuota => (
-                  <div key={cuota.id}>
-                    <div className={`flex items-center gap-2 p-2 rounded-lg text-xs ${
-                      cuota.estado === 'Pagada'
-                        ? 'bg-emerald-500/10 border border-emerald-500/20'
-                        : 'bg-white/[0.03] border border-white/[0.06]'
-                    }`}>
-                      <span className="text-gray-500 w-5 text-right">#{cuota.numero}</span>
-                      <span className="flex-1 text-gray-300">{cuota.fecha_vencimiento}</span>
-                      <span className="font-semibold text-white">{formatMoney(Number(cuota.monto))}</span>
-                      <span className={`px-1.5 py-0.5 rounded-full border text-[10px] ${
-                        cuota.estado === 'Pagada'
-                          ? 'text-emerald-400 border-emerald-500/30 bg-emerald-500/10'
-                          : 'text-amber-400 border-amber-500/30 bg-amber-500/10'
-                      }`}>{cuota.estado}</span>
-                      {cuota.estado === 'Pagada' && cuota.cobrado_por && (
-                        <span className="text-gray-500">{cuota.cobrado_por}</span>
-                      )}
-                      <button onClick={() => handleTogglePaid(cuota)} className={`px-2 py-0.5 rounded text-[10px] font-medium transition-colors ${
-                        cuota.estado === 'Pagada'
-                          ? 'bg-gray-500/20 text-gray-400 hover:bg-rose-500/20 hover:text-rose-400'
-                          : 'bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30'
-                      }`}>
-                        {cuota.estado === 'Pagada' ? 'Desmarcar' : 'Marcar pagada'}
-                      </button>
-                      <button onClick={() => handleDeleteCuota(cuota.id)} className="p-1 text-gray-600 hover:text-red-400">
+            </Field>
+          </div>
+
+          {/* Pago Único */}
+          {form.modalidad_pago === 'Único' && (
+            <div className="mt-3">
+              <label className="flex items-center gap-2 cursor-pointer text-sm text-gray-300 mb-3">
+                <input type="checkbox" checked={form.saldo_pagado}
+                  onChange={e => setForm({ ...form, saldo_pagado: e.target.checked })}
+                  className="checkbox-dark" />
+                <DollarSign className="w-4 h-4 text-emerald-400" />
+                Ya cobró los honorarios
+              </label>
+              {form.saldo_pagado && (
+                <div className="grid grid-cols-3 gap-3 rounded-xl bg-emerald-500/5 border border-emerald-500/20 p-3">
+                  <Field label="Monto cobrado">
+                    <input type="number" step="0.01" value={form.saldo_monto_real}
+                      onChange={e => setForm({ ...form, saldo_monto_real: e.target.value })}
+                      className="input-dark" placeholder="0" />
+                  </Field>
+                  <Field label="Fecha de cobro">
+                    <input type="date" value={form.fecha_cobro}
+                      onChange={e => setForm({ ...form, fecha_cobro: e.target.value })}
+                      className="input-dark" />
+                  </Field>
+                  <Field label="Modalidad">
+                    <select value={form.saldo_modalidad}
+                      onChange={e => setForm({ ...form, saldo_modalidad: e.target.value })}
+                      className="select-dark">
+                      <option value="">—</option>
+                      {MODALIDADES.map(m => <option key={m} value={m}>{m}</option>)}
+                    </select>
+                  </Field>
+                </div>
+              )}
+              {!form.saldo_pagado && (
+                <div className="rounded-xl bg-amber-500/5 border border-amber-500/20 px-3 py-2 text-xs text-amber-400">
+                  ⚠️ Honorarios pendientes de cobro
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* En Cuotas */}
+          {form.modalidad_pago === 'En cuotas' && (
+            <div className="mt-3">
+              {/* Summary */}
+              {(cuotas.length > 0 || pendingCuotas.length > 0) && (
+                <div className="flex items-center gap-4 mb-3 text-xs text-gray-400">
+                  <span>Total: <span className="text-white font-semibold">{formatMoney(isEditing ? totalCuotas : totalPendingCuotas)}</span></span>
+                  {isEditing && <>
+                    <span>Cobrado: <span className="text-emerald-400 font-semibold">{formatMoney(cobradoCuotas)}</span></span>
+                    <span>Pendiente: <span className="text-amber-400 font-semibold">{formatMoney(totalCuotas - cobradoCuotas)}</span></span>
+                  </>}
+                  {!isEditing && pendingCuotas.length > 0 && (
+                    <span className="text-violet-400">{pendingCuotas.length} cuota{pendingCuotas.length !== 1 ? 's' : ''} para guardar</span>
+                  )}
+                </div>
+              )}
+
+              {/* Pending cuotas list (new record) */}
+              {!isEditing && pendingCuotas.length > 0 && (
+                <div className="space-y-1.5 mb-3">
+                  {pendingCuotas.map((c, i) => (
+                    <div key={c.localId} className="flex items-center gap-2 p-2 rounded-lg text-xs bg-violet-500/5 border border-violet-500/20">
+                      <span className="text-gray-500 w-5 text-right">#{i + 1}</span>
+                      <span className="flex-1 text-gray-300">{c.fecha_vencimiento}</span>
+                      <span className="font-semibold text-white">{formatMoney(parseFloat(c.monto) || 0)}</span>
+                      <span className="text-amber-400 text-[10px] px-1.5 py-0.5 rounded-full border border-amber-500/30 bg-amber-500/10">Pendiente</span>
+                      <button
+                        onClick={() => setPendingCuotas(prev => prev.filter(x => x.localId !== c.localId))}
+                        className="p-1 text-gray-600 hover:text-red-400"
+                        title="Eliminar cuota"
+                      >
                         <Trash2 className="w-3 h-3" />
                       </button>
                     </div>
-                    {payingCuota === cuota.id && (
-                      <div className="mt-1 p-3 rounded-lg bg-white/[0.04] border border-white/[0.08] grid grid-cols-3 gap-2">
-                        <Field label="Fecha pago">
-                          <input type="date" value={payForm.fecha_pago} onChange={e => setPayForm(p => ({ ...p, fecha_pago: e.target.value }))} className="input-dark text-xs py-1" />
-                        </Field>
-                        <Field label="Modalidad">
-                          <select value={payForm.modalidad_pago} onChange={e => setPayForm(p => ({ ...p, modalidad_pago: e.target.value }))} className="select-dark text-xs py-1">
-                            <option value="">—</option>
-                            {MODALIDADES.map(m => <option key={m} value={m}>{m}</option>)}
-                          </select>
-                        </Field>
-                        <Field label="Cobrado por">
-                          <select value={payForm.cobrado_por} onChange={e => setPayForm(p => ({ ...p, cobrado_por: e.target.value }))} className="select-dark text-xs py-1">
-                            <option value="">—</option>
-                            {socios.map(s => <option key={s} value={s}>{s}</option>)}
-                          </select>
-                        </Field>
-                        <div className="col-span-3 flex gap-2 justify-end">
-                          <button onClick={() => setPayingCuota(null)} className="text-xs text-gray-500 hover:text-white px-3 py-1">Cancelar</button>
-                          <button onClick={() => handleConfirmPay(cuota)} className="btn-primary text-xs py-1 px-3">Confirmar pago</button>
-                        </div>
+                  ))}
+                </div>
+              )}
+
+              {/* DB cuotas list (editing) */}
+              {isEditing && cuotas.length > 0 && (
+                <div className="space-y-1.5 mb-3">
+                  {cuotas.map(cuota => (
+                    <div key={cuota.id}>
+                      <div className={`flex items-center gap-2 p-2 rounded-lg text-xs ${
+                        cuota.estado === 'Pagada'
+                          ? 'bg-emerald-500/10 border border-emerald-500/20'
+                          : 'bg-white/[0.03] border border-white/[0.06]'
+                      }`}>
+                        <span className="text-gray-500 w-5 text-right">#{cuota.numero}</span>
+                        <span className="flex-1 text-gray-300">{cuota.fecha_vencimiento}</span>
+                        <span className="font-semibold text-white">{formatMoney(Number(cuota.monto))}</span>
+                        <span className={`px-1.5 py-0.5 rounded-full border text-[10px] ${
+                          cuota.estado === 'Pagada'
+                            ? 'text-emerald-400 border-emerald-500/30 bg-emerald-500/10'
+                            : 'text-amber-400 border-amber-500/30 bg-amber-500/10'
+                        }`}>{cuota.estado}</span>
+                        {cuota.estado === 'Pagada' && cuota.cobrado_por && (
+                          <span className="text-gray-500">{cuota.cobrado_por}</span>
+                        )}
+                        <button
+                          onClick={() => handleTogglePaid(cuota)}
+                          className={`px-2 py-0.5 rounded text-[10px] font-medium transition-colors ${
+                            cuota.estado === 'Pagada'
+                              ? 'bg-gray-500/20 text-gray-400 hover:bg-rose-500/20 hover:text-rose-400'
+                              : 'bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30'
+                          }`}
+                        >
+                          {cuota.estado === 'Pagada' ? 'Desmarcar' : 'Marcar pagada'}
+                        </button>
+                        <button onClick={() => handleDeleteCuota(cuota.id)} title="Eliminar" className="p-1 text-gray-600 hover:text-red-400">
+                          <Trash2 className="w-3 h-3" />
+                        </button>
                       </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
-            <div className="rounded-lg border border-dashed border-white/20 p-3">
-              <p className="text-xs text-gray-500 mb-2">Agregar cuota</p>
-              <div className="grid grid-cols-3 gap-2">
-                <Field label="Vencimiento *">
-                  <input type="date" value={cuotaForm.fecha_vencimiento} onChange={e => setCuotaForm(f => ({ ...f, fecha_vencimiento: e.target.value }))} className="input-dark text-xs py-1" />
-                </Field>
-                <Field label="Monto *">
-                  <input type="number" step="0.01" placeholder="0" value={cuotaForm.monto} onChange={e => setCuotaForm(f => ({ ...f, monto: e.target.value }))} className="input-dark text-xs py-1" />
-                </Field>
-                <Field label="Notas">
-                  <input type="text" value={cuotaForm.observaciones} onChange={e => setCuotaForm(f => ({ ...f, observaciones: e.target.value }))} className="input-dark text-xs py-1" />
-                </Field>
-              </div>
-              <div className="flex justify-end mt-2">
-                <button onClick={handleAddCuota} disabled={savingCuota} className="btn-primary text-xs py-1.5 px-4 flex items-center gap-1.5">
-                  <Plus className="w-3 h-3" /> {savingCuota ? 'Agregando...' : 'Agregar cuota'}
-                </button>
+                      {payingCuota === cuota.id && (
+                        <div className="mt-1 p-3 rounded-lg bg-white/[0.04] border border-white/[0.08] grid grid-cols-3 gap-2">
+                          <Field label="Fecha pago">
+                            <input type="date" value={payForm.fecha_pago}
+                              onChange={e => setPayForm(p => ({ ...p, fecha_pago: e.target.value }))}
+                              className="input-dark text-xs py-1" />
+                          </Field>
+                          <Field label="Modalidad">
+                            <select value={payForm.modalidad_pago}
+                              onChange={e => setPayForm(p => ({ ...p, modalidad_pago: e.target.value }))}
+                              className="select-dark text-xs py-1">
+                              <option value="">—</option>
+                              {MODALIDADES.map(m => <option key={m} value={m}>{m}</option>)}
+                            </select>
+                          </Field>
+                          <Field label="Cobrado por">
+                            <select value={payForm.cobrado_por}
+                              onChange={e => setPayForm(p => ({ ...p, cobrado_por: e.target.value }))}
+                              className="select-dark text-xs py-1">
+                              <option value="">—</option>
+                              {socios.map(s => <option key={s} value={s}>{s}</option>)}
+                            </select>
+                          </Field>
+                          <div className="col-span-3 flex gap-2 justify-end">
+                            <button onClick={() => setPayingCuota(null)} className="text-xs text-gray-500 hover:text-white px-3 py-1">Cancelar</button>
+                            <button onClick={() => handleConfirmPay(cuota)} className="btn-primary text-xs py-1 px-3">Confirmar pago</button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Add cuota form */}
+              <div className="rounded-lg border border-dashed border-white/20 p-3">
+                <p className="text-xs text-gray-500 mb-2">+ Agregar cuota</p>
+                <div className="grid grid-cols-3 gap-2">
+                  <Field label="Fecha vencimiento *">
+                    <input type="date" value={cuotaForm.fecha_vencimiento}
+                      onChange={e => setCuotaForm(f => ({ ...f, fecha_vencimiento: e.target.value }))}
+                      className="input-dark text-xs py-1" />
+                  </Field>
+                  <Field label="Monto *">
+                    <input type="number" step="0.01" placeholder="0" value={cuotaForm.monto}
+                      onChange={e => setCuotaForm(f => ({ ...f, monto: e.target.value }))}
+                      className="input-dark text-xs py-1" />
+                  </Field>
+                  <Field label="Notas">
+                    <input type="text" value={cuotaForm.observaciones}
+                      onChange={e => setCuotaForm(f => ({ ...f, observaciones: e.target.value }))}
+                      className="input-dark text-xs py-1" placeholder="Opcional" />
+                  </Field>
+                </div>
+                <div className="flex justify-end mt-2">
+                  <button onClick={handleAddCuota} disabled={savingCuota}
+                    className="btn-primary text-xs py-1.5 px-4 flex items-center gap-1.5">
+                    <Plus className="w-3 h-3" /> {savingCuota ? 'Agregando...' : 'Agregar cuota'}
+                  </button>
+                </div>
               </div>
             </div>
-          </Section>
-        )}
+          )}
+        </Section>
+
+        {/* Observaciones */}
+        <Section title="Observaciones (opcional)">
+          <textarea value={form.observaciones}
+            onChange={e => setForm({ ...form, observaciones: e.target.value })}
+            className="input-dark w-full" rows={2}
+            placeholder="Notas adicionales sobre el caso..." />
+        </Section>
+
       </div>
 
       <div className="flex items-center justify-end gap-2 pt-4 border-t border-white/[0.06] mt-4">
