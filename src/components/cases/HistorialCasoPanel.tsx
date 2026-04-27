@@ -4,6 +4,7 @@ import { useHistorialCaso } from '../../hooks/useTareas';
 import { useAuth } from '../../context/AuthContext';
 import { CasoCompleto } from '../../types/database';
 import { useToast } from '../../context/ToastContext';
+import { supabase } from '../../lib/supabase';
 
 interface HistorialCasoPanelProps {
   caso: CasoCompleto;
@@ -34,6 +35,17 @@ export default function HistorialCasoPanel({ caso }: HistorialCasoPanelProps) {
     if (!titulo.trim()) { showToast('El título es obligatorio', 'error'); return; }
     setSaving(true);
     const ok = await agregar(titulo, descripcion, tareaSiguiente, user?.id || '');
+    if (ok && tareaSiguiente.trim()) {
+      await supabase.from('tareas').insert({
+        titulo: tareaSiguiente.trim(),
+        caso_id: caso.id,
+        descripcion: `Originado desde avance: ${titulo}`,
+        estado: 'en_curso',
+        prioridad: 'media',
+        created_by: user?.id || null,
+        updated_by: user?.id || null,
+      });
+    }
     setSaving(false);
     if (ok) {
       setTitulo(''); setDescripcion(''); setTareaSiguiente('');

@@ -17,7 +17,7 @@ import { syncCaseIncomeLedger } from '../../lib/caseIncomeLedger';
 import { validateDriveUrl } from '../../lib/driveUrl';
 import {
   CasoCompleto, Cuota, SOCIOS, MATERIAS, ESTADOS_CASO,
-  SISTEMAS_JUDICIALES, PERSONERIAS, PRIORIDADES_CASO,
+  SISTEMAS_JUDICIALES, PERSONERIAS, PRIORIDADES_CASO, APODERADOS,
 } from '../../types/database';
 
 interface CaseModalProps {
@@ -46,7 +46,9 @@ interface FormData {
   pago_unico_fecha: string;
   observaciones: string;
   expediente: string;
+  caratula: string;
   radicado: string;
+  apoderado: string;
   sistema: string;
   personeria: string;
   prioridad: string;
@@ -75,7 +77,9 @@ const emptyForm: FormData = {
   pago_unico_fecha: '',
   observaciones: '',
   expediente: '',
+  caratula: '',
   radicado: '',
+  apoderado: '',
   sistema: '',
   personeria: '',
   prioridad: 'Sin prioridad',
@@ -138,7 +142,9 @@ export default function CaseModal({ open, onClose, caso, onSaved }: CaseModalPro
         pago_unico_fecha: caso.pago_unico_fecha || '',
         observaciones: caso.observaciones || '',
         expediente: caso.expediente || '',
+        caratula: caso.caratula || '',
         radicado: caso.radicado || '',
+        apoderado: caso.apoderado || '',
         sistema: caso.sistema || '',
         personeria: caso.personeria || '',
         prioridad: caso.prioridad || 'Sin prioridad',
@@ -267,7 +273,9 @@ export default function CaseModal({ open, onClose, caso, onSaved }: CaseModalPro
         ...financeData,
         observaciones: form.observaciones || null,
         expediente: form.expediente.trim() || null,
+        caratula: form.caratula.trim() || null,
         radicado: form.radicado.trim() || null,
+        apoderado: form.apoderado || null,
         sistema: form.sistema || null,
         personeria: form.personeria || null,
         prioridad: form.prioridad || 'Sin prioridad',
@@ -508,6 +516,15 @@ export default function CaseModal({ open, onClose, caso, onSaved }: CaseModalPro
                 placeholder="Nº de expediente"
               />
             </Field>
+            <Field label="Carátula">
+              <input
+                type="text"
+                value={form.caratula}
+                onChange={(e) => update('caratula', e.target.value)}
+                className="input-dark"
+                placeholder="Ej: López Juan c/ ANSES s/ reajuste haberes"
+              />
+            </Field>
             <Field label="Radicado (juzgado)">
               <input
                 type="text"
@@ -561,6 +578,16 @@ export default function CaseModal({ open, onClose, caso, onSaved }: CaseModalPro
                 if (form.url_drive && chk.valid) return <p className="text-xs text-emerald-400 mt-1">✓ Link válido</p>;
                 return null;
               })()}
+            </Field>
+            <Field label="Apoderado / Patrocinante">
+              <select
+                value={form.apoderado}
+                onChange={(e) => update('apoderado', e.target.value)}
+                className="select-dark"
+              >
+                <option value="">Sin asignar</option>
+                {APODERADOS.map(a => <option key={a} value={a}>{a}</option>)}
+              </select>
             </Field>
           </div>
           <label className="flex items-center gap-2 mt-3 text-sm text-gray-400 cursor-pointer">

@@ -88,6 +88,8 @@ export interface Caso {
   prioridad: 'Alta' | 'Media' | 'Sin prioridad';
   archivado: boolean;
   url_drive: string | null;
+  caratula: string | null;
+  apoderado: string | null;
   // Spec §4.1: estado general y resumen semanal
   estadisticas: string | null;
   actualizacion: string | null;
@@ -217,6 +219,7 @@ export type Materia = 'Jubilaciones' | 'Sucesorios' | 'Reajuste' | 'Otro';
 export type EstadoCaso = 'Vino a consulta' | 'Trámite no judicial' | 'Cliente Judicial';
 
 export const SOCIOS: Socio[] = ['Rodrigo', 'Noelia', 'Fabricio', 'Alejandro'];
+export const APODERADOS = ['Rodri Reyes', 'Alejandro Reyes', 'Fabricio Reyes', 'Noelia Santillán', 'Marianela Santillán'] as const;
 
 export const MATERIAS: Materia[] = ['Jubilaciones', 'Sucesorios', 'Reajuste', 'Otro'];
 
