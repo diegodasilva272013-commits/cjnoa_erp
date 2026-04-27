@@ -92,8 +92,11 @@ export default function Ingresos() {
     navigate(`/casos-trabajo?q=${encodeURIComponent(ingreso.cliente_nombre || '')}`);
   }
 
-  async function handleDeleteIngreso(id: string) {
-    if (!window.confirm('¿Eliminás este ingreso manual?')) return;
+  async function handleDeleteIngreso(id: string, esManual: boolean) {
+    const msg = esManual
+      ? '¿Eliminás este ingreso manual?'
+      : '¿Eliminás este ingreso? Si fue generado automáticamente podría recrearse si el registro origen sigue activo.';
+    if (!window.confirm(msg)) return;
     setDeletingId(id);
     const { error } = await supabase.from('ingresos').delete().eq('id', id);
     setDeletingId(null);
@@ -508,16 +511,14 @@ export default function Ingresos() {
                           ) : (
                             <span className={`badge ${origen.badge}`}>{origen.label}</span>
                           )}
-                          {ingreso.es_manual && (
-                            <button
-                              onClick={e => { e.stopPropagation(); handleDeleteIngreso(ingreso.id); }}
+                          <button
+                              onClick={e => { e.stopPropagation(); handleDeleteIngreso(ingreso.id, ingreso.es_manual); }}
                               disabled={deletingId === ingreso.id}
                               className="p-1 rounded text-gray-600 hover:text-red-400 hover:bg-red-500/10 transition-colors disabled:opacity-40"
-                              title="Eliminar ingreso manual"
+                              title="Eliminar ingreso"
                             >
                               <Trash2 className="w-3.5 h-3.5" />
                             </button>
-                          )}
                         </div>
                       );
                     })()}
@@ -568,7 +569,7 @@ export default function Ingresos() {
         onClose={() => { setManualModalOpen(false); setEditingIngreso(null); }}
         onSaved={refetch}
         editing={editingIngreso}
-        onDelete={async (id) => { await handleDeleteIngreso(id); setEditingIngreso(null); }}
+        onDelete={async (id) => { await handleDeleteIngreso(id, true); setEditingIngreso(null); }}
       />
       <FinanceImportModal
         open={importModalOpen}

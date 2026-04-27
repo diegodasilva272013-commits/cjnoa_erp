@@ -130,14 +130,6 @@ export default function Sidebar({ open, onClose }: SidebarProps) {
             Cargos de Hora
           </NavLink>
 
-          {/* Honorarios y Cobros (spec seccion 8) - oculto a procurador */}
-          {permisos.honorarios && (
-            <NavLink to="/honorarios" onClick={onClose} className={({ isActive }) => linkClass(isActive)}>
-              <Wallet className="w-5 h-5" />
-              Honorarios y Cobros
-            </NavLink>
-          )}
-
           {/* Finanzas - visible para admin y socio */}
           {permisos.finanzas && (
             <div className="space-y-1">
