@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Plus, Trash2, Briefcase, Calendar, AlertCircle, CheckCircle, ClipboardPaste, Loader2 } from 'lucide-react';
-import { AporteLaboral, calcularResumenAportes, SexoCliente, COSTO_MENSUAL_27705 } from '../../types/previsional';
+import { AporteLaboral, calcularResumenAportes, SexoCliente, COSTO_MENSUAL_27705, formatFechaLocal } from '../../types/previsional';
 
 interface Props {
   aportes: AporteLaboral[];
@@ -267,8 +267,8 @@ export default function AportesTable({ aportes, loading, hijos, sexo, onAdd, onR
               {aportes.map(a => (
                 <tr key={a.id} className="border-b border-white/[0.03] hover:bg-white/[0.02] transition-colors">
                   <td className="py-2.5 px-3 text-white font-medium">{a.empleador || '—'}</td>
-                  <td className="py-2.5 px-3 text-gray-400">{a.fecha_desde ? new Date(a.fecha_desde).toLocaleDateString('es-AR') : '—'}</td>
-                  <td className="py-2.5 px-3 text-gray-400">{a.fecha_hasta ? new Date(a.fecha_hasta).toLocaleDateString('es-AR') : '—'}</td>
+                  <td className="py-2.5 px-3 text-gray-400">{formatFechaLocal(a.fecha_desde)}</td>
+                  <td className="py-2.5 px-3 text-gray-400">{formatFechaLocal(a.fecha_hasta)}</td>
                   <td className="py-2.5 px-3 text-center text-white font-mono">{a.total_meses}</td>
                   <td className="py-2.5 px-3 text-center">
                     {a.es_antes_0993 ? <CheckCircle className="w-4 h-4 text-blue-400 mx-auto" /> : <span className="text-gray-600">—</span>}
