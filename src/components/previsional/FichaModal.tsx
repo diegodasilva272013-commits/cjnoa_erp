@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import {
   User, Hash, Key, Calendar, MapPin, Phone, Baby, FileText,
   DollarSign, ExternalLink, Save, Calculator, Clock,
-  Paperclip, Upload, Download, Trash2, Mic, Square, Play, Pause, Loader2, FolderOpen,
+  Paperclip, Upload, Download, Trash2, Mic, Square, Play, Pause, Loader2, FolderOpen, Eye, X as XIcon,
 } from 'lucide-react';
 import Modal from '../Modal';
 import { supabase } from '../../lib/supabase';
@@ -32,6 +32,7 @@ export default function FichaModal({ open, onClose, cliente, onSave }: Props) {
   // ── Documentos (storage-only, sin migración DB) ──
   type StorageFile = { name: string; path: string; size?: number; signedUrl?: string };
   const [archivos, setArchivos] = useState<StorageFile[]>([]);
+  const [previewFile, setPreviewFile] = useState<StorageFile | null>(null);
   const [saving, setSaving] = useState(false);
   const [loadingArchivos, setLoadingArchivos] = useState(false);
   const [subiendo, setSubiendo] = useState(false);
@@ -401,9 +402,14 @@ export default function FichaModal({ open, onClose, cliente, onSave }: Props) {
                       <span className="text-xs text-gray-300 flex-1 truncate" title={f.name}>{f.name}</span>
                       {f.size && <span className="text-[10px] text-gray-600">{(f.size / 1024).toFixed(0)} KB</span>}
                       {f.signedUrl && (
-                        <a href={f.signedUrl} target="_blank" rel="noopener noreferrer" className="p-1 hover:bg-white/10 rounded text-gray-500 hover:text-white transition-colors">
-                          <Download className="w-3 h-3" />
-                        </a>
+                        <>
+                          <button type="button" onClick={() => setPreviewFile(f)} className="p-1 hover:bg-blue-500/10 rounded text-gray-500 hover:text-blue-400 transition-colors" title="Visualizar">
+                            <Eye className="w-3 h-3" />
+                          </button>
+                          <a href={f.signedUrl} target="_blank" rel="noopener noreferrer" className="p-1 hover:bg-white/10 rounded text-gray-500 hover:text-white transition-colors" title="Descargar">
+                            <Download className="w-3 h-3" />
+                          </a>
+                        </>
                       )}
                       <button type="button" onClick={() => handleDeleteFile(f.path)} className="p-1 hover:bg-red-500/10 rounded text-gray-600 hover:text-red-400 transition-colors">
                         <Trash2 className="w-3 h-3" />
@@ -777,6 +783,38 @@ export default function FichaModal({ open, onClose, cliente, onSave }: Props) {
               </div>
             </div>
           )}
+        </div>
+      )}
+
+      {/* ── Visor de documento inline ── */}
+      {previewFile && (
+        <div className="fixed inset-0 z-[200] flex flex-col bg-black/90 backdrop-blur-sm" onClick={() => setPreviewFile(null)}>
+          <div className="flex items-center justify-between px-4 py-3 bg-white/[0.04] border-b border-white/10" onClick={e => e.stopPropagation()}>
+            <span className="text-sm text-gray-200 font-medium truncate max-w-[70%]">{previewFile.name}</span>
+            <div className="flex items-center gap-2">
+              <a href={previewFile.signedUrl} target="_blank" rel="noopener noreferrer" className="btn-secondary text-xs px-3 py-1.5 flex items-center gap-1.5" onClick={e => e.stopPropagation()}>
+                <Download className="w-3 h-3" /> Descargar
+              </a>
+              <button onClick={() => setPreviewFile(null)} className="p-1.5 hover:bg-white/10 rounded-lg text-gray-400 hover:text-white transition-colors">
+                <XIcon className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+          <div className="flex-1 overflow-auto flex items-center justify-center p-4" onClick={e => e.stopPropagation()}>
+            {/\.(jpg|jpeg|png|webp|gif|heic)$/i.test(previewFile.name) ? (
+              <img src={previewFile.signedUrl} alt={previewFile.name} className="max-w-full max-h-full object-contain rounded-lg shadow-2xl" />
+            ) : /\.pdf$/i.test(previewFile.name) ? (
+              <iframe src={previewFile.signedUrl} className="w-full h-full min-h-[70vh] rounded-lg border border-white/10" title={previewFile.name} />
+            ) : (
+              <div className="text-center text-gray-400">
+                <Paperclip className="w-10 h-10 mx-auto mb-3 opacity-40" />
+                <p className="text-sm mb-3">Vista previa no disponible para este tipo de archivo.</p>
+                <a href={previewFile.signedUrl} target="_blank" rel="noopener noreferrer" className="btn-primary text-sm px-4 py-2 inline-flex items-center gap-2">
+                  <Download className="w-4 h-4" /> Descargar para ver
+                </a>
+              </div>
+            )}
+          </div>
         </div>
       )}
 
