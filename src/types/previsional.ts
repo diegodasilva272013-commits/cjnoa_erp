@@ -77,6 +77,8 @@ export interface AporteLaboral {
   total_meses: number;
   es_antes_0993: boolean;
   es_simultaneo: boolean;
+  meses_antes_0993: number | null;   // override manual; null = usar cálculo automático
+  meses_simultaneo: number | null;   // override manual; null = usar cálculo automático
   observaciones: string | null;
   created_at: string;
 }
@@ -302,8 +304,12 @@ export function calcularResumenAportes(
   mesesAntes0993Moratoria: number
 ): ResumenAportes {
   const totalMeses = aportes.reduce((acc, a) => acc + (a.total_meses || 0), 0);
-  const mesesSimultaneos = aportes.filter(a => a.es_simultaneo).reduce((acc, a) => acc + (a.total_meses || 0), 0);
-  const mesesAntes0993 = aportes.filter(a => a.es_antes_0993).reduce((acc, a) => acc + (a.total_meses || 0), 0);
+  const mesesSimultaneos = aportes
+    .filter(a => a.es_simultaneo)
+    .reduce((acc, a) => acc + (a.meses_simultaneo ?? a.total_meses ?? 0), 0);
+  const mesesAntes0993 = aportes
+    .filter(a => a.es_antes_0993)
+    .reduce((acc, a) => acc + (a.meses_antes_0993 ?? a.total_meses ?? 0), 0);
 
   // Hijos solo para mujeres (1 año = 12 meses por hijo)
   const mesesHijos = sexo === 'MUJER' ? hijos * 12 : 0;

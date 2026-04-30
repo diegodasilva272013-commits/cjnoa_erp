@@ -64,7 +64,6 @@ export default function AportesTable({ aportes, loading, hijos, sexo, onAdd, onR
   }, [aportes.length]);
 
   const startEdit = (a: AporteLaboral) => {
-    // Inicializar con el valor calculado como sugerencia
     const mesesAntes = calcMesesAntes0993(a.fecha_desde, a.fecha_hasta);
     const esSimultCalc = aportes.some(
       o => o.id !== a.id && o.fecha_desde <= a.fecha_hasta && o.fecha_hasta >= a.fecha_desde
@@ -76,6 +75,8 @@ export default function AportesTable({ aportes, loading, hijos, sexo, onAdd, onR
       fecha_hasta: a.fecha_hasta,
       es_antes_0993: autoFixedRef.current ? a.es_antes_0993 : (mesesAntes > 0),
       es_simultaneo: autoFixedRef.current ? a.es_simultaneo : esSimultCalc,
+      meses_antes_0993: a.meses_antes_0993 ?? null,
+      meses_simultaneo: a.meses_simultaneo ?? null,
       observaciones: a.observaciones || '',
     });
   };
@@ -371,9 +372,9 @@ export default function AportesTable({ aportes, loading, hijos, sexo, onAdd, onR
             <tbody>
               {aportes.map(a => {
                 // Usar flags de DB (auto-corregidos al montar, y editables manualmente)
-                const mesesAntes = a.es_antes_0993 ? calcMesesAntes0993(a.fecha_desde, a.fecha_hasta) : 0;
+                const mesesAntes = a.meses_antes_0993 ?? (a.es_antes_0993 ? calcMesesAntes0993(a.fecha_desde, a.fecha_hasta) : 0);
                 const esSimult = a.es_simultaneo;
-                const mesesSimult = esSimult ? a.total_meses : 0;
+                const mesesSimult = a.meses_simultaneo ?? (esSimult ? a.total_meses : 0);
                 return editingId === a.id ? (
                   <tr key={a.id} className="border-b border-blue-500/20 bg-blue-500/[0.03]">
                     <td colSpan={7} className="py-2 px-3">
@@ -404,6 +405,18 @@ export default function AportesTable({ aportes, loading, hijos, sexo, onAdd, onR
                               {editForm.es_antes_0993 ? 'SÍ' : 'NO'}
                             </span>
                           </button>
+                          {editForm.es_antes_0993 && (
+                            <div className="flex items-center gap-2">
+                              <label className="text-[10px] text-blue-400 whitespace-nowrap">Meses ant. 09/93</label>
+                              <input
+                                type="number" min={0} max={600}
+                                value={editForm.meses_antes_0993 ?? ''}
+                                placeholder={String(calcMesesAntes0993(editForm.fecha_desde || '', editForm.fecha_hasta || ''))}
+                                onChange={e => setEditForm(f => ({ ...f, meses_antes_0993: e.target.value === '' ? null : Number(e.target.value) }))}
+                                className="input-dark text-sm w-full text-blue-300"
+                              />
+                            </div>
+                          )}
                           <button
                             type="button"
                             onClick={() => setEditForm(f => ({ ...f, es_simultaneo: !f.es_simultaneo }))}
@@ -418,6 +431,18 @@ export default function AportesTable({ aportes, loading, hijos, sexo, onAdd, onR
                               {editForm.es_simultaneo ? 'SÍ' : 'NO'}
                             </span>
                           </button>
+                          {editForm.es_simultaneo && (
+                            <div className="flex items-center gap-2">
+                              <label className="text-[10px] text-amber-400 whitespace-nowrap">Meses simult.</label>
+                              <input
+                                type="number" min={0} max={600}
+                                value={editForm.meses_simultaneo ?? ''}
+                                placeholder={String((editForm as any).total_meses || 0)}
+                                onChange={e => setEditForm(f => ({ ...f, meses_simultaneo: e.target.value === '' ? null : Number(e.target.value) }))}
+                                className="input-dark text-sm w-full text-amber-300"
+                              />
+                            </div>
+                          )}
                         </div>
                         <div className="sm:col-span-2">
                           <input type="text" value={editForm.observaciones as string} onChange={e => setEditForm({ ...editForm, observaciones: e.target.value })} className="input-dark text-sm w-full" placeholder="Observaciones" />
