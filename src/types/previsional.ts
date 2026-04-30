@@ -304,12 +304,26 @@ export function calcularResumenAportes(
   mesesAntes0993Moratoria: number
 ): ResumenAportes {
   const totalMeses = aportes.reduce((acc, a) => acc + (a.total_meses || 0), 0);
-  const mesesSimultaneos = aportes
-    .filter(a => a.es_simultaneo)
-    .reduce((acc, a) => acc + (a.meses_simultaneo ?? a.total_meses ?? 0), 0);
-  const mesesAntes0993 = aportes
-    .filter(a => a.es_antes_0993)
-    .reduce((acc, a) => acc + (a.meses_antes_0993 ?? a.total_meses ?? 0), 0);
+
+  // Simultáneos: usar override manual si existe, sino detectar por superposición de fechas
+  const mesesSimultaneos = aportes.reduce((acc, a) => {
+    if (a.meses_simultaneo != null) return acc + a.meses_simultaneo;
+    const esSimult = aportes.some(o => o.id !== a.id && o.fecha_desde <= a.fecha_hasta && o.fecha_hasta >= a.fecha_desde);
+    return acc + (esSimult ? (a.total_meses || 0) : 0);
+  }, 0);
+
+  // Antes 09/93: usar override manual si existe, sino calcular desde fechas
+  const calcMesesAntes = (desde: string, hasta: string): number => {
+    if (!desde || !hasta) return 0;
+    const limite = new Date(1993, 8, 30);
+    const d = new Date(desde); const h = new Date(hasta);
+    if (d > limite) return 0;
+    const hEf = h < limite ? h : limite;
+    return Math.max(0, (hEf.getFullYear() - d.getFullYear()) * 12 + (hEf.getMonth() - d.getMonth()));
+  };
+  const mesesAntes0993 = aportes.reduce((acc, a) => {
+    return acc + (a.meses_antes_0993 ?? calcMesesAntes(a.fecha_desde, a.fecha_hasta));
+  }, 0);
 
   // Hijos solo para mujeres (1 año = 12 meses por hijo)
   const mesesHijos = sexo === 'MUJER' ? hijos * 12 : 0;
