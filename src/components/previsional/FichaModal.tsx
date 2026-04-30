@@ -1,11 +1,14 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import {
   User, Hash, Key, Calendar, MapPin, Phone, Baby, FileText,
-  DollarSign, ExternalLink, Save, Calculator, Clock
+  DollarSign, ExternalLink, Save, Calculator, Clock,
+  Paperclip, Upload, Download, Trash2, Mic, Square, Play, Pause, Loader2, FolderOpen,
 } from 'lucide-react';
 import Modal from '../Modal';
+import { supabase } from '../../lib/supabase';
 import { ClientePrevisional, calcularMoratoria, SexoCliente, PipelinePrevisional, PIPELINE_LABELS, SubEstadoPrevisional, getCostoMensual27705, setCostoMensual27705, COSTO_MENSUAL_27705_DEFAULT } from '../../types/previsional';
 import { useAuth } from '../../context/AuthContext';
+import { useToast } from '../../context/ToastContext';
 import { SOCIOS } from '../../types/database';
 import { validateDriveUrl } from '../../lib/driveUrl';
 
@@ -21,10 +24,76 @@ const SUB_ESTADOS: SubEstadoPrevisional[] = ['EN PROCESO', 'EN ESPERA', 'EN PROC
 
 export default function FichaModal({ open, onClose, cliente, onSave }: Props) {
   const { user } = useAuth();
-  const [saving, setSaving] = useState(false);
+  const { showToast } = useToast();
   const [section, setSection] = useState<'datos' | 'moratorias' | 'seguimiento' | 'cobro'>('datos');
   const [costoCuota, setCostoCuota] = useState<number>(getCostoMensual27705());
   const [costoEditando, setCostoEditando] = useState(false);
+
+  // ── Documentos (storage-only, sin migración DB) ──
+  type StorageFile = { name: string; path: string; size?: number; signedUrl?: string };
+  const [archivos, setArchivos] = useState<StorageFile[]>([]);
+  const [loadingArchivos, setLoadingArchivos] = useState(false);
+  const [subiendo, setSubiendo] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const loadArchivos = useCallback(async (clienteId: string) => {
+    setLoadingArchivos(true);
+    const { data } = await supabase.storage.from('documentos').list('previsional/' + clienteId, { limit: 50 });
+    if (data) {
+      const files: StorageFile[] = [];
+      for (const f of data) {
+        const { data: sd } = await supabase.storage.from('documentos').createSignedUrl('previsional/' + clienteId + '/' + f.name, 3600);
+        files.push({ name: f.name.replace(/^[0-9a-f-]+-/, ''), path: 'previsional/' + clienteId + '/' + f.name, size: (f.metadata as any)?.size, signedUrl: sd?.signedUrl });
+      }
+      setArchivos(files);
+    }
+    setLoadingArchivos(false);
+  }, []);
+
+  const handleUploadFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !cliente?.id) return;
+    setSubiendo(true);
+    const path = 'previsional/' + cliente.id + '/' + crypto.randomUUID() + '-' + file.name;
+    const { error } = await supabase.storage.from('documentos').upload(path, file);
+    if (error) { showToast('Error al subir: ' + error.message, 'error'); }
+    else { await loadArchivos(cliente.id); }
+    setSubiendo(false);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const handleDeleteFile = async (path: string) => {
+    if (!cliente?.id) return;
+    await supabase.storage.from('documentos').remove([path]);
+    await loadArchivos(cliente.id);
+  };
+
+  // ── Nota de voz ──
+  const [audioUrl, setAudioUrl] = useState<string | null>(null);
+  const [isRecording, setIsRecording] = useState(false);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [savingAudio, setSavingAudio] = useState(false);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const audioPlayerRef = useRef<HTMLAudioElement | null>(null);
+
+  const loadAudio = useCallback(async (clienteId: string) => {
+    const { data } = await supabase.storage.from('notas-voz').createSignedUrl('previsional/' + clienteId + '.webm', 3600);
+    setAudioUrl(data?.signedUrl ?? null);
+  }, []);
+
+  // Reset on open/close
+  useEffect(() => {
+    if (open && cliente?.id) {
+      loadArchivos(cliente.id);
+      loadAudio(cliente.id);
+    } else {
+      setArchivos([]);
+      setAudioUrl(null);
+      if (audioPlayerRef.current) { audioPlayerRef.current.pause(); audioPlayerRef.current = null; }
+      setIsPlaying(false);
+    }
+  }, [open, cliente?.id, loadArchivos, loadAudio]);
 
   const [form, setForm] = useState({
     apellido_nombre: '',
@@ -297,6 +366,142 @@ export default function FichaModal({ open, onClose, cliente, onSave }: Props) {
               return null;
             })()}
           </div>
+
+          {/* ── Documentos y Nota de Voz ── */}
+          {cliente ? (
+            <div className="space-y-3 pt-2 border-t border-white/[0.06]">
+              {/* Documentos */}
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <FolderOpen className="w-3.5 h-3.5 text-blue-400" />
+                  <span className="text-xs font-medium text-gray-300">Documentos adjuntos</span>
+                  {archivos.length > 0 && <span className="text-[10px] text-gray-500">({archivos.length})</span>}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={subiendo}
+                  className="btn-secondary text-xs px-2.5 py-1 flex items-center gap-1.5 disabled:opacity-50"
+                >
+                  {subiendo ? <Loader2 className="w-3 h-3 animate-spin" /> : <Upload className="w-3 h-3" />}
+                  Subir archivo
+                </button>
+                <input ref={fileInputRef} type="file" accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png,.webp,.heic" className="hidden" onChange={handleUploadFile} />
+              </div>
+              {loadingArchivos ? (
+                <div className="flex justify-center py-3"><Loader2 className="w-4 h-4 text-gray-500 animate-spin" /></div>
+              ) : archivos.length === 0 ? (
+                <p className="text-[11px] text-gray-600 text-center py-2">Sin archivos adjuntos</p>
+              ) : (
+                <div className="space-y-1.5">
+                  {archivos.map(f => (
+                    <div key={f.path} className="flex items-center gap-2 glass-card px-3 py-2">
+                      <Paperclip className="w-3 h-3 text-gray-500 flex-shrink-0" />
+                      <span className="text-xs text-gray-300 flex-1 truncate" title={f.name}>{f.name}</span>
+                      {f.size && <span className="text-[10px] text-gray-600">{(f.size / 1024).toFixed(0)} KB</span>}
+                      {f.signedUrl && (
+                        <a href={f.signedUrl} target="_blank" rel="noopener noreferrer" className="p-1 hover:bg-white/10 rounded text-gray-500 hover:text-white transition-colors">
+                          <Download className="w-3 h-3" />
+                        </a>
+                      )}
+                      <button type="button" onClick={() => handleDeleteFile(f.path)} className="p-1 hover:bg-red-500/10 rounded text-gray-600 hover:text-red-400 transition-colors">
+                        <Trash2 className="w-3 h-3" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Nota de voz */}
+              <div className="flex items-center gap-3 pt-1">
+                <Mic className="w-3.5 h-3.5 text-gray-500 flex-shrink-0" />
+                <span className="text-xs font-medium text-gray-300">Nota de voz</span>
+                <div className="flex items-center gap-2 ml-auto">
+                  {audioUrl && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (!audioPlayerRef.current) {
+                          audioPlayerRef.current = new Audio(audioUrl);
+                          audioPlayerRef.current.onended = () => setIsPlaying(false);
+                        }
+                        if (isPlaying) { audioPlayerRef.current.pause(); setIsPlaying(false); }
+                        else { audioPlayerRef.current.play(); setIsPlaying(true); }
+                      }}
+                      className="p-2 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 hover:bg-emerald-500/20 transition-colors"
+                    >
+                      {isPlaying ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
+                    </button>
+                  )}
+                  {!isRecording ? (
+                    <button
+                      type="button"
+                      title="Grabar nota de voz"
+                      className="p-2 rounded-xl bg-white/[0.04] border border-white/10 text-gray-400 hover:text-white hover:border-white/20 transition-colors"
+                      onClick={async () => {
+                        try {
+                          const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                          const mr = new MediaRecorder(stream);
+                          audioChunksRef.current = [];
+                          mr.ondataavailable = (e) => { if (e.data.size > 0) audioChunksRef.current.push(e.data); };
+                          mr.onstop = async () => {
+                            stream.getTracks().forEach(t => t.stop());
+                            setSavingAudio(true);
+                            const blob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+                            const path = 'previsional/' + cliente.id + '.webm';
+                            const { error } = await supabase.storage.from('notas-voz').upload(path, blob, { upsert: true, contentType: 'audio/webm' });
+                            if (error) { showToast('Error al guardar audio', 'error'); }
+                            else {
+                              const { data: sd } = await supabase.storage.from('notas-voz').createSignedUrl(path, 3600);
+                              if (sd) setAudioUrl(sd.signedUrl);
+                              audioPlayerRef.current = null;
+                            }
+                            setSavingAudio(false);
+                          };
+                          mr.start();
+                          mediaRecorderRef.current = mr;
+                          setIsRecording(true);
+                        } catch { showToast('No se pudo acceder al micrófono', 'error'); }
+                      }}
+                    >
+                      <Mic className="w-3.5 h-3.5" />
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      title="Detener grabación"
+                      onClick={() => { mediaRecorderRef.current?.stop(); setIsRecording(false); }}
+                      className="p-2 rounded-xl bg-red-500/20 border border-red-500/30 text-red-400 animate-pulse"
+                    >
+                      <Square className="w-3 h-3" />
+                    </button>
+                  )}
+                  {audioUrl && !isRecording && (
+                    <button
+                      type="button"
+                      title="Eliminar nota de voz"
+                      onClick={async () => {
+                        await supabase.storage.from('notas-voz').remove(['previsional/' + cliente.id + '.webm']);
+                        if (audioPlayerRef.current) { audioPlayerRef.current.pause(); audioPlayerRef.current = null; }
+                        setAudioUrl(null); setIsPlaying(false);
+                      }}
+                      className="p-2 rounded-xl bg-white/[0.04] border border-white/10 text-gray-500 hover:text-red-400 hover:border-red-500/20 transition-colors"
+                    >
+                      <Trash2 className="w-3 h-3" />
+                    </button>
+                  )}
+                  {savingAudio && <Loader2 className="w-3.5 h-3.5 text-gray-500 animate-spin" />}
+                  <span className="text-[11px] text-gray-500">
+                    {isRecording ? 'Grabando...' : savingAudio ? 'Guardando...' : audioUrl ? 'Guardada ✓' : 'Sin nota de voz'}
+                  </span>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <p className="text-[11px] text-gray-600 text-center py-1 border-t border-white/[0.06] pt-3">
+              Guardá la ficha primero para adjuntar documentos y notas de voz.
+            </p>
+          )}
         </div>
       )}
 
