@@ -76,7 +76,7 @@ export default function FichaModal({ open, onClose, cliente, onSave }: Props) {
         apellido_nombre: '', cuil: '', clave_social: '', clave_fiscal: '',
         fecha_nacimiento: '', sexo: '', direccion: '', telefono: '', hijos: 0,
         resumen_informe: '', conclusion: '', fecha_ultimo_contacto: '',
-        situacion_actual: '', captado_por: '', pipeline: 'consulta', sub_estado: '',
+        situacion_actual: '', captado_por: '', pipeline: 'seguimiento', sub_estado: '',
         cobro_total: 0, monto_cobrado: 0, url_drive: '',
       });
       setSection('datos');
@@ -91,13 +91,14 @@ export default function FichaModal({ open, onClose, cliente, onSave }: Props) {
   const handleSave = async () => {
     if (!form.apellido_nombre.trim()) return;
     setSaving(true);
+    // Valida que la fecha sea ISO YYYY-MM-DD; si no, envía null
+    const safeDate = (v: string) => /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : null;
     const data: Partial<ClientePrevisional> = {
       ...form,
       sexo: form.sexo as SexoCliente || null,
       sub_estado: form.sub_estado as SubEstadoPrevisional || null,
-      // Postgres rechaza '' en columnas date → mandar null si está vacío
-      fecha_nacimiento: form.fecha_nacimiento || null,
-      fecha_ultimo_contacto: form.fecha_ultimo_contacto || null,
+      fecha_nacimiento: safeDate(form.fecha_nacimiento),
+      fecha_ultimo_contacto: safeDate(form.fecha_ultimo_contacto),
       updated_by: user?.id,
       ...(cliente ? {} : { created_by: user?.id }),
     };
