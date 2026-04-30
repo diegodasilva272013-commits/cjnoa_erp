@@ -340,8 +340,13 @@ export default function AportesTable({ aportes, loading, hijos, sexo, onAdd, onR
             </thead>
             <tbody>
               {aportes.map(a => {
-                const mesesAntes = a.es_antes_0993 ? calcMesesAntes0993(a.fecha_desde, a.fecha_hasta) : 0;
-                const mesesSimult = a.es_simultaneo ? a.total_meses : 0;
+                // Calcular desde fechas, sin depender del flag en DB
+                const mesesAntes = calcMesesAntes0993(a.fecha_desde, a.fecha_hasta);
+                const esSimult = aportes.some(
+                  other => other.id !== a.id &&
+                    other.fecha_desde <= a.fecha_hasta && other.fecha_hasta >= a.fecha_desde
+                );
+                const mesesSimult = esSimult ? a.total_meses : 0;
                 return editingId === a.id ? (
                   <tr key={a.id} className="border-b border-blue-500/20 bg-blue-500/[0.03]">
                     <td colSpan={7} className="py-2 px-3">
@@ -382,12 +387,12 @@ export default function AportesTable({ aportes, loading, hijos, sexo, onAdd, onR
                     <td className="py-2.5 px-3 text-gray-400">{formatFechaLocal(a.fecha_hasta)}</td>
                     <td className="py-2.5 px-3 text-center text-white font-mono">{a.total_meses}</td>
                     <td className="py-2.5 px-3 text-center">
-                      {a.es_antes_0993
+                      {mesesAntes > 0
                         ? <span className="text-blue-400 font-mono text-xs font-medium">{mesesAntes}<span className="text-[10px] text-blue-500 ml-0.5">m</span></span>
                         : <span className="text-gray-600">—</span>}
                     </td>
                     <td className="py-2.5 px-3 text-center">
-                      {a.es_simultaneo
+                      {esSimult
                         ? <span className="text-amber-400 font-mono text-xs font-medium">{mesesSimult}<span className="text-[10px] text-amber-500 ml-0.5">m</span></span>
                         : <span className="text-gray-600">—</span>}
                     </td>
