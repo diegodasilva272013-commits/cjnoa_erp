@@ -209,9 +209,23 @@ export const ESTADO_TAREA_LABELS: Record<EstadoTarea, string> = {
 
 export const COSTO_MENSUAL_27705 = 37146.52;
 
+// Formatea una fecha ISO (YYYY-MM-DD) como dd/mm/aaaa sin desfase de zona horaria.
+export function formatFechaLocal(iso: string | null | undefined): string {
+  if (!iso) return '—';
+  const m = iso.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (m) return `${m[3]}/${m[2]}/${m[1]}`;
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? '—' : d.toLocaleDateString('es-AR');
+}
+
 // ── Funciones de cálculo ──
 export function calcularMoratoria(fechaNacimiento: string, sexo: SexoCliente): CalculoMoratoria {
-  const nacimiento = new Date(fechaNacimiento);
+  // Parsear como fecha LOCAL para evitar el desfase de zona horaria
+  // (new Date("YYYY-MM-DD") interpreta como UTC y en AR resta 1 día).
+  const isoMatch = fechaNacimiento.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  const nacimiento = isoMatch
+    ? new Date(parseInt(isoMatch[1], 10), parseInt(isoMatch[2], 10) - 1, parseInt(isoMatch[3], 10))
+    : new Date(fechaNacimiento);
   const hoy = new Date();
 
   // Edad actual

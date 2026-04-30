@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Search, Plus, Filter, ExternalLink, Phone, ChevronRight, Copy, Check } from 'lucide-react';
-import { ClientePrevisional, PIPELINE_LABELS, PIPELINE_COLORS, PIPELINE_GRADIENT, calcularSemaforo, SEMAFORO_COLORS, SEMAFORO_LABELS, PipelinePrevisional } from '../../types/previsional';
+import { ClientePrevisional, PIPELINE_LABELS, PIPELINE_COLORS, PIPELINE_GRADIENT, calcularSemaforo, SEMAFORO_COLORS, SEMAFORO_LABELS, PipelinePrevisional, formatFechaLocal } from '../../types/previsional';
 
 interface Props {
   clientes: ClientePrevisional[];
@@ -170,7 +170,7 @@ export default function FichasList({ clientes, onSelect, onNew }: Props) {
                         </td>
                         <td className="px-4 py-3 hidden xl:table-cell">
                           {c.fecha_edad_jubilatoria ? (
-                            <span className="text-xs text-gray-300">{new Date(c.fecha_edad_jubilatoria).toLocaleDateString('es-AR')}</span>
+                            <span className="text-xs text-gray-300">{formatFechaLocal(c.fecha_edad_jubilatoria)}</span>
                           ) : <span className="text-gray-600 text-xs">—</span>}
                         </td>
                         <td className="px-4 py-3">

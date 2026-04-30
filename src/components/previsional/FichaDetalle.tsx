@@ -7,7 +7,7 @@ import {
 import {
   ClientePrevisional, SexoCliente, TareaPrevisional, Audiencia,
   PIPELINE_LABELS, PIPELINE_COLORS, calcularSemaforo, SEMAFORO_COLORS,
-  PRIORIDAD_LABELS, ESTADO_TAREA_LABELS,
+  PRIORIDAD_LABELS, ESTADO_TAREA_LABELS, formatFechaLocal,
 } from '../../types/previsional';
 import { useAportesLaborales, useHistorialAvances, useTareasPrevisional, useAudiencias } from '../../hooks/usePrevisional';
 import { useDocumentos, uploadDocumento, deleteDocumento, downloadDocumento } from '../../hooks/useDocumentos';
@@ -108,7 +108,7 @@ function CalculadoraTab({ cliente, aportes }: { cliente: ClientePrevisional; apo
         {cliente.fecha_edad_jubilatoria && (
           <div className="glass-card p-4">
             <p className="text-[10px] text-gray-500 uppercase mb-1">Fecha edad jubilatoria</p>
-            <p className="text-sm font-bold text-white">{new Date(cliente.fecha_edad_jubilatoria).toLocaleDateString('es-AR')}</p>
+            <p className="text-sm font-bold text-white">{formatFechaLocal(cliente.fecha_edad_jubilatoria)}</p>
           </div>
         )}
       </div>
@@ -235,7 +235,7 @@ export default function FichaDetalle({ cliente, onBack, onEdit, onDelete }: Prop
         { campo: 'CUIL', valor: cliente.cuil || '—' },
         { campo: 'Teléfono', valor: cliente.telefono || '—' },
         { campo: 'Dirección', valor: cliente.direccion || '—' },
-        { campo: 'Fecha de Nacimiento', valor: cliente.fecha_nacimiento ? new Date(cliente.fecha_nacimiento).toLocaleDateString('es-AR') : '—' },
+        { campo: 'Fecha de Nacimiento', valor: formatFechaLocal(cliente.fecha_nacimiento) },
         { campo: 'Sexo', valor: cliente.sexo || '—' },
         { campo: 'Hijos', valor: (cliente.hijos || 0).toString() },
         { campo: 'Pipeline', valor: PIPELINE_LABELS[cliente.pipeline] },
