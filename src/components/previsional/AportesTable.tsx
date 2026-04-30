@@ -145,15 +145,37 @@ export default function AportesTable({ aportes, loading, hijos, sexo, onAdd, onR
         }
         return {};
       })
-      .filter(a => a.fecha_desde && a.fecha_hasta);
+      .filter(a => a.fecha_desde && a.fecha_hasta)
+      .map(a => ({
+        ...a,
+        es_antes_0993: a.fecha_desde! < '1993-09-30',
+      }));
   };
 
   const handleBulkImport = async () => {
     const rows = parsePasteLines(pasteText);
     if (!rows.length) return;
     setImporting(true);
+
+    // Detectar simultáneos: un período es simultáneo si se superpone con otro
+    // (dentro del batch O con aportes ya existentes)
+    const todos = [
+      ...aportes.map(a => ({ desde: a.fecha_desde, hasta: a.fecha_hasta })),
+      ...rows.map(r => ({ desde: r.fecha_desde!, hasta: r.fecha_hasta! })),
+    ];
+    const overlaps = (d1: string, h1: string, d2: string, h2: string) => d1 <= h2 && h1 >= d2;
+    const rowsConSimult = rows.map(r => ({
+      ...r,
+      es_simultaneo: todos.some(
+        other =>
+          other.desde !== r.fecha_desde || other.hasta !== r.fecha_hasta
+            ? overlaps(r.fecha_desde!, r.fecha_hasta!, other.desde, other.hasta)
+            : false
+      ),
+    }));
+
     let ok = 0; let err = 0;
-    for (const row of rows) {
+    for (const row of rowsConSimult) {
       const success = await onAdd(row);
       if (success) ok++; else err++;
     }
