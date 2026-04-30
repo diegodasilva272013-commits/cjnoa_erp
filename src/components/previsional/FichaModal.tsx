@@ -95,6 +95,9 @@ export default function FichaModal({ open, onClose, cliente, onSave }: Props) {
       ...form,
       sexo: form.sexo as SexoCliente || null,
       sub_estado: form.sub_estado as SubEstadoPrevisional || null,
+      // Postgres rechaza '' en columnas date → mandar null si está vacío
+      fecha_nacimiento: form.fecha_nacimiento || null,
+      fecha_ultimo_contacto: form.fecha_ultimo_contacto || null,
       updated_by: user?.id,
       ...(cliente ? {} : { created_by: user?.id }),
     };
