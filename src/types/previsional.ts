@@ -207,7 +207,30 @@ export const ESTADO_TAREA_LABELS: Record<EstadoTarea, string> = {
   completada: 'Completada',
 };
 
-export const COSTO_MENSUAL_27705 = 37146.52;
+export const COSTO_MENSUAL_27705_DEFAULT = 37146.52;
+
+// Permite ajustar el costo mensual de la cuota Ley 27.705 (cambia con frecuencia).
+// Persiste en localStorage para no requerir migración de DB.
+const COSTO_27705_LS_KEY = 'previsional.costo_mensual_27705';
+
+export function getCostoMensual27705(): number {
+  if (typeof window === 'undefined') return COSTO_MENSUAL_27705_DEFAULT;
+  const raw = window.localStorage.getItem(COSTO_27705_LS_KEY);
+  const n = raw ? parseFloat(raw) : NaN;
+  return Number.isFinite(n) && n > 0 ? n : COSTO_MENSUAL_27705_DEFAULT;
+}
+
+export function setCostoMensual27705(value: number): void {
+  if (typeof window === 'undefined') return;
+  if (Number.isFinite(value) && value > 0) {
+    window.localStorage.setItem(COSTO_27705_LS_KEY, String(value));
+  } else {
+    window.localStorage.removeItem(COSTO_27705_LS_KEY);
+  }
+}
+
+// Compat: mantener constante para imports existentes (lee el valor configurado)
+export const COSTO_MENSUAL_27705 = COSTO_MENSUAL_27705_DEFAULT;
 
 // Formatea una fecha ISO (YYYY-MM-DD) como dd/mm/aaaa sin desfase de zona horaria.
 export function formatFechaLocal(iso: string | null | undefined): string {
@@ -302,8 +325,8 @@ export function calcularResumenAportes(
     totalAniosServicios: Math.floor(totalServicios / 12),
     faltanMeses,
     faltanAnios: Math.floor(faltanMeses / 12),
-    costoMensual27705: COSTO_MENSUAL_27705,
-    costoTotal27705: faltanMeses * COSTO_MENSUAL_27705,
+    costoMensual27705: getCostoMensual27705(),
+    costoTotal27705: faltanMeses * getCostoMensual27705(),
   };
 }
 

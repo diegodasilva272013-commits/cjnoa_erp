@@ -4,7 +4,7 @@ import {
   DollarSign, ExternalLink, Save, Calculator, Clock
 } from 'lucide-react';
 import Modal from '../Modal';
-import { ClientePrevisional, calcularMoratoria, SexoCliente, PipelinePrevisional, PIPELINE_LABELS, SubEstadoPrevisional, COSTO_MENSUAL_27705 } from '../../types/previsional';
+import { ClientePrevisional, calcularMoratoria, SexoCliente, PipelinePrevisional, PIPELINE_LABELS, SubEstadoPrevisional, getCostoMensual27705, setCostoMensual27705, COSTO_MENSUAL_27705_DEFAULT } from '../../types/previsional';
 import { useAuth } from '../../context/AuthContext';
 import { SOCIOS } from '../../types/database';
 import { validateDriveUrl } from '../../lib/driveUrl';
@@ -23,6 +23,8 @@ export default function FichaModal({ open, onClose, cliente, onSave }: Props) {
   const { user } = useAuth();
   const [saving, setSaving] = useState(false);
   const [section, setSection] = useState<'datos' | 'moratorias' | 'seguimiento' | 'cobro'>('datos');
+  const [costoCuota, setCostoCuota] = useState<number>(getCostoMensual27705());
+  const [costoEditando, setCostoEditando] = useState(false);
 
   const [form, setForm] = useState({
     apellido_nombre: '',
@@ -360,10 +362,49 @@ export default function FichaModal({ open, onClose, cliente, onSave }: Props) {
 
               {/* Costo estimado */}
               <div className="p-4 rounded-xl bg-gradient-to-r from-emerald-500/5 to-emerald-500/10 border border-emerald-500/20">
-                <p className="text-xs text-gray-400 mb-1">Costo mensual Ley 27.705 (referencia)</p>
-                <p className="text-xl font-bold text-emerald-400">
-                  ${COSTO_MENSUAL_27705.toLocaleString('es-AR', { minimumFractionDigits: 2 })} <span className="text-xs text-gray-500">/ mes</span>
-                </p>
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-xs text-gray-400 mb-1">Costo mensual Ley 27.705 (editable)</p>
+                    {costoEditando ? (
+                      <div className="flex items-center gap-2">
+                        <span className="text-emerald-400 font-bold">$</span>
+                        <input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          autoFocus
+                          value={costoCuota}
+                          onChange={e => setCostoCuota(parseFloat(e.target.value) || 0)}
+                          onBlur={() => { setCostoMensual27705(costoCuota); setCostoEditando(false); }}
+                          onKeyDown={e => { if (e.key === 'Enter') { setCostoMensual27705(costoCuota); setCostoEditando(false); } }}
+                          className="input-dark text-xl font-bold text-emerald-400 w-40"
+                        />
+                        <span className="text-xs text-gray-500">/ mes</span>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => setCostoEditando(true)}
+                        className="text-xl font-bold text-emerald-400 hover:underline"
+                        title="Click para editar"
+                      >
+                        ${costoCuota.toLocaleString('es-AR', { minimumFractionDigits: 2 })} <span className="text-xs text-gray-500">/ mes</span>
+                      </button>
+                    )}
+                    <p className="text-[10px] text-gray-500 mt-1">
+                      Se guarda en este navegador y se usa para todos los cálculos. Default: ${COSTO_MENSUAL_27705_DEFAULT.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                    </p>
+                  </div>
+                  {costoCuota !== COSTO_MENSUAL_27705_DEFAULT && (
+                    <button
+                      type="button"
+                      onClick={() => { setCostoMensual27705(COSTO_MENSUAL_27705_DEFAULT); setCostoCuota(COSTO_MENSUAL_27705_DEFAULT); }}
+                      className="text-[10px] text-gray-500 hover:text-white px-2 py-1 rounded border border-white/10"
+                    >
+                      Restaurar
+                    </button>
+                  )}
+                </div>
               </div>
             </>
           )}
