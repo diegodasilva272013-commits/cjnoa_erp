@@ -60,7 +60,76 @@ export default function FichaModal({ open, onClose, cliente, onSave }: Props) {
     setSttField(field);
   };
 
-  // ── Documentos (storage-only, sin migración DB) ──
+  // ── Nota de voz por campo (graba audio + transcribe) ──
+  const [fieldRecording, setFieldRecording] = useState<string | null>(null);
+  const [fieldSaving, setFieldSaving] = useState<string | null>(null);
+  const [fieldAudioUrls, setFieldAudioUrls] = useState<Record<string, string>>({});
+  const fieldMediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const fieldAudioChunksRef = useRef<Blob[]>([]);
+  const fieldRecognitionRef = useRef<any>(null);
+
+  const loadFieldAudios = useCallback(async (clienteId: string) => {
+    const fields = ['situacion_actual', 'resumen_informe', 'conclusion'];
+    const urls: Record<string, string> = {};
+    for (const f of fields) {
+      const { data } = await supabase.storage.from('notas-voz').createSignedUrl(`previsional/${clienteId}-${f}.webm`, 3600);
+      if (data?.signedUrl) urls[f] = data.signedUrl;
+    }
+    setFieldAudioUrls(urls);
+  }, []);
+
+  const startFieldRecording = async (field: string, current: string) => {
+    if (fieldRecording === field) {
+      fieldMediaRecorderRef.current?.stop();
+      fieldRecognitionRef.current?.stop();
+      setFieldRecording(null);
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      // STT simultáneo
+      const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+      if (SpeechRecognition) {
+        const recognition = new SpeechRecognition();
+        recognition.lang = 'es-AR';
+        recognition.continuous = true;
+        recognition.interimResults = false;
+        let accumulated = current ? current + ' ' : '';
+        recognition.onresult = (e: any) => {
+          for (let i = e.resultIndex; i < e.results.length; i++) {
+            if (e.results[i].isFinal) accumulated += e.results[i][0].transcript + ' ';
+          }
+          setForm(f => ({ ...f, [field]: accumulated.trimEnd() }));
+        };
+        recognition.start();
+        fieldRecognitionRef.current = recognition;
+      }
+      // Grabación de audio
+      const mr = new MediaRecorder(stream);
+      fieldAudioChunksRef.current = [];
+      mr.ondataavailable = (e) => { if (e.data.size > 0) fieldAudioChunksRef.current.push(e.data); };
+      mr.onstop = async () => {
+        stream.getTracks().forEach(t => t.stop());
+        fieldRecognitionRef.current?.stop();
+        if (!cliente?.id) return;
+        setFieldSaving(field);
+        const blob = new Blob(fieldAudioChunksRef.current, { type: 'audio/webm' });
+        const path = `previsional/${cliente.id}-${field}.webm`;
+        await supabase.storage.from('notas-voz').upload(path, blob, { upsert: true, contentType: 'audio/webm' });
+        await loadFieldAudios(cliente.id);
+        setFieldSaving(null);
+      };
+      mr.start();
+      fieldMediaRecorderRef.current = mr;
+      setFieldRecording(field);
+    } catch { showToast('No se pudo acceder al micrófono', 'error'); }
+  };
+
+  const deleteFieldAudio = async (field: string) => {
+    if (!cliente?.id) return;
+    await supabase.storage.from('notas-voz').remove([`previsional/${cliente.id}-${field}.webm`]);
+    setFieldAudioUrls(prev => { const n = { ...prev }; delete n[field]; return n; });
+  };
   type StorageFile = { name: string; path: string; size?: number; signedUrl?: string };
   const [archivos, setArchivos] = useState<StorageFile[]>([]);
   const [previewFile, setPreviewFile] = useState<StorageFile | null>(null);
@@ -120,13 +189,18 @@ export default function FichaModal({ open, onClose, cliente, onSave }: Props) {
     if (open && cliente?.id) {
       loadArchivos(cliente.id);
       loadAudio(cliente.id);
+      loadFieldAudios(cliente.id);
     } else {
       setArchivos([]);
       setAudioUrl(null);
+      setFieldAudioUrls({});
+      fieldMediaRecorderRef.current?.stop();
+      fieldRecognitionRef.current?.stop();
+      setFieldRecording(null);
       if (audioPlayerRef.current) { audioPlayerRef.current.pause(); audioPlayerRef.current = null; }
       setIsPlaying(false);
     }
-  }, [open, cliente?.id, loadArchivos, loadAudio]);
+  }, [open, cliente?.id, loadArchivos, loadAudio, loadFieldAudios]);
 
   const [form, setForm] = useState({
     apellido_nombre: '',
@@ -722,58 +796,82 @@ export default function FichaModal({ open, onClose, cliente, onSave }: Props) {
           <div>
             <div className="flex items-center justify-between mb-1.5">
               <label className="text-xs font-medium text-gray-400">Situación Actual / Paso a Seguir</label>
-              <button type="button" onClick={() => startSTT('situacion_actual', form.situacion_actual)}
-                className={`flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-md transition-colors ${
-                  sttField === 'situacion_actual' ? 'bg-red-500/20 text-red-400 animate-pulse' : 'text-gray-500 hover:text-violet-400 hover:bg-violet-500/10'
-                }`}>
-                {sttField === 'situacion_actual' ? <><MicOff className="w-3 h-3" /> Detener</> : <><Mic className="w-3 h-3" /> Dictado</>}
-              </button>
+              <div className="flex items-center gap-1.5">
+                {fieldAudioUrls['situacion_actual'] && (
+                  <><audio src={fieldAudioUrls['situacion_actual']} controls className="h-6 w-28 opacity-70" />
+                  <button type="button" onClick={() => deleteFieldAudio('situacion_actual')} className="p-0.5 text-gray-600 hover:text-red-400"><Trash2 className="w-3 h-3" /></button></>
+                )}
+                {fieldSaving === 'situacion_actual' && <Loader2 className="w-3 h-3 text-gray-500 animate-spin" />}
+                <button type="button" onClick={() => startFieldRecording('situacion_actual', form.situacion_actual)}
+                  title="Grabar nota de voz (guarda audio y transcribe)"
+                  className={`flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-md border transition-colors ${
+                    fieldRecording === 'situacion_actual' ? 'bg-red-500/20 border-red-500/30 text-red-400 animate-pulse' : 'bg-white/[0.03] border-white/10 text-gray-500 hover:text-violet-400 hover:border-violet-500/20'
+                  }`}>
+                  {fieldRecording === 'situacion_actual' ? <><Square className="w-3 h-3" /> Detener</> : <><Mic className="w-3 h-3" /> Grabar</>}
+                </button>
+                <button type="button" onClick={() => startSTT('situacion_actual', form.situacion_actual)}
+                  className={`flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-md transition-colors ${
+                    sttField === 'situacion_actual' ? 'bg-red-500/20 text-red-400 animate-pulse' : 'text-gray-500 hover:text-violet-400 hover:bg-violet-500/10'
+                  }`}>
+                  {sttField === 'situacion_actual' ? <><MicOff className="w-3 h-3" /> Detener</> : <><Mic className="w-3 h-3" /> Dictado</>}
+                </button>
+              </div>
             </div>
-            <textarea
-              rows={3}
-              value={form.situacion_actual}
-              onChange={e => setForm({ ...form, situacion_actual: e.target.value })}
-              className="input-dark resize-none"
-              placeholder="Descripción de la situación actual..."
-            />
+            <textarea rows={3} value={form.situacion_actual} onChange={e => setForm({ ...form, situacion_actual: e.target.value })} className="input-dark resize-none" placeholder="Descripción de la situación actual..." />
           </div>
 
           <div>
             <div className="flex items-center justify-between mb-1.5">
               <label className="text-xs font-medium text-gray-400">Resumen / Informe Administrativo</label>
-              <button type="button" onClick={() => startSTT('resumen_informe', form.resumen_informe)}
-                className={`flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-md transition-colors ${
-                  sttField === 'resumen_informe' ? 'bg-red-500/20 text-red-400 animate-pulse' : 'text-gray-500 hover:text-violet-400 hover:bg-violet-500/10'
-                }`}>
-                {sttField === 'resumen_informe' ? <><MicOff className="w-3 h-3" /> Detener</> : <><Mic className="w-3 h-3" /> Dictado</>}
-              </button>
+              <div className="flex items-center gap-1.5">
+                {fieldAudioUrls['resumen_informe'] && (
+                  <><audio src={fieldAudioUrls['resumen_informe']} controls className="h-6 w-28 opacity-70" />
+                  <button type="button" onClick={() => deleteFieldAudio('resumen_informe')} className="p-0.5 text-gray-600 hover:text-red-400"><Trash2 className="w-3 h-3" /></button></>
+                )}
+                {fieldSaving === 'resumen_informe' && <Loader2 className="w-3 h-3 text-gray-500 animate-spin" />}
+                <button type="button" onClick={() => startFieldRecording('resumen_informe', form.resumen_informe)}
+                  title="Grabar nota de voz (guarda audio y transcribe)"
+                  className={`flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-md border transition-colors ${
+                    fieldRecording === 'resumen_informe' ? 'bg-red-500/20 border-red-500/30 text-red-400 animate-pulse' : 'bg-white/[0.03] border-white/10 text-gray-500 hover:text-violet-400 hover:border-violet-500/20'
+                  }`}>
+                  {fieldRecording === 'resumen_informe' ? <><Square className="w-3 h-3" /> Detener</> : <><Mic className="w-3 h-3" /> Grabar</>}
+                </button>
+                <button type="button" onClick={() => startSTT('resumen_informe', form.resumen_informe)}
+                  className={`flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-md transition-colors ${
+                    sttField === 'resumen_informe' ? 'bg-red-500/20 text-red-400 animate-pulse' : 'text-gray-500 hover:text-violet-400 hover:bg-violet-500/10'
+                  }`}>
+                  {sttField === 'resumen_informe' ? <><MicOff className="w-3 h-3" /> Detener</> : <><Mic className="w-3 h-3" /> Dictado</>}
+                </button>
+              </div>
             </div>
-            <textarea
-              rows={4}
-              value={form.resumen_informe}
-              onChange={e => setForm({ ...form, resumen_informe: e.target.value })}
-              className="input-dark resize-none"
-              placeholder="Informe detallado del caso..."
-            />
+            <textarea rows={4} value={form.resumen_informe} onChange={e => setForm({ ...form, resumen_informe: e.target.value })} className="input-dark resize-none" placeholder="Informe detallado del caso..." />
           </div>
 
           <div>
             <div className="flex items-center justify-between mb-1.5">
               <label className="text-xs font-medium text-gray-400">Conclusión</label>
-              <button type="button" onClick={() => startSTT('conclusion', form.conclusion)}
-                className={`flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-md transition-colors ${
-                  sttField === 'conclusion' ? 'bg-red-500/20 text-red-400 animate-pulse' : 'text-gray-500 hover:text-violet-400 hover:bg-violet-500/10'
-                }`}>
-                {sttField === 'conclusion' ? <><MicOff className="w-3 h-3" /> Detener</> : <><Mic className="w-3 h-3" /> Dictado</>}
-              </button>
+              <div className="flex items-center gap-1.5">
+                {fieldAudioUrls['conclusion'] && (
+                  <><audio src={fieldAudioUrls['conclusion']} controls className="h-6 w-28 opacity-70" />
+                  <button type="button" onClick={() => deleteFieldAudio('conclusion')} className="p-0.5 text-gray-600 hover:text-red-400"><Trash2 className="w-3 h-3" /></button></>
+                )}
+                {fieldSaving === 'conclusion' && <Loader2 className="w-3 h-3 text-gray-500 animate-spin" />}
+                <button type="button" onClick={() => startFieldRecording('conclusion', form.conclusion)}
+                  title="Grabar nota de voz (guarda audio y transcribe)"
+                  className={`flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-md border transition-colors ${
+                    fieldRecording === 'conclusion' ? 'bg-red-500/20 border-red-500/30 text-red-400 animate-pulse' : 'bg-white/[0.03] border-white/10 text-gray-500 hover:text-violet-400 hover:border-violet-500/20'
+                  }`}>
+                  {fieldRecording === 'conclusion' ? <><Square className="w-3 h-3" /> Detener</> : <><Mic className="w-3 h-3" /> Grabar</>}
+                </button>
+                <button type="button" onClick={() => startSTT('conclusion', form.conclusion)}
+                  className={`flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-md transition-colors ${
+                    sttField === 'conclusion' ? 'bg-red-500/20 text-red-400 animate-pulse' : 'text-gray-500 hover:text-violet-400 hover:bg-violet-500/10'
+                  }`}>
+                  {sttField === 'conclusion' ? <><MicOff className="w-3 h-3" /> Detener</> : <><Mic className="w-3 h-3" /> Dictado</>}
+                </button>
+              </div>
             </div>
-            <textarea
-              rows={2}
-              value={form.conclusion}
-              onChange={e => setForm({ ...form, conclusion: e.target.value })}
-              className="input-dark resize-none"
-              placeholder="Conclusión y próximos pasos..."
-            />
+            <textarea rows={2} value={form.conclusion} onChange={e => setForm({ ...form, conclusion: e.target.value })} className="input-dark resize-none" placeholder="Conclusión y próximos pasos..." />
           </div>
         </div>
       )}
