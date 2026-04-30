@@ -216,7 +216,8 @@ export default function FichaDetalle({ cliente, onBack, onEdit, onDelete }: Prop
   const [audienciaOpen, setAudienciaOpen] = useState(false);
   const [audienciaEdit, setAudienciaEdit] = useState<Audiencia | null>(null);
 
-  const { aportes, loading: loadAp, add: addAporte, remove: removeAporte } = useAportesLaborales(cliente.id);
+  const { aportes, loading: loadAp, add: addAporte, update: updateAporte, remove: removeAporte } = useAportesLaborales(cliente.id);
+  const removeAllAportes = async () => { for (const a of aportes) await removeAporte(a.id); };
   const { avances, loading: loadHist, add: addAvance } = useHistorialAvances(cliente.id);
   const { tareas: allTareas, upsert: upsertTarea } = useTareasPrevisional();
   const { audiencias: allAudiencias, upsert: upsertAudiencia } = useAudiencias();
@@ -412,7 +413,7 @@ export default function FichaDetalle({ cliente, onBack, onEdit, onDelete }: Prop
       <CrossLinkPanel clienteId={cliente.id} tipo="previsional" />
 
       {tab === 'aportes' && (
-        <AportesTable aportes={aportes} loading={loadAp} hijos={cliente.hijos} sexo={cliente.sexo as SexoCliente} onAdd={addAporte} onRemove={removeAporte} />
+        <AportesTable aportes={aportes} loading={loadAp} hijos={cliente.hijos} sexo={cliente.sexo as SexoCliente} onAdd={addAporte} onRemove={removeAporte} onUpdate={updateAporte} onRemoveAll={removeAllAportes} />
       )}
       {tab === 'historial' && <HistorialTimeline avances={avances} loading={loadHist} onAdd={addAvance} />}
       {tab === 'tareas' && (

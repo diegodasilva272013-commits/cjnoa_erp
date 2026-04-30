@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Plus, Trash2, Briefcase, Calendar, AlertCircle, CheckCircle, ClipboardPaste, Loader2 } from 'lucide-react';
+import { Plus, Trash2, Briefcase, AlertCircle, CheckCircle, ClipboardPaste, Loader2, Pencil, X } from 'lucide-react';
 import { AporteLaboral, calcularResumenAportes, SexoCliente, COSTO_MENSUAL_27705, formatFechaLocal } from '../../types/previsional';
 
 interface Props {
@@ -9,9 +9,22 @@ interface Props {
   sexo: SexoCliente | null;
   onAdd: (a: Partial<AporteLaboral>) => Promise<boolean>;
   onRemove: (id: string) => Promise<boolean>;
+  onUpdate: (id: string, a: Partial<AporteLaboral>) => Promise<boolean>;
+  onRemoveAll: () => Promise<void>;
 }
 
-export default function AportesTable({ aportes, loading, hijos, sexo, onAdd, onRemove }: Props) {
+// Calcula cuántos meses de un período caen antes del 30/09/1993
+function calcMesesAntes0993(desde: string, hasta: string): number {
+  if (!desde || !hasta) return 0;
+  const limite = new Date(1993, 8, 30); // 30/09/1993
+  const d = new Date(desde);
+  const h = new Date(hasta);
+  if (d > limite) return 0;
+  const hEfectivo = h < limite ? h : limite;
+  return Math.max(0, (hEfectivo.getFullYear() - d.getFullYear()) * 12 + (hEfectivo.getMonth() - d.getMonth()) + (hEfectivo.getDate() - d.getDate() > 15 ? 1 : 0));
+}
+
+export default function AportesTable({ aportes, loading, hijos, sexo, onAdd, onRemove, onUpdate, onRemoveAll }: Props) {
   const [adding, setAdding] = useState(false);
   const [newAporte, setNewAporte] = useState({
     empleador: '',
@@ -25,6 +38,31 @@ export default function AportesTable({ aportes, loading, hijos, sexo, onAdd, onR
   const [pasteText, setPasteText] = useState('');
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState<{ ok: number; err: number } | null>(null);
+  const [confirmDeleteAll, setConfirmDeleteAll] = useState(false);
+  const [deletingAll, setDeletingAll] = useState(false);
+
+  // Edición inline
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editForm, setEditForm] = useState<Partial<AporteLaboral>>({});
+
+  const startEdit = (a: AporteLaboral) => {
+    setEditingId(a.id);
+    setEditForm({ empleador: a.empleador || '', fecha_desde: a.fecha_desde, fecha_hasta: a.fecha_hasta, es_antes_0993: a.es_antes_0993, es_simultaneo: a.es_simultaneo, observaciones: a.observaciones || '' });
+  };
+  const cancelEdit = () => { setEditingId(null); setEditForm({}); };
+  const saveEdit = async () => {
+    if (!editingId) return;
+    const ok = await onUpdate(editingId, editForm);
+    if (ok) { setEditingId(null); setEditForm({}); }
+  };
+
+  const handleDeleteAll = async () => {
+    if (!confirmDeleteAll) { setConfirmDeleteAll(true); setTimeout(() => setConfirmDeleteAll(false), 3000); return; }
+    setDeletingAll(true);
+    await onRemoveAll();
+    setDeletingAll(false);
+    setConfirmDeleteAll(false);
+  };
 
   // Parse pasted Excel data. Soporta:
   //   2 cols: fecha_desde \t fecha_hasta
@@ -156,6 +194,21 @@ export default function AportesTable({ aportes, loading, hijos, sexo, onAdd, onR
           <button onClick={() => { setAdding(!adding); setShowPaste(false); }} className="btn-primary text-xs px-3 py-1.5 flex items-center gap-1.5">
             <Plus className="w-3 h-3" /> Agregar
           </button>
+          {aportes.length > 0 && (
+            <button
+              onClick={handleDeleteAll}
+              disabled={deletingAll}
+              className={`text-xs px-3 py-1.5 flex items-center gap-1.5 rounded-lg border transition-colors ${
+                confirmDeleteAll
+                  ? 'bg-red-500/20 border-red-500/40 text-red-400'
+                  : 'bg-white/[0.03] border-white/10 text-gray-500 hover:text-red-400 hover:border-red-500/20'
+              }`}
+              title="Eliminar todos los aportes"
+            >
+              {deletingAll ? <Loader2 className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />}
+              {confirmDeleteAll ? 'Confirmar' : 'Eliminar todos'}
+            </button>
+          )}
         </div>
       </div>
 
@@ -260,29 +313,75 @@ export default function AportesTable({ aportes, loading, hijos, sexo, onAdd, onR
                 <th className="text-center text-[10px] text-gray-500 uppercase tracking-wider py-2 px-3">Meses</th>
                 <th className="text-center text-[10px] text-gray-500 uppercase tracking-wider py-2 px-3">Antes 09/93</th>
                 <th className="text-center text-[10px] text-gray-500 uppercase tracking-wider py-2 px-3">Simult.</th>
-                <th className="w-10"></th>
+                <th className="w-16"></th>
               </tr>
             </thead>
             <tbody>
-              {aportes.map(a => (
-                <tr key={a.id} className="border-b border-white/[0.03] hover:bg-white/[0.02] transition-colors">
-                  <td className="py-2.5 px-3 text-white font-medium">{a.empleador || '—'}</td>
-                  <td className="py-2.5 px-3 text-gray-400">{formatFechaLocal(a.fecha_desde)}</td>
-                  <td className="py-2.5 px-3 text-gray-400">{formatFechaLocal(a.fecha_hasta)}</td>
-                  <td className="py-2.5 px-3 text-center text-white font-mono">{a.total_meses}</td>
-                  <td className="py-2.5 px-3 text-center">
-                    {a.es_antes_0993 ? <CheckCircle className="w-4 h-4 text-blue-400 mx-auto" /> : <span className="text-gray-600">—</span>}
-                  </td>
-                  <td className="py-2.5 px-3 text-center">
-                    {a.es_simultaneo ? <AlertCircle className="w-4 h-4 text-amber-400 mx-auto" /> : <span className="text-gray-600">—</span>}
-                  </td>
-                  <td className="py-2.5 px-3">
-                    <button onClick={() => onRemove(a.id)} className="p-1 hover:bg-red-500/10 rounded-lg text-gray-600 hover:text-red-400 transition-colors">
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  </td>
-                </tr>
-              ))}
+              {aportes.map(a => {
+                const mesesAntes = a.es_antes_0993 ? calcMesesAntes0993(a.fecha_desde, a.fecha_hasta) : 0;
+                const mesesSimult = a.es_simultaneo ? a.total_meses : 0;
+                return editingId === a.id ? (
+                  <tr key={a.id} className="border-b border-blue-500/20 bg-blue-500/[0.03]">
+                    <td colSpan={7} className="py-2 px-3">
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                        <div className="sm:col-span-3">
+                          <input type="text" value={editForm.empleador as string} onChange={e => setEditForm({ ...editForm, empleador: e.target.value })} className="input-dark text-sm w-full" placeholder="Empleador" />
+                        </div>
+                        <div>
+                          <label className="block text-[10px] text-gray-500 mb-1">Desde</label>
+                          <input type="date" value={editForm.fecha_desde} onChange={e => setEditForm({ ...editForm, fecha_desde: e.target.value })} className="input-dark text-sm w-full" />
+                        </div>
+                        <div>
+                          <label className="block text-[10px] text-gray-500 mb-1">Hasta</label>
+                          <input type="date" value={editForm.fecha_hasta} onChange={e => setEditForm({ ...editForm, fecha_hasta: e.target.value })} className="input-dark text-sm w-full" />
+                        </div>
+                        <div className="flex flex-col gap-1.5 justify-center">
+                          <label className="flex items-center gap-1.5 text-xs text-gray-400 cursor-pointer">
+                            <input type="checkbox" checked={!!editForm.es_antes_0993} onChange={e => setEditForm({ ...editForm, es_antes_0993: e.target.checked })} className="accent-blue-500" /> Antes 09/93
+                          </label>
+                          <label className="flex items-center gap-1.5 text-xs text-gray-400 cursor-pointer">
+                            <input type="checkbox" checked={!!editForm.es_simultaneo} onChange={e => setEditForm({ ...editForm, es_simultaneo: e.target.checked })} className="accent-amber-500" /> Simultáneo
+                          </label>
+                        </div>
+                        <div className="sm:col-span-2">
+                          <input type="text" value={editForm.observaciones as string} onChange={e => setEditForm({ ...editForm, observaciones: e.target.value })} className="input-dark text-sm w-full" placeholder="Observaciones" />
+                        </div>
+                        <div className="flex gap-2 items-center justify-end sm:col-span-3">
+                          <button onClick={cancelEdit} className="btn-secondary text-xs px-3 py-1.5 flex items-center gap-1"><X className="w-3 h-3" /> Cancelar</button>
+                          <button onClick={saveEdit} className="btn-primary text-xs px-3 py-1.5">Guardar</button>
+                        </div>
+                      </div>
+                    </td>
+                  </tr>
+                ) : (
+                  <tr key={a.id} className="border-b border-white/[0.03] hover:bg-white/[0.02] transition-colors">
+                    <td className="py-2.5 px-3 text-white font-medium">{a.empleador || '—'}</td>
+                    <td className="py-2.5 px-3 text-gray-400">{formatFechaLocal(a.fecha_desde)}</td>
+                    <td className="py-2.5 px-3 text-gray-400">{formatFechaLocal(a.fecha_hasta)}</td>
+                    <td className="py-2.5 px-3 text-center text-white font-mono">{a.total_meses}</td>
+                    <td className="py-2.5 px-3 text-center">
+                      {a.es_antes_0993
+                        ? <span className="text-blue-400 font-mono text-xs font-medium">{mesesAntes}<span className="text-[10px] text-blue-500 ml-0.5">m</span></span>
+                        : <span className="text-gray-600">—</span>}
+                    </td>
+                    <td className="py-2.5 px-3 text-center">
+                      {a.es_simultaneo
+                        ? <span className="text-amber-400 font-mono text-xs font-medium">{mesesSimult}<span className="text-[10px] text-amber-500 ml-0.5">m</span></span>
+                        : <span className="text-gray-600">—</span>}
+                    </td>
+                    <td className="py-2.5 px-3">
+                      <div className="flex gap-1">
+                        <button onClick={() => startEdit(a)} className="p-1 hover:bg-blue-500/10 rounded-lg text-gray-600 hover:text-blue-400 transition-colors" title="Modificar">
+                          <Pencil className="w-3.5 h-3.5" />
+                        </button>
+                        <button onClick={() => onRemove(a.id)} className="p-1 hover:bg-red-500/10 rounded-lg text-gray-600 hover:text-red-400 transition-colors" title="Eliminar">
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
