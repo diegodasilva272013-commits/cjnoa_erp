@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import {
   User, Hash, Key, Calendar, MapPin, Phone, Baby, FileText,
   DollarSign, ExternalLink, Save, Calculator, Clock,
-  Paperclip, Upload, Download, Trash2, Mic, Square, Play, Pause, Loader2, FolderOpen, Eye, X as XIcon,
+  Paperclip, Upload, Download, Trash2, Mic, MicOff, Square, Play, Pause, Loader2, FolderOpen, Eye, X as XIcon,
 } from 'lucide-react';
 import Modal from '../Modal';
 import { supabase } from '../../lib/supabase';
@@ -28,6 +28,37 @@ export default function FichaModal({ open, onClose, cliente, onSave }: Props) {
   const [section, setSection] = useState<'datos' | 'moratorias' | 'seguimiento' | 'cobro'>('datos');
   const [costoCuota, setCostoCuota] = useState<number>(getCostoMensual27705());
   const [costoEditando, setCostoEditando] = useState(false);
+
+  // ── Speech-to-Text para campos de seguimiento ──
+  const [sttField, setSttField] = useState<string | null>(null); // campo activo
+  const recognitionRef = useRef<any>(null);
+
+  const startSTT = (field: string, current: string) => {
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) { showToast('Tu navegador no soporta dictado de voz', 'error'); return; }
+    if (sttField === field) {
+      recognitionRef.current?.stop();
+      setSttField(null);
+      return;
+    }
+    recognitionRef.current?.stop();
+    const recognition = new SpeechRecognition();
+    recognition.lang = 'es-AR';
+    recognition.continuous = true;
+    recognition.interimResults = false;
+    let accumulated = current ? current + ' ' : '';
+    recognition.onresult = (e: any) => {
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        if (e.results[i].isFinal) accumulated += e.results[i][0].transcript + ' ';
+      }
+      setForm(f => ({ ...f, [field]: accumulated.trimEnd() }));
+    };
+    recognition.onerror = () => { setSttField(null); };
+    recognition.onend = () => { setSttField(null); };
+    recognitionRef.current = recognition;
+    recognition.start();
+    setSttField(field);
+  };
 
   // ── Documentos (storage-only, sin migración DB) ──
   type StorageFile = { name: string; path: string; size?: number; signedUrl?: string };
@@ -689,7 +720,15 @@ export default function FichaModal({ open, onClose, cliente, onSave }: Props) {
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-gray-400 mb-1.5">Situación Actual / Paso a Seguir</label>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="text-xs font-medium text-gray-400">Situación Actual / Paso a Seguir</label>
+              <button type="button" onClick={() => startSTT('situacion_actual', form.situacion_actual)}
+                className={`flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-md transition-colors ${
+                  sttField === 'situacion_actual' ? 'bg-red-500/20 text-red-400 animate-pulse' : 'text-gray-500 hover:text-violet-400 hover:bg-violet-500/10'
+                }`}>
+                {sttField === 'situacion_actual' ? <><MicOff className="w-3 h-3" /> Detener</> : <><Mic className="w-3 h-3" /> Dictado</>}
+              </button>
+            </div>
             <textarea
               rows={3}
               value={form.situacion_actual}
@@ -700,7 +739,15 @@ export default function FichaModal({ open, onClose, cliente, onSave }: Props) {
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-gray-400 mb-1.5">Resumen / Informe Administrativo</label>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="text-xs font-medium text-gray-400">Resumen / Informe Administrativo</label>
+              <button type="button" onClick={() => startSTT('resumen_informe', form.resumen_informe)}
+                className={`flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-md transition-colors ${
+                  sttField === 'resumen_informe' ? 'bg-red-500/20 text-red-400 animate-pulse' : 'text-gray-500 hover:text-violet-400 hover:bg-violet-500/10'
+                }`}>
+                {sttField === 'resumen_informe' ? <><MicOff className="w-3 h-3" /> Detener</> : <><Mic className="w-3 h-3" /> Dictado</>}
+              </button>
+            </div>
             <textarea
               rows={4}
               value={form.resumen_informe}
@@ -711,7 +758,15 @@ export default function FichaModal({ open, onClose, cliente, onSave }: Props) {
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-gray-400 mb-1.5">Conclusión</label>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="text-xs font-medium text-gray-400">Conclusión</label>
+              <button type="button" onClick={() => startSTT('conclusion', form.conclusion)}
+                className={`flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-md transition-colors ${
+                  sttField === 'conclusion' ? 'bg-red-500/20 text-red-400 animate-pulse' : 'text-gray-500 hover:text-violet-400 hover:bg-violet-500/10'
+                }`}>
+                {sttField === 'conclusion' ? <><MicOff className="w-3 h-3" /> Detener</> : <><Mic className="w-3 h-3" /> Dictado</>}
+              </button>
+            </div>
             <textarea
               rows={2}
               value={form.conclusion}
