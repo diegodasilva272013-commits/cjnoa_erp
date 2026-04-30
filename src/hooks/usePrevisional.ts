@@ -97,7 +97,8 @@ export function useAportesLaborales(clientePrevId: string | null) {
     if (data.fecha_desde && data.fecha_hasta) data.total_meses = calcMeses(data.fecha_desde, data.fecha_hasta);
     const { error } = await supabase.from('aportes_laborales').update(data).eq('id', id);
     if (error) { showToast('Error: ' + error.message, 'error'); return false; }
-    await fetch();
+    // Actualizar estado local sin re-fetch para no reordenar la lista
+    setAportes(prev => prev.map(a => a.id === id ? { ...a, ...data } : a));
     return true;
   };
 
