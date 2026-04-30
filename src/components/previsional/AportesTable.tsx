@@ -390,12 +390,34 @@ export default function AportesTable({ aportes, loading, hijos, sexo, onAdd, onR
                           <input type="date" value={editForm.fecha_hasta} onChange={e => setEditForm({ ...editForm, fecha_hasta: e.target.value })} className="input-dark text-sm w-full" />
                         </div>
                         <div className="flex flex-col gap-1.5 justify-center">
-                          <label className="flex items-center gap-1.5 text-xs text-gray-400 cursor-pointer">
-                            <input type="checkbox" checked={!!editForm.es_antes_0993} onChange={e => setEditForm({ ...editForm, es_antes_0993: e.target.checked })} className="accent-blue-500" /> Antes 09/93
-                          </label>
-                          <label className="flex items-center gap-1.5 text-xs text-gray-400 cursor-pointer">
-                            <input type="checkbox" checked={!!editForm.es_simultaneo} onChange={e => setEditForm({ ...editForm, es_simultaneo: e.target.checked })} className="accent-amber-500" /> Simultáneo
-                          </label>
+                          <button
+                            type="button"
+                            onClick={() => setEditForm(f => ({ ...f, es_antes_0993: !f.es_antes_0993 }))}
+                            className={`flex items-center justify-between px-3 py-2 rounded-lg border text-xs font-medium transition-colors w-full ${
+                              editForm.es_antes_0993
+                                ? 'bg-blue-500/15 border-blue-500/40 text-blue-300'
+                                : 'bg-white/[0.03] border-white/10 text-gray-500'
+                            }`}
+                          >
+                            <span>Antes 09/93</span>
+                            <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold ${editForm.es_antes_0993 ? 'bg-blue-500/30 text-blue-200' : 'bg-white/5 text-gray-600'}`}>
+                              {editForm.es_antes_0993 ? 'SÍ' : 'NO'}
+                            </span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setEditForm(f => ({ ...f, es_simultaneo: !f.es_simultaneo }))}
+                            className={`flex items-center justify-between px-3 py-2 rounded-lg border text-xs font-medium transition-colors w-full ${
+                              editForm.es_simultaneo
+                                ? 'bg-amber-500/15 border-amber-500/40 text-amber-300'
+                                : 'bg-white/[0.03] border-white/10 text-gray-500'
+                            }`}
+                          >
+                            <span>Simultáneo</span>
+                            <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold ${editForm.es_simultaneo ? 'bg-amber-500/30 text-amber-200' : 'bg-white/5 text-gray-600'}`}>
+                              {editForm.es_simultaneo ? 'SÍ' : 'NO'}
+                            </span>
+                          </button>
                         </div>
                         <div className="sm:col-span-2">
                           <input type="text" value={editForm.observaciones as string} onChange={e => setEditForm({ ...editForm, observaciones: e.target.value })} className="input-dark text-sm w-full" placeholder="Observaciones" />
@@ -413,22 +435,40 @@ export default function AportesTable({ aportes, loading, hijos, sexo, onAdd, onR
                     <td className="py-2.5 px-3 text-gray-400">{formatFechaLocal(a.fecha_desde)}</td>
                     <td className="py-2.5 px-3 text-gray-400">{formatFechaLocal(a.fecha_hasta)}</td>
                     <td className="py-2.5 px-3 text-center text-white font-mono">{a.total_meses}</td>
+                    {/* Antes 09/93 — clic para toggle */}
                     <td className="py-2.5 px-3 text-center">
-                      {mesesAntes > 0
-                        ? <span className="text-blue-400 font-mono text-xs font-medium">{mesesAntes}<span className="text-[10px] text-blue-500 ml-0.5">m</span></span>
-                        : <span className="text-gray-600">—</span>}
+                      <button
+                        onClick={() => onUpdate(a.id, { es_antes_0993: !a.es_antes_0993 })}
+                        title={a.es_antes_0993 ? 'Quitar marca Antes 09/93' : 'Marcar como Antes 09/93'}
+                        className={`px-2 py-0.5 rounded-md text-xs font-mono font-medium transition-colors ${
+                          a.es_antes_0993
+                            ? 'bg-blue-500/15 text-blue-400 hover:bg-blue-500/25'
+                            : 'text-gray-600 hover:text-blue-400 hover:bg-blue-500/10'
+                        }`}
+                      >
+                        {a.es_antes_0993 ? <>{mesesAntes}<span className="text-[10px] ml-0.5 opacity-70">m</span></> : '—'}
+                      </button>
                     </td>
+                    {/* Simultáneo — clic para toggle */}
                     <td className="py-2.5 px-3 text-center">
-                      {esSimult
-                        ? <span className="text-amber-400 font-mono text-xs font-medium">{mesesSimult}<span className="text-[10px] text-amber-500 ml-0.5">m</span></span>
-                        : <span className="text-gray-600">—</span>}
+                      <button
+                        onClick={() => onUpdate(a.id, { es_simultaneo: !a.es_simultaneo })}
+                        title={a.es_simultaneo ? 'Quitar marca Simultáneo' : 'Marcar como Simultáneo'}
+                        className={`px-2 py-0.5 rounded-md text-xs font-mono font-medium transition-colors ${
+                          a.es_simultaneo
+                            ? 'bg-amber-500/15 text-amber-400 hover:bg-amber-500/25'
+                            : 'text-gray-600 hover:text-amber-400 hover:bg-amber-500/10'
+                        }`}
+                      >
+                        {a.es_simultaneo ? <>{mesesSimult}<span className="text-[10px] ml-0.5 opacity-70">m</span></> : '—'}
+                      </button>
                     </td>
                     <td className="py-2.5 px-3">
                       <div className="flex gap-1">
-                        <button onClick={() => startEdit(a)} className="p-1 hover:bg-blue-500/10 rounded-lg text-gray-600 hover:text-blue-400 transition-colors" title="Modificar">
+                        <button onClick={() => startEdit(a)} className="p-1.5 hover:bg-blue-500/10 rounded-lg text-blue-500/60 hover:text-blue-400 transition-colors" title="Editar fila">
                           <Pencil className="w-3.5 h-3.5" />
                         </button>
-                        <button onClick={() => onRemove(a.id)} className="p-1 hover:bg-red-500/10 rounded-lg text-gray-600 hover:text-red-400 transition-colors" title="Eliminar">
+                        <button onClick={() => onRemove(a.id)} className="p-1.5 hover:bg-red-500/10 rounded-lg text-gray-600 hover:text-red-400 transition-colors" title="Eliminar">
                           <Trash2 className="w-3.5 h-3.5" />
                         </button>
                       </div>
