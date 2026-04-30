@@ -109,7 +109,14 @@ export function useAportesLaborales(clientePrevId: string | null) {
     return true;
   };
 
-  return { aportes, loading, refetch: fetch, add, update, remove };
+  const removeAll = async () => {
+    if (!clientePrevId) return;
+    const { error } = await supabase.from('aportes_laborales').delete().eq('cliente_prev_id', clientePrevId);
+    if (error) { showToast('Error: ' + error.message, 'error'); return; }
+    setAportes([]);
+  };
+
+  return { aportes, loading, refetch: fetch, add, update, remove, removeAll };
 }
 
 // ── Hook: Historial de Avances ──

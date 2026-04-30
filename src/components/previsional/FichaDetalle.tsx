@@ -216,8 +216,7 @@ export default function FichaDetalle({ cliente, onBack, onEdit, onDelete }: Prop
   const [audienciaOpen, setAudienciaOpen] = useState(false);
   const [audienciaEdit, setAudienciaEdit] = useState<Audiencia | null>(null);
 
-  const { aportes, loading: loadAp, add: addAporte, update: updateAporte, remove: removeAporte } = useAportesLaborales(cliente.id);
-  const removeAllAportes = async () => { for (const a of aportes) await removeAporte(a.id); };
+  const { aportes, loading: loadAp, add: addAporte, update: updateAporte, remove: removeAporte, removeAll: removeAllAportes } = useAportesLaborales(cliente.id);
   const { avances, loading: loadHist, add: addAvance } = useHistorialAvances(cliente.id);
   const { tareas: allTareas, upsert: upsertTarea } = useTareasPrevisional();
   const { audiencias: allAudiencias, upsert: upsertAudiencia } = useAudiencias();
