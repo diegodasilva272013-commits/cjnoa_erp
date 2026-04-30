@@ -263,7 +263,9 @@ export default function FichaModal({ open, onClose, cliente, onSave }: Props) {
               <div className="p-3 rounded-xl bg-white/[0.03] border border-white/5">
                 <p className="text-[10px] text-gray-500 uppercase">Fecha Jubilatoria</p>
                 <p className="text-sm font-bold text-white">
-                  {moratoria.fechaEdadJubilatoria?.toLocaleDateString('es-AR')}
+                  {moratoria.fechaEdadJubilatoria
+                    ? `${String(moratoria.fechaEdadJubilatoria.getDate()).padStart(2, '0')}/${String(moratoria.fechaEdadJubilatoria.getMonth() + 1).padStart(2, '0')}/${moratoria.fechaEdadJubilatoria.getFullYear()}`
+                    : '—'}
                 </p>
               </div>
             </div>
