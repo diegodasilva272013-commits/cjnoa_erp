@@ -26,34 +26,84 @@ export default function AportesTable({ aportes, loading, hijos, sexo, onAdd, onR
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState<{ ok: number; err: number } | null>(null);
 
-  // Parse pasted Excel data: each line = empleador\tfecha_desde\tfecha_hasta (or just dates)
+  // Parse pasted Excel data. Soporta:
+  //   2 cols: fecha_desde \t fecha_hasta
+  //   3 cols: empleador  \t fecha_desde \t fecha_hasta
+  //   4 cols: empleador  \t CUIT        \t fecha_desde \t fecha_hasta
+  // Reglas: si la fecha viene como MM/AAAA → fecha_desde = día 1, fecha_hasta = último día del mes.
   const parsePasteLines = (text: string): Array<Partial<AporteLaboral>> => {
+    const lastDayOfMonth = (year: number, month1Based: number) =>
+      new Date(year, month1Based, 0).getDate(); // month=next month, day 0 = last day of given month
+
+    // mode: 'desde' fuerza día 1; 'hasta' fuerza último día del mes (solo cuando entra MM/AAAA o MM/AA)
+    const normalizeDate = (s: string, mode: 'desde' | 'hasta'): string => {
+      if (!s) return '';
+      // Already ISO
+      if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+      // DD/MM/YYYY → tal cual
+      const dmy = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+      if (dmy) return `${dmy[3]}-${dmy[2].padStart(2, '0')}-${dmy[1].padStart(2, '0')}`;
+      // MM/YYYY
+      const my = s.match(/^(\d{1,2})\/(\d{4})$/);
+      if (my) {
+        const m = parseInt(my[1], 10);
+        const y = parseInt(my[2], 10);
+        const day = mode === 'hasta' ? lastDayOfMonth(y, m) : 1;
+        return `${y}-${String(m).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+      }
+      // MM/YY
+      const m2 = s.match(/^(\d{1,2})\/(\d{2})$/);
+      if (m2) {
+        const m = parseInt(m2[1], 10);
+        const y = 2000 + parseInt(m2[2], 10);
+        const day = mode === 'hasta' ? lastDayOfMonth(y, m) : 1;
+        return `${y}-${String(m).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+      }
+      return '';
+    };
+
+    const looksLikeDate = (s: string) =>
+      /^\d{4}-\d{2}-\d{2}$/.test(s) ||
+      /^\d{1,2}\/\d{1,2}\/\d{4}$/.test(s) ||
+      /^\d{1,2}\/\d{2,4}$/.test(s);
+
+    const looksLikeCuit = (s: string) => {
+      const digits = s.replace(/\D/g, '');
+      return digits.length === 11 || digits.length === 8; // CUIT 11 o DNI 7-8
+    };
+
     return text
       .split('\n')
       .map(l => l.trim())
       .filter(l => l.length > 0)
-      .map(line => {
-        const parts = line.split(/[\t;]/).map(p => p.trim());
-        // Normalize date: accepts MM/YY, MM/YYYY, DD/MM/YYYY, YYYY-MM-DD
-        const normalizeDate = (s: string): string => {
-          if (!s) return '';
-          // Already ISO
-          if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
-          // DD/MM/YYYY
-          const dmy = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-          if (dmy) return `${dmy[3]}-${dmy[2].padStart(2,'0')}-${dmy[1].padStart(2,'0')}`;
-          // MM/YYYY
-          const my = s.match(/^(\d{1,2})\/(\d{4})$/);
-          if (my) return `${my[2]}-${my[1].padStart(2,'0')}-01`;
-          // MM/YY
-          const m2 = s.match(/^(\d{1,2})\/(\d{2})$/);
-          if (m2) return `20${m2[2]}-${m2[1].padStart(2,'0')}-01`;
-          return '';
-        };
-        if (parts.length >= 3) {
-          return { empleador: parts[0] || null, fecha_desde: normalizeDate(parts[1]), fecha_hasta: normalizeDate(parts[2]) };
-        } else if (parts.length === 2) {
-          return { empleador: null, fecha_desde: normalizeDate(parts[0]), fecha_hasta: normalizeDate(parts[1]) };
+      .map<Partial<AporteLaboral>>(line => {
+        // Separadores: tab, ; o 2+ espacios
+        const parts = line.split(/\t|;|\s{2,}/).map(p => p.trim()).filter(p => p.length > 0);
+
+        // 4+ columnas: Empleador | CUIT | desde | hasta
+        if (parts.length >= 4 && looksLikeCuit(parts[1]) && looksLikeDate(parts[2]) && looksLikeDate(parts[3])) {
+          return {
+            empleador: parts[0] || null,
+            fecha_desde: normalizeDate(parts[2], 'desde'),
+            fecha_hasta: normalizeDate(parts[3], 'hasta'),
+            observaciones: `CUIT: ${parts[1]}`,
+          };
+        }
+        // 3 columnas: Empleador | desde | hasta
+        if (parts.length >= 3 && looksLikeDate(parts[1]) && looksLikeDate(parts[2])) {
+          return {
+            empleador: parts[0] || null,
+            fecha_desde: normalizeDate(parts[1], 'desde'),
+            fecha_hasta: normalizeDate(parts[2], 'hasta'),
+          };
+        }
+        // 2 columnas: desde | hasta
+        if (parts.length === 2 && looksLikeDate(parts[0]) && looksLikeDate(parts[1])) {
+          return {
+            empleador: null,
+            fecha_desde: normalizeDate(parts[0], 'desde'),
+            fecha_hasta: normalizeDate(parts[1], 'hasta'),
+          };
         }
         return {};
       })
@@ -114,16 +164,19 @@ export default function AportesTable({ aportes, loading, hijos, sexo, onAdd, onR
         <div className="glass-card p-4 space-y-3 border border-cyan-500/20 bg-cyan-500/[0.03]">
           <p className="text-xs text-cyan-300 font-medium">Pegar historial laboral desde Excel</p>
           <p className="text-[10px] text-gray-500">
-            Copia las filas del Excel y pegálas acá. Formato por columna: <span className="text-gray-400">Empleador &nbsp;| Fecha Desde &nbsp;| Fecha Hasta</span>
-            <br />Si solo pegás 2 columnas, se asumen Fecha Desde y Fecha Hasta sin empleador.
-            <br />Fechas aceptadas: MM/AAAA · DD/MM/AAAA · AAAA-MM-DD
+            Copiá las filas del Excel y pegálas acá. Formatos soportados:
+            <br />· <span className="text-gray-400">Empleador | CUIT | Fecha Desde | Fecha Hasta</span> (4 columnas)
+            <br />· <span className="text-gray-400">Empleador | Fecha Desde | Fecha Hasta</span> (3 columnas)
+            <br />· <span className="text-gray-400">Fecha Desde | Fecha Hasta</span> (2 columnas)
+            <br />Fechas: <span className="text-gray-400">MM/AAAA</span> · <span className="text-gray-400">DD/MM/AAAA</span> · <span className="text-gray-400">AAAA-MM-DD</span>
+            <br />Cuando la fecha es <span className="text-gray-400">MM/AAAA</span>: <b>Desde</b> = día 1 del mes, <b>Hasta</b> = último día del mes.
           </p>
           <textarea
             value={pasteText}
             onChange={e => setPasteText(e.target.value)}
             className="input-dark text-xs font-mono w-full"
             rows={6}
-            placeholder={'YPF\t01/01/2005\t31/12/2010\nCOMODIN\t01/2011\t12/2015'}
+            placeholder={'LEDESMA SOCIEDAD AN\t30-50125030-5\t06/2012\t10/2016\nAPRILE RAUL\t58831139\t01/1993\t02/1993'}
           />
           {pasteText && (
             <p className="text-[10px] text-gray-400">
@@ -131,7 +184,7 @@ export default function AportesTable({ aportes, loading, hijos, sexo, onAdd, onR
             </p>
           )}
           {importResult && (
-            <p className="text-xs font-medium {importResult.err > 0 ? 'text-amber-400' : 'text-emerald-400'}">
+            <p className={`text-xs font-medium ${importResult.err > 0 ? 'text-amber-400' : 'text-emerald-400'}`}>
               ✓ {importResult.ok} importado(s){importResult.err > 0 ? ` · ${importResult.err} con error` : ''}
             </p>
           )}
