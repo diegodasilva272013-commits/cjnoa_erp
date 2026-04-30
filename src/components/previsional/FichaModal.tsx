@@ -32,6 +32,7 @@ export default function FichaModal({ open, onClose, cliente, onSave }: Props) {
   // ── Documentos (storage-only, sin migración DB) ──
   type StorageFile = { name: string; path: string; size?: number; signedUrl?: string };
   const [archivos, setArchivos] = useState<StorageFile[]>([]);
+  const [saving, setSaving] = useState(false);
   const [loadingArchivos, setLoadingArchivos] = useState(false);
   const [subiendo, setSubiendo] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
