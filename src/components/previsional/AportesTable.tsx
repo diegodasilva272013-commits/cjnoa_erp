@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { Plus, Trash2, Briefcase, AlertCircle, CheckCircle, ClipboardPaste, Loader2, Pencil, X } from 'lucide-react';
 import { AporteLaboral, calcularResumenAportes, SexoCliente, COSTO_MENSUAL_27705, formatFechaLocal } from '../../types/previsional';
 
@@ -45,9 +45,39 @@ export default function AportesTable({ aportes, loading, hijos, sexo, onAdd, onR
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState<Partial<AporteLaboral>>({});
 
+  // Auto-corregir flags viejos en DB (aportes importados antes de la lógica de auto-cálculo).
+  // Se ejecuta una sola vez por montaje del componente.
+  const autoFixedRef = useRef(false);
+  useEffect(() => {
+    if (autoFixedRef.current || aportes.length === 0) return;
+    autoFixedRef.current = true;
+    aportes.forEach(a => {
+      const mesesAntes = calcMesesAntes0993(a.fecha_desde, a.fecha_hasta);
+      const esSimult = aportes.some(
+        o => o.id !== a.id && o.fecha_desde <= a.fecha_hasta && o.fecha_hasta >= a.fecha_desde
+      );
+      if (a.es_antes_0993 !== (mesesAntes > 0) || a.es_simultaneo !== esSimult) {
+        onUpdate(a.id, { es_antes_0993: mesesAntes > 0, es_simultaneo: esSimult });
+      }
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [aportes.length]);
+
   const startEdit = (a: AporteLaboral) => {
+    // Inicializar con el valor calculado como sugerencia
+    const mesesAntes = calcMesesAntes0993(a.fecha_desde, a.fecha_hasta);
+    const esSimultCalc = aportes.some(
+      o => o.id !== a.id && o.fecha_desde <= a.fecha_hasta && o.fecha_hasta >= a.fecha_desde
+    );
     setEditingId(a.id);
-    setEditForm({ empleador: a.empleador || '', fecha_desde: a.fecha_desde, fecha_hasta: a.fecha_hasta, es_antes_0993: a.es_antes_0993, es_simultaneo: a.es_simultaneo, observaciones: a.observaciones || '' });
+    setEditForm({
+      empleador: a.empleador || '',
+      fecha_desde: a.fecha_desde,
+      fecha_hasta: a.fecha_hasta,
+      es_antes_0993: autoFixedRef.current ? a.es_antes_0993 : (mesesAntes > 0),
+      es_simultaneo: autoFixedRef.current ? a.es_simultaneo : esSimultCalc,
+      observaciones: a.observaciones || '',
+    });
   };
   const cancelEdit = () => { setEditingId(null); setEditForm({}); };
   const saveEdit = async () => {
@@ -340,12 +370,9 @@ export default function AportesTable({ aportes, loading, hijos, sexo, onAdd, onR
             </thead>
             <tbody>
               {aportes.map(a => {
-                // Calcular desde fechas, sin depender del flag en DB
-                const mesesAntes = calcMesesAntes0993(a.fecha_desde, a.fecha_hasta);
-                const esSimult = aportes.some(
-                  other => other.id !== a.id &&
-                    other.fecha_desde <= a.fecha_hasta && other.fecha_hasta >= a.fecha_desde
-                );
+                // Usar flags de DB (auto-corregidos al montar, y editables manualmente)
+                const mesesAntes = a.es_antes_0993 ? calcMesesAntes0993(a.fecha_desde, a.fecha_hasta) : 0;
+                const esSimult = a.es_simultaneo;
                 const mesesSimult = esSimult ? a.total_meses : 0;
                 return editingId === a.id ? (
                   <tr key={a.id} className="border-b border-blue-500/20 bg-blue-500/[0.03]">
