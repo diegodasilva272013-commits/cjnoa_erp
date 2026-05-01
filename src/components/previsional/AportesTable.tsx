@@ -224,30 +224,35 @@ export default function AportesTable({ aportes, loading, hijos, sexo, meses24476
 
   // Animación gauge + contador %
   const pct = resumen ? Math.min(100, (resumen.totalServicios / 360) * 100) : 0;
+  const gaugeCirc = 2 * Math.PI * 62;
   const [barWidth, setBarWidth] = useState(0);
   const [displayPct, setDisplayPct] = useState(0);
+  const [animKey, setAnimKey] = useState(0);
   useEffect(() => {
     if (!resumen) return;
     setBarWidth(0);
     setDisplayPct(0);
-    const t = setTimeout(() => setBarWidth(pct), 150);
-    const target = Math.round(pct);
+    setAnimKey(k => k + 1); // fuerza re-mount de los elementos animados
+    const t = setTimeout(() => setBarWidth(pct), 80);
     let frame = 0;
-    const frames = 50;
+    const frames = 60;
+    const target = Math.round(pct);
     const raf = setInterval(() => {
       frame++;
       setDisplayPct(Math.round((target * frame) / frames));
       if (frame >= frames) clearInterval(raf);
-    }, 20);
+    }, 16);
     return () => { clearTimeout(t); clearInterval(raf); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [resumen?.totalServicios]);
 
+  const gaugeOffset = gaugeCirc * (1 - barWidth / 100);
+
   // Filas breakdown (simultáneos van aparte como resta)
-  const conclusionRows: { label: string; meses: number; color: string; tw: string }[] = resumen ? [
-    { label: 'Aportes', meses: resumen.totalMeses - resumen.mesesSimultaneos, color: '#60a5fa', tw: 'from-blue-500 to-blue-400' },
-    { label: 'Moratoria 24.476', meses: meses24476, color: '#fbbf24', tw: 'from-amber-500 to-amber-400' },
-    ...(sexo === 'MUJER' && hijos > 0 ? [{ label: `Hijos (${hijos})`, meses: resumen.mesesHijos, color: '#f472b6', tw: 'from-pink-500 to-pink-400' }] : []),
+  const conclusionRows: { label: string; meses: number; color: string; stop1: string; stop2: string }[] = resumen ? [
+    { label: 'Aportes laborales', meses: resumen.totalMeses - resumen.mesesSimultaneos, color: '#60a5fa', stop1: '#3b82f6', stop2: '#60a5fa' },
+    { label: 'Moratoria 24.476', meses: resumen.meses24476Net, color: '#fbbf24', stop1: '#d97706', stop2: '#fbbf24' },
+    ...(sexo === 'MUJER' && hijos > 0 ? [{ label: `Hijos (×${hijos})`, meses: resumen.mesesHijos, color: '#f472b6', stop1: '#db2777', stop2: '#f472b6' }] : []),
   ] : [];
 
   const handleAdd = async () => {
@@ -572,13 +577,13 @@ export default function AportesTable({ aportes, loading, hijos, sexo, meses24476
                   {/* Track */}
                   <circle cx="80" cy="80" r="62" fill="none"
                     stroke="rgba(255,255,255,0.05)" strokeWidth="14" />
-                  {/* Fill */}
+                  {/* Arc fill – strokeDashoffset en style para que CSS transition funcione */}
                   <circle cx="80" cy="80" r="62" fill="none"
                     stroke="url(#gaugeGrad)" strokeWidth="14" strokeLinecap="round"
-                    strokeDasharray={String(2 * Math.PI * 62)}
-                    strokeDashoffset={String(2 * Math.PI * 62 * (1 - barWidth / 100))}
                     style={{
-                      transition: 'stroke-dashoffset 1.6s cubic-bezier(0.34,1.56,0.64,1)',
+                      strokeDasharray: 2 * Math.PI * 62,
+                      strokeDashoffset: 2 * Math.PI * 62 * (1 - barWidth / 100),
+                      transition: 'stroke-dashoffset 1.8s cubic-bezier(0.34,1.56,0.64,1)',
                       filter: 'drop-shadow(0 0 6px rgba(16,185,129,0.6))',
                     }}
                   />
@@ -603,11 +608,14 @@ export default function AportesTable({ aportes, loading, hijos, sexo, meses24476
                     </div>
                     <div className="h-2 rounded-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.04)' }}>
                       <div
-                        className={`h-full rounded-full bg-gradient-to-r ${row.tw}`}
                         style={{
-                          width: `${barWidth > 0 ? Math.min(100, (row.meses / 360) * 100) : 0}%`,
-                          transition: `width 1.3s cubic-bezier(0.34,1.56,0.64,1) ${i * 100}ms`,
-                          boxShadow: `0 0 8px ${row.color}55`,
+                          height: '100%', borderRadius: 6,
+                          background: `linear-gradient(90deg, ${row.stop1}, ${row.stop2})`,
+                          width: `${Math.min(100, (row.meses / 360) * 100)}%`,
+                          transform: barWidth > 0 ? 'scaleX(1)' : 'scaleX(0)',
+                          transformOrigin: 'left',
+                          transition: `transform 1.4s cubic-bezier(0.34,1.56,0.64,1) ${80 + i * 120}ms`,
+                          boxShadow: `0 0 8px ${row.stop1}88`,
                         }}
                       />
                     </div>

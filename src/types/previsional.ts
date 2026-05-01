@@ -156,6 +156,7 @@ export interface ResumenAportes {
   mesesAntes0993: number;
   mesesHijos: number;
   meses24476: number;
+  meses24476Net: number;
   totalServicios: number;
   totalAniosServicios: number;
   faltanMeses: number;
@@ -330,9 +331,12 @@ export function calcularResumenAportes(
   // Hijos solo para mujeres (1 año = 12 meses por hijo)
   const mesesHijos = sexo === 'MUJER' ? hijos * 12 : 0;
 
-  // Total real = total - simultáneos + moratoria 24476 + hijos (mujer)
+  // Moratoria 24.476 NETA = lo calculado - lo que ya tiene como aportes reales antes del 09/93
+  const meses24476Net = Math.max(0, meses24476 - mesesAntes0993);
+
+  // Total real = total - simultáneos + moratoria 24476 NETA + hijos (mujer)
   const totalReal = totalMeses - mesesSimultaneos;
-  const totalServicios = totalReal + meses24476 + mesesHijos;
+  const totalServicios = totalReal + meses24476Net + mesesHijos;
 
   // Faltan para 30 años (360 meses)
   const faltanMeses = Math.max(0, 360 - totalServicios);
@@ -344,6 +348,7 @@ export function calcularResumenAportes(
     mesesAntes0993,
     mesesHijos,
     meses24476,
+    meses24476Net,
     totalServicios,
     totalAniosServicios: Math.floor(totalServicios / 12),
     faltanMeses,
