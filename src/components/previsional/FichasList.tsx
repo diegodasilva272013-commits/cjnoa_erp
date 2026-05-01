@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Search, Plus, Filter, ExternalLink, Phone, ChevronRight, Copy, Check } from 'lucide-react';
 import { ClientePrevisional, PIPELINE_LABELS, PIPELINE_COLORS, PIPELINE_GRADIENT, calcularSemaforo, SEMAFORO_COLORS, SEMAFORO_LABELS, PipelinePrevisional, formatFechaLocal } from '../../types/previsional';
+import PrevisionalKanban from './PrevisionalKanban';
 
 interface Props {
   clientes: ClientePrevisional[];
@@ -193,43 +194,7 @@ export default function FichasList({ clientes, onSelect, onNew }: Props) {
 
       {/* Vista: Pipeline Kanban */}
       {vista === 'pipeline' && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3">
-          {PIPELINES.map(pipeline => {
-            const items = filtrados.filter(c => c.pipeline === pipeline);
-            return (
-              <div key={pipeline} className="glass-card p-3">
-                <div className="flex items-center gap-2 mb-3">
-                  <div className={`w-2 h-2 rounded-full bg-gradient-to-r ${PIPELINE_GRADIENT[pipeline]}`} />
-                  <h4 className="text-xs font-semibold text-white uppercase tracking-wider">{PIPELINE_LABELS[pipeline]}</h4>
-                  <span className="text-[10px] text-gray-600 ml-auto">{items.length}</span>
-                </div>
-                <div className="space-y-2 max-h-[400px] overflow-y-auto">
-                  {items.map(c => {
-                    const sem = calcularSemaforo(c.fecha_ultimo_contacto);
-                    return (
-                      <button
-                        key={c.id}
-                        onClick={() => onSelect(c)}
-                        className="w-full text-left p-2.5 rounded-xl bg-white/[0.03] border border-white/5 hover:border-white/10 hover:bg-white/[0.06] transition-all group"
-                      >
-                        <div className="flex items-center gap-2 mb-1">
-                          <div className={`w-1.5 h-1.5 rounded-full ${SEMAFORO_COLORS[sem]}`} />
-                          <p className="text-xs font-medium text-white truncate group-hover:text-emerald-400 transition-colors">{c.apellido_nombre}</p>
-                        </div>
-                        {c.situacion_actual && (
-                          <p className="text-[10px] text-gray-500 line-clamp-2 ml-3.5">{c.situacion_actual}</p>
-                        )}
-                      </button>
-                    );
-                  })}
-                  {items.length === 0 && (
-                    <p className="text-[10px] text-gray-600 text-center py-4">Vacío</p>
-                  )}
-                </div>
-              </div>
-            );
-          })}
-        </div>
+        <PrevisionalKanban clientes={clientes} onSelect={onSelect} />
       )}
     </div>
   );

@@ -117,7 +117,24 @@ Respondé en español argentino, formato JSON con claves:
     const data = await openaiRes.json();
     const content = data.choices?.[0]?.message?.content;
     const parsed = JSON.parse(content);
-    return res.status(200).json(parsed);
+
+    // Normalizar: GPT a veces devuelve campos como objetos en vez de strings/arrays,
+    // lo que causa React error #31 al renderizar. Forzamos los tipos esperados.
+    const toStr = (v: unknown): string | undefined =>
+      v == null ? undefined : typeof v === 'string' ? v : JSON.stringify(v);
+    const toStrArr = (v: unknown): string[] | undefined =>
+      Array.isArray(v) ? v.map(x => typeof x === 'string' ? x : JSON.stringify(x)) : undefined;
+
+    const safe: Record<string, unknown> = {};
+    if (parsed.resumen !== undefined)        safe.resumen        = toStr(parsed.resumen);
+    if (parsed.justificacion !== undefined)  safe.justificacion  = toStr(parsed.justificacion);
+    if (parsed.score !== undefined)          safe.score          = typeof parsed.score === 'number' ? parsed.score : undefined;
+    if (parsed.proximos_pasos !== undefined) safe.proximos_pasos = toStrArr(parsed.proximos_pasos) ?? [];
+    if (parsed.riesgos !== undefined)        safe.riesgos        = toStrArr(parsed.riesgos) ?? [];
+    if (parsed.ultimos_avances !== undefined) safe.ultimos_avances = toStrArr(parsed.ultimos_avances) ?? [];
+    if (parsed.alertas !== undefined)        safe.alertas        = toStrArr(parsed.alertas) ?? [];
+
+    return res.status(200).json(safe);
   } catch (err: any) {
     return res.status(500).json({ error: err.message || 'Error desconocido' });
   }

@@ -46,6 +46,14 @@ function CalculadoraTab({ cliente, aportes }: { cliente: ClientePrevisional; apo
   const edadJubilatoria = cliente.sexo === 'MUJER' ? 60 : 65;
   const aptoPorEdad = edad !== null ? edad >= edadJubilatoria : false;
 
+  // Fecha en que cumple la edad jubilatoria: calculada desde fecha_nacimiento si el campo DB está vacío
+  const fechaEdadJubStr: string | null = cliente.fecha_edad_jubilatoria || (() => {
+    if (!cliente.fecha_nacimiento) return null;
+    const d = new Date(cliente.fecha_nacimiento);
+    d.setFullYear(d.getFullYear() + edadJubilatoria);
+    return d.toISOString().split('T')[0];
+  })();
+
   return (
     <div className="space-y-4">
       <div className={`glass-card p-5 border ${califica && aptoPorEdad ? 'border-emerald-500/30 bg-emerald-500/[0.03]' : 'border-amber-500/20 bg-amber-500/[0.02]'}`}>
@@ -105,10 +113,10 @@ function CalculadoraTab({ cliente, aportes }: { cliente: ClientePrevisional; apo
           <p className={`text-2xl font-bold ${mesesFaltantes === 0 ? 'text-emerald-400' : 'text-amber-400'}`}>{mesesFaltantes}</p>
           <p className="text-[10px] text-gray-600">para 30 años de aportes</p>
         </div>
-        {cliente.fecha_edad_jubilatoria && (
+        {fechaEdadJubStr && (
           <div className="glass-card p-4">
             <p className="text-[10px] text-gray-500 uppercase mb-1">Fecha edad jubilatoria</p>
-            <p className="text-sm font-bold text-white">{formatFechaLocal(cliente.fecha_edad_jubilatoria)}</p>
+            <p className="text-sm font-bold text-white">{formatFechaLocal(fechaEdadJubStr)}</p>
           </div>
         )}
       </div>
