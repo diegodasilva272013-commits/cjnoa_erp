@@ -26,6 +26,8 @@ export default function CopilotoBtn({ tipo, datos, label }: CopilotoProps) {
   const synthRef = useRef<SpeechSynthesisUtterance | null>(null);
 
   async function analizar() {
+    // Prime speechSynthesis dentro del user gesture (antes del await)
+    try { window.speechSynthesis.cancel(); } catch (_) { /* noop */ }
     setLoading(true);
     setError(null);
     setResult(null);
