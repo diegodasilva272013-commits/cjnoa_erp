@@ -37,7 +37,7 @@ function PrevCard({ cliente, onSelect }: { cliente: ClientePrevisional; onSelect
       {...listeners}
       className="p-3 rounded-xl bg-white/[0.02] border border-white/[0.06] hover:bg-white/[0.06] hover:border-white/10 transition-all cursor-grab active:cursor-grabbing"
     >
-      <button className="w-full text-left" onClick={() => onSelect(cliente)} onPointerDown={e => e.stopPropagation()}>
+      <button className="w-full text-left" onClick={() => onSelect(cliente)}>
         <div className="flex items-start gap-2">
           <div className={`w-2 h-2 rounded-full mt-1 flex-shrink-0 ${SEMAFORO_COLORS[semaforo]}`} />
           <p className="text-xs font-medium text-white leading-tight">{cliente.apellido_nombre}</p>

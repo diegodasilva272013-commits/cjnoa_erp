@@ -170,9 +170,17 @@ export default function FichasList({ clientes, onSelect, onNew }: Props) {
                           ) : <span className="text-gray-600 text-xs">—</span>}
                         </td>
                         <td className="px-4 py-3 hidden xl:table-cell">
-                          {c.fecha_edad_jubilatoria ? (
-                            <span className="text-xs text-gray-300">{formatFechaLocal(c.fecha_edad_jubilatoria)}</span>
-                          ) : <span className="text-gray-600 text-xs">—</span>}
+                          {(() => {
+                            const fechaJub = c.fecha_edad_jubilatoria || (() => {
+                              if (!c.fecha_nacimiento) return null;
+                              const d = new Date(c.fecha_nacimiento);
+                              d.setFullYear(d.getFullYear() + (c.sexo === 'MUJER' ? 60 : 65));
+                              return d.toISOString().split('T')[0];
+                            })();
+                            return fechaJub
+                              ? <span className="text-xs text-gray-300">{formatFechaLocal(fechaJub)}</span>
+                              : <span className="text-gray-600 text-xs">—</span>;
+                          })()}
                         </td>
                         <td className="px-4 py-3">
                           <span className={`badge border ${PIPELINE_COLORS[c.pipeline]}`}>

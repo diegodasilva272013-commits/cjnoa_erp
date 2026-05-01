@@ -308,18 +308,43 @@ export function calcularResumenAportes(
 ): ResumenAportes {
   const totalMeses = aportes.reduce((acc, a) => acc + (a.total_meses || 0), 0);
 
-  // Simultáneos: usar override manual si existe, sino detectar por superposición de fechas.
-  // Al auto-detectar, solo cuenta overlaps contra aportes que NO están marcados
-  // explícitamente como NO simultáneos (meses_simultaneo === 0).
-  const mesesSimultaneos = aportes.reduce((acc, a) => {
-    if (a.meses_simultaneo != null) return acc + a.meses_simultaneo;
-    const esSimult = aportes.some(o =>
-      o.id !== a.id &&
-      o.meses_simultaneo !== 0 && // no contar contra aportes marcados como no-simult
-      o.fecha_desde <= a.fecha_hasta && o.fecha_hasta >= a.fecha_desde
-    );
-    return acc + (esSimult ? (a.total_meses || 0) : 0);
-  }, 0);
+  // Simultáneos: usar override manual si existe. Para los aportes sin override,
+  // calcular usando unión de intervalos: total_auto - union(fechas) = meses doble-contados.
+  // Esto evita que el aporte LARGO también sea marcado como simultáneo por el CORTO.
+  const mesesSimultaneos = (() => {
+    const manualTotal = aportes.reduce((acc, a) =>
+      a.meses_simultaneo != null ? acc + a.meses_simultaneo : acc, 0);
+
+    const autoAportes = aportes.filter(a => a.meses_simultaneo == null && a.fecha_desde && a.fecha_hasta);
+    if (autoAportes.length <= 1) return manualTotal;
+
+    const autoTotal = autoAportes.reduce((acc, a) => acc + (a.total_meses || 0), 0);
+
+    // Unión de intervalos para calcular cuántos meses únicos hay
+    const intervals = autoAportes
+      .map(a => ({ start: a.fecha_desde, end: a.fecha_hasta }))
+      .sort((a, b) => a.start.localeCompare(b.start));
+
+    const monthsBetween = (s: string, e: string) => {
+      const d = new Date(s), h = new Date(e);
+      return Math.max(0, (h.getFullYear() - d.getFullYear()) * 12 + (h.getMonth() - d.getMonth()) + 1);
+    };
+
+    let unionMonths = 0;
+    let cur = intervals[0];
+    for (let i = 1; i < intervals.length; i++) {
+      const nxt = intervals[i];
+      if (nxt.start <= cur.end) {
+        cur = { start: cur.start, end: nxt.end > cur.end ? nxt.end : cur.end };
+      } else {
+        unionMonths += monthsBetween(cur.start, cur.end);
+        cur = nxt;
+      }
+    }
+    unionMonths += monthsBetween(cur.start, cur.end);
+
+    return manualTotal + Math.max(0, autoTotal - unionMonths);
+  })();
 
   // Antes 09/93: usar override manual si existe, sino calcular desde fechas
   const calcMesesAntes = (desde: string, hasta: string): number => {

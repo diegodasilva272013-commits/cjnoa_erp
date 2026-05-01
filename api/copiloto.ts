@@ -28,10 +28,9 @@ Caso:
 Respondé en español argentino, de forma concisa y profesional. Formato JSON con claves: resumen, proximos_pasos (array), riesgos (array, puede estar vacío).`;
 
   } else if (tipo === 'analizar_previsional') {
-    prompt = `Sos un especialista en jubilaciones y previsión social argentina. Analizá el perfil del cliente y brindá:
-1. Diagnóstico del estado de su trámite jubilatorio
-2. Próximos pasos recomendados
-3. Puntos de atención o riesgos
+    prompt = `Sos un especialista en jubilaciones y previsión social argentina. Analizá el perfil del cliente y brindá un diagnóstico claro.
+
+IMPORTANTE: El campo "resumen" debe ser un PÁRRAFO DE TEXTO redactado, NO un objeto JSON ni una copia de los datos. Ejemplo correcto: "El cliente tiene 24 años de aportes laborales y necesita X meses más para acceder a la jubilación ordinaria. Está en etapa de seguimiento activo."
 
 Cliente:
 - Nombre: ${datos.apellido_nombre}
@@ -42,11 +41,16 @@ Cliente:
 - Meses laborados con aportes: ${datos.meses_laborados}
 - Meses moratoria (Ley 24476): ${datos.meses_moratoria_24476 || 0}
 - Meses moratoria (Ley 27705): ${datos.meses_moratoria_27705 || 0}
-- Total meses consolidados: ${datos.total_consolidado}
+- Total meses consolidados: ${datos.total_consolidado} de 360 necesarios
 - Resumen informe: ${datos.resumen_informe || 'Sin datos'}
 - Historial de avances: ${JSON.stringify(datos.historial || [])}
 
-Respondé en español argentino. Formato JSON con claves: resumen, proximos_pasos (array), riesgos (array).`;
+Respondé en español argentino. Formato JSON estricto con estas claves exactas:
+{
+  "resumen": "párrafo descriptivo del estado actual del trámite (NO copiar los datos de entrada)",
+  "proximos_pasos": ["acción 1", "acción 2", "acción 3"],
+  "riesgos": ["riesgo 1", "riesgo 2"]
+}`;
 
   } else if (tipo === 'calcular_score') {
     prompt = `Calculá un score de 0 a 100 sobre la probabilidad de éxito del trámite jubilatorio de este cliente.
