@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Plus, Trash2, Briefcase, AlertCircle, CheckCircle, ClipboardPaste, Loader2, Pencil, X } from 'lucide-react';
 import { AporteLaboral, calcularResumenAportes, SexoCliente, COSTO_MENSUAL_27705, formatFechaLocal } from '../../types/previsional';
 
@@ -7,6 +7,7 @@ interface Props {
   loading: boolean;
   hijos: number;
   sexo: SexoCliente | null;
+  meses24476?: number;
   onAdd: (a: Partial<AporteLaboral>) => Promise<boolean>;
   onRemove: (id: string) => Promise<boolean>;
   onUpdate: (id: string, a: Partial<AporteLaboral>) => Promise<boolean>;
@@ -24,7 +25,7 @@ function calcMesesAntes0993(desde: string, hasta: string): number {
   return Math.max(0, (hEfectivo.getFullYear() - d.getFullYear()) * 12 + (hEfectivo.getMonth() - d.getMonth()) + (hEfectivo.getDate() - d.getDate() > 15 ? 1 : 0));
 }
 
-export default function AportesTable({ aportes, loading, hijos, sexo, onAdd, onRemove, onUpdate, onRemoveAll }: Props) {
+export default function AportesTable({ aportes, loading, hijos, sexo, meses24476 = 0, onAdd, onRemove, onUpdate, onRemoveAll }: Props) {
   const [adding, setAdding] = useState(false);
   const [newAporte, setNewAporte] = useState({
     empleador: '',
@@ -199,8 +200,24 @@ export default function AportesTable({ aportes, loading, hijos, sexo, onAdd, onR
   };
 
   const resumen = sexo
-    ? calcularResumenAportes(aportes, hijos, sexo, 0)
+    ? calcularResumenAportes(aportes, hijos, sexo, 0, meses24476)
     : null;
+
+  // Formato años + meses: "17a 0m"
+  const fmtAM = (m: number): string => {
+    const a = Math.floor(Math.abs(m) / 12);
+    const mes = Math.abs(m) % 12;
+    return `${a}a ${mes}m`;
+  };
+
+  // Barra de progreso animada
+  const pct = resumen ? Math.min(100, (resumen.totalServicios / 360) * 100) : 0;
+  const [barWidth, setBarWidth] = useState(0);
+  useEffect(() => {
+    if (!resumen) return;
+    const t = setTimeout(() => setBarWidth(pct), 200);
+    return () => clearTimeout(t);
+  }, [pct, resumen]);
 
   const handleAdd = async () => {
     if (!newAporte.fecha_desde || !newAporte.fecha_hasta) return;
@@ -495,49 +512,138 @@ export default function AportesTable({ aportes, loading, hijos, sexo, onAdd, onR
         </div>
       )}
 
-      {/* Resumen de aportes */}
+      {/* ── Conclusión animada ── */}
       {resumen && aportes.length > 0 && (
-        <div className="glass-card p-4">
-          <h4 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Resumen de Servicios</h4>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            <div className="p-3 rounded-xl bg-white/[0.03] border border-white/5 text-center">
-              <p className="text-lg font-bold text-white">{resumen.totalMeses}</p>
-              <p className="text-[10px] text-gray-500">Total Meses</p>
+        <div className="glass-card overflow-hidden animate-slide-up">
+
+          {/* Header */}
+          <div className="px-5 py-3 border-b border-white/[0.06] flex items-center gap-2.5">
+            <div className="w-1.5 h-5 rounded-full bg-gradient-to-b from-blue-400 to-emerald-500 shadow-lg shadow-emerald-500/30" />
+            <h4 className="text-xs font-bold text-white/80 tracking-[0.15em] uppercase">Conclusión</h4>
+          </div>
+
+          <div className="p-4 space-y-2.5">
+
+            {/* ── Grid 2 col: acumulados (izq) · correcciones/info (der) ── */}
+            <div className="grid grid-cols-2 gap-2">
+
+              {/* Aportes historial neto */}
+              <div className="animate-slide-up p-3 rounded-xl bg-blue-500/5 border border-blue-500/10 flex flex-col gap-0.5" style={{ animationDelay: '0ms' }}>
+                <p className="text-[10px] text-gray-500 uppercase tracking-wide">Aportes</p>
+                <p className="text-base font-bold text-blue-300">{fmtAM(resumen.totalMeses - resumen.mesesSimultaneos)}</p>
+              </div>
+
+              {/* Simultáneos – informativos */}
+              <div className="animate-slide-up p-3 rounded-xl bg-rose-500/5 border border-rose-500/10 flex flex-col gap-0.5" style={{ animationDelay: '40ms' }}>
+                <p className="text-[10px] text-rose-400/70 uppercase tracking-wide">− Simultáneos</p>
+                <p className="text-base font-bold text-rose-300">{fmtAM(resumen.mesesSimultaneos)}</p>
+              </div>
+
+              {/* Moratoria 24.476 */}
+              <div className="animate-slide-up p-3 rounded-xl bg-amber-500/5 border border-amber-500/10 flex flex-col gap-0.5" style={{ animationDelay: '80ms' }}>
+                <p className="text-[10px] text-gray-500 uppercase tracking-wide">
+                  <span className="text-amber-400 mr-0.5">+</span>Moratoria 24.476
+                </p>
+                <p className="text-base font-bold text-amber-300">{fmtAM(resumen.meses24476)}</p>
+              </div>
+
+              {/* Antes 09/93 – informativo */}
+              <div className="animate-slide-up p-3 rounded-xl bg-rose-500/5 border border-rose-500/10 flex flex-col gap-0.5" style={{ animationDelay: '120ms' }}>
+                <p className="text-[10px] text-gray-500 uppercase tracking-wide">Antes 09/93</p>
+                <p className="text-base font-bold text-rose-200/60">{fmtAM(resumen.mesesAntes0993)}</p>
+              </div>
+
+              {/* Hijos – solo MUJER */}
+              {sexo === 'MUJER' && (
+                <>
+                  <div className="animate-slide-up p-3 rounded-xl bg-pink-500/5 border border-pink-500/10 flex flex-col gap-0.5" style={{ animationDelay: '160ms' }}>
+                    <p className="text-[10px] text-gray-500 uppercase tracking-wide">
+                      <span className="text-pink-400 mr-0.5">+</span>Hijos ({hijos})
+                    </p>
+                    <p className="text-base font-bold text-pink-300">{fmtAM(resumen.mesesHijos)}</p>
+                  </div>
+                  <div />
+                </>
+              )}
             </div>
-            <div className="p-3 rounded-xl bg-amber-500/5 border border-amber-500/10 text-center">
-              <p className="text-lg font-bold text-amber-400">-{resumen.mesesSimultaneos}</p>
-              <p className="text-[10px] text-gray-500">Simultáneos</p>
+
+            {/* ── Total strip ── */}
+            <div
+              className="animate-scale-in rounded-xl bg-gradient-to-r from-emerald-500/10 to-teal-500/5 border border-emerald-500/20 px-4 py-3 flex items-center justify-between"
+              style={{ animationDelay: '200ms' }}
+            >
+              <div>
+                <p className="text-[10px] text-emerald-400/60 font-medium uppercase tracking-widest mb-0.5">Total Aportes</p>
+                <p className="text-2xl font-bold text-emerald-300">{fmtAM(resumen.totalServicios)}</p>
+              </div>
+              <div className="text-right">
+                <p className="text-[10px] text-gray-600">de 30 años</p>
+                <p className="text-xl font-bold text-white/70">
+                  {pct.toFixed(0)}<span className="text-xs font-normal text-gray-500">%</span>
+                </p>
+              </div>
             </div>
-            <div className="p-3 rounded-xl bg-blue-500/5 border border-blue-500/10 text-center">
-              <p className="text-lg font-bold text-blue-400">{resumen.mesesAntes0993}</p>
-              <p className="text-[10px] text-gray-500">Antes 09/93</p>
+
+            {/* ── Barra de progreso animada ── */}
+            <div className="space-y-1 animate-fade-in" style={{ animationDelay: '240ms' }}>
+              <div className="h-3 rounded-full bg-white/[0.04] overflow-hidden">
+                <div
+                  className="h-full rounded-full bg-gradient-to-r from-blue-500 via-emerald-400 to-teal-400"
+                  style={{
+                    width: `${barWidth}%`,
+                    transition: 'width 1.5s cubic-bezier(0.34, 1.56, 0.64, 1)',
+                    boxShadow: '0 0 12px rgba(52,211,153,0.5)',
+                  }}
+                />
+              </div>
+              <div className="flex justify-between text-[9px] text-gray-700 px-0.5 select-none">
+                <span>0</span>
+                <span>10a</span>
+                <span>20a</span>
+                <span>30a</span>
+              </div>
             </div>
-            {sexo === 'MUJER' && (
-              <div className="p-3 rounded-xl bg-pink-500/5 border border-pink-500/10 text-center">
-                <p className="text-lg font-bold text-pink-400">+{resumen.mesesHijos}</p>
-                <p className="text-[10px] text-gray-500">Por Hijos ({hijos})</p>
+
+            {/* ── Falta / Completo ── */}
+            {resumen.faltanMeses > 0 ? (
+              <div
+                className="rounded-xl border border-red-500/15 bg-red-500/5 px-4 py-3 animate-slide-up"
+                style={{ animationDelay: '280ms' }}
+              >
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-[10px] font-bold text-red-400/80 uppercase tracking-widest">Falta · Ley 27.705</p>
+                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-red-500/10 border border-red-500/20 text-red-400 font-medium">
+                    {resumen.faltanMeses} cuotas
+                  </span>
+                </div>
+                <div className="flex items-end justify-between gap-4">
+                  <div>
+                    <p className="text-xl font-bold text-red-300">{fmtAM(resumen.faltanMeses)}</p>
+                    <p className="text-[10px] text-gray-600 mt-0.5">
+                      ${resumen.costoMensual27705.toLocaleString('es-AR', { maximumFractionDigits: 2 })}/cuota
+                    </p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-[10px] text-gray-500 mb-0.5">Total estimado</p>
+                    <p className="text-base font-bold text-white/80">
+                      ${resumen.costoTotal27705.toLocaleString('es-AR', { maximumFractionDigits: 0 })}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div
+                className="rounded-xl border border-emerald-500/15 bg-emerald-500/5 px-4 py-3 flex items-center gap-3 animate-scale-in"
+                style={{ animationDelay: '280ms' }}
+              >
+                <CheckCircle className="w-5 h-5 text-emerald-400 shrink-0" />
+                <div>
+                  <p className="text-sm font-bold text-emerald-300">¡Completo!</p>
+                  <p className="text-[10px] text-gray-500">Alcanza los 30 años de aportes</p>
+                </div>
               </div>
             )}
-            <div className="p-3 rounded-xl bg-emerald-500/5 border border-emerald-500/10 text-center">
-              <p className="text-lg font-bold text-emerald-400">{resumen.totalServicios}</p>
-              <p className="text-[10px] text-gray-500">Total Servicios</p>
-            </div>
-            <div className="p-3 rounded-xl bg-emerald-500/5 border border-emerald-500/10 text-center">
-              <p className="text-lg font-bold text-emerald-400">{resumen.totalAniosServicios}a</p>
-              <p className="text-[10px] text-gray-500">Años Servicios</p>
-            </div>
-            <div className={`p-3 rounded-xl text-center ${resumen.faltanMeses > 0 ? 'bg-red-500/5 border border-red-500/10' : 'bg-emerald-500/5 border border-emerald-500/10'}`}>
-              <p className={`text-lg font-bold ${resumen.faltanMeses > 0 ? 'text-red-400' : 'text-emerald-400'}`}>
-                {resumen.faltanMeses > 0 ? resumen.faltanMeses : '✓'}
-              </p>
-              <p className="text-[10px] text-gray-500">{resumen.faltanMeses > 0 ? 'Faltan Meses' : 'Completo'}</p>
-            </div>
-            {resumen.faltanMeses > 0 && (
-              <div className="p-3 rounded-xl bg-purple-500/5 border border-purple-500/10 text-center">
-                <p className="text-lg font-bold text-purple-400">${(resumen.costoTotal27705 / 1000000).toFixed(1)}M</p>
-                <p className="text-[10px] text-gray-500">Costo 27.705</p>
-              </div>
-            )}
+
           </div>
         </div>
       )}

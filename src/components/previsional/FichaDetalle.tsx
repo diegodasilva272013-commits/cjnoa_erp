@@ -412,7 +412,7 @@ export default function FichaDetalle({ cliente, onBack, onEdit, onDelete }: Prop
       <CrossLinkPanel clienteId={cliente.id} tipo="previsional" />
 
       {tab === 'aportes' && (
-        <AportesTable aportes={aportes} loading={loadAp} hijos={cliente.hijos} sexo={cliente.sexo as SexoCliente} onAdd={addAporte} onRemove={removeAporte} onUpdate={updateAporte} onRemoveAll={removeAllAportes} />
+        <AportesTable aportes={aportes} loading={loadAp} hijos={cliente.hijos} sexo={cliente.sexo as SexoCliente} meses24476={cliente.meses_moratoria_24476 || 0} onAdd={addAporte} onRemove={removeAporte} onUpdate={updateAporte} onRemoveAll={removeAllAportes} />
       )}
       {tab === 'historial' && <HistorialTimeline avances={avances} loading={loadHist} onAdd={addAvance} />}
       {tab === 'tareas' && (

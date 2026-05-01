@@ -155,6 +155,7 @@ export interface ResumenAportes {
   mesesSimultaneos: number;
   mesesAntes0993: number;
   mesesHijos: number;
+  meses24476: number;
   totalServicios: number;
   totalAniosServicios: number;
   faltanMeses: number;
@@ -301,7 +302,8 @@ export function calcularResumenAportes(
   aportes: AporteLaboral[],
   hijos: number,
   sexo: SexoCliente,
-  mesesAntes0993Moratoria: number
+  mesesAntes0993Moratoria: number,
+  meses24476: number = 0
 ): ResumenAportes {
   const totalMeses = aportes.reduce((acc, a) => acc + (a.total_meses || 0), 0);
 
@@ -328,9 +330,9 @@ export function calcularResumenAportes(
   // Hijos solo para mujeres (1 año = 12 meses por hijo)
   const mesesHijos = sexo === 'MUJER' ? hijos * 12 : 0;
 
-  // Total real = total - simultáneos
+  // Total real = total - simultáneos + moratoria 24476 + hijos (mujer)
   const totalReal = totalMeses - mesesSimultaneos;
-  const totalServicios = totalReal + mesesHijos;
+  const totalServicios = totalReal + meses24476 + mesesHijos;
 
   // Faltan para 30 años (360 meses)
   const faltanMeses = Math.max(0, 360 - totalServicios);
@@ -341,6 +343,7 @@ export function calcularResumenAportes(
     mesesSimultaneos,
     mesesAntes0993,
     mesesHijos,
+    meses24476,
     totalServicios,
     totalAniosServicios: Math.floor(totalServicios / 12),
     faltanMeses,
