@@ -46,6 +46,10 @@ export default function AportesTable({ aportes, loading, hijos, sexo, meses24476
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState<Partial<AporteLaboral>>({});
 
+  // Actualizaciones optimistas para toggles inline (reflejan el cambio antes de que la DB confirme)
+  const [pendingUpdates, setPendingUpdates] = useState<Record<string, Partial<AporteLaboral>>>({});
+  useEffect(() => { setPendingUpdates({}); }, [aportes]);
+
   const startEdit = (a: AporteLaboral) => {
     const mesesAntes = calcMesesAntes0993(a.fecha_desde, a.fecha_hasta);
     const esSimultCalc = aportes.some(
@@ -211,17 +215,33 @@ export default function AportesTable({ aportes, loading, hijos, sexo, meses24476
     setTimeout(() => { setImportResult(null); setShowPaste(false); }, 3000);
   };
 
-  // Preview en tiempo real: aplica editForm al aporte que se está editando
-  const previewAportes = editingId
-    ? aportes.map(a => a.id === editingId
-        ? {
-            ...a,
-            ...editForm,
-            meses_antes_0993: editForm.es_antes_0993 ? (editForm.meses_antes_0993 ?? null) : 0,
-            meses_simultaneo: editForm.es_simultaneo ? (editForm.meses_simultaneo ?? null) : 0,
-          } as typeof a
-        : a)
-    : aportes;
+  // Preview en tiempo real: aplica editForm (si hay fila en edición) o pendingUpdates (toggles inline)
+  const previewAportes = aportes.map(a => {
+    if (editingId === a.id) return {
+      ...a,
+      ...editForm,
+      meses_antes_0993: editForm.es_antes_0993 ? (editForm.meses_antes_0993 ?? null) : 0,
+      meses_simultaneo: editForm.es_simultaneo ? (editForm.meses_simultaneo ?? null) : 0,
+    } as typeof a;
+    if (pendingUpdates[a.id]) return { ...a, ...pendingUpdates[a.id] } as typeof a;
+    return a;
+  });
+
+  // Helpers para toggles inline: actualiza optimistamente + persiste en DB
+  const toggleSimultaneo = (a: AporteLaboral) => {
+    const upd = a.es_simultaneo
+      ? { es_simultaneo: false, meses_simultaneo: 0 }
+      : { es_simultaneo: true, meses_simultaneo: null as null };
+    setPendingUpdates(p => ({ ...p, [a.id]: { ...p[a.id], ...upd } }));
+    onUpdate(a.id, upd);
+  };
+  const toggleAntes0993 = (a: AporteLaboral) => {
+    const upd = a.es_antes_0993
+      ? { es_antes_0993: false, meses_antes_0993: 0 }
+      : { es_antes_0993: true, meses_antes_0993: null as null };
+    setPendingUpdates(p => ({ ...p, [a.id]: { ...p[a.id], ...upd } }));
+    onUpdate(a.id, upd);
+  };
 
   const resumen = sexo
     ? calcularResumenAportes(previewAportes, hijos, sexo, 0, meses24476)
@@ -421,7 +441,7 @@ export default function AportesTable({ aportes, loading, hijos, sexo, meses24476
               </tr>
             </thead>
             <tbody>
-              {aportes.map(a => {
+              {previewAportes.map(a => {
                 // Siempre calcular desde fechas; meses_antes_0993/meses_simultaneo son overrides manuales
                 const mesesAntesCalc = calcMesesAntes0993(a.fecha_desde, a.fecha_hasta);
                 const esSimultCalc = aportes.some(o => o.id !== a.id && o.fecha_desde <= a.fecha_hasta && o.fecha_hasta >= a.fecha_desde);
@@ -516,10 +536,7 @@ export default function AportesTable({ aportes, loading, hijos, sexo, meses24476
                     {/* Antes 09/93 — clic para toggle */}
                     <td className="py-2.5 px-3 text-center">
                       <button
-                        onClick={() => onUpdate(a.id, a.es_antes_0993
-                          ? { es_antes_0993: false, meses_antes_0993: 0 }
-                          : { es_antes_0993: true, meses_antes_0993: null }
-                        )}
+                        onClick={() => toggleAntes0993(a)}
                         title={a.es_antes_0993 ? 'Quitar marca Antes 09/93' : 'Marcar como Antes 09/93'}
                         className={`px-2 py-0.5 rounded-md text-xs font-mono font-medium transition-colors ${
                           a.es_antes_0993
@@ -533,10 +550,7 @@ export default function AportesTable({ aportes, loading, hijos, sexo, meses24476
                     {/* Simultáneo — clic para toggle */}
                     <td className="py-2.5 px-3 text-center">
                       <button
-                        onClick={() => onUpdate(a.id, a.es_simultaneo
-                          ? { es_simultaneo: false, meses_simultaneo: 0 }
-                          : { es_simultaneo: true, meses_simultaneo: null }
-                        )}
+                        onClick={() => toggleSimultaneo(a)}
                         title={a.es_simultaneo ? 'Quitar marca Simultáneo' : 'Marcar como Simultáneo'}
                         className={`px-2 py-0.5 rounded-md text-xs font-mono font-medium transition-colors ${
                           a.es_simultaneo
