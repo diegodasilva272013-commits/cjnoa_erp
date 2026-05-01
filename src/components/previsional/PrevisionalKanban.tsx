@@ -84,6 +84,9 @@ export default function PrevisionalKanban({ clientes, onSelect, onRefetch }: Pro
     (acc, p) => { acc[p] = items.filter(c => c.pipeline === p); return acc; },
     {} as Record<PipelinePrevisional, ClientePrevisional[]>
   );
+  // Clientes con pipeline null/inválido van a 'consulta'
+  const invalid = items.filter(c => !ORDERED_PIPELINES.includes(c.pipeline as PipelinePrevisional));
+  if (invalid.length > 0) grouped['consulta'] = [...(grouped['consulta'] || []), ...invalid];
 
   async function handleDragEnd(e: DragEndEvent) {
     const { active, over } = e;
@@ -116,7 +119,7 @@ export default function PrevisionalKanban({ clientes, onSelect, onRefetch }: Pro
       onDragCancel={() => setActiveId(null)}>
       <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-3">
         {ORDERED_PIPELINES.map(pipeline => (
-          <DropColumn key={pipeline} pipeline={pipeline} styles={COLUMN_STYLES[pipeline]} count={grouped[pipeline].length}>
+          <DropColumn key={pipeline} pipeline={pipeline} styles={COLUMN_STYLES[pipeline] ?? COLUMN_STYLES['consulta']} count={grouped[pipeline].length}>
             {grouped[pipeline].length === 0
               ? <p className="text-[10px] text-gray-600 text-center py-6">Sin clientes</p>
               : grouped[pipeline].map(c => <DraggableCard key={c.id} cliente={c} onSelect={onSelect} />)
