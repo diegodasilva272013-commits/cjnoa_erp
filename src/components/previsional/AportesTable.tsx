@@ -211,8 +211,20 @@ export default function AportesTable({ aportes, loading, hijos, sexo, meses24476
     setTimeout(() => { setImportResult(null); setShowPaste(false); }, 3000);
   };
 
+  // Preview en tiempo real: aplica editForm al aporte que se está editando
+  const previewAportes = editingId
+    ? aportes.map(a => a.id === editingId
+        ? {
+            ...a,
+            ...editForm,
+            meses_antes_0993: editForm.es_antes_0993 ? (editForm.meses_antes_0993 ?? null) : 0,
+            meses_simultaneo: editForm.es_simultaneo ? (editForm.meses_simultaneo ?? null) : 0,
+          } as typeof a
+        : a)
+    : aportes;
+
   const resumen = sexo
-    ? calcularResumenAportes(aportes, hijos, sexo, 0, meses24476)
+    ? calcularResumenAportes(previewAportes, hijos, sexo, 0, meses24476)
     : null;
 
   // Formato años + meses: "17a 0m"
