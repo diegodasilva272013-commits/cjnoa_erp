@@ -66,7 +66,19 @@ export default function AportesTable({ aportes, loading, hijos, sexo, meses24476
   const cancelEdit = () => { setEditingId(null); setEditForm({}); };
   const saveEdit = async () => {
     if (!editingId) return;
-    const ok = await onUpdate(editingId, editForm);
+    // Cuando el toggle es NO, guardar 0 explícito para que calcularResumenAportes
+    // no caiga en el fallback automático (que detectaría superposición de todas formas).
+    // Cuando el toggle es SÍ sin override manual, guardar null (usa cálculo automático).
+    const payload: Partial<AporteLaboral> = {
+      ...editForm,
+      meses_antes_0993: editForm.es_antes_0993
+        ? (editForm.meses_antes_0993 ?? null)
+        : 0,
+      meses_simultaneo: editForm.es_simultaneo
+        ? (editForm.meses_simultaneo ?? null)
+        : 0,
+    };
+    const ok = await onUpdate(editingId, payload);
     if (ok) { setEditingId(null); setEditForm({}); }
   };
 
@@ -218,6 +230,18 @@ export default function AportesTable({ aportes, loading, hijos, sexo, meses24476
     const t = setTimeout(() => setBarWidth(pct), 200);
     return () => clearTimeout(t);
   }, [pct, resumen]);
+
+  // Gauge SVG
+  const gaugeR = 68;
+  const gaugeCirc = 2 * Math.PI * gaugeR;
+  const gaugeArcLen = gaugeCirc * barWidth / 100;
+
+  // Filas del breakdown
+  const conclusionRows: { label: string; meses: number; color: string; tw: string }[] = resumen ? [
+    { label: 'Aportes', meses: resumen.totalMeses - resumen.mesesSimultaneos, color: '#60a5fa', tw: 'from-blue-500 to-blue-400' },
+    { label: 'Moratoria 24.476', meses: meses24476, color: '#fbbf24', tw: 'from-amber-500 to-amber-400' },
+    ...(sexo === 'MUJER' && hijos > 0 ? [{ label: `Hijos (${hijos})`, meses: resumen.mesesHijos, color: '#f472b6', tw: 'from-pink-500 to-pink-400' }] : []),
+  ] : [];
 
   const handleAdd = async () => {
     if (!newAporte.fecha_desde || !newAporte.fecha_hasta) return;

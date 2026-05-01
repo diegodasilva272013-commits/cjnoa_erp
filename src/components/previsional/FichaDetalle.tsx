@@ -7,7 +7,7 @@ import {
 import {
   ClientePrevisional, SexoCliente, TareaPrevisional, Audiencia,
   PIPELINE_LABELS, PIPELINE_COLORS, calcularSemaforo, SEMAFORO_COLORS,
-  PRIORIDAD_LABELS, ESTADO_TAREA_LABELS, formatFechaLocal,
+  PRIORIDAD_LABELS, ESTADO_TAREA_LABELS, formatFechaLocal, calcularMoratoria,
 } from '../../types/previsional';
 import { useAportesLaborales, useHistorialAvances, useTareasPrevisional, useAudiencias } from '../../hooks/usePrevisional';
 import { useDocumentos, uploadDocumento, deleteDocumento, downloadDocumento } from '../../hooks/useDocumentos';
@@ -412,7 +412,19 @@ export default function FichaDetalle({ cliente, onBack, onEdit, onDelete }: Prop
       <CrossLinkPanel clienteId={cliente.id} tipo="previsional" />
 
       {tab === 'aportes' && (
-        <AportesTable aportes={aportes} loading={loadAp} hijos={cliente.hijos} sexo={cliente.sexo as SexoCliente} meses24476={cliente.meses_moratoria_24476 || 0} onAdd={addAporte} onRemove={removeAporte} onUpdate={updateAporte} onRemoveAll={removeAllAportes} />
+        <AportesTable
+          aportes={aportes}
+          loading={loadAp}
+          hijos={cliente.hijos}
+          sexo={cliente.sexo as SexoCliente}
+          meses24476={cliente.fecha_nacimiento && cliente.sexo
+            ? calcularMoratoria(cliente.fecha_nacimiento, cliente.sexo as SexoCliente).meses24476
+            : 0}
+          onAdd={addAporte}
+          onRemove={removeAporte}
+          onUpdate={updateAporte}
+          onRemoveAll={removeAllAportes}
+        />
       )}
       {tab === 'historial' && <HistorialTimeline avances={avances} loading={loadHist} onAdd={addAvance} />}
       {tab === 'tareas' && (
