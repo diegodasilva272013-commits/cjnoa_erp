@@ -225,6 +225,10 @@ export default function AportesTable({ aportes, loading, hijos, sexo, meses24476
   // Animación gauge + contador %
   const pct = resumen ? Math.min(100, (resumen.totalServicios / 360) * 100) : 0;
   const gaugeCirc = 2 * Math.PI * 62;
+  // Dispara animación ante cualquier cambio en los valores de conclusión
+  const resumenKey = resumen
+    ? `${resumen.totalServicios}|${resumen.mesesSimultaneos}|${resumen.meses24476Net}|${resumen.mesesHijos}|${resumen.mesesAntes0993}`
+    : '';
   const [barWidth, setBarWidth] = useState(0);
   const [displayPct, setDisplayPct] = useState(0);
   const [animKey, setAnimKey] = useState(0);
@@ -232,7 +236,7 @@ export default function AportesTable({ aportes, loading, hijos, sexo, meses24476
     if (!resumen) return;
     setBarWidth(0);
     setDisplayPct(0);
-    setAnimKey(k => k + 1); // fuerza re-mount de los elementos animados
+    setAnimKey(k => k + 1);
     const t = setTimeout(() => setBarWidth(pct), 80);
     let frame = 0;
     const frames = 60;
@@ -244,7 +248,7 @@ export default function AportesTable({ aportes, loading, hijos, sexo, meses24476
     }, 16);
     return () => { clearTimeout(t); clearInterval(raf); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [resumen?.totalServicios]);
+  }, [resumenKey]);
 
   const gaugeOffset = gaugeCirc * (1 - barWidth / 100);
 

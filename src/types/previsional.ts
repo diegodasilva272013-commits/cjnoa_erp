@@ -308,10 +308,16 @@ export function calcularResumenAportes(
 ): ResumenAportes {
   const totalMeses = aportes.reduce((acc, a) => acc + (a.total_meses || 0), 0);
 
-  // Simultáneos: usar override manual si existe, sino detectar por superposición de fechas
+  // Simultáneos: usar override manual si existe, sino detectar por superposición de fechas.
+  // Al auto-detectar, solo cuenta overlaps contra aportes que NO están marcados
+  // explícitamente como NO simultáneos (meses_simultaneo === 0).
   const mesesSimultaneos = aportes.reduce((acc, a) => {
     if (a.meses_simultaneo != null) return acc + a.meses_simultaneo;
-    const esSimult = aportes.some(o => o.id !== a.id && o.fecha_desde <= a.fecha_hasta && o.fecha_hasta >= a.fecha_desde);
+    const esSimult = aportes.some(o =>
+      o.id !== a.id &&
+      o.meses_simultaneo !== 0 && // no contar contra aportes marcados como no-simult
+      o.fecha_desde <= a.fecha_hasta && o.fecha_hasta >= a.fecha_desde
+    );
     return acc + (esSimult ? (a.total_meses || 0) : 0);
   }, 0);
 
