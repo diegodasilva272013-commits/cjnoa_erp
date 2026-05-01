@@ -276,10 +276,6 @@ export default function CopilotoBtn({ tipo, datos, label }: CopilotoProps) {
   );
 }
 
-
-interface AnalisisResult {
-  resumen?: string;
-  proximos_pasos?: string[];
   riesgos?: string[];
   score?: number;
   justificacion?: string;

@@ -11,12 +11,15 @@ import { supabase } from '../../lib/supabase';
 const ORDERED_PIPELINES: PipelinePrevisional[] = ['seguimiento', 'jubi_especiales', 'ucap', 'jubi_ordinarias', 'finalizado', 'descartado'];
 
 const COLUMN_STYLES: Record<PipelinePrevisional, { border: string; badge: string; dot: string }> = {
-  consulta:    { border: 'border-t-blue-500',    badge: 'bg-blue-500/10 text-blue-400',    dot: 'bg-blue-500' },
-  seguimiento: { border: 'border-t-amber-500',   badge: 'bg-amber-500/10 text-amber-400',  dot: 'bg-amber-500' },
-  ingreso:     { border: 'border-t-purple-500',  badge: 'bg-purple-500/10 text-purple-400',dot: 'bg-purple-500' },
-  cobro:       { border: 'border-t-emerald-500', badge: 'bg-emerald-500/10 text-emerald-400', dot: 'bg-emerald-500' },
-  finalizado:  { border: 'border-t-gray-500',    badge: 'bg-gray-500/10 text-gray-400',    dot: 'bg-gray-500' },
-  descartado:  { border: 'border-t-red-500',     badge: 'bg-red-500/10 text-red-400',      dot: 'bg-red-500' },
+  consulta:        { border: 'border-t-blue-500',    badge: 'bg-blue-500/10 text-blue-400',    dot: 'bg-blue-500' },
+  seguimiento:     { border: 'border-t-amber-500',   badge: 'bg-amber-500/10 text-amber-400',  dot: 'bg-amber-500' },
+  ingreso:         { border: 'border-t-purple-500',  badge: 'bg-purple-500/10 text-purple-400',dot: 'bg-purple-500' },
+  cobro:           { border: 'border-t-emerald-500', badge: 'bg-emerald-500/10 text-emerald-400', dot: 'bg-emerald-500' },
+  jubi_especiales: { border: 'border-t-violet-500',  badge: 'bg-violet-500/10 text-violet-400', dot: 'bg-violet-500' },
+  ucap:            { border: 'border-t-cyan-500',    badge: 'bg-cyan-500/10 text-cyan-400',    dot: 'bg-cyan-500' },
+  jubi_ordinarias: { border: 'border-t-sky-500',     badge: 'bg-sky-500/10 text-sky-400',      dot: 'bg-sky-500' },
+  finalizado:      { border: 'border-t-gray-500',    badge: 'bg-gray-500/10 text-gray-400',    dot: 'bg-gray-500' },
+  descartado:      { border: 'border-t-red-500',     badge: 'bg-red-500/10 text-red-400',      dot: 'bg-red-500' },
 };
 
 interface Props {
