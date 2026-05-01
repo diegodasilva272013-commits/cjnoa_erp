@@ -89,11 +89,22 @@ export default function PrevisionalKanban({ clientes, onSelect, onRefetch }: Pro
     const { active, over } = e;
     setActiveId(null);
     if (!over) return;
-    const newPipeline = over.id as PipelinePrevisional;
-    if (!ORDERED_PIPELINES.includes(newPipeline)) return;
+
+    // over.id puede ser el id de una columna (string pipeline) o el id de otra card (UUID)
+    let newPipeline: PipelinePrevisional | null = null;
+    if (ORDERED_PIPELINES.includes(over.id as PipelinePrevisional)) {
+      newPipeline = over.id as PipelinePrevisional;
+    } else {
+      // Soltó encima de una card → usar el pipeline de esa card
+      const overCard = items.find(c => c.id === over.id);
+      if (overCard) newPipeline = overCard.pipeline as PipelinePrevisional;
+    }
+
+    if (!newPipeline) return;
     const card = items.find(c => c.id === active.id);
     if (!card || card.pipeline === newPipeline) return;
-    setItems(prev => prev.map(c => c.id === active.id ? { ...c, pipeline: newPipeline } : c));
+
+    setItems(prev => prev.map(c => c.id === active.id ? { ...c, pipeline: newPipeline! } : c));
     await supabase.from('clientes_previsional').update({ pipeline: newPipeline }).eq('id', active.id);
     onRefetch?.();
   }
