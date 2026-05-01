@@ -49,9 +49,10 @@ function CalculadoraTab({ cliente, aportes }: { cliente: ClientePrevisional; apo
   // Fecha en que cumple la edad jubilatoria: calculada desde fecha_nacimiento si el campo DB está vacío
   const fechaEdadJubStr: string | null = cliente.fecha_edad_jubilatoria || (() => {
     if (!cliente.fecha_nacimiento) return null;
-    const d = new Date(cliente.fecha_nacimiento);
-    d.setFullYear(d.getFullYear() + edadJubilatoria);
-    return d.toISOString().split('T')[0];
+    const m = cliente.fecha_nacimiento.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (!m) return null;
+    const y = parseInt(m[1], 10) + edadJubilatoria;
+    return `${String(y).padStart(4,'0')}-${m[2]}-${m[3]}`;
   })();
 
   return (
