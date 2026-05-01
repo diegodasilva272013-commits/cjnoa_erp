@@ -437,7 +437,7 @@ export default function AportesTable({ aportes, loading, hijos, sexo, meses24476
                 <th className="text-left text-[10px] text-gray-500 uppercase tracking-wider py-2 px-3">Empleador</th>
                 <th className="text-left text-[10px] text-gray-500 uppercase tracking-wider py-2 px-3">Desde</th>
                 <th className="text-left text-[10px] text-gray-500 uppercase tracking-wider py-2 px-3">Hasta</th>
-                <th className="text-center text-[10px] text-gray-500 uppercase tracking-wider py-2 px-3">Meses</th>
+                <th className="text-center text-[10px] text-gray-500 uppercase tracking-wider py-2 px-3">Duración</th>
                 <th className="text-center text-[10px] text-gray-500 uppercase tracking-wider py-2 px-3">Antes 09/93</th>
                 <th className="text-center text-[10px] text-gray-500 uppercase tracking-wider py-2 px-3">Simult.</th>
                 <th className="w-16"></th>
@@ -535,7 +535,7 @@ export default function AportesTable({ aportes, loading, hijos, sexo, meses24476
                     <td className="py-2.5 px-3 text-white font-medium">{a.empleador || '—'}</td>
                     <td className="py-2.5 px-3 text-gray-400">{formatFechaLocal(a.fecha_desde)}</td>
                     <td className="py-2.5 px-3 text-gray-400">{formatFechaLocal(a.fecha_hasta)}</td>
-                    <td className="py-2.5 px-3 text-center text-white font-mono">{a.total_meses}</td>
+                    <td className="py-2.5 px-3 text-center text-white font-mono whitespace-nowrap">{Math.floor(a.total_meses / 12)}a {a.total_meses % 12}m</td>
                     {/* Antes 09/93 — clic para toggle */}
                     <td className="py-2.5 px-3 text-center">
                       <button

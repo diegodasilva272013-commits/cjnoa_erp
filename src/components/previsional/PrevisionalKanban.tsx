@@ -44,8 +44,8 @@ function DraggableCard({ cliente, onSelect }: { cliente: ClientePrevisional; onS
           <p className="text-xs font-medium text-white leading-tight">{cliente.apellido_nombre}</p>
         </div>
         {cliente.captado_por && <p className="text-[10px] text-gray-600 mt-1 truncate pl-4">{cliente.captado_por}</p>}
-        {cliente.cobro_total > 0 && <p className="text-[10px] text-emerald-400 font-medium mt-1 pl-4">${{cliente.cobro_total.toLocaleString('es-AR')}}</p>}
-        {cliente.saldo_pendiente > 0 && <p className="text-[10px] text-amber-400 mt-0.5 pl-4">Pend. ${{cliente.saldo_pendiente.toLocaleString('es-AR')}}</p>}
+        {cliente.cobro_total > 0 && <p className="text-[10px] text-emerald-400 font-medium mt-1 pl-4">${cliente.cobro_total.toLocaleString('es-AR')}</p>}
+        {cliente.saldo_pendiente > 0 && <p className="text-[10px] text-amber-400 mt-0.5 pl-4">Pend. ${cliente.saldo_pendiente.toLocaleString('es-AR')}</p>}
       </button>
     </div>
   );
