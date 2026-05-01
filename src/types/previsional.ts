@@ -3,7 +3,7 @@
 // Centro Jurídico NOA - ERP
 // ============================================
 
-export type PipelinePrevisional = 'seguimiento' | 'jubi_especiales' | 'ucap' | 'jubi_ordinarias' | 'finalizado' | 'descartado';
+export type PipelinePrevisional = 'consulta' | 'seguimiento' | 'ingreso' | 'cobro' | 'jubi_especiales' | 'ucap' | 'jubi_ordinarias' | 'finalizado' | 'descartado';
 
 export type SubEstadoPrevisional =
   | 'EN PROCESO'
@@ -167,7 +167,10 @@ export interface ResumenAportes {
 
 // ── Constantes ──
 export const PIPELINE_LABELS: Record<PipelinePrevisional, string> = {
+  consulta: 'Consulta',
   seguimiento: 'Seguimiento',
+  ingreso: 'Ingreso',
+  cobro: 'Cobro',
   jubi_especiales: 'Jubilaciones Especiales',
   ucap: 'UCAP',
   jubi_ordinarias: 'Jubi Ordinarias',
@@ -176,19 +179,25 @@ export const PIPELINE_LABELS: Record<PipelinePrevisional, string> = {
 };
 
 export const PIPELINE_COLORS: Record<PipelinePrevisional, string> = {
+  consulta: 'bg-blue-500/10 text-blue-400 border-blue-500/20',
   seguimiento: 'bg-amber-500/10 text-amber-400 border-amber-500/20',
-  jubi_especiales: 'bg-purple-500/10 text-purple-400 border-purple-500/20',
+  ingreso: 'bg-purple-500/10 text-purple-400 border-purple-500/20',
+  cobro: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20',
+  jubi_especiales: 'bg-violet-500/10 text-violet-400 border-violet-500/20',
   ucap: 'bg-cyan-500/10 text-cyan-400 border-cyan-500/20',
-  jubi_ordinarias: 'bg-blue-500/10 text-blue-400 border-blue-500/20',
+  jubi_ordinarias: 'bg-sky-500/10 text-sky-400 border-sky-500/20',
   finalizado: 'bg-gray-500/10 text-gray-400 border-gray-500/20',
   descartado: 'bg-red-500/10 text-red-400 border-red-500/20',
 };
 
 export const PIPELINE_GRADIENT: Record<PipelinePrevisional, string> = {
+  consulta: 'from-blue-500 to-blue-600',
   seguimiento: 'from-amber-500 to-amber-600',
-  jubi_especiales: 'from-purple-500 to-purple-600',
+  ingreso: 'from-purple-500 to-purple-600',
+  cobro: 'from-emerald-500 to-emerald-600',
+  jubi_especiales: 'from-violet-500 to-violet-600',
   ucap: 'from-cyan-500 to-cyan-600',
-  jubi_ordinarias: 'from-blue-500 to-blue-600',
+  jubi_ordinarias: 'from-sky-500 to-sky-600',
   finalizado: 'from-gray-500 to-gray-600',
   descartado: 'from-red-500 to-red-600',
 };
