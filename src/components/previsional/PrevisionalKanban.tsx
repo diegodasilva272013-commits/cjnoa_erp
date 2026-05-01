@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import {
   DndContext, DragEndEvent, DragOverEvent, DragStartEvent,
-  PointerSensor, useSensor, useSensors, closestCenter, DragOverlay,
+  PointerSensor, useSensor, useSensors, pointerWithin, rectIntersection,
+  DragOverlay, useDroppable,
 } from '@dnd-kit/core';
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
@@ -26,6 +27,29 @@ interface Props {
   clientes: ClientePrevisional[];
   onSelect: (c: ClientePrevisional) => void;
   onRefetch?: () => void;
+}
+
+function DroppableColumn({ pipeline, styles, count, children }: {
+  pipeline: PipelinePrevisional;
+  styles: typeof COLUMN_STYLES[PipelinePrevisional];
+  count: number;
+  children: React.ReactNode;
+}) {
+  const { setNodeRef, isOver } = useDroppable({ id: pipeline });
+  return (
+    <div className={`glass-card p-0 overflow-hidden border-t-2 ${styles.border} transition-all ${isOver ? 'ring-1 ring-white/20' : ''}`}>
+      <div className="px-3 py-2.5 flex items-center justify-between border-b border-white/[0.06]">
+        <div className="flex items-center gap-2 min-w-0">
+          <div className={`w-2 h-2 rounded-full flex-shrink-0 ${styles.dot}`} />
+          <h3 className="text-xs font-semibold text-white truncate">{PIPELINE_LABELS[pipeline]}</h3>
+        </div>
+        <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium flex-shrink-0 ml-1 ${styles.badge}`}>{count}</span>
+      </div>
+      <div ref={setNodeRef} className="p-2 space-y-2 min-h-[60px] max-h-[65vh] overflow-y-auto">
+        {children}
+      </div>
+    </div>
+  );
 }
 
 function PrevCard({ cliente, onSelect }: { cliente: ClientePrevisional; onSelect: (c: ClientePrevisional) => void }) {
@@ -96,29 +120,29 @@ export default function PrevisionalKanban({ clientes, onSelect, onRefetch }: Pro
   }
 
   return (
-    <DndContext sensors={sensors} collisionDetection={closestCenter} onDragStart={handleDragStart} onDragOver={handleDragOver} onDragEnd={handleDragEnd}>
+    <DndContext
+      sensors={sensors}
+      collisionDetection={(args) => {
+        const pw = pointerWithin(args);
+        return pw.length > 0 ? pw : rectIntersection(args);
+      }}
+      onDragStart={handleDragStart}
+      onDragOver={handleDragOver}
+      onDragEnd={handleDragEnd}
+    >
       <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
         {ORDERED_PIPELINES.map(pipeline => {
           const colItems = grouped[pipeline];
           const styles = COLUMN_STYLES[pipeline];
           return (
-            <div key={pipeline} id={pipeline} className={`glass-card p-0 overflow-hidden border-t-2 ${styles.border}`}>
-              <div className="px-3 py-2.5 flex items-center justify-between border-b border-white/[0.06]">
-                <div className="flex items-center gap-2 min-w-0">
-                  <div className={`w-2 h-2 rounded-full flex-shrink-0 ${styles.dot}`} />
-                  <h3 className="text-xs font-semibold text-white truncate">{PIPELINE_LABELS[pipeline]}</h3>
-                </div>
-                <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium flex-shrink-0 ml-1 ${styles.badge}`}>{colItems.length}</span>
-              </div>
+            <DroppableColumn key={pipeline} pipeline={pipeline} styles={styles} count={colItems.length}>
               <SortableContext items={colItems.map(c => c.id)} strategy={verticalListSortingStrategy}>
-                <div className="p-2 space-y-2 max-h-[65vh] overflow-y-auto">
-                  {colItems.length === 0
-                    ? <p className="text-[10px] text-gray-600 text-center py-6">Sin clientes</p>
-                    : colItems.map(c => <PrevCard key={c.id} cliente={c} onSelect={onSelect} />)
-                  }
-                </div>
+                {colItems.length === 0
+                  ? <p className="text-[10px] text-gray-600 text-center py-6">Sin clientes</p>
+                  : colItems.map(c => <PrevCard key={c.id} cliente={c} onSelect={onSelect} />)
+                }
               </SortableContext>
-            </div>
+            </DroppableColumn>
           );
         })}
       </div>
