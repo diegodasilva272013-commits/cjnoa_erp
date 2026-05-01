@@ -221,7 +221,8 @@ export default function AportesTable({ aportes, loading, hijos, sexo, meses24476
       ...a,
       ...editForm,
       meses_antes_0993: editForm.es_antes_0993 ? (editForm.meses_antes_0993 ?? null) : 0,
-      meses_simultaneo: editForm.es_simultaneo ? (editForm.meses_simultaneo ?? null) : 0,
+      // Fallback a total_meses si el toggle está en SÍ pero no se tipó un valor (igual que antes_0993 usa fechas)
+      meses_simultaneo: editForm.es_simultaneo ? (editForm.meses_simultaneo ?? a.total_meses) : 0,
     } as typeof a;
     if (pendingUpdates[a.id]) return { ...a, ...pendingUpdates[a.id] } as typeof a;
     return a;
@@ -231,7 +232,7 @@ export default function AportesTable({ aportes, loading, hijos, sexo, meses24476
   const toggleSimultaneo = (a: AporteLaboral) => {
     const upd = a.es_simultaneo
       ? { es_simultaneo: false, meses_simultaneo: 0 }
-      : { es_simultaneo: true, meses_simultaneo: null as null };
+      : { es_simultaneo: true, meses_simultaneo: a.total_meses }; // total_meses como default; ajustable en edición
     setPendingUpdates(p => ({ ...p, [a.id]: { ...p[a.id], ...upd } }));
     onUpdate(a.id, upd);
   };
