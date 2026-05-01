@@ -516,7 +516,10 @@ export default function AportesTable({ aportes, loading, hijos, sexo, meses24476
                     {/* Antes 09/93 — clic para toggle */}
                     <td className="py-2.5 px-3 text-center">
                       <button
-                        onClick={() => onUpdate(a.id, { es_antes_0993: !a.es_antes_0993 })}
+                        onClick={() => onUpdate(a.id, a.es_antes_0993
+                          ? { es_antes_0993: false, meses_antes_0993: 0 }
+                          : { es_antes_0993: true, meses_antes_0993: null }
+                        )}
                         title={a.es_antes_0993 ? 'Quitar marca Antes 09/93' : 'Marcar como Antes 09/93'}
                         className={`px-2 py-0.5 rounded-md text-xs font-mono font-medium transition-colors ${
                           a.es_antes_0993
@@ -530,7 +533,10 @@ export default function AportesTable({ aportes, loading, hijos, sexo, meses24476
                     {/* Simultáneo — clic para toggle */}
                     <td className="py-2.5 px-3 text-center">
                       <button
-                        onClick={() => onUpdate(a.id, { es_simultaneo: !a.es_simultaneo })}
+                        onClick={() => onUpdate(a.id, a.es_simultaneo
+                          ? { es_simultaneo: false, meses_simultaneo: 0 }
+                          : { es_simultaneo: true, meses_simultaneo: null }
+                        )}
                         title={a.es_simultaneo ? 'Quitar marca Simultáneo' : 'Marcar como Simultáneo'}
                         className={`px-2 py-0.5 rounded-md text-xs font-mono font-medium transition-colors ${
                           a.es_simultaneo
