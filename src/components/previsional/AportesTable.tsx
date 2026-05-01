@@ -222,21 +222,28 @@ export default function AportesTable({ aportes, loading, hijos, sexo, meses24476
     return `${a}a ${mes}m`;
   };
 
-  // Barra de progreso animada
+  // Animación gauge + contador %
   const pct = resumen ? Math.min(100, (resumen.totalServicios / 360) * 100) : 0;
   const [barWidth, setBarWidth] = useState(0);
+  const [displayPct, setDisplayPct] = useState(0);
   useEffect(() => {
     if (!resumen) return;
-    const t = setTimeout(() => setBarWidth(pct), 200);
-    return () => clearTimeout(t);
-  }, [pct, resumen]);
+    setBarWidth(0);
+    setDisplayPct(0);
+    const t = setTimeout(() => setBarWidth(pct), 150);
+    const target = Math.round(pct);
+    let frame = 0;
+    const frames = 50;
+    const raf = setInterval(() => {
+      frame++;
+      setDisplayPct(Math.round((target * frame) / frames));
+      if (frame >= frames) clearInterval(raf);
+    }, 20);
+    return () => { clearTimeout(t); clearInterval(raf); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [resumen?.totalServicios]);
 
-  // Gauge SVG
-  const gaugeR = 68;
-  const gaugeCirc = 2 * Math.PI * gaugeR;
-  const gaugeArcLen = gaugeCirc * barWidth / 100;
-
-  // Filas del breakdown
+  // Filas breakdown (simultáneos van aparte como resta)
   const conclusionRows: { label: string; meses: number; color: string; tw: string }[] = resumen ? [
     { label: 'Aportes', meses: resumen.totalMeses - resumen.mesesSimultaneos, color: '#60a5fa', tw: 'from-blue-500 to-blue-400' },
     { label: 'Moratoria 24.476', meses: meses24476, color: '#fbbf24', tw: 'from-amber-500 to-amber-400' },
@@ -536,134 +543,143 @@ export default function AportesTable({ aportes, loading, hijos, sexo, meses24476
         </div>
       )}
 
-      {/* ── Conclusión animada ── */}
+      {/* ── Conclusión ── */}
       {resumen && aportes.length > 0 && (
-        <div className="glass-card overflow-hidden animate-slide-up">
+        <div className="glass-card overflow-hidden" key={`c-${resumen.totalServicios}`}>
 
           {/* Header */}
           <div className="px-5 py-3 border-b border-white/[0.06] flex items-center gap-2.5">
-            <div className="w-1.5 h-5 rounded-full bg-gradient-to-b from-blue-400 to-emerald-500 shadow-lg shadow-emerald-500/30" />
+            <div className="w-1.5 h-5 rounded-full bg-gradient-to-b from-blue-400 to-emerald-500"
+              style={{ boxShadow: '0 0 10px rgba(52,211,153,0.5)' }} />
             <h4 className="text-xs font-bold text-white/80 tracking-[0.15em] uppercase">Conclusión</h4>
           </div>
 
-          <div className="p-4 space-y-2.5">
+          <div className="p-5 space-y-5">
 
-            {/* ── Grid 2 col: acumulados (izq) · correcciones/info (der) ── */}
-            <div className="grid grid-cols-2 gap-2">
+            {/* ── Gauge SVG + breakdown ── */}
+            <div className="flex gap-5 items-center">
 
-              {/* Aportes historial neto */}
-              <div className="animate-slide-up p-3 rounded-xl bg-blue-500/5 border border-blue-500/10 flex flex-col gap-0.5" style={{ animationDelay: '0ms' }}>
-                <p className="text-[10px] text-gray-500 uppercase tracking-wide">Aportes</p>
-                <p className="text-base font-bold text-blue-300">{fmtAM(resumen.totalMeses - resumen.mesesSimultaneos)}</p>
+              {/* Gauge */}
+              <div className="shrink-0 relative" style={{ width: 148, height: 148 }}>
+                <svg viewBox="0 0 160 160" width="148" height="148" style={{ transform: 'rotate(-90deg)' }}>
+                  <defs>
+                    <linearGradient id="gaugeGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+                      <stop offset="0%" stopColor="#3b82f6" />
+                      <stop offset="55%" stopColor="#10b981" />
+                      <stop offset="100%" stopColor="#14b8a6" />
+                    </linearGradient>
+                  </defs>
+                  {/* Track */}
+                  <circle cx="80" cy="80" r="62" fill="none"
+                    stroke="rgba(255,255,255,0.05)" strokeWidth="14" />
+                  {/* Fill */}
+                  <circle cx="80" cy="80" r="62" fill="none"
+                    stroke="url(#gaugeGrad)" strokeWidth="14" strokeLinecap="round"
+                    strokeDasharray={String(2 * Math.PI * 62)}
+                    strokeDashoffset={String(2 * Math.PI * 62 * (1 - barWidth / 100))}
+                    style={{
+                      transition: 'stroke-dashoffset 1.6s cubic-bezier(0.34,1.56,0.64,1)',
+                      filter: 'drop-shadow(0 0 6px rgba(16,185,129,0.6))',
+                    }}
+                  />
+                </svg>
+                <div className="absolute inset-0 flex flex-col items-center justify-center" style={{ pointerEvents: 'none' }}>
+                  <p className="text-[11px] text-gray-500 mb-0.5">TOTAL</p>
+                  <p className="text-xl font-black text-white leading-none">{fmtAM(resumen.totalServicios)}</p>
+                  <p className="text-base font-bold mt-1" style={{ color: pct >= 100 ? '#34d399' : '#60a5fa' }}>
+                    {displayPct}<span className="text-xs font-normal text-gray-500">%</span>
+                  </p>
+                  <p className="text-[9px] text-gray-600">de 30 años</p>
+                </div>
               </div>
 
-              {/* Simultáneos – informativos */}
-              <div className="animate-slide-up p-3 rounded-xl bg-rose-500/5 border border-rose-500/10 flex flex-col gap-0.5" style={{ animationDelay: '40ms' }}>
-                <p className="text-[10px] text-rose-400/70 uppercase tracking-wide">− Simultáneos</p>
-                <p className="text-base font-bold text-rose-300">{fmtAM(resumen.mesesSimultaneos)}</p>
-              </div>
-
-              {/* Moratoria 24.476 */}
-              <div className="animate-slide-up p-3 rounded-xl bg-amber-500/5 border border-amber-500/10 flex flex-col gap-0.5" style={{ animationDelay: '80ms' }}>
-                <p className="text-[10px] text-gray-500 uppercase tracking-wide">
-                  <span className="text-amber-400 mr-0.5">+</span>Moratoria 24.476
-                </p>
-                <p className="text-base font-bold text-amber-300">{fmtAM(resumen.meses24476)}</p>
-              </div>
-
-              {/* Antes 09/93 – informativo */}
-              <div className="animate-slide-up p-3 rounded-xl bg-rose-500/5 border border-rose-500/10 flex flex-col gap-0.5" style={{ animationDelay: '120ms' }}>
-                <p className="text-[10px] text-gray-500 uppercase tracking-wide">Antes 09/93</p>
-                <p className="text-base font-bold text-rose-200/60">{fmtAM(resumen.mesesAntes0993)}</p>
-              </div>
-
-              {/* Hijos – solo MUJER */}
-              {sexo === 'MUJER' && (
-                <>
-                  <div className="animate-slide-up p-3 rounded-xl bg-pink-500/5 border border-pink-500/10 flex flex-col gap-0.5" style={{ animationDelay: '160ms' }}>
-                    <p className="text-[10px] text-gray-500 uppercase tracking-wide">
-                      <span className="text-pink-400 mr-0.5">+</span>Hijos ({hijos})
-                    </p>
-                    <p className="text-base font-bold text-pink-300">{fmtAM(resumen.mesesHijos)}</p>
+              {/* Breakdown barras */}
+              <div className="flex-1 space-y-3">
+                {conclusionRows.map((row, i) => (
+                  <div key={row.label}>
+                    <div className="flex justify-between items-baseline mb-1">
+                      <span className="text-[10px] font-medium" style={{ color: row.color }}>{row.label}</span>
+                      <span className="text-xs font-bold" style={{ color: row.color }}>{fmtAM(row.meses)}</span>
+                    </div>
+                    <div className="h-2 rounded-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.04)' }}>
+                      <div
+                        className={`h-full rounded-full bg-gradient-to-r ${row.tw}`}
+                        style={{
+                          width: `${barWidth > 0 ? Math.min(100, (row.meses / 360) * 100) : 0}%`,
+                          transition: `width 1.3s cubic-bezier(0.34,1.56,0.64,1) ${i * 100}ms`,
+                          boxShadow: `0 0 8px ${row.color}55`,
+                        }}
+                      />
+                    </div>
                   </div>
-                  <div />
-                </>
-              )}
-            </div>
-
-            {/* ── Total strip ── */}
-            <div
-              className="animate-scale-in rounded-xl bg-gradient-to-r from-emerald-500/10 to-teal-500/5 border border-emerald-500/20 px-4 py-3 flex items-center justify-between"
-              style={{ animationDelay: '200ms' }}
-            >
-              <div>
-                <p className="text-[10px] text-emerald-400/60 font-medium uppercase tracking-widest mb-0.5">Total Aportes</p>
-                <p className="text-2xl font-bold text-emerald-300">{fmtAM(resumen.totalServicios)}</p>
-              </div>
-              <div className="text-right">
-                <p className="text-[10px] text-gray-600">de 30 años</p>
-                <p className="text-xl font-bold text-white/70">
-                  {pct.toFixed(0)}<span className="text-xs font-normal text-gray-500">%</span>
-                </p>
-              </div>
-            </div>
-
-            {/* ── Barra de progreso animada ── */}
-            <div className="space-y-1 animate-fade-in" style={{ animationDelay: '240ms' }}>
-              <div className="h-3 rounded-full bg-white/[0.04] overflow-hidden">
-                <div
-                  className="h-full rounded-full bg-gradient-to-r from-blue-500 via-emerald-400 to-teal-400"
-                  style={{
-                    width: `${barWidth}%`,
-                    transition: 'width 1.5s cubic-bezier(0.34, 1.56, 0.64, 1)',
-                    boxShadow: '0 0 12px rgba(52,211,153,0.5)',
-                  }}
-                />
-              </div>
-              <div className="flex justify-between text-[9px] text-gray-700 px-0.5 select-none">
-                <span>0</span>
-                <span>10a</span>
-                <span>20a</span>
-                <span>30a</span>
+                ))}
+                {/* Simultáneos (resta) */}
+                {resumen.mesesSimultaneos > 0 && (
+                  <div>
+                    <div className="flex justify-between items-baseline mb-1">
+                      <span className="text-[10px] font-medium text-rose-400">− Simultáneos</span>
+                      <span className="text-xs font-bold text-rose-400">−{fmtAM(resumen.mesesSimultaneos)}</span>
+                    </div>
+                    <div className="h-2 rounded-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.04)' }}>
+                      <div
+                        className="h-full rounded-full bg-gradient-to-r from-rose-600 to-rose-400"
+                        style={{
+                          width: `${barWidth > 0 ? Math.min(100, (resumen.mesesSimultaneos / 360) * 100) : 0}%`,
+                          transition: 'width 1.3s cubic-bezier(0.34,1.56,0.64,1) 300ms',
+                        }}
+                      />
+                    </div>
+                  </div>
+                )}
+                {/* Antes 09/93 (informativo) */}
+                {resumen.mesesAntes0993 > 0 && (
+                  <div>
+                    <div className="flex justify-between items-baseline mb-1">
+                      <span className="text-[10px] text-gray-600">Antes 09/93</span>
+                      <span className="text-[10px] text-gray-600">{fmtAM(resumen.mesesAntes0993)}</span>
+                    </div>
+                    <div className="h-1 rounded-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.04)' }}>
+                      <div className="h-full rounded-full bg-gray-700"
+                        style={{ width: `${barWidth > 0 ? Math.min(100, (resumen.mesesAntes0993 / 360) * 100) : 0}%`, transition: 'width 1.3s ease 400ms' }} />
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
 
             {/* ── Falta / Completo ── */}
             {resumen.faltanMeses > 0 ? (
-              <div
-                className="rounded-xl border border-red-500/15 bg-red-500/5 px-4 py-3 animate-slide-up"
-                style={{ animationDelay: '280ms' }}
-              >
-                <div className="flex items-center justify-between mb-2">
+              <div className="rounded-xl px-4 py-4"
+                style={{ background: 'linear-gradient(135deg,rgba(239,68,68,0.08),rgba(220,38,38,0.04))', border: '1px solid rgba(239,68,68,0.18)' }}>
+                <div className="flex items-center justify-between mb-3">
                   <p className="text-[10px] font-bold text-red-400/80 uppercase tracking-widest">Falta · Ley 27.705</p>
-                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-red-500/10 border border-red-500/20 text-red-400 font-medium">
+                  <span className="text-[10px] px-2.5 py-0.5 rounded-full font-semibold text-red-400"
+                    style={{ background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.22)' }}>
                     {resumen.faltanMeses} cuotas
                   </span>
                 </div>
-                <div className="flex items-end justify-between gap-4">
+                <div className="flex items-end justify-between">
                   <div>
-                    <p className="text-xl font-bold text-red-300">{fmtAM(resumen.faltanMeses)}</p>
+                    <p className="text-2xl font-black text-red-300">{fmtAM(resumen.faltanMeses)}</p>
                     <p className="text-[10px] text-gray-600 mt-0.5">
                       ${resumen.costoMensual27705.toLocaleString('es-AR', { maximumFractionDigits: 2 })}/cuota
                     </p>
                   </div>
                   <div className="text-right">
-                    <p className="text-[10px] text-gray-500 mb-0.5">Total estimado</p>
-                    <p className="text-base font-bold text-white/80">
+                    <p className="text-[10px] text-gray-500 mb-0.5">Total actualizado</p>
+                    <p className="text-xl font-black"
+                      style={{ background: 'linear-gradient(90deg,#f87171,#fca5a5)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
                       ${resumen.costoTotal27705.toLocaleString('es-AR', { maximumFractionDigits: 0 })}
                     </p>
                   </div>
                 </div>
               </div>
             ) : (
-              <div
-                className="rounded-xl border border-emerald-500/15 bg-emerald-500/5 px-4 py-3 flex items-center gap-3 animate-scale-in"
-                style={{ animationDelay: '280ms' }}
-              >
-                <CheckCircle className="w-5 h-5 text-emerald-400 shrink-0" />
+              <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 px-4 py-4 flex items-center gap-3">
+                <CheckCircle className="w-6 h-6 text-emerald-400 shrink-0" />
                 <div>
                   <p className="text-sm font-bold text-emerald-300">¡Completo!</p>
-                  <p className="text-[10px] text-gray-500">Alcanza los 30 años de aportes</p>
+                  <p className="text-[10px] text-gray-500">Cumple los 30 años de aportes</p>
                 </div>
               </div>
             )}
