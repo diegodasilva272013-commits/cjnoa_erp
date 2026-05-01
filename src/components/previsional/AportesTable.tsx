@@ -284,11 +284,13 @@ export default function AportesTable({ aportes, loading, hijos, sexo, meses24476
 
   const gaugeOffset = gaugeCirc * (1 - barWidth / 100);
 
-  // Filas breakdown (simultáneos van aparte como resta)
-  const conclusionRows: { label: string; meses: number; color: string; stop1: string; stop2: string }[] = resumen ? [
-    { label: 'Aportes laborales', meses: resumen.totalMeses - resumen.mesesSimultaneos, color: '#60a5fa', stop1: '#3b82f6', stop2: '#60a5fa' },
-    { label: 'Moratoria 24.476', meses: resumen.meses24476Net, color: '#fbbf24', stop1: '#d97706', stop2: '#fbbf24' },
-    ...(sexo === 'MUJER' && hijos > 0 ? [{ label: `Hijos (×${hijos})`, meses: resumen.mesesHijos, color: '#f472b6', stop1: '#db2777', stop2: '#f472b6' }] : []),
+  // Filas breakdown — siempre visibles (opacidad reducida si son 0)
+  const conclusionRows: { label: string; meses: number; neg?: boolean; color: string; stop1: string; stop2: string; dim?: boolean }[] = resumen ? [
+    { label: 'Aportes laborales', meses: resumen.totalMeses, color: '#60a5fa', stop1: '#3b82f6', stop2: '#60a5fa' },
+    { label: '− Simultáneos', meses: resumen.mesesSimultaneos, neg: true, color: '#fb7185', stop1: '#e11d48', stop2: '#fb7185', dim: resumen.mesesSimultaneos === 0 },
+    { label: 'Antes 09/93', meses: resumen.mesesAntes0993, color: '#94a3b8', stop1: '#64748b', stop2: '#94a3b8', dim: resumen.mesesAntes0993 === 0 },
+    { label: 'Moratoria 24.476', meses: resumen.meses24476Net, color: '#fbbf24', stop1: '#d97706', stop2: '#fbbf24', dim: resumen.meses24476Net === 0 },
+    ...(sexo === 'MUJER' ? [{ label: `Hijos (×${hijos})`, meses: resumen.mesesHijos, color: '#f472b6', stop1: '#db2777', stop2: '#f472b6', dim: resumen.mesesHijos === 0 }] : []),
   ] : [];
 
   const handleAdd = async () => {
@@ -637,10 +639,12 @@ export default function AportesTable({ aportes, loading, hijos, sexo, meses24476
               {/* Breakdown barras */}
               <div className="flex-1 space-y-3">
                 {conclusionRows.map((row, i) => (
-                  <div key={row.label}>
+                  <div key={row.label} style={{ opacity: row.dim ? 0.35 : 1, transition: 'opacity 0.3s' }}>
                     <div className="flex justify-between items-baseline mb-1">
                       <span className="text-[10px] font-medium" style={{ color: row.color }}>{row.label}</span>
-                      <span className="text-xs font-bold" style={{ color: row.color }}>{fmtAM(row.meses)}</span>
+                      <span className="text-xs font-bold" style={{ color: row.color }}>
+                        {row.neg ? '−' : ''}{fmtAM(row.meses)}
+                      </span>
                     </div>
                     <div className="h-2 rounded-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.04)' }}>
                       <div
@@ -650,44 +654,13 @@ export default function AportesTable({ aportes, loading, hijos, sexo, meses24476
                           width: `${Math.min(100, (row.meses / 360) * 100)}%`,
                           transform: barWidth > 0 ? 'scaleX(1)' : 'scaleX(0)',
                           transformOrigin: 'left',
-                          transition: `transform 1.4s cubic-bezier(0.34,1.56,0.64,1) ${80 + i * 120}ms`,
-                          boxShadow: `0 0 8px ${row.stop1}88`,
+                          transition: `transform 1.4s cubic-bezier(0.34,1.56,0.64,1) ${80 + i * 100}ms`,
+                          boxShadow: row.meses > 0 ? `0 0 8px ${row.stop1}88` : 'none',
                         }}
                       />
                     </div>
                   </div>
                 ))}
-                {/* Simultáneos (resta) */}
-                {resumen.mesesSimultaneos > 0 && (
-                  <div>
-                    <div className="flex justify-between items-baseline mb-1">
-                      <span className="text-[10px] font-medium text-rose-400">− Simultáneos</span>
-                      <span className="text-xs font-bold text-rose-400">−{fmtAM(resumen.mesesSimultaneos)}</span>
-                    </div>
-                    <div className="h-2 rounded-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.04)' }}>
-                      <div
-                        className="h-full rounded-full bg-gradient-to-r from-rose-600 to-rose-400"
-                        style={{
-                          width: `${barWidth > 0 ? Math.min(100, (resumen.mesesSimultaneos / 360) * 100) : 0}%`,
-                          transition: 'width 1.3s cubic-bezier(0.34,1.56,0.64,1) 300ms',
-                        }}
-                      />
-                    </div>
-                  </div>
-                )}
-                {/* Antes 09/93 (informativo) */}
-                {resumen.mesesAntes0993 > 0 && (
-                  <div>
-                    <div className="flex justify-between items-baseline mb-1">
-                      <span className="text-[10px] text-gray-600">Antes 09/93</span>
-                      <span className="text-[10px] text-gray-600">{fmtAM(resumen.mesesAntes0993)}</span>
-                    </div>
-                    <div className="h-1 rounded-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.04)' }}>
-                      <div className="h-full rounded-full bg-gray-700"
-                        style={{ width: `${barWidth > 0 ? Math.min(100, (resumen.mesesAntes0993 / 360) * 100) : 0}%`, transition: 'width 1.3s ease 400ms' }} />
-                    </div>
-                  </div>
-                )}
               </div>
             </div>
 
