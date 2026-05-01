@@ -43,6 +43,7 @@ export default function CopilotoBtn({ tipo, datos, label }: CopilotoProps) {
       }
       const data = await res.json();
       setResult(data);
+      startSpeech(data);
     } catch (err: any) {
       setError(err.message || 'Error al consultar la IA');
     } finally {
@@ -59,17 +60,24 @@ export default function CopilotoBtn({ tipo, datos, label }: CopilotoProps) {
     return parts.join('. ');
   }
 
-  function toggleSpeech() {
-    if (speaking) { stopSpeech(); return; }
-    if (!result) return;
-    const text = buildSpeechText(result);
+  function startSpeech(r: AnalisisResult) {
+    stopSpeech();
+    const text = buildSpeechText(r);
+    if (!text) return;
     const utt = new SpeechSynthesisUtterance(text);
     utt.lang = 'es-AR';
-    utt.rate = 0.95;
+    utt.rate = 0.92;
+    utt.pitch = 1;
     utt.onend = () => setSpeaking(false);
+    utt.onerror = () => setSpeaking(false);
     synthRef.current = utt;
     window.speechSynthesis.speak(utt);
     setSpeaking(true);
+  }
+
+  function toggleSpeech() {
+    if (speaking) { stopSpeech(); return; }
+    if (result) startSpeech(result);
   }
 
   function stopSpeech() {
@@ -128,10 +136,12 @@ export default function CopilotoBtn({ tipo, datos, label }: CopilotoProps) {
                   <button
                     onClick={toggleSpeech}
                     title={speaking ? 'Detener lectura' : 'Leer análisis en voz alta'}
-                    className="p-2 rounded-lg transition-colors"
-                    style={{ background: speaking ? 'rgba(139,92,246,0.25)' : 'rgba(255,255,255,0.05)', color: speaking ? '#a78bfa' : '#6b7280' }}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all"
+                    style={speaking
+                      ? { background: 'rgba(239,68,68,0.15)', border: '1px solid rgba(239,68,68,0.3)', color: '#f87171' }
+                      : { background: 'rgba(139,92,246,0.15)', border: '1px solid rgba(139,92,246,0.3)', color: '#a78bfa' }}
                   >
-                    {speaking ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
+                    {speaking ? <><VolumeX className="w-3.5 h-3.5" /> Detener</> : <><Volume2 className="w-3.5 h-3.5" /> Escuchar</>}
                   </button>
                 )}
                 {!loading && (
