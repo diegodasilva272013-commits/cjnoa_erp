@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import {
   DndContext, DragEndEvent, DragOverlay,
-  PointerSensor, useSensor, useSensors, pointerWithin,
+  PointerSensor, useSensor, useSensors, rectIntersection,
   useDraggable, useDroppable,
 } from '@dnd-kit/core';
 import { CSS } from '@dnd-kit/utilities';
@@ -38,7 +38,7 @@ function DraggableCard({ cliente, onSelect }: { cliente: ClientePrevisional; onS
   return (
     <div ref={setNodeRef} style={style} {...attributes} {...listeners}
       className="p-3 rounded-xl bg-white/[0.03] border border-white/[0.07] hover:bg-white/[0.06] hover:border-white/10 transition-all cursor-grab active:cursor-grabbing select-none">
-      <button className="w-full text-left" onClick={e => { e.stopPropagation(); onSelect(cliente); }} onPointerDown={e => e.stopPropagation()}>
+      <button className="w-full text-left" onClick={e => { e.stopPropagation(); onSelect(cliente); }}>
         <div className="flex items-start gap-2">
           <div className={`w-2 h-2 rounded-full mt-1 flex-shrink-0 ${SEMAFORO_COLORS[semaforo]}`} />
           <p className="text-xs font-medium text-white leading-tight">{cliente.apellido_nombre}</p>
@@ -56,7 +56,7 @@ function DropColumn({ pipeline, styles, children, count }: {
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: pipeline });
   return (
-    <div className={`glass-card p-0 overflow-hidden border-t-2 ${styles.border} transition-all ${isOver ? 'ring-2 ring-white/20 scale-[1.01]' : ''}`}>
+    <div ref={setNodeRef} className={`glass-card p-0 overflow-hidden border-t-2 ${styles.border} transition-all ${isOver ? 'ring-2 ring-white/20 scale-[1.01]' : ''}`}>
       <div className="px-3 py-2.5 flex items-center justify-between border-b border-white/[0.06]">
         <div className="flex items-center gap-2 min-w-0">
           <div className={`w-2 h-2 rounded-full flex-shrink-0 ${styles.dot}`} />
@@ -64,7 +64,7 @@ function DropColumn({ pipeline, styles, children, count }: {
         </div>
         <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium flex-shrink-0 ml-1 ${styles.badge}`}>{count}</span>
       </div>
-      <div ref={setNodeRef} className="p-2 space-y-2 min-h-[80px] max-h-[65vh] overflow-y-auto">
+      <div className="p-2 space-y-2 min-h-[80px] max-h-[65vh] overflow-y-auto">
         {children}
       </div>
     </div>
@@ -75,7 +75,7 @@ export default function PrevisionalKanban({ clientes, onSelect, onRefetch }: Pro
   const [items, setItems] = useState<ClientePrevisional[]>(clientes);
   const [activeId, setActiveId] = useState<string | null>(null);
 
-  useEffect(() => { if (!activeId) setItems(clientes); }, [clientes, activeId]);
+  useEffect(() => { setItems(clientes); }, [clientes]);
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }));
   const activeCliente = items.find(c => c.id === activeId) ?? null;
@@ -108,12 +108,13 @@ export default function PrevisionalKanban({ clientes, onSelect, onRefetch }: Pro
     if (!card || card.pipeline === newPipeline) return;
 
     setItems(prev => prev.map(c => c.id === active.id ? { ...c, pipeline: newPipeline! } : c));
-    await supabase.from('clientes_previsional').update({ pipeline: newPipeline }).eq('id', active.id);
-    onRefetch?.();
+    setActiveId(null);
+    const { error } = await supabase.from('clientes_previsional').update({ pipeline: newPipeline }).eq('id', active.id);
+    if (!error) onRefetch?.();
   }
 
   return (
-    <DndContext sensors={sensors} collisionDetection={pointerWithin}
+    <DndContext sensors={sensors} collisionDetection={rectIntersection}
       onDragStart={e => setActiveId(e.active.id as string)}
       onDragEnd={handleDragEnd}
       onDragCancel={() => setActiveId(null)}>
