@@ -9,7 +9,7 @@ interface Props {
   onNew: () => void;
 }
 
-const PIPELINES: PipelinePrevisional[] = ['seguimiento', 'jubi_especiales', 'ucap', 'jubi_ordinarias', 'finalizado', 'descartado'];
+const PIPELINES: PipelinePrevisional[] = ['consulta', 'seguimiento', 'ingreso', 'cobro', 'jubi_especiales', 'ucap', 'jubi_ordinarias', 'finalizado', 'descartado'];
 
 export default function FichasList({ clientes, onSelect, onNew }: Props) {
   const [busqueda, setBusqueda] = useState('');
@@ -184,7 +184,7 @@ export default function FichasList({ clientes, onSelect, onNew }: Props) {
                           })()}
                         </td>
                         <td className="px-4 py-3">
-                          <span className={`badge border ${PIPELINE_COLORS[c.pipeline]}`}>
+                          <span className={`badge border ${PIPELINE_COLORS[c.pipeline ?? 'consulta'] ?? PIPELINE_COLORS['consulta']}`}>
                             {PIPELINE_LABELS[c.pipeline]}
                           </span>
                         </td>

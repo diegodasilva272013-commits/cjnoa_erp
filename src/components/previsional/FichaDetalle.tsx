@@ -346,7 +346,7 @@ export default function FichaDetalle({ cliente, onBack, onEdit, onDelete }: Prop
             <div className="flex flex-wrap items-center gap-3 mt-1">
               {cliente.cuil && <span className="text-xs text-gray-400 font-mono">{cliente.cuil}</span>}
               {cliente.telefono && <span className="text-xs text-gray-400">{cliente.telefono}</span>}
-              <span className={`text-[10px] px-2 py-0.5 rounded-full border ${PIPELINE_COLORS[cliente.pipeline]}`}>
+              <span className={`text-[10px] px-2 py-0.5 rounded-full border ${PIPELINE_COLORS[cliente.pipeline ?? 'consulta'] ?? PIPELINE_COLORS['consulta']}`}>
                 {PIPELINE_LABELS[cliente.pipeline]}
               </span>
               {cliente.sub_estado && (
