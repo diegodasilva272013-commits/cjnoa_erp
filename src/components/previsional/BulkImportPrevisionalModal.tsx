@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { Upload, FileSpreadsheet, CheckCircle2, AlertCircle, Loader2, X } from 'lucide-react';
+import { Upload, FileSpreadsheet, CheckCircle2, AlertCircle, Loader2, X, Folder } from 'lucide-react';
 import Modal from '../Modal';
 import { supabase } from '../../lib/supabase';
 import { useToast } from '../../context/ToastContext';
@@ -18,24 +18,80 @@ interface FileResult {
   parsed?: ParsedFicha;
 }
 
+function isExcelName(name: string) {
+  const n = name.toLowerCase();
+  return (n.endsWith('.xlsx') || n.endsWith('.xls')) && !n.startsWith('~$');
+}
+
+// Recorre recursivamente un FileSystemEntry (drag&drop de carpeta) y junta los .xlsx
+async function readEntryRecursive(entry: any, out: File[]): Promise<void> {
+  if (!entry) return;
+  if (entry.isFile) {
+    await new Promise<void>((resolve) => {
+      entry.file((f: File) => {
+        if (isExcelName(f.name)) out.push(f);
+        resolve();
+      }, () => resolve());
+    });
+  } else if (entry.isDirectory) {
+    const reader = entry.createReader();
+    const readBatch = (): Promise<any[]> =>
+      new Promise((resolve) => reader.readEntries((entries: any[]) => resolve(entries), () => resolve([])));
+    let batch = await readBatch();
+    while (batch.length) {
+      for (const e of batch) await readEntryRecursive(e, out);
+      batch = await readBatch();
+    }
+  }
+}
+
 export default function BulkImportPrevisionalModal({ open, onClose, onImported }: Props) {
   const { showToast } = useToast();
   const inputRef = useRef<HTMLInputElement>(null);
+  const folderRef = useRef<HTMLInputElement>(null);
   const [files, setFiles] = useState<FileResult[]>([]);
   const [busy, setBusy] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
 
   function reset() {
     setFiles([]);
     setBusy(false);
     if (inputRef.current) inputRef.current.value = '';
+    if (folderRef.current) folderRef.current.value = '';
+  }
+
+  function setSelected(list: File[]) {
+    const filtered = list.filter(f => isExcelName(f.name));
+    setFiles(filtered.map(f => ({ name: f.name, status: 'pending' })));
+    (window as any).__pendingFichaFiles = filtered;
+    if (list.length && !filtered.length) {
+      showToast('No se encontraron archivos .xlsx en la selección', 'error');
+    }
   }
 
   function handleSelect(e: React.ChangeEvent<HTMLInputElement>) {
     const list = Array.from(e.target.files || []);
     if (!list.length) return;
-    setFiles(list.map(f => ({ name: f.name, status: 'pending' })));
-    // guardamos en data attribute via FileList ref
-    (window as any).__pendingFichaFiles = list;
+    setSelected(list);
+  }
+
+  async function handleDrop(e: React.DragEvent) {
+    e.preventDefault();
+    setDragOver(false);
+    if (busy) return;
+    const items = e.dataTransfer?.items;
+    const collected: File[] = [];
+    if (items && items.length && (items[0] as any).webkitGetAsEntry) {
+      const entries: any[] = [];
+      for (let i = 0; i < items.length; i++) {
+        const entry = (items[i] as any).webkitGetAsEntry?.();
+        if (entry) entries.push(entry);
+      }
+      for (const entry of entries) await readEntryRecursive(entry, collected);
+    } else {
+      for (const f of Array.from(e.dataTransfer?.files || [])) collected.push(f);
+    }
+    setSelected(collected);
   }
 
   async function processAll() {
@@ -163,9 +219,14 @@ export default function BulkImportPrevisionalModal({ open, onClose, onImported }
   }
 
   return (
-    <Modal open={open} onClose={handleClose} title="Importar fichas desde Excel" subtitle="Cargá uno o más archivos con el formato FICHA ULTRA COMPLETA" maxWidth="max-w-2xl">
+    <Modal open={open} onClose={handleClose} title="Importar fichas desde Excel" subtitle="Cargá uno o más archivos, o una carpeta completa (formato FICHA ULTRA COMPLETA)" maxWidth="max-w-2xl">
       <div className="p-6 space-y-4">
-        <div className="rounded-xl border-2 border-dashed border-white/10 bg-white/[0.02] p-6 text-center hover:border-white/20 transition-all">
+        <div
+          onDragOver={(e) => { e.preventDefault(); if (!busy) setDragOver(true); }}
+          onDragLeave={() => setDragOver(false)}
+          onDrop={handleDrop}
+          className={`rounded-xl border-2 border-dashed p-6 text-center transition-all ${dragOver ? 'border-violet-400 bg-violet-500/10' : 'border-white/10 bg-white/[0.02] hover:border-white/20'}`}
+        >
           <input
             ref={inputRef}
             type="file"
@@ -176,11 +237,31 @@ export default function BulkImportPrevisionalModal({ open, onClose, onImported }
             className="hidden"
             id="bulk-ficha-input"
           />
-          <label htmlFor="bulk-ficha-input" className="cursor-pointer flex flex-col items-center gap-2">
+          {/* @ts-expect-error webkitdirectory no está en los tipos pero funciona en Chromium/Firefox */}
+          <input
+            ref={folderRef}
+            type="file"
+            webkitdirectory=""
+            directory=""
+            multiple
+            onChange={handleSelect}
+            disabled={busy}
+            className="hidden"
+            id="bulk-ficha-folder"
+          />
+          <div className="flex flex-col items-center gap-2">
             <Upload className="w-8 h-8 text-gray-400" />
-            <p className="text-sm text-white font-medium">Seleccionar archivos Excel</p>
-            <p className="text-xs text-gray-500">Cada archivo representa un cliente. Podés seleccionar varios a la vez.</p>
-          </label>
+            <p className="text-sm text-white font-medium">Arrastrá una carpeta o archivos acá</p>
+            <p className="text-xs text-gray-500">Solo se procesan archivos .xlsx / .xls (los demás se ignoran).</p>
+            <div className="flex gap-2 mt-2">
+              <label htmlFor="bulk-ficha-input" className="cursor-pointer text-xs px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white flex items-center gap-1.5">
+                <FileSpreadsheet className="w-3.5 h-3.5" /> Elegir archivos
+              </label>
+              <label htmlFor="bulk-ficha-folder" className="cursor-pointer text-xs px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white flex items-center gap-1.5">
+                <Folder className="w-3.5 h-3.5" /> Elegir carpeta
+              </label>
+            </div>
+          </div>
         </div>
 
         {files.length > 0 && (
