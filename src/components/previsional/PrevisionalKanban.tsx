@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Trash2 } from 'lucide-react';
 import {
   DndContext, DragEndEvent, DragOverlay,
   PointerSensor, useSensor, useSensors, rectIntersection,
@@ -30,17 +31,34 @@ interface Props {
   clientes: ClientePrevisional[];
   onSelect: (c: ClientePrevisional) => void;
   onRefetch?: () => void;
+  onDelete?: (id: string) => Promise<boolean> | void;
 }
 
-function DraggableCard({ cliente, onSelect }: { cliente: ClientePrevisional; onSelect: (c: ClientePrevisional) => void }) {
+function DraggableCard({ cliente, onSelect, onDelete, confirmDel, askDel }: {
+  cliente: ClientePrevisional;
+  onSelect: (c: ClientePrevisional) => void;
+  onDelete?: (id: string) => Promise<boolean> | void;
+  confirmDel: string | null;
+  askDel: (id: string) => void;
+}) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: cliente.id });
   const semaforo = calcularSemaforo(cliente.fecha_ultimo_contacto);
   const style = { transform: CSS.Translate.toString(transform), opacity: isDragging ? 0.25 : 1, touchAction: 'none' };
   return (
     <div ref={setNodeRef} style={style} {...attributes} {...listeners}
-      className="p-3 rounded-xl bg-white/[0.03] border border-white/[0.07] hover:bg-white/[0.06] hover:border-white/10 transition-all cursor-grab active:cursor-grabbing select-none">
+      className="relative group p-3 rounded-xl bg-white/[0.03] border border-white/[0.07] hover:bg-white/[0.06] hover:border-white/10 transition-all cursor-grab active:cursor-grabbing select-none">
+      {onDelete && (
+        <button
+          onPointerDown={e => e.stopPropagation()}
+          onClick={e => { e.stopPropagation(); askDel(cliente.id); }}
+          title={confirmDel === cliente.id ? 'Click otra vez para eliminar' : 'Eliminar'}
+          className={`absolute top-1.5 right-1.5 p-1 rounded-md transition-colors ${confirmDel === cliente.id ? 'bg-red-500/20 text-red-400 opacity-100' : 'opacity-0 group-hover:opacity-100 text-gray-500 hover:text-red-400 hover:bg-red-500/10'}`}
+        >
+          <Trash2 className="w-3 h-3" />
+        </button>
+      )}
       <button className="w-full text-left" onClick={e => { e.stopPropagation(); onSelect(cliente); }}>
-        <div className="flex items-start gap-2">
+        <div className="flex items-start gap-2 pr-5">
           <div className={`w-2 h-2 rounded-full mt-1 flex-shrink-0 ${SEMAFORO_COLORS[semaforo]}`} />
           <p className="text-xs font-medium text-white leading-tight">{cliente.apellido_nombre}</p>
         </div>
@@ -72,12 +90,24 @@ function DropColumn({ pipeline, styles, children, count }: {
   );
 }
 
-export default function PrevisionalKanban({ clientes, onSelect, onRefetch }: Props) {
+export default function PrevisionalKanban({ clientes, onSelect, onRefetch, onDelete }: Props) {
   const [items, setItems] = useState<ClientePrevisional[]>(clientes);
   const [activeId, setActiveId] = useState<string | null>(null);
+  const [confirmDel, setConfirmDel] = useState<string | null>(null);
   const { showToast } = useToast();
 
   useEffect(() => { setItems(clientes); }, [clientes]);
+
+  const askDel = async (id: string) => {
+    if (!onDelete) return;
+    if (confirmDel === id) {
+      await onDelete(id);
+      setConfirmDel(null);
+    } else {
+      setConfirmDel(id);
+      setTimeout(() => setConfirmDel(p => p === id ? null : p), 3000);
+    }
+  };
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }));
   const activeCliente = items.find(c => c.id === activeId) ?? null;
@@ -132,7 +162,7 @@ export default function PrevisionalKanban({ clientes, onSelect, onRefetch }: Pro
           <DropColumn key={pipeline} pipeline={pipeline} styles={COLUMN_STYLES[pipeline] ?? COLUMN_STYLES['consulta']} count={grouped[pipeline].length}>
             {grouped[pipeline].length === 0
               ? <p className="text-[10px] text-gray-600 text-center py-6">Sin clientes</p>
-              : grouped[pipeline].map(c => <DraggableCard key={c.id} cliente={c} onSelect={onSelect} />)
+              : grouped[pipeline].map(c => <DraggableCard key={c.id} cliente={c} onSelect={onSelect} onDelete={onDelete} confirmDel={confirmDel} askDel={askDel} />)
             }
           </DropColumn>
         ))}

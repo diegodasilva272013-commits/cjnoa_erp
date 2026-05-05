@@ -109,6 +109,7 @@ export default function FichasClientes() {
           onNew={handleNew}
           onSelect={handleView}
           onRefetch={refetch}
+          onDelete={remove}
         />
       ) : clientes.length === 0 ? (
         <div className="glass-card p-16 text-center">
@@ -120,7 +121,7 @@ export default function FichasClientes() {
           </button>
         </div>
       ) : (
-        <PrevisionalKanban clientes={clientes} onSelect={handleView} onRefetch={refetch} />
+        <PrevisionalKanban clientes={clientes} onSelect={handleView} onRefetch={refetch} onDelete={remove} />
       )}
 
       <FichaModal

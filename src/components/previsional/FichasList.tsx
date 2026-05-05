@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Search, Plus, Filter, ExternalLink, Phone, ChevronRight, Copy, Check } from 'lucide-react';
+import { Search, Plus, Filter, ExternalLink, Phone, ChevronRight, Copy, Check, Trash2 } from 'lucide-react';
 import { ClientePrevisional, PIPELINE_LABELS, PIPELINE_COLORS, PIPELINE_GRADIENT, PipelinePrevisional, formatFechaLocal } from '../../types/previsional';
 import PrevisionalKanban from './PrevisionalKanban';
 
@@ -8,15 +8,29 @@ interface Props {
   onSelect: (c: ClientePrevisional) => void;
   onNew: () => void;
   onRefetch?: () => void;
+  onDelete?: (id: string) => Promise<boolean> | void;
 }
 
 const PIPELINES: PipelinePrevisional[] = ['consulta', 'seguimiento', 'ingreso', 'cobro', 'jubi_especiales', 'ucap', 'jubi_ordinarias', 'finalizado', 'descartado'];
 
-export default function FichasList({ clientes, onSelect, onNew, onRefetch }: Props) {
+export default function FichasList({ clientes, onSelect, onNew, onRefetch, onDelete }: Props) {
   const [busqueda, setBusqueda] = useState('');
   const [filtroPipeline, setFiltroPipeline] = useState<PipelinePrevisional | 'todos'>('todos');
   const [vista, setVista] = useState<'tabla' | 'pipeline'>('tabla');
   const [copiado, setCopiado] = useState<string | null>(null);
+  const [confirmDel, setConfirmDel] = useState<string | null>(null);
+
+  const handleDel = async (e: React.MouseEvent, c: ClientePrevisional) => {
+    e.stopPropagation();
+    if (!onDelete) return;
+    if (confirmDel === c.id) {
+      await onDelete(c.id);
+      setConfirmDel(null);
+    } else {
+      setConfirmDel(c.id);
+      setTimeout(() => setConfirmDel(p => p === c.id ? null : p), 3000);
+    }
+  };
 
   const copiar = (e: React.MouseEvent, texto: string, id: string) => {
     e.stopPropagation();
@@ -190,7 +204,18 @@ export default function FichasList({ clientes, onSelect, onNew, onRefetch }: Pro
                           </span>
                         </td>
                         <td className="px-4 py-3">
-                          <ChevronRight className="w-4 h-4 text-gray-600" />
+                          <div className="flex items-center gap-1 justify-end">
+                            {onDelete && (
+                              <button
+                                onClick={e => handleDel(e, c)}
+                                title={confirmDel === c.id ? 'Click otra vez para eliminar' : 'Eliminar'}
+                                className={`p-1.5 rounded-lg transition-colors ${confirmDel === c.id ? 'bg-red-500/20 text-red-400' : 'text-gray-600 hover:text-red-400 hover:bg-red-500/10'}`}
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                            <ChevronRight className="w-4 h-4 text-gray-600" />
+                          </div>
                         </td>
                       </tr>
                     );
@@ -204,7 +229,7 @@ export default function FichasList({ clientes, onSelect, onNew, onRefetch }: Pro
 
       {/* Vista: Pipeline Kanban */}
       {vista === 'pipeline' && (
-        <PrevisionalKanban clientes={filtrados} onSelect={onSelect} onRefetch={onRefetch} />
+        <PrevisionalKanban clientes={filtrados} onSelect={onSelect} onRefetch={onRefetch} onDelete={onDelete} />
       )}
     </div>
   );
