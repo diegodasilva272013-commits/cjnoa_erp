@@ -19,7 +19,7 @@ interface Props {
   onSave: (data: Partial<ClientePrevisional>, id?: string) => Promise<boolean>;
 }
 
-const PIPELINES: PipelinePrevisional[] = ['seguimiento', 'jubi_especiales', 'ucap', 'jubi_ordinarias', 'finalizado', 'descartado'];
+const PIPELINES: PipelinePrevisional[] = ['consulta', 'seguimiento', 'ingreso', 'cobro', 'jubi_especiales', 'ucap', 'jubi_ordinarias', 'finalizado', 'descartado'];
 const SUB_ESTADOS: SubEstadoPrevisional[] = ['EN PROCESO', 'EN ESPERA', 'EN PROCESO - SEGUIMIENTO EXPTE', 'EN PROCESO - REALIZAR TAREA', 'FINALIZADO', 'COBRADO'];
 
 export default function FichaModal({ open, onClose, cliente, onSave }: Props) {

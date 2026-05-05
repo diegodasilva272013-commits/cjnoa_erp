@@ -7,6 +7,7 @@ import {
 import { CSS } from '@dnd-kit/utilities';
 import { ClientePrevisional, PipelinePrevisional, PIPELINE_LABELS, calcularSemaforo, SEMAFORO_COLORS } from '../../types/previsional';
 import { supabase } from '../../lib/supabase';
+import { useToast } from '../../context/ToastContext';
 
 const ORDERED_PIPELINES: PipelinePrevisional[] = [
   'consulta', 'seguimiento', 'ingreso', 'cobro',
@@ -74,6 +75,7 @@ function DropColumn({ pipeline, styles, children, count }: {
 export default function PrevisionalKanban({ clientes, onSelect, onRefetch }: Props) {
   const [items, setItems] = useState<ClientePrevisional[]>(clientes);
   const [activeId, setActiveId] = useState<string | null>(null);
+  const { showToast } = useToast();
 
   useEffect(() => { setItems(clientes); }, [clientes]);
 
@@ -110,7 +112,14 @@ export default function PrevisionalKanban({ clientes, onSelect, onRefetch }: Pro
     setItems(prev => prev.map(c => c.id === active.id ? { ...c, pipeline: newPipeline! } : c));
     setActiveId(null);
     const { error } = await supabase.from('clientes_previsional').update({ pipeline: newPipeline }).eq('id', active.id);
-    if (!error) onRefetch?.();
+    if (error) {
+      showToast('No se pudo mover: ' + error.message, 'error');
+      // Revertir optimismo recargando del servidor
+      setItems(prev => prev.map(c => c.id === active.id ? { ...c, pipeline: card.pipeline } : c));
+    } else {
+      showToast(`Movido a ${PIPELINE_LABELS[newPipeline]}`, 'success');
+    }
+    onRefetch?.();
   }
 
   return (

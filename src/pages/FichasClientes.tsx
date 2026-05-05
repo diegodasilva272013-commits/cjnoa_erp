@@ -1,15 +1,17 @@
 import { useState } from 'react';
-import { LayoutGrid, List, Plus } from 'lucide-react';
+import { LayoutGrid, List, Plus, Upload } from 'lucide-react';
 import { ClientePrevisional } from '../types/previsional';
 import { useClientesPrevisional } from '../hooks/usePrevisional';
 import FichasList from '../components/previsional/FichasList';
 import FichaModal from '../components/previsional/FichaModal';
 import FichaDetalle from '../components/previsional/FichaDetalle';
 import PrevisionalKanban from '../components/previsional/PrevisionalKanban';
+import BulkImportPrevisionalModal from '../components/previsional/BulkImportPrevisionalModal';
 
 export default function FichasClientes() {
   const { clientes, upsert, remove, refetch } = useClientesPrevisional();
   const [modalOpen, setModalOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
   const [selected, setSelected] = useState<ClientePrevisional | null>(null);
   const [detalle, setDetalle] = useState<ClientePrevisional | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
@@ -85,8 +87,18 @@ export default function FichasClientes() {
           </button>
         </div>
         {view === 'kanban' && (
-          <button onClick={handleNew} className="btn-primary text-xs px-3 py-1.5 flex items-center gap-1.5">
-            <Plus className="w-3.5 h-3.5" /> Nueva ficha
+          <div className="flex items-center gap-2">
+            <button onClick={() => setImportOpen(true)} className="text-xs px-3 py-1.5 flex items-center gap-1.5 rounded-xl border border-white/10 bg-white/[0.04] text-white hover:bg-white/[0.08]">
+              <Upload className="w-3.5 h-3.5" /> Importar Excel
+            </button>
+            <button onClick={handleNew} className="btn-primary text-xs px-3 py-1.5 flex items-center gap-1.5">
+              <Plus className="w-3.5 h-3.5" /> Nueva ficha
+            </button>
+          </div>
+        )}
+        {view === 'list' && (
+          <button onClick={() => setImportOpen(true)} className="text-xs px-3 py-1.5 flex items-center gap-1.5 rounded-xl border border-white/10 bg-white/[0.04] text-white hover:bg-white/[0.08]">
+            <Upload className="w-3.5 h-3.5" /> Importar Excel
           </button>
         )}
       </div>
@@ -116,6 +128,12 @@ export default function FichasClientes() {
         onClose={() => setModalOpen(false)}
         cliente={selected}
         onSave={handleSave}
+      />
+
+      <BulkImportPrevisionalModal
+        open={importOpen}
+        onClose={() => setImportOpen(false)}
+        onImported={refetch}
       />
     </>
   );
