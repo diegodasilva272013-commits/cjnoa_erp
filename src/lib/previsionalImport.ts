@@ -87,6 +87,14 @@ function clampMoney(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
+function clampInt(n: number, min: number, max: number): number {
+  if (!isFinite(n)) return min;
+  const v = Math.round(n);
+  if (v < min) return min;
+  if (v > max) return max;
+  return v;
+}
+
 function toSexo(v: any): SexoCliente | null {
   if (!v) return null;
   const s = String(v).trim().toUpperCase();
@@ -220,9 +228,9 @@ export function parseFichaWorkbook(buffer: ArrayBuffer): ParsedFicha {
     sexo,
     direccion,
     telefono,
-    hijos,
-    meses_moratoria_24476,
-    meses_moratoria_27705,
+    hijos: clampInt(hijos, 0, 99),
+    meses_moratoria_24476: clampInt(meses_moratoria_24476, 0, 9999),
+    meses_moratoria_27705: clampInt(meses_moratoria_27705, 0, 9999),
     fecha_edad_jubilatoria,
     resumen_informe,
     conclusion,

@@ -81,24 +81,33 @@ export default function BulkImportPrevisionalModal({ open, onClose, onImported }
       }
 
       let clienteId: string | null = existingId;
+      // Asegurar valores seguros: forzar a 0 si vienen undefined/NaN para evitar overflows.
+      const safePayload: any = { ...parsed.cliente };
+      const numFields = ['hijos','meses_moratoria_24476','meses_moratoria_27705','cobro_total','monto_cobrado'];
+      for (const f of numFields) {
+        const v = safePayload[f];
+        if (v == null || typeof v !== 'number' || !isFinite(v)) safePayload[f] = 0;
+      }
       if (existingId) {
         const { error } = await supabase
           .from('clientes_previsional')
-          .update(parsed.cliente)
+          .update(safePayload)
           .eq('id', existingId);
         if (error) {
-          results[i] = { ...results[i], status: 'error', message: 'Error al actualizar: ' + error.message };
+          const detail = [error.message, (error as any).details, (error as any).hint].filter(Boolean).join(' · ');
+          results[i] = { ...results[i], status: 'error', message: 'Error al actualizar: ' + detail };
           setFiles([...results]);
           continue;
         }
       } else {
         const { data, error } = await supabase
           .from('clientes_previsional')
-          .insert(parsed.cliente)
+          .insert(safePayload)
           .select('id')
           .single();
         if (error || !data) {
-          results[i] = { ...results[i], status: 'error', message: 'Error al insertar: ' + (error?.message || 'sin id') };
+          const detail = [error?.message, (error as any)?.details, (error as any)?.hint].filter(Boolean).join(' · ');
+          results[i] = { ...results[i], status: 'error', message: 'Error al insertar: ' + (detail || 'sin id') };
           setFiles([...results]);
           continue;
         }
