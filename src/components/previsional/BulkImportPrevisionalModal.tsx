@@ -81,12 +81,23 @@ export default function BulkImportPrevisionalModal({ open, onClose, onImported }
       }
 
       let clienteId: string | null = existingId;
-      // Asegurar valores seguros: forzar a 0 si vienen undefined/NaN para evitar overflows.
-      const safePayload: any = { ...parsed.cliente };
-      const numFields = ['hijos','meses_moratoria_24476','meses_moratoria_27705','cobro_total','monto_cobrado'];
-      for (const f of numFields) {
-        const v = safePayload[f];
-        if (v == null || typeof v !== 'number' || !isFinite(v)) safePayload[f] = 0;
+      // Construir payload limpio: SIN columnas generadas ni metadatos.
+      const FORBIDDEN = new Set([
+        'id', 'created_at', 'created_by', 'updated_at', 'updated_by',
+        'saldo_pendiente', 'tiempo_en_pipeline',
+        'pipeline_fecha_ingreso', 'pipeline_fecha_cobro', 'pipeline_fecha_finalizado',
+      ]);
+      const ALLOWED_NUM = new Set(['hijos','meses_moratoria_24476','meses_moratoria_27705','cobro_total','monto_cobrado','score_probabilidad']);
+      const safePayload: Record<string, any> = {};
+      for (const [k, v] of Object.entries(parsed.cliente)) {
+        if (FORBIDDEN.has(k)) continue;
+        if (v === undefined) continue;
+        if (ALLOWED_NUM.has(k)) {
+          if (v == null || typeof v !== 'number' || !isFinite(v)) safePayload[k] = 0;
+          else safePayload[k] = v;
+        } else {
+          safePayload[k] = v;
+        }
       }
       if (existingId) {
         const { error } = await supabase
