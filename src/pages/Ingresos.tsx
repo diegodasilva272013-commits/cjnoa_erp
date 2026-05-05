@@ -95,16 +95,81 @@ export default function Ingresos() {
   async function handleDeleteIngreso(id: string, esManual: boolean) {
     const msg = esManual
       ? '¿Eliminás este ingreso manual?'
-      : '¿Eliminás este ingreso? Si fue generado automáticamente podría recrearse si el registro origen sigue activo.';
+      : '¿Eliminás este ingreso? Si está vinculado a una reserva o saldo, también se desmarcará el cobro en su origen.';
     if (!window.confirm(msg)) return;
     setDeletingId(id);
-    // Desvincular referencias para evitar FK violations
-    await supabase.from('consultas_agendadas').update({ ingreso_reserva_id: null }).eq('ingreso_reserva_id', id);
-    await supabase.from('casos_pagos').update({ ingreso_saldo_id: null }).eq('ingreso_saldo_id', id);
+
+    // 1) ¿Está vinculado a una consulta agendada (reserva)?
+    const { data: caRes } = await supabase
+      .from('consultas_agendadas')
+      .select('id')
+      .eq('ingreso_reserva_id', id)
+      .maybeSingle();
+    if (caRes) {
+      const { error } = await supabase
+        .from('consultas_agendadas')
+        .update({ reserva_pagada: false })
+        .eq('id', caRes.id);
+      setDeletingId(null);
+      if (error) {
+        console.error('[Ingresos] desmarcar consulta:', error);
+        showToast(`No se pudo eliminar: ${error.message}`, 'error');
+        return;
+      }
+      showToast('Ingreso eliminado y reserva desmarcada');
+      await refetch();
+      return;
+    }
+
+    // 2) ¿Está vinculado a una reserva en casos_pagos?
+    const { data: cpRes } = await supabase
+      .from('casos_pagos')
+      .select('id')
+      .eq('ingreso_reserva_id', id)
+      .maybeSingle();
+    if (cpRes) {
+      const { error } = await supabase
+        .from('casos_pagos')
+        .update({ reserva_pagada: false })
+        .eq('id', cpRes.id);
+      setDeletingId(null);
+      if (error) {
+        console.error('[Ingresos] desmarcar reserva pago:', error);
+        showToast(`No se pudo eliminar: ${error.message}`, 'error');
+        return;
+      }
+      showToast('Ingreso eliminado y reserva desmarcada');
+      await refetch();
+      return;
+    }
+
+    // 3) ¿Está vinculado a un saldo en casos_pagos?
+    const { data: cpSal } = await supabase
+      .from('casos_pagos')
+      .select('id')
+      .eq('ingreso_saldo_id', id)
+      .maybeSingle();
+    if (cpSal) {
+      const { error } = await supabase
+        .from('casos_pagos')
+        .update({ saldo_pagado: false })
+        .eq('id', cpSal.id);
+      setDeletingId(null);
+      if (error) {
+        console.error('[Ingresos] desmarcar saldo:', error);
+        showToast(`No se pudo eliminar: ${error.message}`, 'error');
+        return;
+      }
+      showToast('Ingreso eliminado y saldo desmarcado');
+      await refetch();
+      return;
+    }
+
+    // 4) Ingreso suelto (manual u otro): borrar directo
     const { error } = await supabase.from('ingresos').delete().eq('id', id);
     setDeletingId(null);
     if (error) {
-      console.error('[Ingresos] delete error:', error);
+      console.error('[Ingresos] delete:', error);
       showToast(`No se pudo eliminar: ${error.message}`, 'error');
       return;
     }
