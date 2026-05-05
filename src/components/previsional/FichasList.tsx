@@ -244,16 +244,16 @@ export default function FichasList({ clientes, onSelect, onNew, onRefetch, onDel
       {vista === 'tabla' && (
         <div className="glass-card">
           <div>
-            <table className="w-full text-sm">
-              <thead className="sticky top-14 sm:top-16 z-20 bg-[#0a0a0a]/95 backdrop-blur-md">
-                <tr className="border-b border-white/10">
+            <table className="w-full text-sm border-separate border-spacing-0">
+              <thead>
+                <tr>
                   <SortHeader k="apellido_nombre" label="Cliente" sortKey={sortKey} sortDir={sortDir} onClick={toggleSort} />
                   <SortHeader k="cuil" label="CUIL" sortKey={sortKey} sortDir={sortDir} onClick={toggleSort} />
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase hidden md:table-cell">Clave ANSES</th>
+                  <th className="sticky top-14 sm:top-16 z-20 bg-[#0a0a0a]/95 backdrop-blur-md border-b border-white/10 text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase hidden md:table-cell">Clave ANSES</th>
                   <SortHeader k="fecha_jub" label="Edad Jubilatoria" className="hidden xl:table-cell" sortKey={sortKey} sortDir={sortDir} onClick={toggleSort} />
                   <SortHeader k="fecha_ultimo_contacto" label="Situación Actual" className="hidden lg:table-cell" sortKey={sortKey} sortDir={sortDir} onClick={toggleSort} />
                   <SortHeader k="pipeline" label="Pipeline" sortKey={sortKey} sortDir={sortDir} onClick={toggleSort} />
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase w-10"></th>
+                  <th className="sticky top-14 sm:top-16 z-20 bg-[#0a0a0a]/95 backdrop-blur-md border-b border-white/10 text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase w-10"></th>
                 </tr>
               </thead>
               <tbody>
@@ -375,7 +375,7 @@ function SortHeader({ k, label, className = '', sortKey, sortDir, onClick }: {
 }) {
   const active = sortKey === k;
   return (
-    <th className={`text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase ${className}`}>
+    <th className={`sticky top-14 sm:top-16 z-20 bg-[#0a0a0a]/95 backdrop-blur-md border-b border-white/10 text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase ${className}`}>
       <button
         type="button"
         onClick={() => onClick(k)}
