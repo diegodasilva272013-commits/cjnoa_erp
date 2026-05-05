@@ -107,8 +107,8 @@ export default function FichasList({ clientes, onSelect, onNew, onRefetch }: Pro
                   <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Cliente</th>
                   <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase">CUIL</th>
                   <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase hidden md:table-cell">Clave ANSES</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase hidden lg:table-cell">Situación Actual</th>
                   <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase hidden xl:table-cell">Edad Jubilatoria</th>
+                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase hidden lg:table-cell">Situación Actual</th>
                   <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Pipeline</th>
                   <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase w-10"></th>
                 </tr>
@@ -165,18 +165,6 @@ export default function FichasList({ clientes, onSelect, onNew, onRefetch }: Pro
                             </button>
                           ) : <span className="text-gray-600 text-xs">—</span>}
                         </td>
-                        <td className="px-4 py-3 hidden lg:table-cell max-w-[240px]">
-                          {c.situacion_actual || c.fecha_ultimo_contacto ? (
-                            <div className="text-xs">
-                              {c.fecha_ultimo_contacto && (
-                                <p className="text-gray-400 font-medium">{formatFechaLocal(c.fecha_ultimo_contacto)}</p>
-                              )}
-                              {c.situacion_actual && (
-                                <p className="text-gray-300 truncate" title={c.situacion_actual}>{c.situacion_actual}</p>
-                              )}
-                            </div>
-                          ) : <span className="text-gray-600 text-xs">—</span>}
-                        </td>
                         <td className="px-4 py-3 hidden xl:table-cell">
                           {(() => {
                             const fechaJub = c.fecha_edad_jubilatoria || (() => {
@@ -190,6 +178,18 @@ export default function FichasList({ clientes, onSelect, onNew, onRefetch }: Pro
                               ? <span className="text-xs text-gray-300">{formatFechaLocal(fechaJub)}</span>
                               : <span className="text-gray-600 text-xs">—</span>;
                           })()}
+                        </td>
+                        <td className="px-4 py-3 hidden lg:table-cell max-w-[240px]">
+                          {c.situacion_actual || c.fecha_ultimo_contacto ? (
+                            <div className="text-xs">
+                              {c.fecha_ultimo_contacto && (
+                                <p className="text-gray-400 font-medium">{formatFechaLocal(c.fecha_ultimo_contacto)}</p>
+                              )}
+                              {c.situacion_actual && (
+                                <p className="text-gray-300 truncate" title={c.situacion_actual}>{c.situacion_actual}</p>
+                              )}
+                            </div>
+                          ) : <span className="text-gray-600 text-xs">—</span>}
                         </td>
                         <td className="px-4 py-3">
                           <span className={`badge border ${PIPELINE_COLORS[c.pipeline ?? 'consulta'] ?? PIPELINE_COLORS['consulta']}`}>
