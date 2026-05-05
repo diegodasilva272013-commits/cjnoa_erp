@@ -8,7 +8,7 @@ import FichaDetalle from '../components/previsional/FichaDetalle';
 import PrevisionalKanban from '../components/previsional/PrevisionalKanban';
 
 export default function FichasClientes() {
-  const { clientes, upsert, remove } = useClientesPrevisional();
+  const { clientes, upsert, remove, refetch } = useClientesPrevisional();
   const [modalOpen, setModalOpen] = useState(false);
   const [selected, setSelected] = useState<ClientePrevisional | null>(null);
   const [detalle, setDetalle] = useState<ClientePrevisional | null>(null);
@@ -96,6 +96,7 @@ export default function FichasClientes() {
           clientes={clientes}
           onNew={handleNew}
           onSelect={handleView}
+          onRefetch={refetch}
         />
       ) : clientes.length === 0 ? (
         <div className="glass-card p-16 text-center">
@@ -107,7 +108,7 @@ export default function FichasClientes() {
           </button>
         </div>
       ) : (
-        <PrevisionalKanban clientes={clientes} onSelect={handleView} />
+        <PrevisionalKanban clientes={clientes} onSelect={handleView} onRefetch={refetch} />
       )}
 
       <FichaModal

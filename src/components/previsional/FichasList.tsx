@@ -7,11 +7,12 @@ interface Props {
   clientes: ClientePrevisional[];
   onSelect: (c: ClientePrevisional) => void;
   onNew: () => void;
+  onRefetch?: () => void;
 }
 
 const PIPELINES: PipelinePrevisional[] = ['consulta', 'seguimiento', 'ingreso', 'cobro', 'jubi_especiales', 'ucap', 'jubi_ordinarias', 'finalizado', 'descartado'];
 
-export default function FichasList({ clientes, onSelect, onNew }: Props) {
+export default function FichasList({ clientes, onSelect, onNew, onRefetch }: Props) {
   const [busqueda, setBusqueda] = useState('');
   const [filtroPipeline, setFiltroPipeline] = useState<PipelinePrevisional | 'todos'>('todos');
   const [vista, setVista] = useState<'tabla' | 'pipeline'>('tabla');
@@ -203,7 +204,7 @@ export default function FichasList({ clientes, onSelect, onNew }: Props) {
 
       {/* Vista: Pipeline Kanban */}
       {vista === 'pipeline' && (
-        <PrevisionalKanban clientes={clientes} onSelect={onSelect} />
+        <PrevisionalKanban clientes={clientes} onSelect={onSelect} onRefetch={onRefetch} />
       )}
     </div>
   );
