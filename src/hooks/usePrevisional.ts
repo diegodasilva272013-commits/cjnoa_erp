@@ -160,7 +160,7 @@ export function useTareasPrevisional(filtroResponsable?: string) {
     try {
       let query = supabase
         .from('tareas_previsional')
-        .select('*, clientes_previsional(apellido_nombre)')
+        .select('*, clientes_previsional(apellido_nombre), derivada_a_perfil:perfiles!tareas_previsional_derivada_a_fkey(nombre)')
         .order('created_at', { ascending: false });
 
       if (filtroResponsable) {
@@ -173,6 +173,7 @@ export function useTareasPrevisional(filtroResponsable?: string) {
         const mapped = (data || []).map((t: any) => ({
           ...t,
           cliente_nombre: t.clientes_previsional?.apellido_nombre || null,
+          derivada_a_nombre: t.derivada_a_perfil?.nombre || null,
         }));
         setTareas(mapped as TareaPrevisional[]);
       }
@@ -215,6 +216,19 @@ export function useTareasPrevisional(filtroResponsable?: string) {
     return true;
   };
 
+  const reabrir = async (id: string) => {
+    const { error } = await supabase.from('tareas_previsional').update({
+      estado: 'en_curso',
+      fecha_completada: null,
+      completada_por: null,
+      updated_at: new Date().toISOString(),
+    }).eq('id', id);
+    if (error) { showToast('Error: ' + error.message, 'error'); return false; }
+    showToast('Tarea reabierta', 'success');
+    await fetch();
+    return true;
+  };
+
   const remove = async (id: string, tarea: TareaPrevisional, userId: string) => {
     // Guardar en historial antes de eliminar
     await supabase.from('historial_tareas_eliminadas').insert({
@@ -231,7 +245,7 @@ export function useTareasPrevisional(filtroResponsable?: string) {
     return true;
   };
 
-  return { tareas, loading, refetch: fetch, upsert, completar, remove };
+  return { tareas, loading, refetch: fetch, upsert, completar, reabrir, remove };
 }
 
 // ── Hook: Audiencias ──

@@ -7,6 +7,7 @@ import {
   PRIORIDAD_LABELS, ESTADO_TAREA_LABELS,
 } from '../../types/previsional';
 import { useAuth } from '../../context/AuthContext';
+import { supabase } from '../../lib/supabase';
 
 interface Props {
   open: boolean;
@@ -22,6 +23,7 @@ const ESTADOS: EstadoTarea[] = ['pendiente', 'en_curso', 'completada'];
 export default function TareaModal({ open, onClose, tarea, clientes, onSave }: Props) {
   const { user } = useAuth();
   const [saving, setSaving] = useState(false);
+  const [perfiles, setPerfiles] = useState<{id:string; nombre:string; rol:string}[]>([]);
   const [form, setForm] = useState({
     titulo: '',
     descripcion: '',
@@ -31,10 +33,17 @@ export default function TareaModal({ open, onClose, tarea, clientes, onSave }: P
     prioridad: 'sin_prioridad' as PrioridadTarea,
     fecha_limite: '',
     responsable_nombre: '',
+    derivada_a: '',
     cargo_hora: '',
     cargo_hora_fecha: '',
     observaciones_demora: '',
   });
+
+  useEffect(() => {
+    supabase.from('perfiles').select('id, nombre, rol').eq('activo', true).order('nombre').then(({ data }) => {
+      if (data) setPerfiles(data as any);
+    });
+  }, []);
 
   useEffect(() => {
     if (tarea) {
@@ -47,6 +56,7 @@ export default function TareaModal({ open, onClose, tarea, clientes, onSave }: P
         prioridad: tarea.prioridad,
         fecha_limite: tarea.fecha_limite || '',
         responsable_nombre: tarea.responsable_nombre || '',
+        derivada_a: tarea.derivada_a || '',
         cargo_hora: tarea.cargo_hora || '',
         cargo_hora_fecha: tarea.cargo_hora_fecha || '',
         observaciones_demora: tarea.observaciones_demora || '',
@@ -55,7 +65,7 @@ export default function TareaModal({ open, onClose, tarea, clientes, onSave }: P
       setForm({
         titulo: '', descripcion: '', avance: '', cliente_prev_id: '',
         estado: 'pendiente', prioridad: 'sin_prioridad', fecha_limite: '',
-        responsable_nombre: '', cargo_hora: '', cargo_hora_fecha: '',
+        responsable_nombre: '', derivada_a: '', cargo_hora: '', cargo_hora_fecha: '',
         observaciones_demora: '',
       });
     }
@@ -71,6 +81,7 @@ export default function TareaModal({ open, onClose, tarea, clientes, onSave }: P
       avance: form.avance || null,
       fecha_limite: form.fecha_limite || null,
       responsable_nombre: form.responsable_nombre || null,
+      derivada_a: form.derivada_a || null,
       cargo_hora: form.cargo_hora || null,
       cargo_hora_fecha: form.cargo_hora_fecha || null,
       observaciones_demora: form.observaciones_demora || null,
@@ -129,6 +140,20 @@ export default function TareaModal({ open, onClose, tarea, clientes, onSave }: P
               className="input-dark"
               placeholder="Nombre del responsable"
             />
+          </div>
+
+          <div>
+            <label className="block text-xs font-medium text-gray-400 mb-1.5">Derivada a (usuario)</label>
+            <select
+              value={form.derivada_a}
+              onChange={e => setForm({ ...form, derivada_a: e.target.value })}
+              className="select-dark"
+            >
+              <option value="">Sin derivar</option>
+              {perfiles.map(p => (
+                <option key={p.id} value={p.id}>{p.nombre}{p.rol ? ` · ${p.rol}` : ''}</option>
+              ))}
+            </select>
           </div>
 
           <div>

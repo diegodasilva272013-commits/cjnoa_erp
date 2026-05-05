@@ -109,6 +109,8 @@ export interface TareaPrevisional {
   fecha_limite: string | null;
   responsable_id: string | null;
   responsable_nombre: string | null;
+  derivada_a: string | null;
+  derivada_a_nombre?: string | null;
   observaciones_demora: string | null;
   archivo_url: string | null;
   archivo_nombre: string | null;

@@ -4,7 +4,7 @@ import {
   Clock, CheckCircle, AlertTriangle, Trash2, User, Bell, X
 } from 'lucide-react';
 import { TareaPrevisional, EstadoTarea, PrioridadTarea,
-  ESTADO_TAREA_LABELS, PRIORIDAD_LABELS, PRIORIDAD_COLORS,
+  ESTADO_TAREA_LABELS, PRIORIDAD_LABELS, PRIORIDAD_COLORS, formatFechaLocal,
 } from '../types/previsional';
 import { useTareasPrevisional, useClientesPrevisional, useAudiencias, useAlertasPrevisional } from '../hooks/usePrevisional';
 import { useAuth } from '../context/AuthContext';
@@ -20,7 +20,7 @@ const ESTADO_COLORS: Record<EstadoTarea, string> = {
 
 export default function Seguimiento() {
   const { user } = useAuth();
-  const { tareas, loading, upsert, completar, remove } = useTareasPrevisional();
+  const { tareas, loading, upsert, completar, reabrir, remove } = useTareasPrevisional();
   const { clientes } = useClientesPrevisional();
   const { audiencias, loading: loadAud, upsert: upsertAud, remove: removeAud } = useAudiencias();
   const { alertas, marcarLeida, marcarTodasLeidas } = useAlertasPrevisional();
@@ -46,8 +46,13 @@ export default function Seguimiento() {
     });
   }, [tareas, search, filterEstado, filterPrioridad]);
 
-  const isVencida = (t: TareaPrevisional) =>
-    t.fecha_limite && new Date(t.fecha_limite) < new Date() && t.estado !== 'completada';
+  const isVencida = (t: TareaPrevisional) => {
+    if (!t.fecha_limite || t.estado === 'completada') return false;
+    // Comparar como yyyy-mm-dd local para evitar desfase TZ
+    const hoy = new Date();
+    const hoyStr = `${hoy.getFullYear()}-${String(hoy.getMonth()+1).padStart(2,'0')}-${String(hoy.getDate()).padStart(2,'0')}`;
+    return t.fecha_limite < hoyStr;
+  };
 
   const handleDelete = async (tarea: TareaPrevisional) => {
     if (confirmDelete === tarea.id) {
@@ -184,9 +189,10 @@ export default function Seguimiento() {
               >
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex items-start gap-3 flex-1 min-w-0">
-                    {/* Checkbox */}
+                    {/* Checkbox toggle: completar / reabrir */}
                     <button
-                      onClick={e => { e.stopPropagation(); t.estado !== 'completada' && completar(t.id, user?.id || ''); }}
+                      onClick={e => { e.stopPropagation(); t.estado === 'completada' ? reabrir(t.id) : completar(t.id, user?.id || ''); }}
+                      title={t.estado === 'completada' ? 'Click para reabrir' : 'Click para completar'}
                       className={`mt-0.5 w-5 h-5 rounded-md border-2 flex items-center justify-center transition-all ${
                         t.estado === 'completada' ? 'bg-emerald-500/20 border-emerald-500 text-emerald-400' : 'border-gray-600 hover:border-white'
                       }`}
@@ -216,9 +222,14 @@ export default function Seguimiento() {
                             <User className="w-2.5 h-2.5" /> {t.responsable_nombre}
                           </span>
                         )}
+                        {t.derivada_a_nombre && (
+                          <span className="text-[10px] text-blue-400 flex items-center gap-1">
+                            <User className="w-2.5 h-2.5" /> Derivada: {t.derivada_a_nombre}
+                          </span>
+                        )}
                         {t.fecha_limite && (
                           <span className="text-[10px] text-gray-600 flex items-center gap-1">
-                            <Clock className="w-2.5 h-2.5" /> {new Date(t.fecha_limite).toLocaleDateString('es-AR')}
+                            <Clock className="w-2.5 h-2.5" /> {formatFechaLocal(t.fecha_limite)}
                           </span>
                         )}
                       </div>
@@ -304,7 +315,7 @@ export default function Seguimiento() {
                       <div className="flex items-center gap-2 mb-1">
                         <CalendarIcon className="w-4 h-4 text-purple-400" />
                         <span className="text-sm font-medium text-white">
-                          {new Date(a.fecha).toLocaleDateString('es-AR', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' })}
+                          {formatFechaLocal(a.fecha)}
                         </span>
                         {a.hora && <span className="text-xs text-gray-500">{a.hora}</span>}
                         {isPast && <span className="text-[10px] text-gray-600 bg-white/[0.03] px-1.5 py-0.5 rounded-full">Pasada</span>}
