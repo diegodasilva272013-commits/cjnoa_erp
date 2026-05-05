@@ -71,10 +71,20 @@ function toStr(v: any): string | null {
 
 function toNum(v: any): number {
   if (v == null || v === '') return 0;
-  if (typeof v === 'number') return v;
+  if (v instanceof Date) return 0; // nunca convertir fechas a número
+  if (typeof v === 'number') return isFinite(v) ? v : 0;
   const s = String(v).replace(/[^\d.,-]/g, '').replace(/\./g, '').replace(',', '.');
   const n = parseFloat(s);
   return isNaN(n) ? 0 : n;
+}
+
+// Limita a numeric(12,2): hasta 9_999_999_999.99
+function clampMoney(n: number): number {
+  if (!isFinite(n)) return 0;
+  const max = 9_999_999_999.99;
+  if (n > max) return max;
+  if (n < -max) return -max;
+  return Math.round(n * 100) / 100;
 }
 
 function toSexo(v: any): SexoCliente | null {
@@ -110,14 +120,22 @@ export function parseFichaWorkbook(buffer: ArrayBuffer): ParsedFicha {
   const ws = wb.Sheets[sheetName];
   const warnings: string[] = [];
 
-  // ── Datos personales (fila 2) ──
-  const apellido_nombre = toStr(getCell(ws, 'A2')) || '';
-  if (!apellido_nombre) {
-    warnings.push('No se encontró APELLIDO Y NOMBRE en A2.');
-  }
+  // Helper: ubica la fila que sigue a un header buscando texto en la col A
+  const findRowAfter = (headerText: string, fallback: number): number => {
+    const upper = headerText.toUpperCase();
+    for (let r = 1; r <= 30; r++) {
+      const v = getCell(ws, `A${r}`);
+      if (v && String(v).toUpperCase().includes(upper)) return r + 1;
+    }
+    return fallback;
+  };
 
-  // CUIL puede venir como número o texto
-  const cuilRaw = getCell(ws, 'B2');
+  // ── Datos personales: header fila 1, datos fila 2 ──
+  const rowPers = findRowAfter('APELLIDO', 2);
+  const apellido_nombre = toStr(getCell(ws, `A${rowPers}`)) || '';
+  if (!apellido_nombre) warnings.push('No se encontró APELLIDO Y NOMBRE.');
+
+  const cuilRaw = getCell(ws, `B${rowPers}`);
   let cuil: string | null = null;
   if (cuilRaw != null && cuilRaw !== '') {
     const onlyDigits = String(cuilRaw).replace(/\D/g, '');
@@ -127,70 +145,68 @@ export function parseFichaWorkbook(buffer: ArrayBuffer): ParsedFicha {
       cuil = String(cuilRaw).trim();
     }
   }
+  const clave_social = toStr(getCell(ws, `C${rowPers}`));
+  const clave_fiscal = toStr(getCell(ws, `D${rowPers}`));
+  const fecha_nacimiento = toIsoDate(getCell(ws, `E${rowPers}`));
+  const sexo = toSexo(getCell(ws, `G${rowPers}`));
+  const direccion = toStr(getCell(ws, `H${rowPers}`));
+  const hijos = Math.max(0, Math.min(99, Math.round(toNum(getCell(ws, `I${rowPers}`)))));
 
-  const clave_social = toStr(getCell(ws, 'C2'));
-  const clave_fiscal = toStr(getCell(ws, 'D2'));
-  const fecha_nacimiento = toIsoDate(getCell(ws, 'E2'));
-  const sexo = toSexo(getCell(ws, 'G2'));
-  const direccion = toStr(getCell(ws, 'H2'));
-  const hijos = Math.max(0, Math.round(toNum(getCell(ws, 'I2'))));
+  // ── Moratorias: header "MESES MORATORIA 24.476", datos en la fila siguiente ──
+  const rowMor = findRowAfter('MESES MORATORIA', 5);
+  const meses_moratoria_24476 = Math.min(9999, parseAniosMeses(getCell(ws, `A${rowMor}`)));
+  const meses_moratoria_27705 = Math.min(9999, parseAniosMeses(getCell(ws, `B${rowMor}`)));
+  const fecha_edad_jubilatoria = toIsoDate(getCell(ws, `C${rowMor}`));
+  const resumen_informe = toStr(getCell(ws, `D${rowMor}`));
+  const conclusion: string | null = null;
 
-  // Teléfono - puede venir como número grande
-  const telRaw = getCell(ws, 'C6');
+  // ── Seguimiento: header "FECHA ÚLTIMO CONTACTO", datos en la fila siguiente ──
+  const rowSeg = findRowAfter('FECHA', 8);
+  const fecha_ultimo_contacto = toIsoDate(getCell(ws, `A${rowSeg}`));
+  const telRaw = getCell(ws, `C${rowSeg}`);
   let telefono: string | null = null;
   if (telRaw != null && telRaw !== '') {
     telefono = String(telRaw).replace(/[^\d+]/g, '') || null;
   }
+  const situacion_actual = toStr(getCell(ws, `D${rowSeg}`));
 
-  // ── Moratorias / informe (fila 4) ──
-  const meses_moratoria_24476 = parseAniosMeses(getCell(ws, 'A4'));
-  const meses_moratoria_27705 = parseAniosMeses(getCell(ws, 'B4'));
-  const fecha_edad_jubilatoria = toIsoDate(getCell(ws, 'C4'));
-  const resumen_informe = toStr(getCell(ws, 'D4'));
-  // F4 suele ser la etiqueta lateral "APORTES"; ignoramos.
-  const conclusion: string | null = null;
+  // ── Cobro: header "COBRO TOTAL", datos en la fila siguiente ──
+  const rowCobro = findRowAfter('COBRO TOTAL', 11);
+  const cobroRaw = getCell(ws, `A${rowCobro}`);
+  const cobradoRaw = getCell(ws, `B${rowCobro}`);
+  // Solo numeric: si la celda no es un número parseable a algo razonable, queda 0
+  const cobro_total = clampMoney(toNum(cobroRaw));
+  const monto_cobrado = clampMoney(toNum(cobradoRaw));
+  const sub_estado = toSubEstado(getCell(ws, `D${rowCobro}`));
 
-  // ── Seguimiento (fila 6) ──
-  const fecha_ultimo_contacto = toIsoDate(getCell(ws, 'A6'));
-  const situacion_actual = toStr(getCell(ws, 'D6'));
+  // ── Drive: header "LINK", url en la fila siguiente ──
+  const rowDrive = findRowAfter('LINK', 14);
+  const url_drive = toStr(getCell(ws, `A${rowDrive}`));
 
-  // ── Cobro (fila 8) ──
-  const cobro_total = toNum(getCell(ws, 'A8'));
-  const monto_cobrado = toNum(getCell(ws, 'B8'));
-  // saldo_pendiente es columna GENERATED en la DB, no se inserta
-  const sub_estado = toSubEstado(getCell(ws, 'D8'));
-
-  // ── Drive ──
-  const url_drive = toStr(getCell(ws, 'A10'));
-
-  // ── Aportes (desde fila 13, header en fila 12) ──
+  // ── Aportes: header "HISTORIAL DE APORTES" ──
+  const rowAportesHeader = findRowAfter('HISTORIAL DE APORTES', 17) - 1;
   const aportes: ParsedAporte[] = [];
   const range = XLSX.utils.decode_range(ws['!ref'] || 'A1');
-  for (let r = 12; r <= Math.min(range.e.r, 200); r++) {
-    const row = r + 1; // 1-based
+  let blanks = 0;
+  for (let row = rowAportesHeader + 1; row <= Math.min(range.e.r + 1, 250); row++) {
     const empleador = toStr(getCell(ws, `A${row}`));
     const desde = toIsoDate(getCell(ws, `B${row}`));
     const hasta = toIsoDate(getCell(ws, `C${row}`));
     if (!empleador && !desde && !hasta) {
-      // fin de tabla (puede haber celdas residuales en col G+)
-      // si las próximas 3 filas también están vacías, salir
-      const next1 = toStr(getCell(ws, `A${row + 1}`)) || toIsoDate(getCell(ws, `B${row + 1}`));
-      const next2 = toStr(getCell(ws, `A${row + 2}`)) || toIsoDate(getCell(ws, `B${row + 2}`));
-      if (!next1 && !next2) break;
+      blanks++;
+      if (blanks >= 5) break;
       continue;
     }
+    blanks = 0;
     if (!desde || !hasta) continue;
-    const totalText = getCell(ws, `D${row}`);
-    const meses_calc = parseAniosMeses(totalText) || calcMeses(desde, hasta);
-    const antes = !!getCell(ws, `E${row}`);
-    const sim = !!getCell(ws, `F${row}`);
+    const meses_calc = parseAniosMeses(getCell(ws, `D${row}`)) || calcMeses(desde, hasta);
     aportes.push({
       empleador,
       fecha_desde: desde,
       fecha_hasta: hasta,
-      total_meses: meses_calc,
-      es_antes_0993: antes,
-      es_simultaneo: sim,
+      total_meses: Math.min(9999, meses_calc),
+      es_antes_0993: !!getCell(ws, `E${row}`),
+      es_simultaneo: !!getCell(ws, `F${row}`),
       observaciones: null,
     });
   }
