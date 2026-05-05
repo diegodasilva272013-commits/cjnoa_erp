@@ -157,7 +157,7 @@ export function parseFichaWorkbook(buffer: ArrayBuffer): ParsedFicha {
   // ── Cobro (fila 8) ──
   const cobro_total = toNum(getCell(ws, 'A8'));
   const monto_cobrado = toNum(getCell(ws, 'B8'));
-  const saldo_pendiente = toNum(getCell(ws, 'C8'));
+  // saldo_pendiente es columna GENERATED en la DB, no se inserta
   const sub_estado = toSubEstado(getCell(ws, 'D8'));
 
   // ── Drive ──
@@ -216,7 +216,6 @@ export function parseFichaWorkbook(buffer: ArrayBuffer): ParsedFicha {
     sub_estado,
     cobro_total,
     monto_cobrado,
-    saldo_pendiente,
     url_drive,
   };
 
