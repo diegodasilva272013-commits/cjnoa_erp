@@ -204,7 +204,7 @@ export default function FichasList({ clientes, onSelect, onNew, onRefetch }: Pro
 
       {/* Vista: Pipeline Kanban */}
       {vista === 'pipeline' && (
-        <PrevisionalKanban clientes={clientes} onSelect={onSelect} onRefetch={onRefetch} />
+        <PrevisionalKanban clientes={filtrados} onSelect={onSelect} onRefetch={onRefetch} />
       )}
     </div>
   );
