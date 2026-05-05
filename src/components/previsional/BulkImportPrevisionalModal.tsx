@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Upload, FileSpreadsheet, CheckCircle2, AlertCircle, Loader2, X, Folder } from 'lucide-react';
 import Modal from '../Modal';
 import { supabase } from '../../lib/supabase';
@@ -52,6 +52,15 @@ export default function BulkImportPrevisionalModal({ open, onClose, onImported }
   const [files, setFiles] = useState<FileResult[]>([]);
   const [busy, setBusy] = useState(false);
   const [dragOver, setDragOver] = useState(false);
+
+  // React no rendea webkitdirectory/directory como atributos custom — los seteamos por DOM.
+  useEffect(() => {
+    if (folderRef.current) {
+      folderRef.current.setAttribute('webkitdirectory', '');
+      folderRef.current.setAttribute('directory', '');
+      folderRef.current.setAttribute('mozdirectory', '');
+    }
+  }, [open]);
 
   function reset() {
     setFiles([]);
@@ -237,12 +246,10 @@ export default function BulkImportPrevisionalModal({ open, onClose, onImported }
             className="hidden"
             id="bulk-ficha-input"
           />
-          {/* @ts-expect-error webkitdirectory no está en los tipos pero funciona en Chromium/Firefox */}
+          {/* Atributos webkitdirectory/directory se setean en useEffect */}
           <input
             ref={folderRef}
             type="file"
-            webkitdirectory=""
-            directory=""
             multiple
             onChange={handleSelect}
             disabled={busy}
