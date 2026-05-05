@@ -245,7 +245,7 @@ export default function FichasList({ clientes, onSelect, onNew, onRefetch, onDel
         <div className="glass-card">
           <div>
             <table className="w-full text-sm">
-              <thead className="sticky top-0 z-20 bg-[#0a0a0a]/95 backdrop-blur-md">
+              <thead className="sticky top-14 sm:top-16 z-20 bg-[#0a0a0a]/95 backdrop-blur-md">
                 <tr className="border-b border-white/10">
                   <SortHeader k="apellido_nombre" label="Cliente" sortKey={sortKey} sortDir={sortDir} onClick={toggleSort} />
                   <SortHeader k="cuil" label="CUIL" sortKey={sortKey} sortDir={sortDir} onClick={toggleSort} />
