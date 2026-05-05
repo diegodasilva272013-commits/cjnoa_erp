@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Search, Plus, Filter, ExternalLink, Phone, ChevronRight, Copy, Check, Trash2, ArrowUp, ArrowDown, ArrowUpDown } from 'lucide-react';
 import { ClientePrevisional, PIPELINE_LABELS, PIPELINE_COLORS, PIPELINE_GRADIENT, PipelinePrevisional, formatFechaLocal } from '../../types/previsional';
 import PrevisionalKanban from './PrevisionalKanban';
@@ -18,6 +18,7 @@ export default function FichasList({ clientes, onSelect, onNew, onRefetch, onDel
   const [busqueda, setBusqueda] = useState('');
   const [filtroPipelines, setFiltroPipelines] = useState<Set<PipelinePrevisional>>(new Set());
   const [vista, setVista] = useState<'tabla' | 'pipeline'>(initialVista);
+  useEffect(() => { setVista(initialVista); }, [initialVista]);
   const [copiado, setCopiado] = useState<string | null>(null);
   const [confirmDel, setConfirmDel] = useState<string | null>(null);
   type SortKey = 'apellido_nombre' | 'cuil' | 'fecha_jub' | 'fecha_ultimo_contacto' | 'pipeline';
@@ -241,10 +242,10 @@ export default function FichasList({ clientes, onSelect, onNew, onRefetch, onDel
 
       {/* Vista: Tabla */}
       {vista === 'tabla' && (
-        <div className="glass-card overflow-hidden">
-          <div className="overflow-x-auto">
+        <div className="glass-card">
+          <div>
             <table className="w-full text-sm">
-              <thead>
+              <thead className="sticky top-0 z-20 bg-[#0a0a0a]/95 backdrop-blur-md">
                 <tr className="border-b border-white/10">
                   <SortHeader k="apellido_nombre" label="Cliente" sortKey={sortKey} sortDir={sortDir} onClick={toggleSort} />
                   <SortHeader k="cuil" label="CUIL" sortKey={sortKey} sortDir={sortDir} onClick={toggleSort} />
