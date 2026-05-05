@@ -98,9 +98,16 @@ export default function Ingresos() {
       : '¿Eliminás este ingreso? Si fue generado automáticamente podría recrearse si el registro origen sigue activo.';
     if (!window.confirm(msg)) return;
     setDeletingId(id);
+    // Desvincular referencias para evitar FK violations
+    await supabase.from('consultas_agendadas').update({ ingreso_reserva_id: null }).eq('ingreso_reserva_id', id);
+    await supabase.from('casos_pagos').update({ ingreso_saldo_id: null }).eq('ingreso_saldo_id', id);
     const { error } = await supabase.from('ingresos').delete().eq('id', id);
     setDeletingId(null);
-    if (error) { showToast('Error al eliminar el ingreso', 'error'); return; }
+    if (error) {
+      console.error('[Ingresos] delete error:', error);
+      showToast(`No se pudo eliminar: ${error.message}`, 'error');
+      return;
+    }
     showToast('Ingreso eliminado');
     await refetch();
   }
