@@ -92,10 +92,25 @@ export default function Ingresos() {
     navigate(`/casos-trabajo?q=${encodeURIComponent(ingreso.cliente_nombre || '')}`);
   }
 
-  async function handleDeleteIngreso(id: string, esManual: boolean) {
+  async function handleDeleteIngreso(ingresoOrId: Ingreso | string, esManualArg?: boolean) {
+    // Resolver objeto ingreso completo
+    let ingreso: Ingreso | undefined;
+    if (typeof ingresoOrId === 'string') {
+      ingreso = ingresos.find(i => i.id === ingresoOrId);
+      if (!ingreso) {
+        const { data } = await supabase.from('ingresos').select('*').eq('id', ingresoOrId).maybeSingle();
+        ingreso = data as Ingreso | undefined;
+      }
+    } else {
+      ingreso = ingresoOrId;
+    }
+    if (!ingreso) { showToast('Ingreso no encontrado', 'error'); return; }
+    const id = ingreso.id;
+    const esManual = esManualArg ?? ingreso.es_manual;
+
     const msg = esManual
       ? '¿Eliminás este ingreso manual?'
-      : '¿Eliminás este ingreso? Si está vinculado a una reserva o saldo, también se desmarcará el cobro en su origen.';
+      : '¿Eliminás este ingreso? Si está vinculado a una reserva, saldo, cuota o pago de caso, también se desmarcará el cobro en su origen.';
     if (!window.confirm(msg)) return;
     setDeletingId(id);
 
@@ -105,30 +120,46 @@ export default function Ingresos() {
       if (ok) await refetch();
     };
 
+    const ensureGone = async (label: string): Promise<{ ok: boolean; message: string }> => {
+      const { data: still } = await supabase.from('ingresos').select('id').eq('id', id).maybeSingle();
+      if (!still) return { ok: true, message: `Ingreso eliminado y ${label}` };
+      // Trigger no lo borró: forzar
+      const { error: dErr, data: dRows } = await supabase.from('ingresos').delete().eq('id', id).select('id');
+      if (dErr) return { ok: false, message: `Origen actualizado pero no se borró el ingreso: ${dErr.message}` };
+      if (!dRows || dRows.length === 0) return { ok: false, message: 'Sin permiso para borrar el ingreso (RLS). Corré la migración migration_ingresos_rls_fix.sql' };
+      return { ok: true, message: `Ingreso eliminado y ${label}` };
+    };
+
     try {
-      // 1) ¿Está vinculado a una consulta agendada (reserva)?
+      // 0) Notas con referencia (cuotas legacy / pago único caso_completo)
+      const ref = parseIncomeReference(ingreso.notas).reference;
+      if (ref?.type === 'cuota') {
+        const { data: upd, error } = await supabase
+          .from('cuotas').update({ estado: 'Pendiente', fecha_pago: null }).eq('id', ref.id).select('id');
+        if (error) return finish(false, `No se pudo desmarcar la cuota: ${error.message}`);
+        if (!upd || upd.length === 0) return finish(false, 'Sin permiso para desmarcar la cuota (RLS)');
+        const r = await ensureGone('cuota desmarcada');
+        return finish(r.ok, r.message);
+      }
+      if (ref?.type === 'pago_unico') {
+        const { data: upd, error } = await supabase
+          .from('casos_completos').update({ pago_unico_pagado: false }).eq('id', ref.caseId).select('id');
+        if (error) return finish(false, `No se pudo desmarcar el pago único: ${error.message}`);
+        if (!upd || upd.length === 0) return finish(false, 'Sin permiso para desmarcar el pago único (RLS)');
+        const r = await ensureGone('pago único desmarcado');
+        return finish(r.ok, r.message);
+      }
+
+      // 1) consultas_agendadas (reserva)
       const { data: caRes } = await supabase
-        .from('consultas_agendadas')
-        .select('id')
-        .eq('ingreso_reserva_id', id)
-        .maybeSingle();
+        .from('consultas_agendadas').select('id').eq('ingreso_reserva_id', id).maybeSingle();
       if (caRes) {
         const { data: upd, error } = await supabase
-          .from('consultas_agendadas')
-          .update({ reserva_pagada: false })
-          .eq('id', caRes.id)
-          .select('id');
-        if (error) { console.error(error); return finish(false, `No se pudo: ${error.message}`); }
-        if (!upd || upd.length === 0) return finish(false, 'Sin permiso para desmarcar la consulta');
-        // Verificar que el ingreso ya no exista
-        const { data: still } = await supabase.from('ingresos').select('id').eq('id', id).maybeSingle();
-        if (still) {
-          // El trigger no lo borró: forzar delete
-          const { error: dErr, data: dRows } = await supabase.from('ingresos').delete().eq('id', id).select('id');
-          if (dErr) return finish(false, `No se pudo borrar ingreso: ${dErr.message}`);
-          if (!dRows || dRows.length === 0) return finish(false, 'Sin permiso para borrar el ingreso (RLS)');
-        }
-        return finish(true, 'Ingreso eliminado y reserva desmarcada');
+          .from('consultas_agendadas').update({ reserva_pagada: false }).eq('id', caRes.id).select('id');
+        if (error) return finish(false, `No se pudo: ${error.message}`);
+        if (!upd || upd.length === 0) return finish(false, 'Sin permiso para desmarcar la consulta (RLS)');
+        const r = await ensureGone('reserva desmarcada');
+        return finish(r.ok, r.message);
       }
 
       // 2) reserva en casos_pagos
@@ -137,15 +168,10 @@ export default function Ingresos() {
       if (cpRes) {
         const { data: upd, error } = await supabase
           .from('casos_pagos').update({ reserva_pagada: false }).eq('id', cpRes.id).select('id');
-        if (error) { console.error(error); return finish(false, `No se pudo: ${error.message}`); }
-        if (!upd || upd.length === 0) return finish(false, 'Sin permiso para desmarcar la reserva');
-        const { data: still } = await supabase.from('ingresos').select('id').eq('id', id).maybeSingle();
-        if (still) {
-          const { error: dErr, data: dRows } = await supabase.from('ingresos').delete().eq('id', id).select('id');
-          if (dErr) return finish(false, `No se pudo borrar ingreso: ${dErr.message}`);
-          if (!dRows || dRows.length === 0) return finish(false, 'Sin permiso para borrar el ingreso (RLS)');
-        }
-        return finish(true, 'Ingreso eliminado y reserva desmarcada');
+        if (error) return finish(false, `No se pudo: ${error.message}`);
+        if (!upd || upd.length === 0) return finish(false, 'Sin permiso para desmarcar la reserva (RLS)');
+        const r = await ensureGone('reserva desmarcada');
+        return finish(r.ok, r.message);
       }
 
       // 3) saldo en casos_pagos
@@ -154,21 +180,28 @@ export default function Ingresos() {
       if (cpSal) {
         const { data: upd, error } = await supabase
           .from('casos_pagos').update({ saldo_pagado: false }).eq('id', cpSal.id).select('id');
-        if (error) { console.error(error); return finish(false, `No se pudo: ${error.message}`); }
-        if (!upd || upd.length === 0) return finish(false, 'Sin permiso para desmarcar el saldo');
-        const { data: still } = await supabase.from('ingresos').select('id').eq('id', id).maybeSingle();
-        if (still) {
-          const { error: dErr, data: dRows } = await supabase.from('ingresos').delete().eq('id', id).select('id');
-          if (dErr) return finish(false, `No se pudo borrar ingreso: ${dErr.message}`);
-          if (!dRows || dRows.length === 0) return finish(false, 'Sin permiso para borrar el ingreso (RLS)');
-        }
-        return finish(true, 'Ingreso eliminado y saldo desmarcado');
+        if (error) return finish(false, `No se pudo: ${error.message}`);
+        if (!upd || upd.length === 0) return finish(false, 'Sin permiso para desmarcar el saldo (RLS)');
+        const r = await ensureGone('saldo desmarcado');
+        return finish(r.ok, r.message);
       }
 
-      // 4) Ingreso suelto: delete directo y verificar
+      // 4) cuota de casos_pagos_cuotas
+      const { data: cpCuota } = await supabase
+        .from('casos_pagos_cuotas').select('id').eq('ingreso_id', id).maybeSingle();
+      if (cpCuota) {
+        const { data: upd, error } = await supabase
+          .from('casos_pagos_cuotas').update({ estado: 'Pendiente', fecha_pago: null }).eq('id', cpCuota.id).select('id');
+        if (error) return finish(false, `No se pudo: ${error.message}`);
+        if (!upd || upd.length === 0) return finish(false, 'Sin permiso para desmarcar la cuota (RLS)');
+        const r = await ensureGone('cuota desmarcada');
+        return finish(r.ok, r.message);
+      }
+
+      // 5) Ingreso suelto: delete directo y verificar
       const { error, data: rows } = await supabase.from('ingresos').delete().eq('id', id).select('id');
       if (error) { console.error('[Ingresos] delete:', error); return finish(false, `No se pudo: ${error.message}`); }
-      if (!rows || rows.length === 0) return finish(false, 'No se borró ninguna fila (RLS o ya no existe). Probá refrescar.');
+      if (!rows || rows.length === 0) return finish(false, 'No se borró ninguna fila (RLS o ya no existe). Corré migration_ingresos_rls_fix.sql');
       return finish(true, 'Ingreso eliminado');
     } catch (e: any) {
       console.error('[Ingresos] catch:', e);
@@ -583,7 +616,7 @@ export default function Ingresos() {
                             <span className={`badge ${origen.badge}`}>{origen.label}</span>
                           )}
                           <button
-                              onClick={e => { e.stopPropagation(); handleDeleteIngreso(ingreso.id, ingreso.es_manual); }}
+                              onClick={e => { e.stopPropagation(); handleDeleteIngreso(ingreso); }}
                               disabled={deletingId === ingreso.id}
                               className="p-1 rounded text-gray-600 hover:text-red-400 hover:bg-red-500/10 transition-colors disabled:opacity-40"
                               title="Eliminar ingreso"
@@ -640,7 +673,7 @@ export default function Ingresos() {
         onClose={() => { setManualModalOpen(false); setEditingIngreso(null); }}
         onSaved={refetch}
         editing={editingIngreso}
-        onDelete={async (id) => { await handleDeleteIngreso(id, true); setEditingIngreso(null); }}
+        onDelete={async (id) => { await handleDeleteIngreso(id); setEditingIngreso(null); }}
       />
       <FinanceImportModal
         open={importModalOpen}
