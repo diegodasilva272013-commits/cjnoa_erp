@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Search, Plus, Filter, ExternalLink, Phone, ChevronRight, Copy, Check } from 'lucide-react';
-import { ClientePrevisional, PIPELINE_LABELS, PIPELINE_COLORS, PIPELINE_GRADIENT, calcularSemaforo, SEMAFORO_COLORS, SEMAFORO_LABELS, PipelinePrevisional, formatFechaLocal } from '../../types/previsional';
+import { ClientePrevisional, PIPELINE_LABELS, PIPELINE_COLORS, PIPELINE_GRADIENT, PipelinePrevisional, formatFechaLocal } from '../../types/previsional';
 import PrevisionalKanban from './PrevisionalKanban';
 
 interface Props {
@@ -103,7 +103,6 @@ export default function FichasList({ clientes, onSelect, onNew, onRefetch }: Pro
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-white/10">
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Contacto</th>
                   <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Cliente</th>
                   <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase">CUIL</th>
                   <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase hidden md:table-cell">Clave ANSES</th>
@@ -115,10 +114,9 @@ export default function FichasList({ clientes, onSelect, onNew, onRefetch }: Pro
               </thead>
               <tbody>
                 {filtrados.length === 0 ? (
-                  <tr><td colSpan={7} className="text-center py-12 text-gray-500">Sin resultados</td></tr>
+                  <tr><td colSpan={6} className="text-center py-12 text-gray-500">Sin resultados</td></tr>
                 ) : (
                   filtrados.map((c, i) => {
-                    const semaforo = calcularSemaforo(c.fecha_ultimo_contacto);
                     return (
                       <tr
                         key={c.id}
@@ -126,11 +124,6 @@ export default function FichasList({ clientes, onSelect, onNew, onRefetch }: Pro
                         className="table-row animate-slide-up"
                         style={{ animationDelay: `${i * 30}ms` }}
                       >
-                        <td className="px-4 py-3">
-                          <div className="flex items-center gap-2">
-                            <div className={`w-2.5 h-2.5 rounded-full ${SEMAFORO_COLORS[semaforo]} animate-pulse`} title={SEMAFORO_LABELS[semaforo]} />
-                          </div>
-                        </td>
                         <td className="px-4 py-3">
                           <div>
                             <p className="font-medium text-white">{c.apellido_nombre}</p>
