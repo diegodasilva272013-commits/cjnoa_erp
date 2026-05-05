@@ -165,9 +165,16 @@ export default function FichasList({ clientes, onSelect, onNew, onRefetch }: Pro
                             </button>
                           ) : <span className="text-gray-600 text-xs">—</span>}
                         </td>
-                        <td className="px-4 py-3 hidden lg:table-cell max-w-[200px]">
-                          {c.situacion_actual ? (
-                            <p className="text-xs text-gray-300 truncate" title={c.situacion_actual}>{c.situacion_actual}</p>
+                        <td className="px-4 py-3 hidden lg:table-cell max-w-[240px]">
+                          {c.situacion_actual || c.fecha_ultimo_contacto ? (
+                            <div className="text-xs">
+                              {c.fecha_ultimo_contacto && (
+                                <p className="text-gray-400 font-medium">{formatFechaLocal(c.fecha_ultimo_contacto)}</p>
+                              )}
+                              {c.situacion_actual && (
+                                <p className="text-gray-300 truncate" title={c.situacion_actual}>{c.situacion_actual}</p>
+                              )}
+                            </div>
                           ) : <span className="text-gray-600 text-xs">—</span>}
                         </td>
                         <td className="px-4 py-3 hidden xl:table-cell">
