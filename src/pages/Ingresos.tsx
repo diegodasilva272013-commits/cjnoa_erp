@@ -99,82 +99,81 @@ export default function Ingresos() {
     if (!window.confirm(msg)) return;
     setDeletingId(id);
 
-    // 1) ¿Está vinculado a una consulta agendada (reserva)?
-    const { data: caRes } = await supabase
-      .from('consultas_agendadas')
-      .select('id')
-      .eq('ingreso_reserva_id', id)
-      .maybeSingle();
-    if (caRes) {
-      const { error } = await supabase
+    const finish = async (ok: boolean, message: string) => {
+      setDeletingId(null);
+      showToast(message, ok ? 'success' : 'error');
+      if (ok) await refetch();
+    };
+
+    try {
+      // 1) ¿Está vinculado a una consulta agendada (reserva)?
+      const { data: caRes } = await supabase
         .from('consultas_agendadas')
-        .update({ reserva_pagada: false })
-        .eq('id', caRes.id);
-      setDeletingId(null);
-      if (error) {
-        console.error('[Ingresos] desmarcar consulta:', error);
-        showToast(`No se pudo eliminar: ${error.message}`, 'error');
-        return;
+        .select('id')
+        .eq('ingreso_reserva_id', id)
+        .maybeSingle();
+      if (caRes) {
+        const { data: upd, error } = await supabase
+          .from('consultas_agendadas')
+          .update({ reserva_pagada: false })
+          .eq('id', caRes.id)
+          .select('id');
+        if (error) { console.error(error); return finish(false, `No se pudo: ${error.message}`); }
+        if (!upd || upd.length === 0) return finish(false, 'Sin permiso para desmarcar la consulta');
+        // Verificar que el ingreso ya no exista
+        const { data: still } = await supabase.from('ingresos').select('id').eq('id', id).maybeSingle();
+        if (still) {
+          // El trigger no lo borró: forzar delete
+          const { error: dErr, data: dRows } = await supabase.from('ingresos').delete().eq('id', id).select('id');
+          if (dErr) return finish(false, `No se pudo borrar ingreso: ${dErr.message}`);
+          if (!dRows || dRows.length === 0) return finish(false, 'Sin permiso para borrar el ingreso (RLS)');
+        }
+        return finish(true, 'Ingreso eliminado y reserva desmarcada');
       }
-      showToast('Ingreso eliminado y reserva desmarcada');
-      await refetch();
-      return;
-    }
 
-    // 2) ¿Está vinculado a una reserva en casos_pagos?
-    const { data: cpRes } = await supabase
-      .from('casos_pagos')
-      .select('id')
-      .eq('ingreso_reserva_id', id)
-      .maybeSingle();
-    if (cpRes) {
-      const { error } = await supabase
-        .from('casos_pagos')
-        .update({ reserva_pagada: false })
-        .eq('id', cpRes.id);
-      setDeletingId(null);
-      if (error) {
-        console.error('[Ingresos] desmarcar reserva pago:', error);
-        showToast(`No se pudo eliminar: ${error.message}`, 'error');
-        return;
+      // 2) reserva en casos_pagos
+      const { data: cpRes } = await supabase
+        .from('casos_pagos').select('id').eq('ingreso_reserva_id', id).maybeSingle();
+      if (cpRes) {
+        const { data: upd, error } = await supabase
+          .from('casos_pagos').update({ reserva_pagada: false }).eq('id', cpRes.id).select('id');
+        if (error) { console.error(error); return finish(false, `No se pudo: ${error.message}`); }
+        if (!upd || upd.length === 0) return finish(false, 'Sin permiso para desmarcar la reserva');
+        const { data: still } = await supabase.from('ingresos').select('id').eq('id', id).maybeSingle();
+        if (still) {
+          const { error: dErr, data: dRows } = await supabase.from('ingresos').delete().eq('id', id).select('id');
+          if (dErr) return finish(false, `No se pudo borrar ingreso: ${dErr.message}`);
+          if (!dRows || dRows.length === 0) return finish(false, 'Sin permiso para borrar el ingreso (RLS)');
+        }
+        return finish(true, 'Ingreso eliminado y reserva desmarcada');
       }
-      showToast('Ingreso eliminado y reserva desmarcada');
-      await refetch();
-      return;
-    }
 
-    // 3) ¿Está vinculado a un saldo en casos_pagos?
-    const { data: cpSal } = await supabase
-      .from('casos_pagos')
-      .select('id')
-      .eq('ingreso_saldo_id', id)
-      .maybeSingle();
-    if (cpSal) {
-      const { error } = await supabase
-        .from('casos_pagos')
-        .update({ saldo_pagado: false })
-        .eq('id', cpSal.id);
-      setDeletingId(null);
-      if (error) {
-        console.error('[Ingresos] desmarcar saldo:', error);
-        showToast(`No se pudo eliminar: ${error.message}`, 'error');
-        return;
+      // 3) saldo en casos_pagos
+      const { data: cpSal } = await supabase
+        .from('casos_pagos').select('id').eq('ingreso_saldo_id', id).maybeSingle();
+      if (cpSal) {
+        const { data: upd, error } = await supabase
+          .from('casos_pagos').update({ saldo_pagado: false }).eq('id', cpSal.id).select('id');
+        if (error) { console.error(error); return finish(false, `No se pudo: ${error.message}`); }
+        if (!upd || upd.length === 0) return finish(false, 'Sin permiso para desmarcar el saldo');
+        const { data: still } = await supabase.from('ingresos').select('id').eq('id', id).maybeSingle();
+        if (still) {
+          const { error: dErr, data: dRows } = await supabase.from('ingresos').delete().eq('id', id).select('id');
+          if (dErr) return finish(false, `No se pudo borrar ingreso: ${dErr.message}`);
+          if (!dRows || dRows.length === 0) return finish(false, 'Sin permiso para borrar el ingreso (RLS)');
+        }
+        return finish(true, 'Ingreso eliminado y saldo desmarcado');
       }
-      showToast('Ingreso eliminado y saldo desmarcado');
-      await refetch();
-      return;
-    }
 
-    // 4) Ingreso suelto (manual u otro): borrar directo
-    const { error } = await supabase.from('ingresos').delete().eq('id', id);
-    setDeletingId(null);
-    if (error) {
-      console.error('[Ingresos] delete:', error);
-      showToast(`No se pudo eliminar: ${error.message}`, 'error');
-      return;
+      // 4) Ingreso suelto: delete directo y verificar
+      const { error, data: rows } = await supabase.from('ingresos').delete().eq('id', id).select('id');
+      if (error) { console.error('[Ingresos] delete:', error); return finish(false, `No se pudo: ${error.message}`); }
+      if (!rows || rows.length === 0) return finish(false, 'No se borró ninguna fila (RLS o ya no existe). Probá refrescar.');
+      return finish(true, 'Ingreso eliminado');
+    } catch (e: any) {
+      console.error('[Ingresos] catch:', e);
+      return finish(false, `Error inesperado: ${e?.message || e}`);
     }
-    showToast('Ingreso eliminado');
-    await refetch();
   }
 
   const filtered = useMemo(() => ingresos.filter(ingreso => {
