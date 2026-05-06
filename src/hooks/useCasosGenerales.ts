@@ -17,6 +17,11 @@ export interface CasoGeneral {
   prioridad: boolean;
   archivado: boolean;
   estadisticas_estado: string | null;
+  escrito_subido?: boolean;
+  escrito_url?: string | null;
+  escrito_subido_at?: string | null;
+  escrito_subido_por?: string | null;
+  escrito_ultima_verificacion?: string | null;
   created_at: string;
   updated_at: string;
   created_by: string | null;

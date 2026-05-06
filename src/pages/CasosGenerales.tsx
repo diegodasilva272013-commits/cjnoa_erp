@@ -3,7 +3,7 @@ import {
   Search, Plus, Upload, Trash2, AlertCircle, CheckCircle2,
   Loader2, X, Scale, Calendar, Clock, Star, RefreshCw,
   Columns3, Table2, ChevronRight, ExternalLink, AlertTriangle, Eye,
-  ArrowUp, ArrowDown, ArrowUpDown, Gavel,
+  ArrowUp, ArrowDown, ArrowUpDown, Gavel, FileCheck2, Building2,
 } from 'lucide-react';
 import {
   DndContext, DragEndEvent, DragOverlay, PointerSensor,
@@ -488,6 +488,32 @@ function CaseDetailModal({ caso: initial, onClose, onSaved }: {
                   <ExternalLink className="w-4 h-4 shrink-0"/>Abrir carpeta en Drive
                 </a>
               )}
+              {/* Escrito subido + acceso al Poder Judicial */}
+              <EscritoPanel
+                editing={editing}
+                onToggle={async (val) => {
+                  if (!editing.id) return;
+                  set('escrito_subido' as keyof CasoGeneral, val as never);
+                  await supabase.from('casos_generales')
+                    .update({ escrito_subido: val })
+                    .eq('id', editing.id);
+                }}
+                onSetUrl={async (url) => {
+                  if (!editing.id) return;
+                  set('escrito_url' as keyof CasoGeneral, (url || null) as never);
+                  await supabase.from('casos_generales')
+                    .update({ escrito_url: url || null })
+                    .eq('id', editing.id);
+                }}
+                onVerificar={async () => {
+                  if (!editing.id) return;
+                  const ts = new Date().toISOString();
+                  set('escrito_ultima_verificacion' as keyof CasoGeneral, ts as never);
+                  await supabase.from('casos_generales')
+                    .update({ escrito_ultima_verificacion: ts })
+                    .eq('id', editing.id);
+                }}
+              />
               {/* Panel de Seguimiento (notas + tareas en tiempo real) */}
               {!isNew && editing.id && (
                 <div className="pt-3 border-t border-white/[0.06]">
@@ -1390,6 +1416,120 @@ function CasosKanban({ casos, onSelect, onDelete, saveCaso }: {
         )}
       </DragOverlay>
     </DndContext>
+  );
+}
+
+// ─── Escrito subido + Poder Judicial ───────────────────────────────────────────
+const PORTAL_PJ_URL = 'https://sigj.justiciajujuy.gov.ar/mentradas/sesiones/index';
+
+function EscritoPanel({
+  editing,
+  onToggle,
+  onSetUrl,
+  onVerificar,
+}: {
+  editing: Partial<CasoGeneral>;
+  onToggle: (val: boolean) => Promise<void> | void;
+  onSetUrl: (url: string) => Promise<void> | void;
+  onVerificar: () => Promise<void> | void;
+}) {
+  const subido = !!editing.escrito_subido;
+  const subidoAt = editing.escrito_subido_at ? new Date(editing.escrito_subido_at) : null;
+  const ultimaVerif = editing.escrito_ultima_verificacion ? new Date(editing.escrito_ultima_verificacion) : null;
+  const refDate = ultimaVerif || subidoAt;
+  const diasDesde = refDate
+    ? Math.floor((Date.now() - refDate.getTime()) / 86400000)
+    : null;
+  const necesitaVerificar = subido && diasDesde !== null && diasDesde >= 7;
+  const [urlLocal, setUrlLocal] = useState(editing.escrito_url || '');
+  useEffect(() => { setUrlLocal(editing.escrito_url || ''); }, [editing.escrito_url, editing.id]);
+
+  return (
+    <div className={`rounded-xl p-3 border ${
+      necesitaVerificar
+        ? 'bg-amber-500/10 border-amber-500/40'
+        : subido
+          ? 'bg-emerald-500/10 border-emerald-500/30'
+          : 'bg-white/[0.025] border-white/[0.06]'
+    }`}>
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <label className="flex items-center gap-2 cursor-pointer select-none">
+          <input
+            type="checkbox"
+            checked={subido}
+            onChange={(e) => onToggle(e.target.checked)}
+            className="w-4 h-4 accent-emerald-500"
+          />
+          <FileCheck2 className={`w-4 h-4 ${subido ? 'text-emerald-300' : 'text-gray-400'}`} />
+          <span className="text-sm font-semibold text-white">
+            {subido ? 'Escrito SUBIDO' : 'Escrito sin subir'}
+          </span>
+          {subido && subidoAt && (
+            <span className="text-[10px] text-gray-400">
+              · {subidoAt.toLocaleDateString('es-AR', { day: '2-digit', month: 'short', year: 'numeric' })}
+            </span>
+          )}
+        </label>
+        <a
+          href={PORTAL_PJ_URL}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex items-center gap-1.5 text-[11px] px-2.5 py-1.5 rounded-lg bg-blue-500/15 hover:bg-blue-500/25 border border-blue-500/40 text-blue-200 font-semibold"
+          title="Abrir Mesa de Entradas - Poder Judicial Jujuy"
+        >
+          <Building2 className="w-3.5 h-3.5" /> Ir al Poder Judicial
+        </a>
+      </div>
+
+      {subido && (
+        <>
+          <div className="mt-3 flex items-center gap-2 flex-wrap">
+            <input
+              type="url"
+              value={urlLocal}
+              onChange={(e) => setUrlLocal(e.target.value)}
+              onBlur={() => { if (urlLocal !== (editing.escrito_url || '')) onSetUrl(urlLocal); }}
+              placeholder="URL del escrito (Drive, expediente, etc.)"
+              className="flex-1 min-w-[200px] bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-xs text-white placeholder-gray-600 focus:outline-none focus:border-emerald-500/50"
+            />
+            {editing.escrito_url && (
+              <a
+                href={editing.escrito_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-1.5 text-[11px] px-2.5 py-1.5 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/40 text-emerald-200 font-semibold"
+              >
+                <ExternalLink className="w-3.5 h-3.5" /> Ver escrito
+              </a>
+            )}
+          </div>
+          <div className="mt-2 flex items-center justify-between gap-2 flex-wrap">
+            <p className={`text-[11px] ${necesitaVerificar ? 'text-amber-200' : 'text-gray-400'}`}>
+              {refDate
+                ? <>Última {ultimaVerif ? 'verificación' : 'subida'}: <b>{refDate.toLocaleDateString('es-AR', { day: '2-digit', month: 'short', year: 'numeric' })}</b> ({diasDesde} día{diasDesde === 1 ? '' : 's'} atrás)</>
+                : 'Sin fecha registrada.'
+              }
+            </p>
+            {necesitaVerificar && (
+              <button
+                type="button"
+                onClick={() => onVerificar()}
+                className="text-[11px] px-2.5 py-1.5 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/50 text-amber-100 font-semibold flex items-center gap-1.5"
+                title="Marcar que verificaste el estado del escrito en el Poder Judicial"
+              >
+                <CheckCircle2 className="w-3.5 h-3.5" /> Marcar verificado hoy
+              </button>
+            )}
+          </div>
+          {necesitaVerificar && (
+            <p className="mt-2 text-[10px] text-amber-300/90 leading-snug flex items-start gap-1.5">
+              <AlertTriangle className="w-3 h-3 mt-0.5 shrink-0" />
+              Pasaron {diasDesde} días: revisá en el Poder Judicial si el escrito y los datos del caso siguen al día.
+            </p>
+          )}
+        </>
+      )}
+    </div>
   );
 }
 
