@@ -1,7 +1,8 @@
+import { useState } from 'react';
 import { CasoCompleto } from '../../types/database';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
-import { Mic } from 'lucide-react';
+import { Mic, Trash2 } from 'lucide-react';
 
 interface CaseTableProps {
   casos: CasoCompleto[];
@@ -9,6 +10,7 @@ interface CaseTableProps {
   selected?: Set<string>;
   onToggle?: (id: string) => void;
   onToggleAll?: (ids: string[]) => void;
+  onDelete?: (id: string) => Promise<boolean> | void;
 }
 
 const estadoColor: Record<string, string> = {
@@ -52,7 +54,8 @@ const interesLabel: Record<string, string> = {
   'Poco interesante': 'Poco',
 };
 
-export default function CaseTable({ casos, onSelect, selected, onToggle, onToggleAll }: CaseTableProps) {
+export default function CaseTable({ casos, onSelect, selected, onToggle, onToggleAll, onDelete }: CaseTableProps) {
+  const [confirmDel, setConfirmDel] = useState<string | null>(null);
   const allSelected = casos.length > 0 && casos.every(c => selected?.has(c.id));
   const someSelected = !allSelected && casos.some(c => selected?.has(c.id));
   const hasSelection = selected && selected.size > 0;
@@ -93,6 +96,7 @@ export default function CaseTable({ casos, onSelect, selected, onToggle, onToggl
               <th className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider px-3 py-3 hidden lg:table-cell">
                 Socio
               </th>
+              {onDelete && <th className="px-3 py-3 w-10"></th>}
             </tr>
           </thead>
           <tbody>
@@ -178,6 +182,26 @@ export default function CaseTable({ casos, onSelect, selected, onToggle, onToggl
                     )}
                   </div>
                 </td>
+                {onDelete && (
+                  <td className="px-3 py-3 w-10" onClick={e => e.stopPropagation()}>
+                    <button
+                      onClick={async (e) => {
+                        e.stopPropagation();
+                        if (confirmDel === caso.id) {
+                          await onDelete(caso.id);
+                          setConfirmDel(null);
+                        } else {
+                          setConfirmDel(caso.id);
+                          setTimeout(() => setConfirmDel(c => c === caso.id ? null : c), 3000);
+                        }
+                      }}
+                      title={confirmDel === caso.id ? 'Click de nuevo para confirmar' : 'Eliminar caso'}
+                      className={`p-1.5 rounded-lg transition-colors ${confirmDel === caso.id ? 'bg-red-500/20 text-red-300' : 'text-gray-500 hover:text-red-400 hover:bg-red-500/10'}`}
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </td>
+                )}
               </tr>
             );})}
           </tbody>

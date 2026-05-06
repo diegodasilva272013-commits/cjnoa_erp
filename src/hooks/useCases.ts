@@ -48,7 +48,40 @@ export function useCases() {
     };
   }, [fetchCasos]);
 
-  return { casos, loading, refetch: fetchCasos };
+  const removeCase = useCallback(async (id: string): Promise<boolean> => {
+    // Borrar primero ingresos vinculados al caso
+    await supabase.from('ingresos').delete().eq('caso_id', id);
+    await supabase.from('cuotas').delete().eq('caso_id', id);
+    const { error, data } = await supabase.from('casos').delete().eq('id', id).select('id');
+    if (error) {
+      showToast(`No se pudo borrar: ${error.message}`, 'error');
+      return false;
+    }
+    if (!data || data.length === 0) {
+      showToast('Sin permiso para borrar el caso (RLS)', 'error');
+      return false;
+    }
+    await fetchCasos();
+    return true;
+  }, [fetchCasos, showToast]);
+
+  const removeCasesBulk = useCallback(async (ids: string[]): Promise<{ ok: number; fail: number }> => {
+    if (ids.length === 0) return { ok: 0, fail: 0 };
+    await supabase.from('ingresos').delete().in('caso_id', ids);
+    await supabase.from('cuotas').delete().in('caso_id', ids);
+    const { error, data } = await supabase.from('casos').delete().in('id', ids).select('id');
+    if (error) {
+      showToast(`Error al borrar: ${error.message}`, 'error');
+      await fetchCasos();
+      return { ok: 0, fail: ids.length };
+    }
+    const ok = data?.length || 0;
+    const fail = ids.length - ok;
+    await fetchCasos();
+    return { ok, fail };
+  }, [fetchCasos, showToast]);
+
+  return { casos, loading, refetch: fetchCasos, removeCase, removeCasesBulk };
 }
 
 export function useCuotas(casoId: string | null) {

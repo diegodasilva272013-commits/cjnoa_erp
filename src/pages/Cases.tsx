@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Plus, Download, LayoutList, LayoutGrid, Briefcase, CheckSquare, X, ChevronDown } from 'lucide-react';
+import { Plus, Download, LayoutList, LayoutGrid, Briefcase, CheckSquare, X, ChevronDown, Trash2 } from 'lucide-react';
 import { useCases, filterCases, emptyFilters } from '../hooks/useCases';
 import CaseTable from '../components/cases/CaseTable';
 import CaseKanban from '../components/cases/CaseKanban';
@@ -9,9 +9,11 @@ import CaseModal from '../components/cases/CaseModal';
 import { CasoCompleto, FilterState, EstadoCaso, ESTADOS_CASO } from '../types/database';
 import { exportToExcel } from '../lib/exportExcel';
 import { supabase } from '../lib/supabase';
+import { useToast } from '../context/ToastContext';
 
 export default function Cases() {
-  const { casos, loading, refetch } = useCases();
+  const { casos, loading, refetch, removeCase, removeCasesBulk } = useCases();
+  const { showToast } = useToast();
   const [searchParams] = useSearchParams();
   const [filters, setFilters] = useState<FilterState>(() => ({
     ...emptyFilters,
@@ -81,6 +83,34 @@ export default function Cases() {
     await exportToExcel(data, `Casos_Trabajo_seleccionados_${selCasos.length}`, 'Casos Trabajo');
   }
 
+  async function handleBulkDelete() {
+    const ids = Array.from(selected);
+    if (ids.length === 0) return;
+    if (!window.confirm(`¿Eliminás ${ids.length} caso(s) seleccionado(s)? También se borrarán sus cuotas e ingresos vinculados. Esta acción NO se puede deshacer.`)) return;
+    setBulkLoading(true);
+    const r = await removeCasesBulk(ids);
+    setBulkLoading(false);
+    setSelected(new Set());
+    showToast(`${r.ok} caso(s) eliminado(s)${r.fail ? `, ${r.fail} falló` : ''}`, r.fail ? 'error' : 'success');
+  }
+
+  async function handleDeleteAll() {
+    if (filteredCasos.length === 0) return;
+    const total = filteredCasos.length;
+    const txt = filters.busqueda || Object.values(filters).some(v => Array.isArray(v) ? v.length : v)
+      ? `los ${total} casos del filtro actual`
+      : `TODOS los ${total} casos`;
+    if (!window.confirm(`¿Eliminás ${txt}? También se borrarán sus cuotas e ingresos vinculados. Esta acción NO se puede deshacer.`)) return;
+    const conf = window.prompt(`Para confirmar, escribí: BORRAR ${total}`);
+    if (conf !== `BORRAR ${total}`) { showToast('Cancelado', 'info'); return; }
+    setBulkLoading(true);
+    const ids = filteredCasos.map(c => c.id);
+    const r = await removeCasesBulk(ids);
+    setBulkLoading(false);
+    setSelected(new Set());
+    showToast(`${r.ok} caso(s) eliminado(s)${r.fail ? `, ${r.fail} falló` : ''}`, r.fail ? 'error' : 'success');
+  }
+
   async function handleExport() {
     const data = filteredCasos.map(mapCaseExportRow);
     await exportToExcel(data, 'Casos_Trabajo_CJ_NOA', 'Casos Trabajo');
@@ -146,6 +176,15 @@ export default function Cases() {
             <Download className="w-4 h-4" />
             <span className="hidden sm:inline">Exportar Excel</span>
           </button>
+          <button
+            onClick={handleDeleteAll}
+            disabled={filteredCasos.length === 0 || bulkLoading}
+            className="flex items-center gap-2 text-sm px-3 py-2 rounded-xl border border-red-500/30 bg-red-500/10 text-red-300 hover:bg-red-500/20 disabled:opacity-40 disabled:cursor-not-allowed"
+            title="Eliminar todos los casos del filtro actual"
+          >
+            <Trash2 className="w-4 h-4" />
+            <span className="hidden sm:inline">Eliminar todos</span>
+          </button>
           <button onClick={handleNewCaso} className="btn-primary flex items-center gap-2 text-sm">
             <Plus className="w-4 h-4" />
             <span className="hidden sm:inline">Nuevo Caso</span>
@@ -177,6 +216,13 @@ export default function Cases() {
             </div>
             <button onClick={handleBulkExport} className="flex items-center gap-1.5 px-3 py-1.5 bg-white/[0.06] hover:bg-white/[0.1] border border-white/10 rounded-xl text-xs text-white transition-colors">
               <Download className="w-3 h-3" /> Exportar
+            </button>
+            <button
+              onClick={handleBulkDelete}
+              disabled={bulkLoading}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-red-500/10 hover:bg-red-500/20 border border-red-500/30 rounded-xl text-xs text-red-300 transition-colors disabled:opacity-40"
+            >
+              <Trash2 className="w-3 h-3" /> Eliminar
             </button>
             <button onClick={() => setSelected(new Set())} className="p-1.5 text-gray-500 hover:text-white transition-colors">
               <X className="w-4 h-4" />
@@ -214,7 +260,7 @@ export default function Cases() {
       ) : viewMode === 'kanban' ? (
         <CaseKanban casos={filteredCasos} onSelect={handleSelectCaso} onRefetch={refetch} />
       ) : (
-        <CaseTable casos={filteredCasos} onSelect={handleSelectCaso} selected={selected} onToggle={handleToggle} onToggleAll={handleToggleAll} />
+        <CaseTable casos={filteredCasos} onSelect={handleSelectCaso} selected={selected} onToggle={handleToggle} onToggleAll={handleToggleAll} onDelete={removeCase} />
       )}
 
       {/* Modals */}
