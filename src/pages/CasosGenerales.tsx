@@ -68,6 +68,7 @@ const KANBAN_BORDER: Record<string, string> = {
   'complicacion judicial/analisis':      'border-t-orange-500',
   'suspendido por falta de directivas':  'border-t-gray-500',
   'suspendido por falta de pago':        'border-t-red-500',
+  'archivado':                           'border-t-zinc-600',
 };
 
 const KANBAN_BADGE: Record<string, string> = {
@@ -78,6 +79,7 @@ const KANBAN_BADGE: Record<string, string> = {
   'complicacion judicial/analisis':      'bg-orange-500/10 text-orange-400',
   'suspendido por falta de directivas':  'bg-gray-500/10 text-gray-400',
   'suspendido por falta de pago':        'bg-red-500/10 text-red-400',
+  'archivado':                           'bg-zinc-700/40 text-zinc-300',
 };
 
 function eColor(e: string | null) {
@@ -1275,35 +1277,65 @@ function CasosKanban({ casos, onSelect, onDelete, saveCaso }: {
   const activeItem = items.find(c => c.id === activeId) ?? null;
 
   const grouped = ESTADOS_ORDERED.reduce<Record<string, CasoGeneral[]>>((acc, e) => {
-    acc[e] = items.filter(c => (c.estado ?? '').toLowerCase() === e);
+    acc[e] = items.filter(c => !c.archivado && (c.estado ?? '').toLowerCase() === e);
     return acc;
   }, {} as Record<string, CasoGeneral[]>);
-  // Casos con estado null/desconocido → activos
-  items.filter(c => !ESTADOS_ORDERED.includes((c.estado ?? '') as EstadoCaso))
+  // Casos con estado null/desconocido (no archivados) -> activos
+  items.filter(c => !c.archivado && !ESTADOS_ORDERED.includes((c.estado ?? '') as EstadoCaso))
     .forEach(c => grouped['activos'].push(c));
+  // Columna virtual: archivados
+  const archivadosList = items.filter(c => c.archivado);
 
   async function handleDragEnd(e: DragEndEvent) {
     const { active, over } = e;
     setActiveId(null); setOverCol(null);
     if (!over) return;
-    // over.id may be a column key or another card's id
     let newEstado: string | null = null;
-    if (ESTADOS_ORDERED.includes(over.id as EstadoCaso)) {
+    let toArchivado = false;
+    if (over.id === 'archivado') {
+      toArchivado = true;
+    } else if (ESTADOS_ORDERED.includes(over.id as EstadoCaso)) {
       newEstado = over.id as string;
     } else {
       const overCard = items.find(c => c.id === over.id);
-      if (overCard) newEstado = overCard.estado;
+      if (overCard) { newEstado = overCard.estado; toArchivado = !!overCard.archivado; }
     }
-    if (!newEstado) return;
     const card = items.find(c => c.id === active.id);
-    if (!card || card.estado === newEstado) return;
+    if (!card) return;
 
-    // Optimistic update + register the override so subsequent fetches don't bounce it back.
+    // Caso 1: archivar
+    if (toArchivado && !card.archivado) {
+      setItems(prev => prev.map(c => c.id === active.id ? { ...c, archivado: true } : c));
+      const r = await saveCaso({ archivado: true }, active.id as string);
+      if (!r.ok) {
+        setItems(prev => prev.map(c => c.id === active.id ? { ...c, archivado: false } : c));
+        showToast('No se pudo archivar: ' + (r.error ?? ''), 'error');
+      } else {
+        showToast('Caso archivado', 'success');
+      }
+      return;
+    }
+    // Caso 2: desarchivar (mover a una columna de estado)
+    if (!toArchivado && newEstado && card.archivado) {
+      pendingRef.current.set(active.id as string, newEstado);
+      setItems(prev => prev.map(c => c.id === active.id ? { ...c, archivado: false, estado: newEstado! } : c));
+      const r = await saveCaso({ archivado: false, estado: newEstado }, active.id as string);
+      if (!r.ok) {
+        pendingRef.current.delete(active.id as string);
+        setItems(prev => prev.map(c => c.id === active.id ? { ...c, archivado: true, estado: card.estado } : c));
+        showToast('No se pudo desarchivar: ' + (r.error ?? ''), 'error');
+      } else {
+        showToast(`Desarchivado y movido a ${eLabel(newEstado)}`, 'success');
+      }
+      return;
+    }
+    // Caso 3: cambio normal de estado
+    if (newEstado && card.estado === newEstado) return;
+    if (!newEstado) return;
     pendingRef.current.set(active.id as string, newEstado);
     setItems(prev => prev.map(c => c.id === active.id ? { ...c, estado: newEstado! } : c));
     const r = await saveCaso({ estado: newEstado }, active.id as string);
     if (!r.ok) {
-      // rollback: clear override and restore original estado
       pendingRef.current.delete(active.id as string);
       setItems(prev => prev.map(c => c.id === active.id ? { ...c, estado: card.estado } : c));
       showToast('No se pudo mover: ' + (r.error ?? ''), 'error');
@@ -1320,7 +1352,7 @@ function CasosKanban({ casos, onSelect, onDelete, saveCaso }: {
       onDragOver={e => setOverCol(e.over?.id as string ?? null)}
       onDragEnd={handleDragEnd}
       onDragCancel={() => { setActiveId(null); setOverCol(null); }}>
-      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-7 gap-3">
         {ESTADOS_ORDERED.map(estado => (
           <KanbanCol key={estado} estadoKey={estado} label={eLabel(estado)}
             count={grouped[estado]?.length ?? 0} isOver={overCol === estado}>
@@ -1333,6 +1365,16 @@ function CasosKanban({ casos, onSelect, onDelete, saveCaso }: {
             }
           </KanbanCol>
         ))}
+        <KanbanCol key="archivado" estadoKey="archivado" label="Archivados"
+          count={archivadosList.length} isOver={overCol === 'archivado'}>
+          {!archivadosList.length
+            ? <p className="text-[10px] text-gray-600 text-center py-6">Arrastrá un caso aquí para archivarlo</p>
+            : archivadosList.map(c => (
+                <DraggableKanbanCard key={c.id} caso={c} onSelect={onSelect}
+                  onDelete={onDelete} confirmDel={confirmDel} askDel={askDel}/>
+              ))
+          }
+        </KanbanCol>
       </div>
       <DragOverlay dropAnimation={null}>
         {activeItem && (
@@ -1370,6 +1412,17 @@ export default function CasosGenerales() {
     }
     return true;
   }), [activos, search, filtroEstados]);
+
+  // Para el kanban incluimos también los archivados (van a la columna "Archivados")
+  const filteredKanban = useMemo(() => {
+    const archivados = casos.filter(c => c.archivado).filter(c => {
+      if (!search) return true;
+      const q = search.toLowerCase();
+      return [c.titulo, c.expediente, c.radicado, c.abogado, c.tipo_caso]
+        .some(v => v?.toLowerCase().includes(q));
+    });
+    return [...filtered, ...archivados];
+  }, [filtered, casos, search]);
 
   function toggleEstado(e: string) {
     setFiltroEstados(prev => {
@@ -1471,7 +1524,7 @@ export default function CasosGenerales() {
       </div>
 
       {/* Content */}
-      {filtered.length === 0 ? (
+      {(view === 'kanban' ? filteredKanban.length === 0 : filtered.length === 0) ? (
         <div className="flex flex-col items-center justify-center py-20 text-gray-600">
           <Scale className="w-12 h-12 mb-3 opacity-10"/>
           <p className="text-base font-semibold text-gray-500">Sin casos</p>
@@ -1486,7 +1539,7 @@ export default function CasosGenerales() {
           </div>
         </div>
       ) : view === 'kanban' ? (
-        <CasosKanban casos={filtered} onSelect={c => setDetailCaso(c)} onDelete={handleDelete} saveCaso={saveCaso}/>
+        <CasosKanban casos={filteredKanban} onSelect={c => setDetailCaso(c)} onDelete={handleDelete} saveCaso={saveCaso}/>
       ) : (
         <CasosTabla casos={filtered} onSelect={c => setDetailCaso(c)} onDelete={handleDelete} deletingId={deletingId}/>
       )}
