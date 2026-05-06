@@ -82,7 +82,19 @@ function NotaCard({ n, currentUserId, onDelete, onMarcarVista, onCambiarEstado }
             <span className={`badge border text-[10px] ${ESTADO_TAREA_COLOR[n.tarea_estado || 'activa']}`}>
               {ESTADO_TAREA_LABEL[n.tarea_estado || 'activa']}
             </span>
+            {n.tarea_prioridad && n.tarea_prioridad !== 'sin_prioridad' && (
+              <span className={`text-[10px] px-1.5 py-0.5 rounded border ${
+                n.tarea_prioridad === 'alta'
+                  ? 'bg-red-500/15 text-red-300 border-red-500/30'
+                  : 'bg-amber-500/15 text-amber-300 border-amber-500/30'
+              }`}>
+                {n.tarea_prioridad === 'alta' ? 'Alta' : 'Media'}
+              </span>
+            )}
           </div>
+          {n.tarea_descripcion && n.tarea_descripcion !== n.contenido && (
+            <p className="text-[11px] text-gray-300 whitespace-pre-wrap break-words border-l-2 border-violet-500/30 pl-2">{n.tarea_descripcion}</p>
+          )}
           <div className="flex items-center gap-3 text-[11px] text-gray-400 flex-wrap">
             <span className="flex items-center gap-1.5">
               <Avatar path={n.tarea_responsable_avatar} nombre={n.tarea_responsable_nombre} size={18} />
@@ -92,6 +104,11 @@ function NotaCard({ n, currentUserId, onDelete, onMarcarVista, onCambiarEstado }
               <span className="flex items-center gap-1">
                 <Calendar className="w-3 h-3" />
                 {new Date(n.tarea_fecha_limite + 'T12:00:00').toLocaleDateString('es-AR', { day: '2-digit', month: 'short' })}
+              </span>
+            )}
+            {n.tarea_cargo_hora && (
+              <span className="px-1.5 py-0.5 rounded bg-cyan-500/10 border border-cyan-500/25 text-cyan-300">
+                {n.tarea_cargo_hora}
               </span>
             )}
             {n.tarea_visto && (
@@ -142,8 +159,11 @@ export default function NotasFeedPanel({ casoId }: { casoId: string }) {
   const [contenido, setContenido] = useState('');
   const [conTarea, setConTarea] = useState(false);
   const [tareaTitulo, setTareaTitulo] = useState('');
+  const [tareaDescripcion, setTareaDescripcion] = useState('');
   const [responsableId, setResponsableId] = useState('');
   const [fechaLimite, setFechaLimite] = useState('');
+  const [prioridad, setPrioridad] = useState<'alta'|'media'|'sin_prioridad'>('sin_prioridad');
+  const [cargoHora, setCargoHora] = useState('');
   const [enviando, setEnviando] = useState(false);
 
   const responsablesOptions = useMemo(() => perfiles, [perfiles]);
@@ -163,13 +183,17 @@ export default function NotasFeedPanel({ casoId }: { casoId: string }) {
         tareaTitulo: tareaTitulo || contenido.slice(0, 80),
         responsableId,
         fechaLimite: fechaLimite || null,
+        descripcion: tareaDescripcion || undefined,
+        prioridad,
+        cargoHora: cargoHora || undefined,
       });
     } else {
       ok = await agregarNota(contenido, user.id);
     }
     if (ok) {
-      setContenido(''); setTareaTitulo(''); setResponsableId('');
-      setFechaLimite(''); setConTarea(false);
+      setContenido(''); setTareaTitulo(''); setTareaDescripcion('');
+      setResponsableId(''); setFechaLimite(''); setCargoHora('');
+      setPrioridad('sin_prioridad'); setConTarea(false);
       showToast(conTarea ? 'Nota + tarea creadas' : 'Nota agregada', 'success');
     } else {
       showToast('Error al guardar', 'error');
@@ -250,6 +274,13 @@ export default function NotasFeedPanel({ casoId }: { casoId: string }) {
               placeholder="Título corto de la tarea (opcional)"
               className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-xs text-white placeholder-gray-600 focus:outline-none focus:border-violet-500/50"
             />
+            <textarea
+              value={tareaDescripcion}
+              onChange={(e) => setTareaDescripcion(e.target.value)}
+              placeholder="Descripción / instrucciones para el responsable (opcional)"
+              rows={2}
+              className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-xs text-white placeholder-gray-600 focus:outline-none focus:border-violet-500/50 resize-none"
+            />
             <div className="grid grid-cols-2 gap-2">
               <select
                 value={responsableId}
@@ -266,6 +297,22 @@ export default function NotasFeedPanel({ casoId }: { casoId: string }) {
                 value={fechaLimite}
                 onChange={(e) => setFechaLimite(e.target.value)}
                 className="bg-white/5 border border-white/10 rounded-lg px-2 py-2 text-xs text-white focus:outline-none focus:border-violet-500/50"
+              />
+              <select
+                value={prioridad}
+                onChange={(e) => setPrioridad(e.target.value as 'alta'|'media'|'sin_prioridad')}
+                className="bg-white/5 border border-white/10 rounded-lg px-2 py-2 text-xs text-white focus:outline-none focus:border-violet-500/50"
+              >
+                <option value="sin_prioridad">Sin prioridad</option>
+                <option value="media">Prioridad media</option>
+                <option value="alta">Prioridad alta</option>
+              </select>
+              <input
+                type="text"
+                value={cargoHora}
+                onChange={(e) => setCargoHora(e.target.value)}
+                placeholder="Cargo de hora (ej: a favor)"
+                className="bg-white/5 border border-white/10 rounded-lg px-2 py-2 text-xs text-white placeholder-gray-600 focus:outline-none focus:border-violet-500/50"
               />
             </div>
             {!responsableId && (

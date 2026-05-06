@@ -201,6 +201,12 @@ SELECT
   t.responsable_id       AS tarea_responsable_id,
   t.visto_por_asignado   AS tarea_visto,
   t.visto_at             AS tarea_visto_at,
+  t.prioridad            AS tarea_prioridad,
+  t.descripcion          AS tarea_descripcion,
+  t.culminacion          AS tarea_culminacion,
+  t.cargo_hora           AS tarea_cargo_hora,
+  t.adjunto_path         AS tarea_adjunto_path,
+  t.adjunto_nombre       AS tarea_adjunto_nombre,
   pr.nombre              AS tarea_responsable_nombre,
   pr.avatar_url          AS tarea_responsable_avatar
 FROM public.caso_general_notas n

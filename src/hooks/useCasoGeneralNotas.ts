@@ -21,6 +21,12 @@ export interface CasoGeneralNota {
   tarea_visto_at: string | null;
   tarea_responsable_nombre: string | null;
   tarea_responsable_avatar: string | null;
+  tarea_prioridad: string | null;
+  tarea_descripcion: string | null;
+  tarea_culminacion: string | null;
+  tarea_cargo_hora: string | null;
+  tarea_adjunto_path: string | null;
+  tarea_adjunto_nombre: string | null;
 }
 
 export type EstadoTareaFlujo =
@@ -103,6 +109,8 @@ export function useCasoGeneralNotas(casoId: string | null) {
     responsableId: string;
     fechaLimite: string | null;
     descripcion?: string;
+    prioridad?: 'alta' | 'media' | 'sin_prioridad';
+    cargoHora?: string;
   }): Promise<boolean> {
     if (!casoId) return false;
     // 1) crear tarea (los triggers se encargan de notificar)
@@ -113,6 +121,8 @@ export function useCasoGeneralNotas(casoId: string | null) {
         descripcion: params.descripcion?.trim() || params.contenido.trim(),
         responsable_id: params.responsableId,
         fecha_limite: params.fechaLimite,
+        prioridad: params.prioridad ?? 'sin_prioridad',
+        cargo_hora: params.cargoHora?.trim() || null,
         estado: 'activa',
         caso_general_id: casoId,
         created_by: params.userId,

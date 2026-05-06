@@ -667,6 +667,8 @@ function NotionImportModal({ onClose, onImported, totalExistentes }: {
       setMdLoading(false);
     }
   }
+
+  async function handleImport() {
     if (!file) return;
     setImporting(true); setResults([]);
     try {
