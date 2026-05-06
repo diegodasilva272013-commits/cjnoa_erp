@@ -3,6 +3,7 @@ import { Outlet } from 'react-router-dom';
 import Sidebar from './Sidebar';
 import Topbar from './Topbar';
 import CommandPalette from './CommandPalette';
+import AlarmaTareas from './AlarmaTareas';
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
 
 export default function Layout() {
@@ -13,6 +14,7 @@ export default function Layout() {
     <div className="min-h-screen bg-[#0a0a0a]">
       <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
       <CommandPalette />
+      <AlarmaTareas />
 
       <div className="lg:pl-[260px] min-h-screen">
         <Topbar onMenuClick={() => setSidebarOpen(true)} />

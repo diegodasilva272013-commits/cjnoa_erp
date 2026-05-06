@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
   Plus, Search, ListTodo, Columns3, Calendar as CalendarIcon,
   Clock, CheckCircle, AlertTriangle, Trash2, User, X, Paperclip,
@@ -50,6 +51,22 @@ export default function Tareas() {
   const [selected, setSelected] = useState<TareaCompleta | null>(null);
   const [drawerCaso, setDrawerCaso] = useState<{ type: 'general' | 'legal'; id: string } | null>(null);
   const [confirmDel, setConfirmDel] = useState<string | null>(null);
+
+  // Abrir tarea via ?focus=<id> (link desde notificacion / alarma)
+  const [searchParams, setSearchParams] = useSearchParams();
+  useEffect(() => {
+    const focusId = searchParams.get('focus');
+    if (!focusId || !tareas.length) return;
+    const t = tareas.find(x => x.id === focusId);
+    if (t) {
+      setSelected(t);
+      setModalOpen(true);
+      // limpiar query param
+      const next = new URLSearchParams(searchParams);
+      next.delete('focus');
+      setSearchParams(next, { replace: true });
+    }
+  }, [searchParams, tareas, setSearchParams]);
 
   useEffect(() => {
     supabase.from('perfiles').select('id, nombre, rol').eq('activo', true).then(({ data }) => {
