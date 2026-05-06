@@ -488,6 +488,17 @@ function CaseDetailModal({ caso: initial, onClose, onSaved }: {
               {/* Panel de Seguimiento (notas + tareas en tiempo real) */}
               {!isNew && editing.id && (
                 <div className="pt-3 border-t border-white/[0.06]">
+                  <div className="flex items-center justify-between mb-3 gap-2 flex-wrap">
+                    <h3 className="text-xs uppercase tracking-widest text-gray-500 font-semibold">Seguimiento del caso</h3>
+                    <button
+                      type="button"
+                      onClick={() => setAudOpen(true)}
+                      className="px-3 py-2 rounded-xl text-xs font-semibold bg-orange-500/15 hover:bg-orange-500/25 border border-orange-500/40 text-orange-200 flex items-center gap-2 shadow-sm"
+                      title="Agendar una audiencia para este caso"
+                    >
+                      <Gavel className="w-4 h-4" /> Agendar audiencia
+                    </button>
+                  </div>
                   <NotasFeedPanel casoId={editing.id} />
                 </div>
               )}
