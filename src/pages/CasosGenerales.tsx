@@ -480,12 +480,6 @@ function CaseDetailModal({ caso: initial, onClose, onSaved }: {
                   <NotasFeedPanel casoId={editing.id} />
                 </div>
               )}
-              {/* Archivos: fotos / PDFs / audios / cualquier tipo */}
-              {!isNew && editing.id && (
-                <div className="pt-3 border-t border-white/[0.06]">
-                  <ArchivosCasoGeneralPanel casoId={editing.id} />
-                </div>
-              )}
               {/* Histórico importado de Notion (colapsable) */}
               {editing.actualizacion && (
                 <details className="bg-white/[0.025] rounded-xl border border-white/[0.05] group">
@@ -501,6 +495,19 @@ function CaseDetailModal({ caso: initial, onClose, onSaved }: {
               )}
             </div>
           )}
+
+          {/* Archivos del caso — visible siempre (modo Ver y Editar) */}
+          <div className="pt-3 border-t border-white/[0.06]">
+            {editing.id ? (
+              <ArchivosCasoGeneralPanel casoId={editing.id} />
+            ) : (
+              <div className="rounded-xl bg-amber-500/10 border border-amber-500/30 p-3 text-xs text-amber-200 flex items-start gap-2">
+                <Upload className="w-4 h-4 mt-0.5 shrink-0" />
+                <span>Guardá el caso primero (botón <b>Crear caso</b>) para poder adjuntar fotos, PDFs, audios u otros archivos.</span>
+              </div>
+            )}
+          </div>
+
           <div className="flex items-center justify-end gap-2 pt-3 border-t border-white/[0.06]">
             <button onClick={onClose} className="btn-secondary text-sm px-4">Cerrar</button>
             {editMode && (
