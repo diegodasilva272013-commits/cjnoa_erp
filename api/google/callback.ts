@@ -19,7 +19,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
     if (!clientId || !clientSecret || !redirectUri || !supabaseUrl || !serviceRoleKey) {
-      return res.status(500).send('Faltan variables de entorno (id_cliente_calendar / secret_calendar / SUPABASE_*)');
+      const faltan = {
+        id_cliente_calendar: !clientId,
+        secret_calendar: !clientSecret,
+        redirect_uri: !redirectUri,
+        SUPABASE_URL: !supabaseUrl,
+        SUPABASE_SERVICE_ROLE_KEY: !serviceRoleKey,
+      };
+      return res.redirect(`/calendario?google_error=${encodeURIComponent('faltan_envs:' + JSON.stringify(faltan))}`);
     }
 
     const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
