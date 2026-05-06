@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
-import { ChevronLeft, ChevronRight, RefreshCw, Link as LinkIcon, Unlink, ExternalLink, Gavel, CalendarClock, Briefcase, Plus, X } from 'lucide-react';
+import { ChevronLeft, ChevronRight, RefreshCw, Link as LinkIcon, Unlink, ExternalLink, Gavel, CalendarClock, Briefcase, Plus, X, Image as ImageIcon, Sparkles, Trash2 } from 'lucide-react';
 
 type EventoCal = {
   id: string;
@@ -49,6 +49,20 @@ export default function Calendario() {
     fecha: string; hora: string; duracion: number;
     titulo: string; descripcion: string; ubicacion: string;
     todoElDia: boolean; guardando: boolean;
+  }>(null);
+
+  // Estado para subir fotos y extraer turnos con IA
+  type TurnoExtraido = {
+    titulo: string; fecha: string; hora: string;
+    ubicacion: string; descripcion: string; persona: string;
+    cuil?: string; oficina?: string; numero_solicitud?: string;
+    incluir: boolean; creado?: boolean; error?: string;
+  };
+  const [iaModal, setIaModal] = useState<null | {
+    fase: 'subir' | 'analizando' | 'revisar' | 'creando';
+    archivos: { name: string; dataUrl: string }[];
+    turnos: TurnoExtraido[];
+    log: string;
   }>(null);
 
   function abrirNuevoEvento(fechaKey: string) {
@@ -101,6 +115,99 @@ export default function Calendario() {
       setMsg('❌ ' + (e?.message || 'error'));
       setNuevoEvento({ ...nuevoEvento, guardando: false });
     }
+  }
+
+  // ----- IA: subir fotos -> extraer turnos -> crear en Google -----
+  function abrirSubirFotos() {
+    setIaModal({ fase: 'subir', archivos: [], turnos: [], log: '' });
+  }
+
+  async function onSelectFiles(files: FileList | null) {
+    if (!iaModal || !files || files.length === 0) return;
+    const arr: { name: string; dataUrl: string }[] = [];
+    for (const f of Array.from(files)) {
+      if (!f.type.startsWith('image/')) continue;
+      const dataUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = reject;
+        reader.readAsDataURL(f);
+      });
+      arr.push({ name: f.name, dataUrl });
+    }
+    setIaModal({ ...iaModal, archivos: [...iaModal.archivos, ...arr] });
+  }
+
+  async function analizarConIA() {
+    if (!iaModal || iaModal.archivos.length === 0) return;
+    setIaModal({ ...iaModal, fase: 'analizando', log: 'Analizando imágenes con IA…' });
+    try {
+      const r = await fetch('/api/google/extract-turnos', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ images: iaModal.archivos.map(a => a.dataUrl) }),
+      });
+      const j = await r.json();
+      if (!r.ok || !Array.isArray(j.turnos)) {
+        setIaModal({ ...iaModal, fase: 'subir', log: '❌ Error: ' + (j.error || 'no se pudieron leer los turnos') });
+        return;
+      }
+      const turnos: TurnoExtraido[] = j.turnos.map((t: any) => ({
+        titulo: t.titulo || '',
+        fecha: t.fecha || '',
+        hora: t.hora || '10:00',
+        ubicacion: t.ubicacion || t.oficina || '',
+        descripcion: t.descripcion || '',
+        persona: t.persona || '',
+        cuil: t.cuil || '',
+        oficina: t.oficina || '',
+        numero_solicitud: t.numero_solicitud || '',
+        incluir: !!t.fecha,
+      }));
+      setIaModal({ ...iaModal, fase: 'revisar', turnos, log: '' });
+    } catch (e: any) {
+      setIaModal({ ...iaModal, fase: 'subir', log: '❌ ' + (e?.message || 'error') });
+    }
+  }
+
+  async function crearTurnosEnGoogle() {
+    if (!iaModal || !user || !conectado) {
+      setMsg('Conectá Google Calendar primero.');
+      return;
+    }
+    setIaModal({ ...iaModal, fase: 'creando', log: 'Creando eventos…' });
+    const turnos = [...iaModal.turnos];
+    let ok = 0, fail = 0;
+    for (let i = 0; i < turnos.length; i++) {
+      const t = turnos[i];
+      if (!t.incluir || !t.fecha) continue;
+      try {
+        const startISO = `${t.fecha}T${(t.hora || '10:00')}:00`;
+        const startDate = new Date(startISO);
+        const endDate = new Date(startDate.getTime() + 60 * 60_000);
+        const r = await fetch('/api/google/create-event', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            user_id: user.id,
+            summary: t.titulo || `Turno ${t.persona || ''}`.trim(),
+            description: [t.persona && `Titular: ${t.persona}`, t.cuil && `CUIL: ${t.cuil}`, t.numero_solicitud && `Nº solicitud: ${t.numero_solicitud}`, t.descripcion]
+              .filter(Boolean).join('\n'),
+            location: t.ubicacion || t.oficina || '',
+            start: startDate.toISOString(),
+            end: endDate.toISOString(),
+            allDay: false,
+          }),
+        });
+        const j = await r.json();
+        if (j.ok) { turnos[i] = { ...t, creado: true }; ok++; }
+        else { turnos[i] = { ...t, error: j.error || 'fallo' }; fail++; }
+      } catch (e: any) {
+        turnos[i] = { ...t, error: e?.message || 'error' };
+        fail++;
+      }
+    }
+    setIaModal({ ...iaModal, fase: 'revisar', turnos, log: `Listo: ${ok} creados${fail ? `, ${fail} con error` : ''}.` });
+    setMsg(`✅ ${ok} turno(s) agregado(s) al Google Calendar.`);
+    setCursor(new Date(cursor));
   }
 
   // Mensaje desde callback
@@ -279,6 +386,11 @@ export default function Calendario() {
           <p className="text-sm text-gray-500">Audiencias, consultas y eventos en una sola vista.</p>
         </div>
         <div className="flex flex-wrap gap-2">
+          <button onClick={abrirSubirFotos}
+            className="px-3 py-2 text-xs rounded-lg bg-fuchsia-500/15 hover:bg-fuchsia-500/25 text-fuchsia-200 border border-fuchsia-500/30 flex items-center gap-2"
+            title="Subir fotos de turnos y agendar automáticamente con IA">
+            <Sparkles className="w-3.5 h-3.5" /> Subir turnos con IA
+          </button>
           {conectado ? (
             <>
               <span className="px-3 py-2 text-xs rounded-lg bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 flex items-center gap-2">
@@ -534,6 +646,147 @@ export default function Calendario() {
                 Crear en Google Calendar
               </button>
             </div>
+          </div>
+        </div>
+      )}
+      {/* Modal IA: subir fotos -> turnos */}
+      {iaModal && (
+        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => iaModal.fase !== 'analizando' && iaModal.fase !== 'creando' && setIaModal(null)}>
+          <div className="w-full max-w-3xl max-h-[90vh] overflow-y-auto rounded-2xl bg-[#0c0c0e] border border-white/10 p-5 space-y-4" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between">
+              <h3 className="text-white font-semibold flex items-center gap-2">
+                <Sparkles className="w-4 h-4 text-fuchsia-300" /> Subir turnos con IA
+              </h3>
+              <button onClick={() => setIaModal(null)} disabled={iaModal.fase === 'analizando' || iaModal.fase === 'creando'}
+                className="text-gray-400 hover:text-white"><X className="w-4 h-4" /></button>
+            </div>
+
+            {!conectado && (
+              <div className="text-xs px-3 py-2 rounded-md bg-amber-500/10 text-amber-200 border border-amber-500/30">
+                Necesitás conectar Google Calendar para que los turnos se guarden ahí.
+              </div>
+            )}
+
+            {iaModal.fase === 'subir' && (
+              <div className="space-y-3">
+                <p className="text-sm text-gray-300">
+                  Subí las fotos / capturas de los turnos (ANSES, juzgados, citas, etc.). La IA va a leer
+                  fecha, hora, persona, oficina y crear los eventos en tu Google Calendar.
+                </p>
+                <label className="block border-2 border-dashed border-white/15 hover:border-fuchsia-400/40 rounded-xl p-6 text-center cursor-pointer transition">
+                  <ImageIcon className="w-8 h-8 text-gray-500 mx-auto mb-2" />
+                  <div className="text-sm text-gray-300">Hacé click para elegir imágenes (podés subir varias)</div>
+                  <div className="text-[11px] text-gray-500 mt-1">JPG / PNG / WEBP</div>
+                  <input type="file" accept="image/*" multiple className="hidden"
+                    onChange={(e) => onSelectFiles(e.target.files)} />
+                </label>
+
+                {iaModal.archivos.length > 0 && (
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                    {iaModal.archivos.map((a, i) => (
+                      <div key={i} className="relative group rounded-lg overflow-hidden border border-white/10 bg-black/30">
+                        <img src={a.dataUrl} alt={a.name} className="w-full h-32 object-cover" />
+                        <button
+                          onClick={() => setIaModal({ ...iaModal, archivos: iaModal.archivos.filter((_, j) => j !== i) })}
+                          className="absolute top-1 right-1 p-1 rounded-md bg-black/70 text-red-300 opacity-0 group-hover:opacity-100 transition"
+                          title="Quitar">
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                        <div className="absolute bottom-0 left-0 right-0 px-2 py-1 text-[10px] text-white bg-black/70 truncate">{a.name}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {iaModal.log && <div className="text-xs text-amber-300">{iaModal.log}</div>}
+
+                <div className="flex justify-end gap-2 pt-2">
+                  <button onClick={() => setIaModal(null)}
+                    className="px-3 py-2 text-xs rounded-md bg-white/5 hover:bg-white/10 text-gray-300 border border-white/10">Cancelar</button>
+                  <button onClick={analizarConIA} disabled={iaModal.archivos.length === 0}
+                    className="px-3 py-2 text-xs rounded-md bg-fuchsia-500 hover:bg-fuchsia-400 text-white font-medium disabled:opacity-50 flex items-center gap-1.5">
+                    <Sparkles className="w-3.5 h-3.5" /> Analizar con IA
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {iaModal.fase === 'analizando' && (
+              <div className="py-10 flex flex-col items-center gap-3 text-gray-300">
+                <RefreshCw className="w-8 h-8 animate-spin text-fuchsia-400" />
+                <div className="text-sm">Leyendo {iaModal.archivos.length} imagen(es) con IA…</div>
+              </div>
+            )}
+
+            {(iaModal.fase === 'revisar' || iaModal.fase === 'creando') && (
+              <div className="space-y-3">
+                {iaModal.log && <div className="text-xs text-emerald-300">{iaModal.log}</div>}
+                <p className="text-xs text-gray-400">Revisá los datos extraídos. Podés editar o desmarcar antes de crearlos en Google Calendar.</p>
+
+                <div className="space-y-2">
+                  {iaModal.turnos.map((t, i) => (
+                    <div key={i} className={`p-3 rounded-lg border ${t.creado ? 'border-emerald-500/40 bg-emerald-500/5' : t.error ? 'border-red-500/40 bg-red-500/5' : 'border-white/10 bg-white/[0.02]'}`}>
+                      <div className="flex items-start gap-2">
+                        <input type="checkbox" checked={t.incluir && !t.creado} disabled={t.creado || iaModal.fase === 'creando'}
+                          onChange={(e) => {
+                            const turnos = [...iaModal.turnos];
+                            turnos[i] = { ...turnos[i], incluir: e.target.checked };
+                            setIaModal({ ...iaModal, turnos });
+                          }}
+                          className="mt-1" />
+                        <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
+                          <div className="sm:col-span-2">
+                            <label className="text-[10px] uppercase tracking-wider text-gray-500">Título</label>
+                            <input value={t.titulo} disabled={t.creado}
+                              onChange={(e) => { const ts = [...iaModal.turnos]; ts[i] = { ...t, titulo: e.target.value }; setIaModal({ ...iaModal, turnos: ts }); }}
+                              className="w-full px-2 py-1 rounded bg-white/5 border border-white/10 text-white text-sm disabled:opacity-60" />
+                          </div>
+                          <div>
+                            <label className="text-[10px] uppercase tracking-wider text-gray-500">Fecha</label>
+                            <input type="date" value={t.fecha} disabled={t.creado}
+                              onChange={(e) => { const ts = [...iaModal.turnos]; ts[i] = { ...t, fecha: e.target.value }; setIaModal({ ...iaModal, turnos: ts }); }}
+                              className="w-full px-2 py-1 rounded bg-white/5 border border-white/10 text-white text-sm disabled:opacity-60" />
+                          </div>
+                          <div>
+                            <label className="text-[10px] uppercase tracking-wider text-gray-500">Hora</label>
+                            <input type="time" value={t.hora} disabled={t.creado}
+                              onChange={(e) => { const ts = [...iaModal.turnos]; ts[i] = { ...t, hora: e.target.value }; setIaModal({ ...iaModal, turnos: ts }); }}
+                              className="w-full px-2 py-1 rounded bg-white/5 border border-white/10 text-white text-sm disabled:opacity-60" />
+                          </div>
+                          <div className="sm:col-span-2">
+                            <label className="text-[10px] uppercase tracking-wider text-gray-500">Ubicación</label>
+                            <input value={t.ubicacion} disabled={t.creado}
+                              onChange={(e) => { const ts = [...iaModal.turnos]; ts[i] = { ...t, ubicacion: e.target.value }; setIaModal({ ...iaModal, turnos: ts }); }}
+                              className="w-full px-2 py-1 rounded bg-white/5 border border-white/10 text-white text-sm disabled:opacity-60" />
+                          </div>
+                          <div className="sm:col-span-2">
+                            <label className="text-[10px] uppercase tracking-wider text-gray-500">Descripción</label>
+                            <textarea value={t.descripcion} rows={2} disabled={t.creado}
+                              onChange={(e) => { const ts = [...iaModal.turnos]; ts[i] = { ...t, descripcion: e.target.value }; setIaModal({ ...iaModal, turnos: ts }); }}
+                              className="w-full px-2 py-1 rounded bg-white/5 border border-white/10 text-white text-sm disabled:opacity-60 resize-none" />
+                          </div>
+                          {t.error && <div className="sm:col-span-2 text-xs text-red-300">❌ {t.error}</div>}
+                          {t.creado && <div className="sm:col-span-2 text-xs text-emerald-300">✅ Creado en Google Calendar</div>}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="flex justify-between items-center gap-2 pt-2">
+                  <button onClick={() => setIaModal({ ...iaModal, fase: 'subir' })}
+                    className="px-3 py-2 text-xs rounded-md bg-white/5 hover:bg-white/10 text-gray-300 border border-white/10">
+                    ← Subir más
+                  </button>
+                  <button onClick={crearTurnosEnGoogle}
+                    disabled={iaModal.fase === 'creando' || !conectado || iaModal.turnos.every(t => !t.incluir || t.creado)}
+                    className="px-3 py-2 text-xs rounded-md bg-emerald-500 hover:bg-emerald-400 text-black font-medium disabled:opacity-50 flex items-center gap-1.5">
+                    {iaModal.fase === 'creando' && <RefreshCw className="w-3 h-3 animate-spin" />}
+                    Crear {iaModal.turnos.filter(t => t.incluir && !t.creado).length} en Google Calendar
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}
