@@ -19,8 +19,10 @@ import {
 } from '../types/database';
 
 const ESTADO_COLORS: Record<EstadoTareaGeneral, string> = {
-  en_curso: 'bg-violet-500/15 text-violet-300 border-violet-500/30',
-  completada: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30',
+  // Verde flúor (lime) para tareas en curso → llaman la atención
+  en_curso: 'bg-lime-400/20 text-lime-300 border-lime-400/50 shadow-[0_0_12px_rgba(163,230,53,0.25)]',
+  // Esmeralda para completadas
+  completada: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/40',
 };
 
 const PRIORIDAD_COLORS_V2: Record<PrioridadTareaGeneral, string> = {
