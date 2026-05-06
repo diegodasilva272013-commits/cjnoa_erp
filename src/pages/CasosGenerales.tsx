@@ -473,16 +473,24 @@ function CaseDetailModal({ caso: initial, onClose, onSaved }: {
                   <ExternalLink className="w-4 h-4 shrink-0"/>Abrir carpeta en Drive
                 </a>
               )}
-              {editing.actualizacion && (
-                <div className="bg-white/[0.025] rounded-xl p-3 border border-white/[0.05]">
-                  <p className="text-[10px] text-gray-500 uppercase tracking-widest mb-1">Histórico (importado)</p>
-                  <p className="text-sm text-gray-300 whitespace-pre-wrap leading-relaxed">{editing.actualizacion}</p>
-                </div>
-              )}
+              {/* Panel de Seguimiento (notas + tareas en tiempo real) */}
               {!isNew && editing.id && (
                 <div className="pt-3 border-t border-white/[0.06]">
                   <NotasFeedPanel casoId={editing.id} />
                 </div>
+              )}
+              {/* Histórico importado de Notion (colapsable) */}
+              {editing.actualizacion && (
+                <details className="bg-white/[0.025] rounded-xl border border-white/[0.05] group">
+                  <summary className="cursor-pointer px-3 py-2 flex items-center justify-between hover:bg-white/[0.03] rounded-xl">
+                    <p className="text-[10px] text-gray-500 uppercase tracking-widest">Histórico (importado de Notion)</p>
+                    <span className="text-[10px] text-gray-600 group-open:hidden">Ver ▾</span>
+                    <span className="text-[10px] text-gray-600 hidden group-open:inline">Ocultar ▴</span>
+                  </summary>
+                  <div className="p-3 pt-0 border-t border-white/[0.04]">
+                    <p className="text-sm text-gray-400 whitespace-pre-wrap leading-relaxed">{editing.actualizacion}</p>
+                  </div>
+                </details>
               )}
             </div>
           )}

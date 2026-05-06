@@ -136,7 +136,7 @@ export default function NotasFeedPanel({ casoId }: { casoId: string }) {
   const { perfiles } = usePerfilesList();
   const {
     notas, loading, agregarNota, agregarNotaConTarea, eliminarNota,
-    marcarTareaVista, cambiarEstadoTarea,
+    marcarTareaVista, cambiarEstadoTarea, migrationError,
   } = useCasoGeneralNotas(casoId);
 
   const [contenido, setContenido] = useState('');
@@ -202,6 +202,20 @@ export default function NotasFeedPanel({ casoId }: { casoId: string }) {
           Seguimiento <span className="text-gray-500 font-normal">({notas.length})</span>
         </h3>
       </div>
+
+      {migrationError && (
+        <div className="rounded-2xl border border-red-500/30 bg-red-500/10 p-4">
+          <p className="text-xs font-bold text-red-200 flex items-center gap-2 mb-1">
+            <AlertCircle className="w-4 h-4" /> Falta aplicar la migración SQL
+          </p>
+          <p className="text-[11px] text-red-200/80 leading-relaxed">
+            Andá a Supabase → SQL Editor → New Query y pegá el contenido del archivo:
+            <br/><span className="font-mono bg-white/5 px-1 rounded mt-1 inline-block">supabase/migration_caso_general_notas_y_notificaciones.sql</span>
+            <br/>Después recargá esta página.
+          </p>
+          <p className="text-[10px] text-red-300/60 mt-2 font-mono">{migrationError}</p>
+        </div>
+      )}
 
       {/* Composer */}
       <div className="rounded-2xl bg-white/[0.03] border border-white/[0.08] p-3 space-y-3">

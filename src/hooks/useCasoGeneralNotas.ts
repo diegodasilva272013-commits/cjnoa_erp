@@ -48,6 +48,7 @@ export const ESTADO_TAREA_COLOR: Record<string, string> = {
 export function useCasoGeneralNotas(casoId: string | null) {
   const [notas, setNotas] = useState<CasoGeneralNota[]>([]);
   const [loading, setLoading] = useState(false);
+  const [migrationError, setMigrationError] = useState<string | null>(null);
 
   const fetchNotas = useCallback(async () => {
     if (!casoId) { setNotas([]); return; }
@@ -57,7 +58,17 @@ export function useCasoGeneralNotas(casoId: string | null) {
       .select('*')
       .eq('caso_id', casoId)
       .order('created_at', { ascending: false });
-    if (!error && data) setNotas(data as CasoGeneralNota[]);
+    if (error) {
+      // Tabla / vista inexistente → migración no aplicada
+      if (error.code === '42P01' || /does not exist/i.test(error.message)) {
+        setMigrationError('Falta correr la migración SQL en Supabase: supabase/migration_caso_general_notas_y_notificaciones.sql');
+      } else {
+        setMigrationError(error.message);
+      }
+    } else if (data) {
+      setMigrationError(null);
+      setNotas(data as CasoGeneralNota[]);
+    }
     setLoading(false);
   }, [casoId]);
 
@@ -150,7 +161,7 @@ export function useCasoGeneralNotas(casoId: string | null) {
   }
 
   return {
-    notas, loading, refetch: fetchNotas,
+    notas, loading, refetch: fetchNotas, migrationError,
     agregarNota, agregarNotaConTarea, eliminarNota,
     marcarTareaVista, cambiarEstadoTarea,
   };
