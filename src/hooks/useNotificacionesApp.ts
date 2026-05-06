@@ -4,7 +4,7 @@ import { supabase } from '../lib/supabase';
 export interface NotificacionApp {
   id: string;
   user_id: string;
-  tipo: 'tarea_asignada' | 'tarea_vista' | 'tarea_estado' | 'nota_caso' | 'generico';
+  tipo: 'tarea_asignada' | 'tarea_vista' | 'tarea_estado' | 'nota_caso' | 'tarea_proxima' | 'tarea_vencida' | 'generico';
   titulo: string;
   mensaje: string | null;
   link: string | null;
@@ -25,6 +25,9 @@ export function useNotificacionesApp(userId: string | null) {
   const fetchItems = useCallback(async () => {
     if (!userId) { setItems([]); return; }
     setLoading(true);
+    // Disparar revisión de recordatorios (idempotente: indice unico por dia/tarea).
+    // Ignoramos el error si la funcion todavia no existe (migration pendiente).
+    try { await supabase.rpc('revisar_recordatorios_tareas'); } catch { /* noop */ }
     const { data, error } = await supabase
       .from('notificaciones_app')
       .select('*')

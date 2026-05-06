@@ -131,6 +131,12 @@ export default function Sidebar({ open, onClose }: SidebarProps) {
             Cargos de Hora
           </NavLink>
 
+          {/* Control de Tareas — visible para todos */}
+          <NavLink to="/control-tareas" onClick={onClose} className={({ isActive }) => linkClass(isActive)}>
+            <Activity className="w-5 h-5" />
+            Control de Tareas
+          </NavLink>
+
           {/* Finanzas - visible para admin y socio */}
           {permisos.finanzas && (
             <div className="space-y-1">

@@ -778,6 +778,24 @@ function TareaModal({ tarea, casos, casosGenerales, perfiles, onClose, onSave }:
           <label className="text-[10px] text-gray-500 uppercase tracking-wider">Cargo de hora (vencimiento vinculado)</label>
           <input value={form.cargo_hora} onChange={e => setForm(s => ({ ...s, cargo_hora: e.target.value }))}
             className="input-dark text-sm mt-1" placeholder="Ej: A favor 22/04 - en contra 30/04" />
+          {form.cargo_hora.trim() && (
+            <div className={`mt-2 px-3 py-2 rounded-lg text-[11px] flex items-start gap-2 border ${
+              form.fecha_limite
+                ? 'bg-lime-400/10 text-lime-200 border-lime-400/30'
+                : 'bg-red-500/10 text-red-200 border-red-500/40'
+            }`}>
+              <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+              <div>
+                <p className="font-semibold">Recordatorio</p>
+                <p className="opacity-90">
+                  Cuando carg\u00e1s un cargo de hora, la <b>Fecha l\u00edmite</b> es OBLIGATORIA.
+                  Te avisaremos al responsable <b>2 d\u00edas antes</b> y otra vez si la tarea no se realiza.
+                  Toda esta gesti\u00f3n se ve en <b>Control de Tareas</b>.
+                </p>
+                {!form.fecha_limite && <p className="mt-1 font-bold">⚠ Falta cargar la fecha límite arriba.</p>}
+              </div>
+            </div>
+          )}
         </div>
 
         <div>
