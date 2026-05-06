@@ -10,7 +10,7 @@ interface AlarmaTarea {
   mensaje: string | null;
   link: string | null;
   related_id: string | null;
-  tipo: 'tarea_proxima' | 'tarea_vencida';
+  tipo: 'tarea_proxima' | 'tarea_vencida' | 'presentar_escrito';
   created_at: string;
 }
 
@@ -95,7 +95,7 @@ export default function AlarmaTareas() {
         .from('notificaciones_app')
         .select('id, titulo, mensaje, link, related_id, tipo, created_at, leida')
         .eq('user_id', user.id)
-        .in('tipo', ['tarea_proxima', 'tarea_vencida'])
+        .in('tipo', ['tarea_proxima', 'tarea_vencida', 'presentar_escrito'])
         .eq('leida', false)
         .gte('created_at', desde.toISOString())
         .order('created_at', { ascending: false })
@@ -119,7 +119,7 @@ export default function AlarmaTareas() {
         { event: 'INSERT', schema: 'public', table: 'notificaciones_app', filter: `user_id=eq.${user.id}` },
         (payload) => {
           const n: any = payload.new;
-          if (n.tipo === 'tarea_proxima' || n.tipo === 'tarea_vencida') {
+          if (n.tipo === 'tarea_proxima' || n.tipo === 'tarea_vencida' || n.tipo === 'presentar_escrito') {
             encolar({
               id: n.id, titulo: n.titulo, mensaje: n.mensaje, link: n.link,
               related_id: n.related_id, tipo: n.tipo, created_at: n.created_at,
@@ -150,12 +150,15 @@ export default function AlarmaTareas() {
       <div className="flex flex-col gap-3 w-full max-w-sm pointer-events-auto">
         {cola.map(n => {
           const esVencida = n.tipo === 'tarea_vencida';
+          const esEscrito = n.tipo === 'presentar_escrito';
           return (
             <div
               key={n.id}
               role="alertdialog"
               className={`rounded-2xl border-2 shadow-2xl backdrop-blur-md p-4 animate-fade-in ${
-                esVencida
+                esEscrito
+                  ? 'bg-emerald-500/15 border-emerald-500/60 shadow-emerald-500/30'
+                  : esVencida
                   ? 'bg-red-500/15 border-red-500/60 shadow-red-500/30'
                   : 'bg-orange-500/15 border-orange-500/60 shadow-orange-500/30'
               }`}
@@ -163,13 +166,16 @@ export default function AlarmaTareas() {
             >
               <div className="flex items-start gap-3">
                 <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${
+                  esEscrito ? 'bg-emerald-500/30 text-emerald-100' :
                   esVencida ? 'bg-red-500/30 text-red-200' : 'bg-orange-500/30 text-orange-200'
                 }`}>
                   <AlertTriangle className="w-5 h-5" />
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-start justify-between gap-2">
-                    <h4 className={`text-sm font-bold ${esVencida ? 'text-red-100' : 'text-orange-100'}`}>
+                    <h4 className={`text-sm font-bold ${
+                      esEscrito ? 'text-emerald-100' : esVencida ? 'text-red-100' : 'text-orange-100'
+                    }`}>
                       {n.titulo}
                     </h4>
                     <button
@@ -187,12 +193,14 @@ export default function AlarmaTareas() {
                     <button
                       onClick={() => abrir(n)}
                       className={`text-[11px] font-semibold px-3 py-1.5 rounded-lg flex items-center gap-1.5 ${
-                        esVencida
+                        esEscrito
+                          ? 'bg-emerald-500 hover:bg-emerald-400 text-white'
+                          : esVencida
                           ? 'bg-red-500 hover:bg-red-400 text-white'
                           : 'bg-orange-500 hover:bg-orange-400 text-white'
                       }`}
                     >
-                      <ExternalLink className="w-3 h-3" /> Ver tarea
+                      <ExternalLink className="w-3 h-3" /> {esEscrito ? 'Presentar escrito' : 'Ver tarea'}
                     </button>
                     <button
                       onClick={() => cerrar(n.id)}

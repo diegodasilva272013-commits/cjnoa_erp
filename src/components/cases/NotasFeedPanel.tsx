@@ -127,8 +127,13 @@ function NotaCard({ n, currentUserId, onDelete, onMarcarVista, onCambiarEstado }
               </span>
             )}
             {n.tarea_cargo_hora && (
-              <span className="px-1.5 py-0.5 rounded bg-cyan-500/10 border border-cyan-500/25 text-cyan-300">
-                {n.tarea_cargo_hora}
+              <span className="px-1.5 py-0.5 rounded bg-red-500/10 border border-red-500/25 text-red-300" title="Cargo de hora EN CONTRA">
+                ⏰ {n.tarea_cargo_hora}
+              </span>
+            )}
+            {(n.tarea_cargo_hora_favor || n.tarea_cargo_hora_favor_fecha) && (
+              <span className="px-1.5 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/30 text-emerald-200" title="Cargo de hora A FAVOR (vence plazo contraparte)">
+                ⚖ {n.tarea_cargo_hora_favor || ''}{n.tarea_cargo_hora_favor_fecha ? ` (${new Date(n.tarea_cargo_hora_favor_fecha + 'T12:00:00').toLocaleDateString('es-AR', { day: '2-digit', month: 'short' })})` : ''}
               </span>
             )}
             {n.tarea_visto && (
@@ -184,6 +189,8 @@ export default function NotasFeedPanel({ casoId }: { casoId: string }) {
   const [fechaLimite, setFechaLimite] = useState('');
   const [prioridad, setPrioridad] = useState<'alta'|'media'|'sin_prioridad'>('sin_prioridad');
   const [cargoHora, setCargoHora] = useState('');
+  const [cargoHoraFavor, setCargoHoraFavor] = useState('');
+  const [cargoHoraFavorFecha, setCargoHoraFavorFecha] = useState('');
   const [enviando, setEnviando] = useState(false);
 
   // Modal: Agendar audiencia
@@ -338,6 +345,8 @@ export default function NotasFeedPanel({ casoId }: { casoId: string }) {
         descripcion: tareaDescripcion || undefined,
         prioridad,
         cargoHora: cargoHora || undefined,
+        cargoHoraFavor: cargoHoraFavor || undefined,
+        cargoHoraFavorFecha: cargoHoraFavorFecha || null,
         audioBlob,
       });
       ok = res.ok; errMsg = res.error;
@@ -347,6 +356,7 @@ export default function NotasFeedPanel({ casoId }: { casoId: string }) {
     if (ok) {
       setContenido(''); setTareaTitulo(''); setTareaDescripcion('');
       setResponsableId(''); setFechaLimite(''); setCargoHora('');
+      setCargoHoraFavor(''); setCargoHoraFavorFecha('');
       setPrioridad('sin_prioridad'); setConTarea(false);
       descartarAudio();
       showToast(conTarea ? 'Nota + tarea creadas' : 'Nota agregada', 'success');
@@ -530,9 +540,31 @@ export default function NotasFeedPanel({ casoId }: { casoId: string }) {
                 type="text"
                 value={cargoHora}
                 onChange={(e) => setCargoHora(e.target.value)}
-                placeholder="Cargo de hora (ej: a favor)"
-                className="bg-white/5 border border-white/10 rounded-lg px-2 py-2 text-xs text-white placeholder-gray-600 focus:outline-none focus:border-violet-500/50"
+                placeholder="Cargo de hora EN CONTRA (mi vencimiento)"
+                className="bg-white/5 border border-red-500/20 rounded-lg px-2 py-2 text-xs text-white placeholder-gray-600 focus:outline-none focus:border-red-500/50"
               />
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <input
+                type="text"
+                value={cargoHoraFavor}
+                onChange={(e) => setCargoHoraFavor(e.target.value)}
+                placeholder="Cargo de hora A FAVOR (vence plazo contraparte)"
+                className="bg-white/5 border border-emerald-500/20 rounded-lg px-2 py-2 text-xs text-white placeholder-gray-600 focus:outline-none focus:border-emerald-500/50"
+              />
+              <input
+                type="date"
+                value={cargoHoraFavorFecha}
+                onChange={(e) => setCargoHoraFavorFecha(e.target.value)}
+                title="Fecha en que vence el plazo de la contraparte"
+                className="bg-white/5 border border-emerald-500/20 rounded-lg px-2 py-2 text-xs text-white focus:outline-none focus:border-emerald-500/50"
+              />
+            </div>
+            {(cargoHoraFavor.trim() || cargoHoraFavorFecha) && (
+              <p className="text-[10px] text-emerald-300/90 leading-snug px-1">
+                Aviso automático: el día que llegue esa fecha el sistema avisará que hay que <b>presentar el escrito</b> porque venció el plazo de la contraparte.
+              </p>
+            )}
             </div>
             {!responsableId && (
               <p className="text-[10px] text-amber-400/80 flex items-center gap-1">

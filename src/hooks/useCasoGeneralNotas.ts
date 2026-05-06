@@ -26,6 +26,8 @@ export interface CasoGeneralNota {
   tarea_descripcion: string | null;
   tarea_culminacion: string | null;
   tarea_cargo_hora: string | null;
+  tarea_cargo_hora_favor: string | null;
+  tarea_cargo_hora_favor_fecha: string | null;
   tarea_adjunto_path: string | null;
   tarea_adjunto_nombre: string | null;
 }
@@ -118,6 +120,8 @@ export function useCasoGeneralNotas(casoId: string | null) {
     descripcion?: string;
     prioridad?: 'alta' | 'media' | 'sin_prioridad';
     cargoHora?: string;
+    cargoHoraFavor?: string;
+    cargoHoraFavorFecha?: string | null;
     audioBlob?: Blob | null;
   }): Promise<{ ok: boolean; error?: string }> {
     if (!casoId) return { ok: false, error: 'casoId vacío' };
@@ -137,6 +141,8 @@ export function useCasoGeneralNotas(casoId: string | null) {
         fecha_limite: params.fechaLimite,
         prioridad: params.prioridad ?? 'sin_prioridad',
         cargo_hora: params.cargoHora?.trim() || null,
+        cargo_hora_favor: params.cargoHoraFavor?.trim() || null,
+        cargo_hora_favor_fecha: params.cargoHoraFavorFecha || null,
         estado: 'activa',
         caso_general_id: casoId,
         created_by: params.userId,

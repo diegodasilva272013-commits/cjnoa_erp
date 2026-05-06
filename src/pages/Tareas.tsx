@@ -654,6 +654,8 @@ function TareaModal({ tarea, casos, casosGenerales, perfiles, onClose, onSave }:
     descripcion: tarea?.descripcion || '',
     culminacion: tarea?.culminacion || '',
     cargo_hora: tarea?.cargo_hora || '',
+    cargo_hora_favor: tarea?.cargo_hora_favor || '',
+    cargo_hora_favor_fecha: tarea?.cargo_hora_favor_fecha || '',
     estado: tarea?.estado || 'en_curso',
     prioridad: tarea?.prioridad || 'sin_prioridad',
     fecha_limite: tarea?.fecha_limite || '',
@@ -690,6 +692,8 @@ function TareaModal({ tarea, casos, casosGenerales, perfiles, onClose, onSave }:
       caso_general_id: form.caso_general_id || null,
       responsable_id: form.responsable_id || null,
       fecha_limite: form.fecha_limite || null,
+      cargo_hora_favor: form.cargo_hora_favor.trim() || null,
+      cargo_hora_favor_fecha: form.cargo_hora_favor_fecha || null,
     });
   };
 
@@ -792,9 +796,11 @@ function TareaModal({ tarea, casos, casosGenerales, perfiles, onClose, onSave }:
         </div>
 
         <div>
-          <label className="text-[10px] text-gray-500 uppercase tracking-wider">Cargo de hora (vencimiento vinculado)</label>
+          <label className="text-[10px] text-gray-500 uppercase tracking-wider flex items-center gap-1">
+            <span className="inline-block w-2 h-2 rounded-full bg-red-400" /> Cargo de hora EN CONTRA (mi vencimiento)
+          </label>
           <input value={form.cargo_hora} onChange={e => setForm(s => ({ ...s, cargo_hora: e.target.value }))}
-            className="input-dark text-sm mt-1" placeholder="Ej: A favor 22/04 - en contra 30/04" />
+            className="input-dark text-sm mt-1" placeholder="Ej: vence 30/04 a las 12hs" />
           {form.cargo_hora.trim() && (
             <div className={`mt-2 px-3 py-2 rounded-lg text-[11px] flex items-start gap-2 border ${
               form.fecha_limite
@@ -805,11 +811,41 @@ function TareaModal({ tarea, casos, casosGenerales, perfiles, onClose, onSave }:
               <div>
                 <p className="font-semibold">Recordatorio</p>
                 <p className="opacity-90">
-                  Cuando carg\u00e1s un cargo de hora, la <b>Fecha l\u00edmite</b> es OBLIGATORIA.
+                  Cuando carg\u00e1s un cargo de hora en contra, la <b>Fecha l\u00edmite</b> es OBLIGATORIA.
                   Te avisaremos al responsable <b>2 d\u00edas antes</b> y otra vez si la tarea no se realiza.
-                  Toda esta gesti\u00f3n se ve en <b>Control de Tareas</b>.
                 </p>
                 {!form.fecha_limite && <p className="mt-1 font-bold">⚠ Falta cargar la fecha límite arriba.</p>}
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <label className="text-[10px] text-gray-500 uppercase tracking-wider flex items-center gap-1">
+              <span className="inline-block w-2 h-2 rounded-full bg-emerald-400" /> Cargo de hora A FAVOR (vence plazo de la contraparte)
+            </label>
+            <input value={form.cargo_hora_favor} onChange={e => setForm(s => ({ ...s, cargo_hora_favor: e.target.value }))}
+              className="input-dark text-sm mt-1" placeholder="Ej: traslado contestación demanda" />
+          </div>
+          <div>
+            <label className="text-[10px] text-gray-500 uppercase tracking-wider">Fecha en que vence el plazo de la contraparte</label>
+            <input type="date" value={form.cargo_hora_favor_fecha}
+              onChange={e => setForm(s => ({ ...s, cargo_hora_favor_fecha: e.target.value }))}
+              className="input-dark text-sm mt-1" />
+          </div>
+          {(form.cargo_hora_favor.trim() || form.cargo_hora_favor_fecha) && (
+            <div className="sm:col-span-2 mt-1 px-3 py-2 rounded-lg text-[11px] flex items-start gap-2 border bg-emerald-500/10 text-emerald-100 border-emerald-500/40">
+              <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+              <div>
+                <p className="font-semibold">Aviso automático de PRESENTAR ESCRITO</p>
+                <p className="opacity-90">
+                  El día que llegue esa fecha (y los días siguientes hasta marcar la tarea como completada),
+                  el sistema avisará que <b>venció el plazo de la contraparte</b> y hay que <b>presentar el escrito</b> para dejar la causa al día.
+                </p>
+                {!form.cargo_hora_favor_fecha && form.cargo_hora_favor.trim() && (
+                  <p className="mt-1 font-bold">⚠ Cargate la fecha exacta para que dispare la alarma.</p>
+                )}
               </div>
             </div>
           )}

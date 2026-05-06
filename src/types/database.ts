@@ -286,6 +286,8 @@ export interface Tarea {
   descripcion: string | null;
   culminacion: string | null;
   cargo_hora: string | null;
+  cargo_hora_favor: string | null;
+  cargo_hora_favor_fecha: string | null;
   estado: EstadoTareaGeneral;
   prioridad: PrioridadTareaGeneral;
   fecha_limite: string | null;
