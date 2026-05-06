@@ -1,8 +1,9 @@
 import { useState, useMemo, useEffect } from 'react';
 import {
-  Search, Plus, Upload, Trash2, Filter, AlertCircle, CheckCircle2,
-  Loader2, X, Scale, Calendar, Gavel, Clock, Star, RefreshCw,
+  Search, Plus, Upload, Trash2, AlertCircle, CheckCircle2,
+  Loader2, X, Scale, Calendar, Clock, Star, RefreshCw,
   Columns3, Table2, ChevronRight, ExternalLink, AlertTriangle, Eye,
+  ArrowUp, ArrowDown, ArrowUpDown,
 } from 'lucide-react';
 import {
   DndContext, DragEndEvent, DragOverlay, PointerSensor,
@@ -13,73 +14,83 @@ import { useCasosGenerales, CasoGeneral, TIPOS_CASO, ABOGADOS } from '../hooks/u
 import { useToast } from '../context/ToastContext';
 import { supabase } from '../lib/supabase';
 
-// ─── Estado meta ──────────────────────────────────────────────────────────────
-const ESTADO_META: Record<string, {
-  label: string; color: string; dot: string; bg: string; border: string;
-  rowBorder: string; rowHover: string;
-}> = {
-  activos: {
-    label: 'Activo', color: 'text-emerald-300', dot: 'bg-emerald-400',
-    bg: 'bg-emerald-400/10', border: 'border-l-emerald-500',
-    rowBorder: 'border-l-2 border-l-emerald-500/60', rowHover: 'hover:bg-emerald-500/[0.03]',
-  },
-  federales: {
-    label: 'Federal', color: 'text-blue-300', dot: 'bg-blue-400',
-    bg: 'bg-blue-400/10', border: 'border-l-blue-500',
-    rowBorder: 'border-l-2 border-l-blue-500/60', rowHover: 'hover:bg-blue-500/[0.03]',
-  },
-  'esperando sentencias': {
-    label: 'En espera', color: 'text-amber-300', dot: 'bg-amber-400',
-    bg: 'bg-amber-400/10', border: 'border-l-amber-500',
-    rowBorder: 'border-l-2 border-l-amber-500/60', rowHover: 'hover:bg-amber-500/[0.03]',
-  },
-  'complicacion judicial/analisis': {
-    label: 'En análisis', color: 'text-orange-300', dot: 'bg-orange-400',
-    bg: 'bg-orange-400/10', border: 'border-l-orange-500',
-    rowBorder: 'border-l-2 border-l-orange-500/60', rowHover: 'hover:bg-orange-500/[0.03]',
-  },
-  'suspendido por falta de directivas': {
-    label: 'Sin directivas', color: 'text-gray-400', dot: 'bg-gray-500',
-    bg: 'bg-gray-500/10', border: 'border-l-gray-500',
-    rowBorder: 'border-l-2 border-l-gray-500/40', rowHover: 'hover:bg-gray-500/[0.03]',
-  },
-  'suspendido por falta de pago': {
-    label: 'Sin pago', color: 'text-red-300', dot: 'bg-red-400',
-    bg: 'bg-red-400/10', border: 'border-l-red-500',
-    rowBorder: 'border-l-2 border-l-red-500/60', rowHover: 'hover:bg-red-500/[0.03]',
-  },
-};
-const FALLBACK_META = {
-  label: 'Sin estado', color: 'text-gray-500', dot: 'bg-gray-600',
-  bg: 'bg-white/5', border: 'border-l-white/10',
-  rowBorder: 'border-l-2 border-l-white/10', rowHover: 'hover:bg-white/[0.03]',
-};
-const getEstado = (e: string | null) => ESTADO_META[(e ?? '').toLowerCase()] ?? FALLBACK_META;
+// ─── Estado constants (same pattern as PIPELINE_COLORS in previsional) ─────────
+const ESTADOS_ORDERED = [
+  'activos',
+  'federales',
+  'esperando sentencias',
+  'complicacion judicial/analisis',
+  'suspendido por falta de directivas',
+  'suspendido por falta de pago',
+] as const;
+type EstadoCaso = typeof ESTADOS_ORDERED[number];
 
-const ABOGADO_COLORS: Record<string, { from: string; shadow: string }> = {
-  RODRIGO:   { from: 'from-violet-500 to-purple-700',   shadow: 'shadow-violet-500/40' },
-  NOELIA:    { from: 'from-pink-500 to-rose-700',        shadow: 'shadow-pink-500/40' },
-  ALEJANDRO: { from: 'from-blue-500 to-indigo-700',      shadow: 'shadow-blue-500/40' },
-  MARIANELA: { from: 'from-teal-500 to-emerald-700',     shadow: 'shadow-teal-500/40' },
-  FABRICIO:  { from: 'from-amber-500 to-orange-700',     shadow: 'shadow-amber-500/40' },
+const ESTADO_LABELS: Record<string, string> = {
+  'activos':                             'Activo',
+  'federales':                           'Federal',
+  'esperando sentencias':                'En espera',
+  'complicacion judicial/analisis':      'En análisis',
+  'suspendido por falta de directivas':  'Sin directivas',
+  'suspendido por falta de pago':        'Sin pago',
 };
-function getAbogadoStyle(a: string | null) {
-  if (!a) return { from: 'from-gray-600 to-gray-800', shadow: 'shadow-none' };
-  for (const [k, v] of Object.entries(ABOGADO_COLORS)) {
-    if (a.toUpperCase().includes(k)) return v;
-  }
-  return { from: 'from-gray-600 to-gray-800', shadow: 'shadow-none' };
+
+// "bg-X/10 text-X border-X/20" — matches FichasList PIPELINE_COLORS pattern
+const ESTADO_COLORS: Record<string, string> = {
+  'activos':                             'bg-emerald-500/10 text-emerald-400 border-emerald-500/20',
+  'federales':                           'bg-blue-500/10 text-blue-400 border-blue-500/20',
+  'esperando sentencias':                'bg-amber-500/10 text-amber-400 border-amber-500/20',
+  'complicacion judicial/analisis':      'bg-orange-500/10 text-orange-400 border-orange-500/20',
+  'suspendido por falta de directivas':  'bg-gray-500/10 text-gray-400 border-gray-500/20',
+  'suspendido por falta de pago':        'bg-red-500/10 text-red-400 border-red-500/20',
+};
+
+const ESTADO_DOT: Record<string, string> = {
+  'activos':                             'bg-emerald-500',
+  'federales':                           'bg-blue-500',
+  'esperando sentencias':                'bg-amber-500',
+  'complicacion judicial/analisis':      'bg-orange-500',
+  'suspendido por falta de directivas':  'bg-gray-500',
+  'suspendido por falta de pago':        'bg-red-500',
+};
+
+const KANBAN_BORDER: Record<string, string> = {
+  'activos':                             'border-t-emerald-500',
+  'federales':                           'border-t-blue-500',
+  'esperando sentencias':                'border-t-amber-500',
+  'complicacion judicial/analisis':      'border-t-orange-500',
+  'suspendido por falta de directivas':  'border-t-gray-500',
+  'suspendido por falta de pago':        'border-t-red-500',
+};
+
+const KANBAN_BADGE: Record<string, string> = {
+  'activos':                             'bg-emerald-500/10 text-emerald-400',
+  'federales':                           'bg-blue-500/10 text-blue-400',
+  'esperando sentencias':                'bg-amber-500/10 text-amber-400',
+  'complicacion judicial/analisis':      'bg-orange-500/10 text-orange-400',
+  'suspendido por falta de directivas':  'bg-gray-500/10 text-gray-400',
+  'suspendido por falta de pago':        'bg-red-500/10 text-red-400',
+};
+
+function eColor(e: string | null) {
+  return ESTADO_COLORS[(e ?? '').toLowerCase()] ?? 'bg-gray-500/10 text-gray-400 border-gray-500/20';
 }
+function eLabel(e: string | null) {
+  return ESTADO_LABELS[(e ?? '').toLowerCase()] ?? (e || '—');
+}
+function eDot(e: string | null) {
+  return ESTADO_DOT[(e ?? '').toLowerCase()] ?? 'bg-gray-600';
+}
+
 function abogadoInitials(s: string | null) {
   if (!s) return '?';
   const m = s.match(/[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+/g);
-  return m ? m.slice(-1)[0].slice(0, 2).toUpperCase() : s.slice(0, 2).toUpperCase();
+  return m ? m[m.length - 1].slice(0, 2).toUpperCase() : s.slice(0, 2).toUpperCase();
 }
 function formatDate(d: string | null) {
   if (!d) return null;
-  const [y, m, day] = d.split('-');
+  const [y, mm, day] = d.split('-');
   const months = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
-  return `${parseInt(day)} ${months[parseInt(m)-1]} ${y}`;
+  return `${parseInt(day)} ${months[parseInt(mm)-1]} ${y}`;
 }
 function isOverdue(d: string | null) { return !!d && new Date(d) < new Date(); }
 function daysUntil(d: string | null) {
@@ -89,7 +100,6 @@ function daysUntil(d: string | null) {
 
 // ─── CSV RFC 4180 ─────────────────────────────────────────────────────────────
 function parseCSV(text: string): Record<string, string>[] {
-  // Strip BOM
   const raw = text.replace(/^\uFEFF/, '');
   const lines: string[] = [];
   let cur = '', inQ = false;
@@ -104,27 +114,21 @@ function parseCSV(text: string): Record<string, string>[] {
     } else cur += ch;
   }
   if (cur) lines.push(cur);
-
   const parseFields = (line: string): string[] => {
-    const vals: string[] = [];
-    let field = '', q = false;
+    const vals: string[] = []; let field = '', q = false;
     for (let j = 0; j < line.length; j++) {
       const c = line[j];
-      if (c === '"') {
-        if (q && line[j + 1] === '"') { field += '"'; j++; }
-        else q = !q;
-      } else if (c === ',' && !q) { vals.push(field); field = ''; }
+      if (c === '"') { if (q && line[j+1] === '"') { field += '"'; j++; } else q = !q; }
+      else if (c === ',' && !q) { vals.push(field); field = ''; }
       else field += c;
     }
-    vals.push(field);
-    return vals;
+    vals.push(field); return vals;
   };
-
+  if (!lines[0]) return [];
   const headers = parseFields(lines[0]).map(h => h.trim().replace(/^\uFEFF/, ''));
   const rows: Record<string, string>[] = [];
   for (let i = 1; i < lines.length; i++) {
-    const line = lines[i].trim();
-    if (!line) continue;
+    const line = lines[i].trim(); if (!line) continue;
     const vals = parseFields(line);
     const row: Record<string, string> = {};
     headers.forEach((h, idx) => { row[h] = (vals[idx] ?? '').trim(); });
@@ -133,20 +137,16 @@ function parseCSV(text: string): Record<string, string>[] {
   return rows;
 }
 
-// ─── Case-insensitive row accessor ───────────────────────────────────────────
-// Returns a function get(...candidates) that finds the first matching key
-// case-insensitively, stripping accents and extra spaces.
+// ─── Case-insensitive, accent-stripped row accessor ───────────────────────────
 function makeAccessor(raw: Record<string, string>) {
   const norm: Record<string, string> = {};
   for (const [k, v] of Object.entries(raw)) {
-    const nk = k.trim().toLowerCase()
-      .normalize('NFD').replace(/[\u0300-\u036f]/g, ''); // strip accents
+    const nk = k.trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
     norm[nk] = v;
   }
   return function get(...candidates: string[]): string {
     for (const c of candidates) {
-      const nk = c.trim().toLowerCase()
-        .normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+      const nk = c.trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
       const val = norm[nk];
       if (val !== undefined && val !== '') return val.trim();
     }
@@ -156,19 +156,15 @@ function makeAccessor(raw: Record<string, string>) {
 
 // ─── Notion normalizers ───────────────────────────────────────────────────────
 const MESES: Record<string, string> = {
-  enero:'01', febrero:'02', marzo:'03', abril:'04', mayo:'05', junio:'06',
-  julio:'07', agosto:'08', septiembre:'09', octubre:'10', noviembre:'11', diciembre:'12',
+  enero:'01',febrero:'02',marzo:'03',abril:'04',mayo:'05',junio:'06',
+  julio:'07',agosto:'08',septiembre:'09',octubre:'10',noviembre:'11',diciembre:'12',
 };
 function parseNotionDate(v: string): string | null {
   if (!v?.trim()) return null;
   const slash = v.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
   if (slash) return `${slash[3]}-${slash[2].padStart(2,'0')}-${slash[1].padStart(2,'0')}`;
   const sp = v.match(/(\d{1,2})\s+de\s+([a-záéíóú]+)\s+de\s+(\d{4})/i);
-  if (sp) {
-    const m = MESES[sp[2].toLowerCase()];
-    if (m) return `${sp[3]}-${m}-${sp[1].padStart(2,'0')}`;
-  }
-  // ISO date (already correct)
+  if (sp) { const m = MESES[sp[2].toLowerCase()]; if (m) return `${sp[3]}-${m}-${sp[1].padStart(2,'0')}`; }
   if (/^\d{4}-\d{2}-\d{2}$/.test(v)) return v;
   return null;
 }
@@ -176,26 +172,22 @@ function parseNotionBool(v: string) {
   return ['yes','sí','si','true','1','✓'].includes((v ?? '').trim().toLowerCase());
 }
 function normEstado(v: string): string {
-  const s = (v ?? '').toLowerCase().trim()
-    .normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  const s = (v ?? '').toLowerCase().trim().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
   if (!s) return 'activos';
-  // Exact match first
-  const exact = Object.keys(ESTADO_META).find(k => k === s.normalize());
+  const exact = ESTADOS_ORDERED.find(k => k.normalize('NFD').replace(/[\u0300-\u036f]/g,'') === s);
   if (exact) return exact;
-  // Fuzzy
   if (s.includes('federal')) return 'federales';
   if (s.includes('espera') || s.includes('sentencia')) return 'esperando sentencias';
-  if (s.includes('complic') || s.includes('analisis')) return 'complicacion judicial/analisis';
+  if (s.includes('complic') || s.includes('analisis') || s.includes('analisis')) return 'complicacion judicial/analisis';
   if (s.includes('directiva')) return 'suspendido por falta de directivas';
   if (s.includes('pago')) return 'suspendido por falta de pago';
-  if (s.includes('activ')) return 'activos';
   return 'activos';
 }
 function normTipo(v: string): string | null {
   const s = (v ?? '').toLowerCase().trim();
   if (!s) return null;
   for (const t of TIPOS_CASO) { if (s.includes(t.toLowerCase())) return t; }
-  if (s.includes('sucesorio') || s.includes('suces')) return 'sucesorio';
+  if (s.includes('sucesorio')) return 'sucesorio';
   if (s.includes('laboral') || s.includes('despido')) return 'laboral';
   if (s.includes('ejecutivo')) return 'ejecutivo';
   if (s.includes('familia') || s.includes('alimento')) return 'familia';
@@ -204,6 +196,25 @@ function normTipo(v: string): string | null {
   if (s.includes('real') || s.includes('escritura')) return 'reales';
   if (s.includes('civil')) return 'civil';
   return s.slice(0, 40) || null;
+}
+
+// ─── SortHeader (same as FichasList) ─────────────────────────────────────────
+type SortKey = 'titulo' | 'estado' | 'abogado' | 'audiencias' | 'vencimiento' | 'tipo_caso';
+function SortHeader({ k, label, className='', sortKey, sortDir, onClick }: {
+  k: SortKey; label: string; className?: string;
+  sortKey: SortKey; sortDir: 'asc'|'desc'; onClick: (k: SortKey) => void;
+}) {
+  const active = sortKey === k;
+  return (
+    <th className={`sticky top-14 sm:top-16 z-20 bg-[#0a0a0a]/95 backdrop-blur-md border-b border-white/10 text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase ${className}`}>
+      <button type="button" onClick={() => onClick(k)}
+        className={`flex items-center gap-1 hover:text-white transition-colors ${active ? 'text-white' : ''}`}>
+        {label}
+        {!active && <ArrowUpDown className="w-3 h-3 opacity-40"/>}
+        {active && (sortDir === 'asc' ? <ArrowUp className="w-3 h-3"/> : <ArrowDown className="w-3 h-3"/>)}
+      </button>
+    </th>
+  );
 }
 
 // ─── CaseDetailModal ───────────────────────────────────────────────────────────
@@ -216,8 +227,6 @@ function CaseDetailModal({ caso: initial, onClose, onSaved }: {
   const [saving, setSaving] = useState(false);
   const [editMode, setEditMode] = useState(!initial);
   const isNew = !initial;
-  const meta = getEstado(editing.estado ?? null);
-  const abStyle = getAbogadoStyle(editing.abogado ?? null);
 
   const set = (key: keyof CasoGeneral, val: unknown) =>
     setEditing(p => ({ ...p, [key]: val }));
@@ -228,7 +237,7 @@ function CaseDetailModal({ caso: initial, onClose, onSaved }: {
     const r = await saveCaso(editing as Partial<CasoGeneral>, initial?.id);
     setSaving(false);
     if (r.ok) { showToast(isNew ? 'Caso creado' : 'Guardado', 'success'); onSaved(); onClose(); }
-    else showToast(r.error || 'Error', 'error');
+    else showToast(r.error || 'Error al guardar', 'error');
   }
 
   const inp = 'bg-[#1a1a20] border border-white/10 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-violet-500/60 w-full';
@@ -237,38 +246,42 @@ function CaseDetailModal({ caso: initial, onClose, onSaved }: {
   return (
     <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
       <div className="modal-content sm:max-w-2xl sm:rounded-2xl">
-        <div className={`flex items-start justify-between px-6 pt-6 pb-4 border-b border-white/[0.06] border-l-4 ${meta.border} rounded-tl-2xl`}>
+        {/* Header */}
+        <div className="flex items-start justify-between px-6 pt-6 pb-4 border-b border-white/[0.06]">
           <div className="flex-1 pr-4 min-w-0">
             <div className="flex flex-wrap items-center gap-2 mb-2">
-              <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold ${meta.bg} ${meta.color} ring-1 ring-current/20`}>
-                <span className={`w-1.5 h-1.5 rounded-full animate-pulse ${meta.dot}`}/>{meta.label}
+              <span className={`badge border ${eColor(editing.estado ?? null)}`}>
+                {eLabel(editing.estado ?? null)}
               </span>
               {editing.prioridad && (
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-400/15 text-amber-300 text-[10px] font-bold ring-1 ring-amber-400/30">
+                <span className="badge border bg-amber-500/10 text-amber-400 border-amber-500/20 flex items-center gap-1">
                   <Star className="w-3 h-3 fill-amber-400"/>Alta prioridad
                 </span>
               )}
-              {editing.estadisticas_estado === 'atrasado' && (
-                <span className="px-2 py-0.5 rounded-full bg-red-500/15 text-red-300 text-[10px] font-bold ring-1 ring-red-500/30">Atrasado</span>
-              )}
             </div>
-            <h2 className="text-base font-bold text-white leading-tight">{isNew ? (editing.titulo || 'Nuevo caso') : editing.titulo}</h2>
-            {editing.expediente && <p className="text-xs text-gray-500 font-mono mt-0.5">{editing.expediente}</p>}
+            <h2 className="text-base font-bold text-white leading-tight">
+              {isNew ? (editing.titulo || 'Nuevo caso') : editing.titulo}
+            </h2>
+            {editing.expediente && (
+              <p className="text-xs text-gray-500 font-mono mt-0.5">{editing.expediente}</p>
+            )}
           </div>
           <div className="flex items-center gap-2 shrink-0">
             {!isNew && (
               <button onClick={() => setEditMode(m => !m)}
-                className={`px-3 py-1.5 rounded-xl text-xs font-medium transition-colors ${editMode ? 'bg-violet-500/20 text-violet-300 ring-1 ring-violet-500/30' : 'bg-white/5 text-gray-400 hover:text-white'}`}>
+                className={`px-3 py-1.5 rounded-xl text-xs font-medium transition-colors ${editMode ? 'bg-violet-500/20 text-violet-300' : 'bg-white/5 text-gray-400 hover:text-white'}`}>
                 {editMode ? 'Ver' : 'Editar'}
               </button>
             )}
-            <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-xl bg-white/5 hover:bg-red-500/20 hover:text-red-300 text-gray-400 transition-colors">
+            <button onClick={onClose}
+              className="w-8 h-8 flex items-center justify-center rounded-xl bg-white/5 hover:bg-red-500/20 hover:text-red-300 text-gray-400 transition-colors">
               <X className="w-4 h-4"/>
             </button>
           </div>
         </div>
 
-        <div className="px-6 py-5 space-y-4">
+        {/* Body */}
+        <div className="px-6 py-5 space-y-4 overflow-y-auto max-h-[72vh]">
           {editMode ? (
             <>
               <div>
@@ -277,26 +290,26 @@ function CaseDetailModal({ caso: initial, onClose, onSaved }: {
               </div>
               <div className="grid grid-cols-2 gap-3">
                 {([
-                  ['Estado', 'estado', 'select', Object.keys(ESTADO_META)],
-                  ['Tipo de caso', 'tipo_caso', 'select', [...TIPOS_CASO]],
-                  ['Abogado', 'abogado', 'select', [...ABOGADOS]],
-                  ['Personería', 'personeria', 'select', ['APODERADO','Patrocinante','Personería de urgencia']],
-                  ['Estadísticas', 'estadisticas_estado', 'select', ['al día','atrasado']],
-                  ['Expediente', 'expediente', 'text', []],
-                  ['Próx. audiencia', 'audiencias', 'date', []],
-                  ['Vencimiento', 'vencimiento', 'date', []],
+                  ['Estado','estado','select',[...ESTADOS_ORDERED]],
+                  ['Tipo de caso','tipo_caso','select',[...TIPOS_CASO]],
+                  ['Abogado','abogado','select',[...ABOGADOS]],
+                  ['Personería','personeria','select',['APODERADO','Patrocinante','Personería de urgencia']],
+                  ['Estadísticas','estadisticas_estado','select',['al día','atrasado']],
+                  ['Expediente','expediente','text',[]],
+                  ['Próx. audiencia','audiencias','date',[]],
+                  ['Vencimiento','vencimiento','date',[]],
                 ] as [string, keyof CasoGeneral, string, string[]][]).map(([label, key, type, opts]) => (
                   <div key={key as string}>
                     <label className="text-[10px] text-gray-500 uppercase tracking-widest block mb-1">{label}</label>
                     {type === 'select' ? (
-                      <select className={sel} value={(editing as Record<string, unknown>)[key as string] as string ?? ''}
+                      <select className={sel} value={(editing as Record<string,unknown>)[key as string] as string ?? ''}
                         onChange={e => set(key, e.target.value || null)}>
                         <option value="">—</option>
                         {opts.map(o => <option key={o} value={o}>{o}</option>)}
                       </select>
                     ) : (
                       <input type={type} className={inp}
-                        value={(editing as Record<string, unknown>)[key as string] as string ?? ''}
+                        value={(editing as Record<string,unknown>)[key as string] as string ?? ''}
                         onChange={e => set(key, e.target.value || null)}/>
                     )}
                   </div>
@@ -311,13 +324,15 @@ function CaseDetailModal({ caso: initial, onClose, onSaved }: {
                 <input className={inp} value={editing.url_drive ?? ''} onChange={e => set('url_drive', e.target.value || null)} placeholder="https://drive.google.com/..."/>
               </div>
               <div>
-                <label className="text-[10px] text-gray-500 uppercase tracking-widest block mb-1">Notas</label>
-                <textarea className={`${inp} resize-none`} rows={3} value={editing.actualizacion ?? ''} onChange={e => set('actualizacion', e.target.value || null)}/>
+                <label className="text-[10px] text-gray-500 uppercase tracking-widest block mb-1">Notas / Actualizaciones</label>
+                <textarea className={`${inp} resize-none`} rows={3}
+                  value={editing.actualizacion ?? ''} onChange={e => set('actualizacion', e.target.value || null)}/>
               </div>
               <div className="flex gap-6">
-                {(['prioridad', 'archivado'] as const).map(k => (
+                {(['prioridad','archivado'] as const).map(k => (
                   <label key={k} className="flex items-center gap-2 cursor-pointer">
-                    <div onClick={() => set(k, !editing[k])} className={`w-9 h-5 rounded-full relative transition-colors ${editing[k] ? 'bg-violet-500' : 'bg-white/10'}`}>
+                    <div onClick={() => set(k, !editing[k])}
+                      className={`w-9 h-5 rounded-full relative transition-colors ${editing[k] ? 'bg-violet-500' : 'bg-white/10'}`}>
                       <span className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-transform ${editing[k] ? 'translate-x-4' : ''}`}/>
                     </div>
                     <span className="text-sm text-gray-300 capitalize">{k}</span>
@@ -326,58 +341,46 @@ function CaseDetailModal({ caso: initial, onClose, onSaved }: {
               </div>
             </>
           ) : (
-            <div className="space-y-4">
+            <div className="space-y-3">
               {editing.abogado && (
-                <div className="flex items-center gap-3 p-4 rounded-2xl bg-white/[0.03] border border-white/[0.06]">
-                  <div className={`w-12 h-12 rounded-2xl bg-gradient-to-br ${abStyle.from} flex items-center justify-center text-base font-bold text-white shadow-lg ${abStyle.shadow}`}>
-                    {abogadoInitials(editing.abogado)}
-                  </div>
-                  <div>
-                    <p className="text-sm font-bold text-white">{editing.abogado}</p>
-                    {editing.personeria && <p className="text-xs text-gray-500 mt-0.5">{editing.personeria}</p>}
-                  </div>
+                <div className="p-3 rounded-xl bg-white/[0.03] border border-white/[0.06]">
+                  <p className="text-[10px] text-gray-500 uppercase tracking-widest mb-0.5">Abogado</p>
+                  <p className="text-sm font-semibold text-white">{editing.abogado}</p>
+                  {editing.personeria && <p className="text-xs text-gray-500 mt-0.5">{editing.personeria}</p>}
                 </div>
               )}
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-2 gap-2">
                 {([
-                  { label: 'Expediente', val: editing.expediente, mono: true },
-                  { label: 'Tipo de caso', val: editing.tipo_caso },
-                  { label: 'Estado', val: meta.label },
-                  { label: 'Estadísticas', val: editing.estadisticas_estado },
-                  { label: 'Próx. audiencia', val: formatDate(editing.audiencias ?? null) },
-                  { label: 'Vencimiento', val: formatDate(editing.vencimiento ?? null) },
-                ] as { label: string; val: string | null | undefined; mono?: boolean }[])
+                  {label:'Expediente', val:editing.expediente, mono:true},
+                  {label:'Tipo de caso', val:editing.tipo_caso},
+                  {label:'Estadísticas', val:editing.estadisticas_estado},
+                  {label:'Próx. audiencia', val:formatDate(editing.audiencias??null)},
+                  {label:'Vencimiento', val:formatDate(editing.vencimiento??null)},
+                ] as {label:string;val:string|null|undefined;mono?:boolean}[])
                   .filter(i => i.val)
                   .map(item => (
-                    <div key={item.label} className="bg-white/[0.025] rounded-2xl p-3 border border-white/[0.05]">
+                    <div key={item.label} className="bg-white/[0.025] rounded-xl p-3 border border-white/[0.05]">
                       <p className="text-[10px] text-gray-500 uppercase tracking-widest mb-1">{item.label}</p>
-                      <p className={`text-sm text-white font-semibold capitalize ${item.mono ? 'font-mono' : ''}`}>{item.val}</p>
+                      <p className={`text-sm text-white font-medium capitalize ${item.mono ? 'font-mono text-xs' : ''}`}>{item.val}</p>
                     </div>
                   ))}
               </div>
               {editing.radicado && (
-                <div className="bg-white/[0.025] rounded-2xl p-3 border border-white/[0.05]">
-                  <p className="text-[10px] text-gray-500 uppercase tracking-widest mb-1 flex items-center gap-1"><Gavel className="w-3 h-3"/>Tribunal</p>
+                <div className="bg-white/[0.025] rounded-xl p-3 border border-white/[0.05]">
+                  <p className="text-[10px] text-gray-500 uppercase tracking-widest mb-1">Tribunal / Radicado</p>
                   <p className="text-sm text-white">{editing.radicado}</p>
                 </div>
               )}
               {editing.url_drive && (
                 <a href={editing.url_drive} target="_blank" rel="noopener noreferrer"
-                  className="flex items-center gap-2 px-4 py-3 rounded-xl bg-blue-500/10 border border-blue-500/20 text-blue-300 text-sm hover:bg-blue-500/20 transition-colors group">
-                  <ExternalLink className="w-4 h-4 shrink-0 group-hover:scale-110 transition-transform"/>
-                  Abrir carpeta en Drive
+                  className="flex items-center gap-2 px-4 py-3 rounded-xl bg-blue-500/10 border border-blue-500/20 text-blue-300 text-sm hover:bg-blue-500/20 transition-colors">
+                  <ExternalLink className="w-4 h-4 shrink-0"/>Abrir carpeta en Drive
                 </a>
               )}
               {editing.actualizacion && (
-                <div className="bg-white/[0.025] rounded-2xl p-3 border border-white/[0.05]">
+                <div className="bg-white/[0.025] rounded-xl p-3 border border-white/[0.05]">
                   <p className="text-[10px] text-gray-500 uppercase tracking-widest mb-1">Notas</p>
                   <p className="text-sm text-gray-300 whitespace-pre-wrap leading-relaxed">{editing.actualizacion}</p>
-                </div>
-              )}
-              {!editing.abogado && !editing.expediente && !editing.radicado && !editing.tipo_caso && !editing.actualizacion && !editing.url_drive && !isNew && (
-                <div className="text-center py-6 text-gray-600">
-                  <p className="text-sm">Sin datos adicionales.</p>
-                  <button onClick={() => setEditMode(true)} className="mt-2 text-violet-400 hover:text-violet-300 text-xs underline">Completar ficha</button>
                 </div>
               )}
             </div>
@@ -385,7 +388,8 @@ function CaseDetailModal({ caso: initial, onClose, onSaved }: {
           <div className="flex items-center justify-end gap-2 pt-3 border-t border-white/[0.06]">
             <button onClick={onClose} className="btn-secondary text-sm px-4">Cerrar</button>
             {editMode && (
-              <button onClick={handleSave} disabled={saving} className="btn-primary text-sm px-4 flex items-center gap-2 disabled:opacity-50">
+              <button onClick={handleSave} disabled={saving}
+                className="btn-primary text-sm px-4 flex items-center gap-2 disabled:opacity-50">
                 {saving && <Loader2 className="w-4 h-4 animate-spin"/>}
                 {isNew ? 'Crear caso' : 'Guardar'}
               </button>
@@ -415,60 +419,56 @@ function NotionImportModal({ onClose, onImported, totalExistentes }: {
   const [detectedHeaders, setDetectedHeaders] = useState<string[]>([]);
   const [previewTotal, setPreviewTotal] = useState(0);
 
+  const KNOWN_COLS = ['nombre','estado','sistema','personeria','expediente','radicado',
+    'tipo de caso','audiencias','vencimiento','prioridad','archivar','url del drive'];
+
   async function handleFileChange(f: File | undefined) {
     if (!f) return;
-    setFile(f);
-    setResults([]);
-    setPreview(null);
-    // Parse and show preview
+    setFile(f); setResults([]); setPreview(null);
     try {
-      let rows: Record<string, string>[] = [];
+      let rows: Record<string,string>[] = [];
       if (f.name.endsWith('.xlsx') || f.name.endsWith('.xls')) {
         const XLSX = await import('xlsx');
         const wb = XLSX.read(await f.arrayBuffer(), { type: 'array' });
-        rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: '' }) as Record<string, string>[];
+        rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: '' }) as Record<string,string>[];
       } else {
         rows = parseCSV(await f.text());
       }
       if (!rows.length) return;
       setDetectedHeaders(Object.keys(rows[0]));
-      const allRows = rows.filter(r => { const g = makeAccessor(r); return g('nombre','titulo','title','name').length > 0; });
-      const filtered = skipArchived ? allRows.filter(r => { const g = makeAccessor(r); return !parseNotionBool(g('archivar','archivado')); }) : allRows;
+      let filtered = rows.filter(r => makeAccessor(r)('nombre','titulo','title','name').length > 0);
+      if (skipArchived) filtered = filtered.filter(r => !parseNotionBool(makeAccessor(r)('archivar','archivado')));
       setPreviewTotal(filtered.length);
       setPreview(filtered.slice(0, 5).map(r => {
-        const get = makeAccessor(r);
+        const g = makeAccessor(r);
         return {
-          titulo: get('nombre','titulo','title','name'),
-          estado: normEstado(get('estado','status','state')),
-          abogado: get('sistema','abogado','abogado/a','lawyer','captado por'),
-          expediente: get('expediente','exp','expediente n','numero expediente'),
-          tipo: normTipo(get('tipo de caso','tipo_caso','tipo','type','category')) ?? '',
+          titulo: g('nombre','titulo','title','name'),
+          estado: normEstado(g('estado','status','state')),
+          abogado: g('sistema','abogado','abogado/a','captado por'),
+          expediente: g('expediente','exp','numero expediente'),
+          tipo: normTipo(g('tipo de caso','tipo_caso','tipo','type','category')) ?? '',
         };
       }));
-    } catch { /* ignore preview errors */ }
+    } catch { /* ignore */ }
   }
 
   async function handleImport() {
     if (!file) return;
     setImporting(true); setResults([]);
     try {
-      let rows: Record<string, string>[] = [];
+      let rows: Record<string,string>[] = [];
       if (file.name.endsWith('.xlsx') || file.name.endsWith('.xls')) {
         const XLSX = await import('xlsx');
         const wb = XLSX.read(await file.arrayBuffer(), { type: 'array' });
-        rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: '' }) as Record<string, string>[];
+        rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: '' }) as Record<string,string>[];
       } else {
         rows = parseCSV(await file.text());
       }
-
-      // Filter empty titles using case-insensitive accessor
-      rows = rows.filter(r => { const get = makeAccessor(r); return get('nombre','titulo','title','name').length > 0; });
-      if (skipArchived) rows = rows.filter(r => { const get = makeAccessor(r); return !parseNotionBool(get('archivar','archivado')); });
-
+      rows = rows.filter(r => makeAccessor(r)('nombre','titulo','title','name').length > 0);
+      if (skipArchived) rows = rows.filter(r => !parseNotionBool(makeAccessor(r)('archivar','archivado')));
       setProgress({ done: 0, total: rows.length });
       if (!rows.length) { showToast('No hay filas para importar', 'error'); setImporting(false); return; }
 
-      // Borrar existentes
       if (borrarPrimero) {
         await supabase.from('casos_generales').delete().neq('id', '00000000-0000-0000-0000-000000000000');
       }
@@ -476,24 +476,23 @@ function NotionImportModal({ onClose, onImported, totalExistentes }: {
       const { data: ud } = await supabase.auth.getUser();
       const userId = ud?.user?.id ?? null;
 
-      // Map using case-insensitive accessor — key fix!
       const batch = rows.map(r => {
-        const get = makeAccessor(r);
+        const g = makeAccessor(r);
         return {
-          titulo:              get('nombre', 'titulo', 'title', 'name'),
-          expediente:          get('expediente', 'exp', 'numero expediente') || null,
-          estado:              normEstado(get('estado', 'status', 'state')),
-          tipo_caso:           normTipo(get('tipo de caso', 'tipo_caso', 'tipo', 'type', 'category')),
-          abogado:             get('sistema', 'abogado', 'abogado/a', 'lawyer', 'captado por') || null,
-          personeria:          get('personeria', 'personería', 'personeria') || null,
-          radicado:            get('radicado', 'tribunal', 'juzgado') || null,
-          url_drive:           get('url del drive', 'drive', 'url_drive', 'link drive') || null,
-          actualizacion:       get('actualizacion', 'actualización', 'notas', 'notes', 'observaciones') || null,
-          audiencias:          parseNotionDate(get('audiencias', 'audiencia', 'proxima audiencia')),
-          vencimiento:         parseNotionDate(get('vencimiento', 'vence', 'fecha vencimiento')),
-          prioridad:           parseNotionBool(get('prioridad', 'priority', 'urgente')),
-          archivado:           parseNotionBool(get('archivar', 'archivado', 'archived')),
-          estadisticas_estado: get('estadisticas (no tocar)', 'estadisticas_estado', 'estadisticas') || 'al día',
+          titulo:              g('nombre','titulo','title','name'),
+          expediente:          g('expediente','exp','numero expediente') || null,
+          estado:              normEstado(g('estado','status','state')),
+          tipo_caso:           normTipo(g('tipo de caso','tipo_caso','tipo','type','category')),
+          abogado:             g('sistema','abogado','abogado/a','captado por') || null,
+          personeria:          g('personeria','personería') || null,
+          radicado:            g('radicado','tribunal','juzgado') || null,
+          url_drive:           g('url del drive','drive','url_drive','link drive') || null,
+          actualizacion:       g('actualizacion','actualización','notas','notes','observaciones') || null,
+          audiencias:          parseNotionDate(g('audiencias','audiencia','proxima audiencia')),
+          vencimiento:         parseNotionDate(g('vencimiento','vence','fecha vencimiento')),
+          prioridad:           parseNotionBool(g('prioridad','priority','urgente')),
+          archivado:           parseNotionBool(g('archivar','archivado','archived')),
+          estadisticas_estado: g('estadisticas (no tocar)','estadisticas_estado','estadisticas') || 'al día',
           created_by:          userId,
         };
       });
@@ -532,15 +531,14 @@ function NotionImportModal({ onClose, onImported, totalExistentes }: {
             <X className="w-4 h-4"/>
           </button>
         </div>
-        <div className="p-5 space-y-4">
-          {/* Alerta existentes */}
+        <div className="p-5 space-y-4 overflow-y-auto max-h-[80vh]">
           {totalExistentes > 0 && (
             <div className="rounded-2xl border border-amber-500/20 bg-amber-500/5 p-4">
               <div className="flex items-start gap-2">
                 <AlertTriangle className="w-4 h-4 text-amber-400 mt-0.5 shrink-0"/>
                 <div>
                   <p className="text-sm font-semibold text-amber-200">Hay {totalExistentes} registros existentes</p>
-                  <p className="text-xs text-amber-200/60 mt-0.5">Los registros pueden estar incompletos por el parser anterior.</p>
+                  <p className="text-xs text-amber-200/60 mt-0.5">Podés reemplazarlos todos o agregar encima</p>
                 </div>
               </div>
               <label className="flex items-center gap-2 mt-3 cursor-pointer select-none">
@@ -559,13 +557,12 @@ function NotionImportModal({ onClose, onImported, totalExistentes }: {
             <span className="text-sm text-gray-300">Omitir archivados (Archivar = Yes)</span>
           </label>
 
-          {/* File picker */}
           <label className="cursor-pointer block">
             <div className="flex items-center gap-3 px-4 py-3 rounded-xl border border-dashed border-violet-500/40 bg-violet-500/5 hover:bg-violet-500/10 transition-colors">
               <Upload className="w-5 h-5 text-violet-400 shrink-0"/>
               <div>
                 <p className="text-sm text-violet-200 font-medium">{file ? file.name : 'Elegir archivo CSV / XLSX de Notion'}</p>
-                <p className="text-[10px] text-gray-500 mt-0.5">NOMBRE · Estado · SISTEMA · PERSONERIA · Expediente · Radicado · tipo de caso · Audiencias · vencimiento · Prioridad · Archivar · URL del DRIVE</p>
+                <p className="text-[10px] text-gray-500 mt-0.5">NOMBRE · Estado · SISTEMA · Expediente · Radicado · tipo de caso · Audiencias · Vencimiento · URL del DRIVE</p>
               </div>
             </div>
             <input type="file" accept=".csv,.xlsx,.xls" className="hidden"
@@ -575,60 +572,58 @@ function NotionImportModal({ onClose, onImported, totalExistentes }: {
           {/* Preview */}
           {preview && !importing && !results.length && (
             <div className="space-y-3">
-              {/* Headers detectados */}
               <div className="rounded-xl bg-white/[0.025] border border-white/[0.06] p-3">
-                <p className="text-[10px] text-gray-500 uppercase tracking-widest mb-2 flex items-center gap-1"><Eye className="w-3 h-3"/>Columnas detectadas ({detectedHeaders.length})</p>
+                <p className="text-[10px] text-gray-500 uppercase tracking-widest mb-2 flex items-center gap-1">
+                  <Eye className="w-3 h-3"/>Columnas detectadas ({detectedHeaders.length})
+                </p>
                 <div className="flex flex-wrap gap-1">
                   {detectedHeaders.map(h => {
-                    const key = Object.keys({
-                      nombre:'NOMBRE', estado:'Estado', sistema:'SISTEMA', personeria:'PERSONERIA',
-                      expediente:'Expediente', radicado:'Radicado', 'tipo de caso':'tipo de caso',
-                      audiencias:'Audiencias', vencimiento:'vencimiento', prioridad:'Prioridad',
-                      archivar:'Archivar', 'url del drive':'URL del DRIVE',
-                    }).find(k => h.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').includes(k));
+                    const nk = h.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+                    const known = KNOWN_COLS.some(k => nk.includes(k));
                     return (
-                      <span key={h} className={`px-2 py-0.5 rounded-full text-[10px] font-medium ${key ? 'bg-emerald-500/10 text-emerald-300 border border-emerald-500/20' : 'bg-white/5 text-gray-500 border border-white/10'}`}>
-                        {h}{key ? ' ✓' : ''}
+                      <span key={h} className={`px-2 py-0.5 rounded-full text-[10px] font-medium ${known ? 'bg-emerald-500/10 text-emerald-300 border border-emerald-500/20' : 'bg-white/5 text-gray-500 border border-white/10'}`}>
+                        {h}{known ? ' ✓' : ''}
                       </span>
                     );
                   })}
                 </div>
               </div>
-
-              {/* Preview rows */}
               <div>
-                <p className="text-[10px] text-gray-500 uppercase tracking-widest mb-2">Vista previa — {previewTotal} filas para importar</p>
+                <p className="text-[10px] text-gray-500 uppercase tracking-widest mb-2">
+                  Vista previa — {previewTotal} filas para importar
+                </p>
                 <div className="rounded-xl border border-white/[0.06] overflow-hidden text-xs">
                   <table className="w-full">
-                    <thead className="bg-white/[0.04]"><tr>
-                      {['Nombre','Estado','Abogado','Expediente','Tipo'].map(h => (
+                    <thead className="bg-white/[0.04]">
+                      <tr>{['Nombre','Estado','Abogado','Expediente','Tipo'].map(h => (
                         <th key={h} className="px-3 py-2 text-left text-[10px] text-gray-500 font-semibold uppercase">{h}</th>
-                      ))}
-                    </tr></thead>
+                      ))}</tr>
+                    </thead>
                     <tbody>
-                      {preview.map((p, i) => {
-                        const m = getEstado(p.estado);
-                        return (
-                          <tr key={i} className="border-t border-white/5">
-                            <td className="px-3 py-2 text-white font-medium truncate max-w-[180px]">{p.titulo || <span className="text-red-400">vacío!</span>}</td>
-                            <td className="px-3 py-2 whitespace-nowrap">
-                              <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] font-bold ${m.bg} ${m.color}`}>
-                                <span className={`w-1 h-1 rounded-full ${m.dot}`}/>{m.label}
-                              </span>
-                            </td>
-                            <td className="px-3 py-2 text-gray-300 truncate max-w-[120px]">{p.abogado || <span className="text-gray-600">—</span>}</td>
-                            <td className="px-3 py-2 text-gray-400 font-mono truncate max-w-[100px]">{p.expediente || <span className="text-gray-600">—</span>}</td>
-                            <td className="px-3 py-2 text-gray-500 capitalize">{p.tipo || '—'}</td>
-                          </tr>
-                        );
-                      })}
+                      {preview.map((p, i) => (
+                        <tr key={i} className="border-t border-white/5">
+                          <td className="px-3 py-2 text-white font-medium max-w-[160px] truncate">
+                            {p.titulo || <span className="text-red-400">vacío!</span>}
+                          </td>
+                          <td className="px-3 py-2 whitespace-nowrap">
+                            <span className={`badge border ${eColor(p.estado)}`}>{eLabel(p.estado)}</span>
+                          </td>
+                          <td className="px-3 py-2 text-gray-300 max-w-[110px] truncate">{p.abogado || '—'}</td>
+                          <td className="px-3 py-2 text-gray-400 font-mono max-w-[90px] truncate">{p.expediente || '—'}</td>
+                          <td className="px-3 py-2 text-gray-500 capitalize">{p.tipo || '—'}</td>
+                        </tr>
+                      ))}
                     </tbody>
                   </table>
                 </div>
-                {previewTotal > 5 && <p className="text-[10px] text-gray-600 mt-1.5 text-center">... y {previewTotal - 5} más</p>}
+                {previewTotal > 5 && (
+                  <p className="text-[10px] text-gray-600 mt-1.5 text-center">… y {previewTotal - 5} más</p>
+                )}
               </div>
               <button onClick={handleImport} className="btn-primary text-sm w-full">
-                {borrarPrimero ? `🗑 Borrar ${totalExistentes} registros e importar ${previewTotal}` : `Importar ${previewTotal} casos`}
+                {borrarPrimero
+                  ? `Borrar ${totalExistentes} registros e importar ${previewTotal}`
+                  : `Importar ${previewTotal} casos`}
               </button>
             </div>
           )}
@@ -648,11 +643,19 @@ function NotionImportModal({ onClose, onImported, totalExistentes }: {
           {results.length > 0 && !importing && (
             <div className="space-y-3">
               <div className="flex gap-4 text-sm">
-                <span className="flex items-center gap-1 text-emerald-300"><CheckCircle2 className="w-4 h-4"/>{results.filter(r => r.ok).length} importados</span>
-                {results.some(r => !r.ok) && <span className="flex items-center gap-1 text-red-300"><AlertCircle className="w-4 h-4"/>{results.filter(r => !r.ok).length} errores</span>}
+                <span className="flex items-center gap-1 text-emerald-300">
+                  <CheckCircle2 className="w-4 h-4"/>{results.filter(r => r.ok).length} importados
+                </span>
+                {results.some(r => !r.ok) && (
+                  <span className="flex items-center gap-1 text-red-300">
+                    <AlertCircle className="w-4 h-4"/>{results.filter(r => !r.ok).length} errores
+                  </span>
+                )}
               </div>
               {results.find(r => !r.ok)?.error && (
-                <div className="rounded-xl bg-red-500/10 border border-red-500/20 p-3 text-xs text-red-300">{results.find(r => !r.ok)?.error}</div>
+                <div className="rounded-xl bg-red-500/10 border border-red-500/20 p-3 text-xs text-red-300">
+                  {results.find(r => !r.ok)?.error}
+                </div>
               )}
               <button onClick={onClose} className="btn-secondary text-sm w-full">Cerrar</button>
             </div>
@@ -663,121 +666,150 @@ function NotionImportModal({ onClose, onImported, totalExistentes }: {
   );
 }
 
-// ─── Tabla ────────────────────────────────────────────────────────────────────
+// ─── Tabla (FichasList style) ─────────────────────────────────────────────────
 function CasosTabla({ casos, onSelect, onDelete, deletingId }: {
-  casos: CasoGeneral[]; onSelect: (c: CasoGeneral) => void;
-  onDelete: (id: string) => void; deletingId: string | null;
+  casos: CasoGeneral[];
+  onSelect: (c: CasoGeneral) => void;
+  onDelete: (id: string) => void;
+  deletingId: string | null;
 }) {
   const [confirmDel, setConfirmDel] = useState<string | null>(null);
-  const askDel = (e: React.MouseEvent, id: string) => {
+  const [sortKey, setSortKey] = useState<SortKey>('titulo');
+  const [sortDir, setSortDir] = useState<'asc'|'desc'>('asc');
+
+  const toggleSort = (k: SortKey) => {
+    if (sortKey === k) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
+    else { setSortKey(k); setSortDir('asc'); }
+  };
+
+  const sorted = useMemo(() => {
+    const dir = sortDir === 'asc' ? 1 : -1;
+    const cmp = (a?: string|null, b?: string|null) => (a||'').localeCompare(b||'');
+    return [...casos].sort((a, b) => {
+      switch (sortKey) {
+        case 'titulo':     return cmp(a.titulo, b.titulo) * dir;
+        case 'estado':     return cmp(a.estado, b.estado) * dir;
+        case 'abogado':    return cmp(a.abogado, b.abogado) * dir;
+        case 'tipo_caso':  return cmp(a.tipo_caso, b.tipo_caso) * dir;
+        case 'audiencias': return cmp(a.audiencias, b.audiencias) * dir;
+        case 'vencimiento':return cmp(a.vencimiento, b.vencimiento) * dir;
+      }
+      return 0;
+    });
+  }, [casos, sortKey, sortDir]);
+
+  function askDel(e: React.MouseEvent, id: string) {
     e.stopPropagation();
     if (confirmDel === id) { onDelete(id); setConfirmDel(null); }
     else { setConfirmDel(id); setTimeout(() => setConfirmDel(p => p === id ? null : p), 3000); }
-  };
+  }
 
   return (
-    <div className="glass-card overflow-hidden">
+    <div className="glass-card">
       <table className="w-full text-sm border-separate border-spacing-0">
         <thead>
           <tr>
-            {['','Cliente / Tipo', 'Estado', 'Abogado', 'Expediente', 'Tribunal', 'Fechas', ''].map((h, i) => (
-              <th key={i} className="sticky top-14 z-20 bg-[#0d0d10]/95 backdrop-blur-md border-b border-white/[0.06] px-3 py-3 text-left text-[10px] font-semibold text-gray-500 uppercase tracking-widest whitespace-nowrap first:w-1 last:w-20">
-                {h}
-              </th>
-            ))}
+            <SortHeader k="titulo"     label="Caso / Expediente" sortKey={sortKey} sortDir={sortDir} onClick={toggleSort}/>
+            <SortHeader k="estado"     label="Estado"      sortKey={sortKey} sortDir={sortDir} onClick={toggleSort}/>
+            <SortHeader k="abogado"    label="Abogado"     sortKey={sortKey} sortDir={sortDir} onClick={toggleSort}/>
+            <SortHeader k="tipo_caso"  label="Tipo"        sortKey={sortKey} sortDir={sortDir} onClick={toggleSort} className="hidden lg:table-cell"/>
+            <th className="sticky top-14 sm:top-16 z-20 bg-[#0a0a0a]/95 backdrop-blur-md border-b border-white/10 text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase hidden xl:table-cell">
+              Tribunal
+            </th>
+            <SortHeader k="audiencias" label="Fechas"      sortKey={sortKey} sortDir={sortDir} onClick={toggleSort} className="hidden md:table-cell"/>
+            <th className="sticky top-14 sm:top-16 z-20 bg-[#0a0a0a]/95 backdrop-blur-md border-b border-white/10 w-16"/>
           </tr>
         </thead>
         <tbody>
-          {casos.length === 0 && (
-            <tr><td colSpan={8} className="text-center py-16 text-gray-600 text-sm">Sin resultados</td></tr>
+          {sorted.length === 0 && (
+            <tr><td colSpan={7} className="text-center py-12 text-gray-500">Sin resultados</td></tr>
           )}
-          {casos.map((c, i) => {
-            const meta = getEstado(c.estado);
-            const abStyle = getAbogadoStyle(c.abogado);
+          {sorted.map((c, i) => {
             const aud = daysUntil(c.audiencias);
             const venc = daysUntil(c.vencimiento);
             return (
               <tr key={c.id} onClick={() => onSelect(c)}
-                className={`table-row group animate-fade-in ${meta.rowHover} border-b border-white/[0.04]`}
-                style={{ animationDelay: `${Math.min(i, 30) * 12}ms` }}>
-                {/* Color indicator */}
-                <td className="pl-0 pr-0 py-0 w-0.5">
-                  <div className={`h-full w-0.5 ${meta.dot} opacity-70`}/>
-                </td>
-                {/* Nombre */}
+                className="table-row animate-slide-up"
+                style={{ animationDelay: `${Math.min(i, 40) * 20}ms` }}>
+
+                {/* Caso / Expediente */}
                 <td className="px-4 py-3">
-                  <div className="flex items-start gap-2 min-w-0">
+                  <div className="flex items-start gap-1.5">
                     {c.prioridad && <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400 shrink-0 mt-0.5"/>}
                     <div className="min-w-0">
-                      <p className="font-semibold text-white text-[13px] leading-tight">{c.titulo}</p>
-                      {c.tipo_caso && <span className="text-[10px] text-gray-500 capitalize">{c.tipo_caso}</span>}
-                      {c.personeria && <span className="ml-1.5 text-[10px] text-violet-400">{c.personeria}</span>}
+                      <p className="font-medium text-white leading-snug">{c.titulo}</p>
+                      {c.expediente && (
+                        <p className="text-xs text-gray-500 font-mono mt-0.5">{c.expediente}</p>
+                      )}
                     </div>
                   </div>
                 </td>
-                {/* Estado */}
-                <td className="px-3 py-3 whitespace-nowrap">
-                  <span className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-full text-[10px] font-bold ring-1 ring-current/20 ${meta.bg} ${meta.color}`}>
-                    <span className={`w-1.5 h-1.5 rounded-full ${meta.dot} ${c.estadisticas_estado === 'atrasado' ? 'animate-pulse' : ''}`}/>
-                    {meta.label}
+
+                {/* Estado badge — identical to Pipeline badge in FichasList */}
+                <td className="px-4 py-3 whitespace-nowrap">
+                  <span className={`badge border ${eColor(c.estado)}`}>
+                    {eLabel(c.estado)}
                   </span>
                   {c.estadisticas_estado === 'atrasado' && (
-                    <div className="mt-1 text-[9px] text-red-400 font-semibold">⚠ Atrasado</div>
+                    <p className="text-[10px] text-red-400 mt-1">⚠ Atrasado</p>
                   )}
                 </td>
+
                 {/* Abogado */}
-                <td className="px-3 py-3 whitespace-nowrap">
-                  {c.abogado ? (
-                    <div className="flex items-center gap-2">
-                      <div className={`w-7 h-7 rounded-xl bg-gradient-to-br ${abStyle.from} flex items-center justify-center text-[10px] font-bold text-white shadow-md ${abStyle.shadow} shrink-0`}>
-                        {abogadoInitials(c.abogado)}
-                      </div>
-                      <span className="text-xs text-gray-300 hidden xl:block">{c.abogado}</span>
-                    </div>
-                  ) : <span className="text-xs text-gray-600">—</span>}
+                <td className="px-4 py-3">
+                  {c.abogado
+                    ? <p className="text-sm text-gray-300">{c.abogado}</p>
+                    : <span className="text-gray-600 text-xs">—</span>}
+                  {c.personeria && <p className="text-[10px] text-gray-600 mt-0.5">{c.personeria}</p>}
                 </td>
-                {/* Expediente */}
-                <td className="px-3 py-3">
-                  <span className="text-xs text-gray-400 font-mono">{c.expediente || '—'}</span>
+
+                {/* Tipo */}
+                <td className="px-4 py-3 hidden lg:table-cell">
+                  <span className="text-xs text-gray-400 capitalize">{c.tipo_caso || '—'}</span>
                 </td>
-                {/* Radicado */}
-                <td className="px-3 py-3 max-w-[160px]">
-                  <span className="text-[11px] text-gray-500 truncate block" title={c.radicado ?? ''}>{c.radicado || '—'}</span>
+
+                {/* Tribunal */}
+                <td className="px-4 py-3 hidden xl:table-cell max-w-[180px]">
+                  <p className="text-xs text-gray-500 truncate" title={c.radicado ?? ''}>{c.radicado || '—'}</p>
                 </td>
+
                 {/* Fechas */}
-                <td className="px-3 py-3 whitespace-nowrap">
-                  <div className="flex flex-col gap-1">
+                <td className="px-4 py-3 hidden md:table-cell">
+                  <div className="space-y-1">
                     {c.audiencias && (
-                      <span className={`text-[10px] flex items-center gap-1 font-medium ${aud !== null && aud < 0 ? 'text-red-400' : aud !== null && aud <= 7 ? 'text-orange-400' : 'text-blue-400'}`}>
-                        <Calendar className="w-3 h-3 shrink-0"/>
-                        {formatDate(c.audiencias)}{aud !== null && aud >= 0 && aud <= 30 ? ` (${aud}d)` : ''}
-                      </span>
+                      <p className={`text-xs flex items-center gap-1 font-medium ${isOverdue(c.audiencias) ? 'text-red-400' : aud !== null && aud <= 7 ? 'text-orange-400' : 'text-blue-400'}`}>
+                        <Calendar className="w-3 h-3 shrink-0"/>{formatDate(c.audiencias)}
+                        {aud !== null && aud >= 0 && aud <= 30 ? <span className="text-gray-600">({aud}d)</span> : null}
+                      </p>
                     )}
                     {c.vencimiento && (
-                      <span className={`text-[10px] flex items-center gap-1 font-medium ${venc !== null && venc < 0 ? 'text-red-400' : venc !== null && venc <= 15 ? 'text-amber-400' : 'text-gray-500'}`}>
-                        <Clock className="w-3 h-3 shrink-0"/>
-                        {formatDate(c.vencimiento)}{venc !== null && venc >= 0 && venc <= 30 ? ` (${venc}d)` : ''}
-                      </span>
+                      <p className={`text-xs flex items-center gap-1 font-medium ${isOverdue(c.vencimiento) ? 'text-red-400' : venc !== null && venc <= 15 ? 'text-amber-400' : 'text-gray-500'}`}>
+                        <Clock className="w-3 h-3 shrink-0"/>{formatDate(c.vencimiento)}
+                        {venc !== null && venc >= 0 && venc <= 30 ? <span className="text-gray-600">({venc}d)</span> : null}
+                      </p>
                     )}
-                    {!c.audiencias && !c.vencimiento && <span className="text-[10px] text-gray-700">—</span>}
+                    {!c.audiencias && !c.vencimiento && <span className="text-xs text-gray-600">—</span>}
                   </div>
                 </td>
+
                 {/* Acciones */}
-                <td className="px-3 py-3" onClick={e => e.stopPropagation()}>
-                  <div className="flex items-center gap-1 justify-end opacity-0 group-hover:opacity-100 transition-opacity">
+                <td className="px-4 py-3" onClick={e => e.stopPropagation()}>
+                  <div className="flex items-center gap-1 justify-end">
                     {c.url_drive && (
-                      <a href={c.url_drive} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()}
+                      <a href={c.url_drive} target="_blank" rel="noopener noreferrer"
+                        onClick={e => e.stopPropagation()}
                         className="p-1.5 rounded-lg text-gray-600 hover:text-blue-400 hover:bg-blue-400/10 transition-colors">
                         <ExternalLink className="w-3.5 h-3.5"/>
                       </a>
                     )}
-                    <button onClick={() => onSelect(c)} className="p-1.5 rounded-lg text-gray-600 hover:text-violet-400 hover:bg-violet-500/10 transition-colors">
-                      <ChevronRight className="w-3.5 h-3.5"/>
-                    </button>
                     <button onClick={e => askDel(e, c.id)} disabled={deletingId === c.id}
-                      className={`p-1.5 rounded-lg transition-colors ${confirmDel === c.id ? 'bg-red-500/20 text-red-300' : 'text-gray-600 hover:text-red-400 hover:bg-red-500/10'}`}>
-                      {deletingId === c.id ? <Loader2 className="w-3.5 h-3.5 animate-spin"/> : <Trash2 className="w-3.5 h-3.5"/>}
+                      title={confirmDel === c.id ? 'Click otra vez para eliminar' : 'Eliminar'}
+                      className={`p-1.5 rounded-lg transition-colors ${confirmDel === c.id ? 'bg-red-500/20 text-red-400' : 'text-gray-600 hover:text-red-400 hover:bg-red-500/10'}`}>
+                      {deletingId === c.id
+                        ? <Loader2 className="w-3.5 h-3.5 animate-spin"/>
+                        : <Trash2 className="w-3.5 h-3.5"/>}
                     </button>
+                    <ChevronRight className="w-4 h-4 text-gray-600"/>
                   </div>
                 </td>
               </tr>
@@ -789,50 +821,49 @@ function CasosTabla({ casos, onSelect, onDelete, deletingId }: {
   );
 }
 
-// ─── Kanban ───────────────────────────────────────────────────────────────────
-const KANBAN_COLS = [
-  { key: 'activos',                              label: 'Activos',        borderTop: 'border-t-emerald-500', badge: 'bg-emerald-500/10 text-emerald-300', dot: 'bg-emerald-400' },
-  { key: 'federales',                            label: 'Federales',      borderTop: 'border-t-blue-500',    badge: 'bg-blue-500/10 text-blue-300',       dot: 'bg-blue-400' },
-  { key: 'esperando sentencias',                 label: 'En espera',      borderTop: 'border-t-amber-500',   badge: 'bg-amber-500/10 text-amber-300',     dot: 'bg-amber-400' },
-  { key: 'complicacion judicial/analisis',       label: 'En análisis',    borderTop: 'border-t-orange-500',  badge: 'bg-orange-500/10 text-orange-300',   dot: 'bg-orange-400' },
-  { key: 'suspendido por falta de directivas',   label: 'Sin directivas', borderTop: 'border-t-gray-500',    badge: 'bg-gray-500/10 text-gray-400',       dot: 'bg-gray-500' },
-  { key: 'suspendido por falta de pago',         label: 'Sin pago',       borderTop: 'border-t-red-500',     badge: 'bg-red-500/10 text-red-300',         dot: 'bg-red-400' },
-];
-
-function KCard({ caso, onSelect, askDel, confirmDel }: {
-  caso: CasoGeneral; onSelect: (c: CasoGeneral) => void;
-  askDel: (id: string) => void; confirmDel: string | null;
+// ─── Kanban (exact same structure as PrevisionalKanban) ───────────────────────
+function DraggableKanbanCard({ caso, onSelect, onDelete, confirmDel, askDel }: {
+  caso: CasoGeneral;
+  onSelect: (c: CasoGeneral) => void;
+  onDelete: (id: string) => void;
+  confirmDel: string | null;
+  askDel: (id: string) => void;
 }) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: caso.id });
-  const abStyle = getAbogadoStyle(caso.abogado);
+  const style = { transform: CSS.Translate.toString(transform), opacity: isDragging ? 0.25 : 1, touchAction: 'none' as const };
+
   return (
-    <div ref={setNodeRef}
-      style={{ transform: CSS.Translate.toString(transform), opacity: isDragging ? 0.15 : 1, touchAction: 'none' }}
-      {...attributes} {...listeners}
-      className="relative group rounded-xl bg-white/[0.03] border border-white/[0.07] hover:bg-white/[0.06] hover:border-white/10 transition-all cursor-grab active:cursor-grabbing select-none">
-      <button onPointerDown={e => e.stopPropagation()} onClick={e => { e.stopPropagation(); askDel(caso.id); }}
-        className={`absolute z-10 top-1.5 right-1.5 p-1 rounded-md transition-colors
-          ${confirmDel === caso.id ? 'bg-red-500/20 text-red-400 opacity-100' : 'opacity-0 group-hover:opacity-100 text-gray-600 hover:text-red-400 hover:bg-red-500/10'}`}>
+    <div ref={setNodeRef} style={style} {...attributes} {...listeners}
+      className="relative group p-3 rounded-xl bg-white/[0.03] border border-white/[0.07] hover:bg-white/[0.06] hover:border-white/10 transition-all cursor-grab active:cursor-grabbing select-none">
+      {/* Delete — only this button stops pointer propagation to prevent drag conflict */}
+      <button
+        onPointerDown={e => e.stopPropagation()}
+        onClick={e => { e.stopPropagation(); askDel(caso.id); }}
+        title={confirmDel === caso.id ? 'Click otra vez para eliminar' : 'Eliminar'}
+        className={`absolute top-1.5 right-1.5 p-1 rounded-md transition-colors ${confirmDel === caso.id ? 'bg-red-500/20 text-red-400 opacity-100' : 'opacity-0 group-hover:opacity-100 text-gray-500 hover:text-red-400 hover:bg-red-500/10'}`}>
         <Trash2 className="w-3 h-3"/>
       </button>
-      <button onPointerDown={e => e.stopPropagation()} onClick={() => onSelect(caso)} className="w-full text-left p-3">
+      {/* Main click — uses onClick, NOT onPointerDown, so drag can still be initiated */}
+      <button className="w-full text-left" onClick={e => { e.stopPropagation(); onSelect(caso); }}>
         <div className="flex items-start gap-1.5 pr-5">
-          {caso.prioridad && <Star className="w-3 h-3 fill-amber-400 text-amber-400 mt-0.5 shrink-0"/>}
-          <p className="text-[11px] font-semibold text-white leading-tight">{caso.titulo}</p>
+          {caso.prioridad && <Star className="w-3 h-3 fill-amber-400 text-amber-400 shrink-0 mt-0.5"/>}
+          <div className={`w-2 h-2 rounded-full mt-1 shrink-0 ${eDot(caso.estado)}`}/>
+          <p className="text-[11px] font-medium text-white leading-tight">{caso.titulo}</p>
         </div>
-        {caso.tipo_caso && <span className="inline-block mt-1.5 px-1.5 py-0.5 rounded-full bg-white/5 text-[10px] text-gray-400 capitalize">{caso.tipo_caso}</span>}
-        {caso.abogado && (
-          <div className="flex items-center gap-1.5 mt-1.5">
-            <div className={`w-5 h-5 rounded-lg bg-gradient-to-br ${abStyle.from} flex items-center justify-center text-[8px] font-bold text-white shrink-0 shadow ${abStyle.shadow}`}>
-              {abogadoInitials(caso.abogado)}
-            </div>
-            <span className="text-[10px] text-gray-500 truncate">{caso.abogado}</span>
-          </div>
-        )}
+        {caso.abogado && <p className="text-[10px] text-gray-500 mt-1 truncate pl-6">{caso.abogado}</p>}
+        {caso.tipo_caso && <p className="text-[10px] text-gray-600 mt-0.5 truncate pl-6 capitalize">{caso.tipo_caso}</p>}
         {(caso.audiencias || caso.vencimiento) && (
-          <div className="flex flex-wrap gap-1.5 mt-1.5">
-            {caso.audiencias && <span className={`text-[10px] flex items-center gap-0.5 ${isOverdue(caso.audiencias) ? 'text-red-400' : 'text-blue-400'}`}><Calendar className="w-2.5 h-2.5"/>{formatDate(caso.audiencias)}</span>}
-            {caso.vencimiento && <span className={`text-[10px] flex items-center gap-0.5 ${isOverdue(caso.vencimiento) ? 'text-red-400' : 'text-amber-400'}`}><Clock className="w-2.5 h-2.5"/>{formatDate(caso.vencimiento)}</span>}
+          <div className="flex flex-col gap-0.5 mt-1.5 pl-6">
+            {caso.audiencias && (
+              <span className={`text-[10px] flex items-center gap-1 ${isOverdue(caso.audiencias) ? 'text-red-400' : 'text-blue-400'}`}>
+                <Calendar className="w-2.5 h-2.5 shrink-0"/>{formatDate(caso.audiencias)}
+              </span>
+            )}
+            {caso.vencimiento && (
+              <span className={`text-[10px] flex items-center gap-1 ${isOverdue(caso.vencimiento) ? 'text-red-400' : 'text-amber-400'}`}>
+                <Clock className="w-2.5 h-2.5 shrink-0"/>{formatDate(caso.vencimiento)}
+              </span>
+            )}
           </div>
         )}
       </button>
@@ -840,83 +871,114 @@ function KCard({ caso, onSelect, askDel, confirmDel }: {
   );
 }
 
-function KCol({ col, count, isOver, children }: { col: typeof KANBAN_COLS[0]; count: number; isOver: boolean; children: React.ReactNode }) {
-  const { setNodeRef } = useDroppable({ id: col.key });
+function KanbanCol({ estadoKey, label, count, isOver, children }: {
+  estadoKey: string; label: string; count: number; isOver: boolean; children: React.ReactNode;
+}) {
+  const { setNodeRef } = useDroppable({ id: estadoKey });
   return (
-    <div ref={setNodeRef} className={`glass-card p-0 overflow-hidden border-t-2 ${col.borderTop} transition-all min-w-0 ${isOver ? 'ring-2 ring-white/20 scale-[1.01]' : ''}`}>
+    <div ref={setNodeRef}
+      className={`glass-card p-0 overflow-hidden border-t-2 ${KANBAN_BORDER[estadoKey] ?? 'border-t-gray-500'} transition-all ${isOver ? 'ring-2 ring-white/20 scale-[1.01]' : ''}`}>
       <div className="px-3 py-2.5 flex items-center justify-between border-b border-white/[0.06]">
         <div className="flex items-center gap-2 min-w-0">
-          <div className={`w-2 h-2 rounded-full shrink-0 ${col.dot}`}/>
-          <h3 className="text-xs font-semibold text-white truncate">{col.label}</h3>
+          <div className={`w-2 h-2 rounded-full shrink-0 ${eDot(estadoKey)}`}/>
+          <h3 className="text-xs font-semibold text-white truncate">{label}</h3>
         </div>
-        <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-bold shrink-0 ml-1 ${col.badge}`}>{count}</span>
+        <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium shrink-0 ml-1 ${KANBAN_BADGE[estadoKey] ?? 'bg-gray-500/10 text-gray-400'}`}>
+          {count}
+        </span>
       </div>
-      <div className="p-2 space-y-2 min-h-[80px] max-h-[65vh] overflow-y-auto">{children}</div>
+      <div className="p-2 space-y-2 min-h-[80px] max-h-[65vh] overflow-y-auto">
+        {children}
+      </div>
     </div>
   );
 }
 
 function CasosKanban({ casos, onSelect, onDelete, saveCaso }: {
-  casos: CasoGeneral[]; onSelect: (c: CasoGeneral) => void; onDelete: (id: string) => void;
+  casos: CasoGeneral[];
+  onSelect: (c: CasoGeneral) => void;
+  onDelete: (id: string) => void;
   saveCaso: (data: Partial<CasoGeneral>, id?: string) => Promise<{ ok: boolean; error?: string }>;
 }) {
-  const [items, setItems] = useState(casos);
+  const [items, setItems] = useState<CasoGeneral[]>(casos);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [overCol, setOverCol] = useState<string | null>(null);
   const [confirmDel, setConfirmDel] = useState<string | null>(null);
   const { showToast } = useToast();
   useEffect(() => { setItems(casos); }, [casos]);
 
-  const colKeys = KANBAN_COLS.map(c => c.key);
   const askDel = (id: string) => {
     if (confirmDel === id) { onDelete(id); setConfirmDel(null); }
     else { setConfirmDel(id); setTimeout(() => setConfirmDel(p => p === id ? null : p), 3000); }
   };
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
-  const activeCaso = items.find(c => c.id === activeId) ?? null;
-  const grouped = KANBAN_COLS.reduce<Record<string, CasoGeneral[]>>((acc, col) => {
-    acc[col.key] = items.filter(c => (c.estado ?? '').toLowerCase() === col.key); return acc;
-  }, {});
-  items.filter(c => !colKeys.includes((c.estado ?? '').toLowerCase())).forEach(c => grouped['activos'].push(c));
 
-  async function onDragEnd(e: DragEndEvent) {
-    const { active, over } = e; setActiveId(null); setOverCol(null);
+  // distance:8 = same as PrevisionalKanban, ensures accidental clicks don't trigger drag
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }));
+  const activeItem = items.find(c => c.id === activeId) ?? null;
+
+  const grouped = ESTADOS_ORDERED.reduce<Record<string, CasoGeneral[]>>((acc, e) => {
+    acc[e] = items.filter(c => (c.estado ?? '').toLowerCase() === e);
+    return acc;
+  }, {} as Record<string, CasoGeneral[]>);
+  // Casos con estado null/desconocido → activos
+  items.filter(c => !ESTADOS_ORDERED.includes((c.estado ?? '') as EstadoCaso))
+    .forEach(c => grouped['activos'].push(c));
+
+  async function handleDragEnd(e: DragEndEvent) {
+    const { active, over } = e;
+    setActiveId(null); setOverCol(null);
     if (!over) return;
-    const newEstado = colKeys.includes(over.id as string) ? over.id as string : items.find(c => c.id === over.id)?.estado ?? null;
+    // over.id may be a column key or another card's id
+    let newEstado: string | null = null;
+    if (ESTADOS_ORDERED.includes(over.id as EstadoCaso)) {
+      newEstado = over.id as string;
+    } else {
+      const overCard = items.find(c => c.id === over.id);
+      if (overCard) newEstado = overCard.estado;
+    }
     if (!newEstado) return;
     const card = items.find(c => c.id === active.id);
     if (!card || card.estado === newEstado) return;
-    setItems(prev => prev.map(c => c.id === active.id ? { ...c, estado: newEstado } : c));
+
+    // Optimistic update
+    setItems(prev => prev.map(c => c.id === active.id ? { ...c, estado: newEstado! } : c));
     const r = await saveCaso({ estado: newEstado }, active.id as string);
     if (!r.ok) {
-      showToast('No se pudo mover', 'error');
+      showToast('No se pudo mover: ' + (r.error ?? ''), 'error');
       setItems(prev => prev.map(c => c.id === active.id ? { ...c, estado: card.estado } : c));
     } else {
-      showToast(`Movido a ${KANBAN_COLS.find(c => c.key === newEstado)?.label ?? newEstado}`, 'success');
+      showToast(`Movido a ${eLabel(newEstado)}`, 'success');
     }
   }
 
   return (
-    <DndContext sensors={sensors} collisionDetection={rectIntersection}
+    <DndContext
+      sensors={sensors}
+      collisionDetection={rectIntersection}
       onDragStart={e => setActiveId(e.active.id as string)}
       onDragOver={e => setOverCol(e.over?.id as string ?? null)}
-      onDragEnd={onDragEnd}
+      onDragEnd={handleDragEnd}
       onDragCancel={() => { setActiveId(null); setOverCol(null); }}>
       <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
-        {KANBAN_COLS.map(col => (
-          <KCol key={col.key} col={col} count={grouped[col.key]?.length ?? 0} isOver={overCol === col.key}>
-            {!grouped[col.key]?.length
-              ? <p className="text-[10px] text-gray-600 text-center py-8">Sin casos</p>
-              : grouped[col.key].map(c => <KCard key={c.id} caso={c} onSelect={onSelect} askDel={askDel} confirmDel={confirmDel}/>)
+        {ESTADOS_ORDERED.map(estado => (
+          <KanbanCol key={estado} estadoKey={estado} label={eLabel(estado)}
+            count={grouped[estado]?.length ?? 0} isOver={overCol === estado}>
+            {!grouped[estado]?.length
+              ? <p className="text-[10px] text-gray-600 text-center py-6">Sin casos</p>
+              : grouped[estado].map(c => (
+                  <DraggableKanbanCard key={c.id} caso={c} onSelect={onSelect}
+                    onDelete={onDelete} confirmDel={confirmDel} askDel={askDel}/>
+                ))
             }
-          </KCol>
+          </KanbanCol>
         ))}
       </div>
       <DragOverlay dropAnimation={null}>
-        {activeCaso && (
-          <div className="p-3 rounded-xl w-48 select-none rotate-2 shadow-2xl"
-            style={{ background: 'linear-gradient(135deg,#1a1a30,#0d0d20)', border: '1px solid rgba(139,92,246,0.5)' }}>
-            <p className="text-[11px] font-bold text-white line-clamp-2">{activeCaso.titulo}</p>
+        {activeItem && (
+          <div className="p-3 rounded-xl shadow-2xl w-48 select-none"
+            style={{ background: '#1a1a2e', border: '1px solid rgba(139,92,246,0.4)' }}>
+            <p className="text-xs font-medium text-white leading-tight">{activeItem.titulo}</p>
+            <p className="text-[10px] text-violet-400/70 mt-1">{eLabel(activeItem.estado)}</p>
           </div>
         )}
       </DragOverlay>
@@ -928,42 +990,33 @@ function CasosKanban({ casos, onSelect, onDelete, saveCaso }: {
 export default function CasosGenerales() {
   const { casos, loading, refetch, saveCaso, deleteCaso, deleteMany } = useCasosGenerales();
   const { showToast } = useToast();
-  const [view, setView] = useState<'tabla' | 'kanban'>('tabla');
+  const [view, setView] = useState<'tabla'|'kanban'>('tabla');
   const [search, setSearch] = useState('');
-  const [filtroEstado, setFiltroEstado] = useState('');
-  const [filtroAbogado, setFiltroAbogado] = useState('');
+  const [filtroEstados, setFiltroEstados] = useState<Set<string>>(new Set());
   const [detailCaso, setDetailCaso] = useState<CasoGeneral | null | 'new'>(null);
   const [importOpen, setImportOpen] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [bulkLoading, setBulkLoading] = useState(false);
-  const [filterOpen, setFilterOpen] = useState(false);
 
   const activos = casos.filter(c => !c.archivado);
 
   const filtered = useMemo(() => activos.filter(c => {
-    if (filtroEstado && (c.estado ?? '').toLowerCase() !== filtroEstado) return false;
-    if (filtroAbogado && !(c.abogado ?? '').toUpperCase().includes(filtroAbogado.toUpperCase())) return false;
+    if (filtroEstados.size > 0 && !filtroEstados.has((c.estado ?? '').toLowerCase())) return false;
     if (search) {
       const q = search.toLowerCase();
-      return [c.titulo, c.expediente, c.radicado, c.abogado, c.tipo_caso].some(v => v?.toLowerCase().includes(q));
+      return [c.titulo, c.expediente, c.radicado, c.abogado, c.tipo_caso]
+        .some(v => v?.toLowerCase().includes(q));
     }
     return true;
-  }), [activos, search, filtroEstado, filtroAbogado]);
+  }), [activos, search, filtroEstados]);
 
-  const stats = useMemo(() => ({
-    total: activos.length,
-    activos: activos.filter(c => c.estado === 'activos').length,
-    federales: activos.filter(c => c.estado === 'federales').length,
-    atrasados: activos.filter(c => c.estadisticas_estado === 'atrasado').length,
-    prioridad: activos.filter(c => c.prioridad).length,
-  }), [activos]);
-
-  const estadoPills = [
-    { key: '', label: `Todos (${activos.length})` },
-    ...Object.entries(ESTADO_META)
-      .filter(([key]) => activos.some(c => c.estado === key))
-      .map(([key, m]) => ({ key, label: `${m.label} (${activos.filter(c => c.estado === key).length})` })),
-  ];
+  function toggleEstado(e: string) {
+    setFiltroEstados(prev => {
+      const next = new Set(prev);
+      next.has(e) ? next.delete(e) : next.add(e);
+      return next;
+    });
+  }
 
   async function handleDelete(id: string) {
     setDeletingId(id);
@@ -971,6 +1024,7 @@ export default function CasosGenerales() {
     setDeletingId(null);
     showToast(ok ? 'Caso eliminado' : 'No se pudo eliminar', ok ? 'success' : 'error');
   }
+
   async function handleDeleteAll() {
     const n = filtered.length; if (!n) return;
     if (!window.confirm(`¿Eliminás los ${n} casos del listado?`)) return;
@@ -981,8 +1035,6 @@ export default function CasosGenerales() {
     showToast(`${r.ok} eliminado(s)${r.fail ? `, ${r.fail} errores` : ''}`, r.fail ? 'error' : 'success');
   }
 
-  const sel = 'bg-[#141418] border border-white/10 rounded-xl px-3 py-1.5 text-sm text-white focus:outline-none focus:border-violet-500/50 [&>option]:bg-[#141418]';
-
   if (loading) return (
     <div className="flex h-64 items-center justify-center">
       <div className="w-8 h-8 border-2 border-violet-500/40 border-t-violet-500 rounded-full animate-spin"/>
@@ -990,115 +1042,86 @@ export default function CasosGenerales() {
   );
 
   return (
-    <div className="space-y-5 animate-fade-in">
+    <div className="space-y-4 animate-fade-in">
       {/* Header */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-white flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-violet-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-violet-500/30">
-              <Scale className="w-5 h-5 text-white"/>
-            </div>
-            Casos Generales
+          <h1 className="text-xl font-bold text-white flex items-center gap-2">
+            <Scale className="w-5 h-5 text-violet-400"/>Casos Generales
           </h1>
-          <p className="text-sm text-gray-500 mt-0.5 ml-12">{filtered.length} caso{filtered.length !== 1 ? 's' : ''} · solo activos no archivados</p>
+          <p className="text-sm text-gray-500 mt-0.5">
+            {filtered.length} caso{filtered.length !== 1 ? 's' : ''}{filtroEstados.size > 0 ? ' filtrados' : ''} · {activos.length} total activos
+          </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <button onClick={refetch} className="btn-secondary p-2.5" title="Actualizar"><RefreshCw className="w-4 h-4"/></button>
-          <button onClick={() => setImportOpen(true)} className="btn-secondary flex items-center gap-2 text-sm"><Upload className="w-4 h-4"/>Importar</button>
+          <button onClick={refetch} className="btn-secondary p-2.5" title="Actualizar">
+            <RefreshCw className="w-4 h-4"/>
+          </button>
+          <button onClick={() => setImportOpen(true)} className="btn-secondary flex items-center gap-2 text-sm">
+            <Upload className="w-4 h-4"/>Importar
+          </button>
           <button onClick={handleDeleteAll} disabled={!filtered.length || bulkLoading}
             className="btn-danger flex items-center gap-2 text-sm disabled:opacity-40 disabled:cursor-not-allowed">
             {bulkLoading ? <Loader2 className="w-4 h-4 animate-spin"/> : <Trash2 className="w-4 h-4"/>}
             <span className="hidden sm:inline">Eliminar visibles</span>
           </button>
-          <button onClick={() => setDetailCaso('new')} className="btn-primary flex items-center gap-2 text-sm"><Plus className="w-4 h-4"/>Nuevo caso</button>
-        </div>
-      </div>
-
-      {/* Stats */}
-      <div className="flex flex-wrap gap-2">
-        {[
-          { label: 'Total',     val: stats.total,     color: 'text-white',       bg: 'bg-white/5 border-white/10' },
-          { label: 'Activos',   val: stats.activos,   color: 'text-emerald-300', bg: 'bg-emerald-500/5 border-emerald-500/20' },
-          { label: 'Federales', val: stats.federales, color: 'text-blue-300',    bg: 'bg-blue-500/5 border-blue-500/20' },
-          { label: 'Atrasados', val: stats.atrasados, color: 'text-red-300',     bg: 'bg-red-500/5 border-red-500/20' },
-          { label: 'Prioridad', val: stats.prioridad, color: 'text-amber-300',   bg: 'bg-amber-500/5 border-amber-500/20' },
-        ].map(s => (
-          <div key={s.label} className={`flex items-center gap-2 px-3 py-1.5 rounded-xl border ${s.bg}`}>
-            <span className={`text-xl font-bold tabular-nums ${s.color}`}>{s.val}</span>
-            <span className="text-[10px] text-gray-500">{s.label}</span>
-          </div>
-        ))}
-      </div>
-
-      {/* Toolbar */}
-      <div className="flex flex-col sm:flex-row gap-2">
-        <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500"/>
-          <input type="text" placeholder="Buscar por título, expediente, tribunal, abogado…" value={search}
-            onChange={e => setSearch(e.target.value)} className="input-dark pl-10 text-sm"/>
-        </div>
-        <div className="flex gap-2">
-          <button onClick={() => setFilterOpen(!filterOpen)}
-            className={`flex items-center gap-2 text-sm px-3 py-2 rounded-xl border transition-colors ${filterOpen || filtroAbogado ? 'border-violet-500/40 bg-violet-500/10 text-violet-300' : 'border-white/10 bg-white/5 text-gray-400 hover:text-white'}`}>
-            <Filter className="w-4 h-4"/>Filtros
-            {filtroAbogado && <span className="rounded-full bg-violet-500 text-white text-[10px] px-1.5">1</span>}
+          <button onClick={() => setDetailCaso('new')} className="btn-primary flex items-center gap-2 text-sm">
+            <Plus className="w-4 h-4"/>Nuevo caso
           </button>
-          <div className="flex bg-white/5 rounded-xl p-0.5 border border-white/10">
-            <button onClick={() => setView('tabla')} className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-all flex items-center gap-1.5 ${view === 'tabla' ? 'bg-white/10 text-white' : 'text-gray-500 hover:text-white'}`}>
-              <Table2 className="w-3.5 h-3.5"/>Tabla
-            </button>
-            <button onClick={() => setView('kanban')} className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-all flex items-center gap-1.5 ${view === 'kanban' ? 'bg-white/10 text-white' : 'text-gray-500 hover:text-white'}`}>
-              <Columns3 className="w-3.5 h-3.5"/>Pipeline
-            </button>
-          </div>
         </div>
       </div>
 
-      {/* Estado pills */}
+      {/* Search + view toggle */}
+      <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center">
+        <div className="relative flex-1 w-full sm:max-w-md">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500"/>
+          <input type="text" placeholder="Buscar por nombre, expediente, abogado, tribunal…"
+            value={search} onChange={e => setSearch(e.target.value)} className="input-dark pl-10 text-sm"/>
+        </div>
+        <div className="flex bg-white/5 rounded-xl p-0.5 border border-white/10">
+          <button onClick={() => setView('tabla')}
+            className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-all flex items-center gap-1.5 ${view === 'tabla' ? 'bg-white/10 text-white' : 'text-gray-500 hover:text-white'}`}>
+            <Table2 className="w-3.5 h-3.5"/>Tabla
+          </button>
+          <button onClick={() => setView('kanban')}
+            className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-all flex items-center gap-1.5 ${view === 'kanban' ? 'bg-white/10 text-white' : 'text-gray-500 hover:text-white'}`}>
+            <Columns3 className="w-3.5 h-3.5"/>Pipeline
+          </button>
+        </div>
+      </div>
+
+      {/* Estado filter pills (multi-select, same as FichasList pipeline pills) */}
       <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
-        {estadoPills.map(p => {
-          const meta = p.key ? getEstado(p.key) : null;
-          const active = filtroEstado === p.key;
+        <button onClick={() => setFiltroEstados(new Set())}
+          className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-all whitespace-nowrap ${filtroEstados.size === 0 ? 'bg-white/10 text-white border-white/20' : 'bg-white/5 text-gray-500 border-white/5 hover:text-white'}`}>
+          Todos ({activos.length})
+        </button>
+        {ESTADOS_ORDERED.map(e => {
+          const count = activos.filter(c => (c.estado ?? '') === e).length;
+          if (!count) return null;
+          const active = filtroEstados.has(e);
           return (
-            <button key={p.key} onClick={() => setFiltroEstado(p.key)}
-              className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition-all whitespace-nowrap flex items-center gap-1.5
-                ${active
-                  ? meta ? `${meta.bg} ${meta.color} border-current/30 ring-1 ring-current/20` : 'bg-white/10 text-white border-white/20'
-                  : 'bg-white/5 text-gray-500 border-white/5 hover:text-white'}`}>
-              {meta && <span className={`w-2 h-2 rounded-full ${meta.dot}`}/>}
-              {p.label}
+            <button key={e} onClick={() => toggleEstado(e)}
+              className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-all whitespace-nowrap ${active ? `${eColor(e)}` : 'bg-white/5 text-gray-500 border-white/5 hover:text-white'}`}>
+              {eLabel(e)} ({count})
             </button>
           );
         })}
       </div>
 
-      {/* Abogado filter */}
-      {filterOpen && (
-        <div className="flex flex-wrap gap-3 p-4 rounded-2xl border border-white/[0.06] bg-white/[0.02]">
-          <div className="flex flex-col gap-1 min-w-[180px]">
-            <label className="text-[10px] text-gray-500 uppercase tracking-widest">Abogado</label>
-            <select className={sel} value={filtroAbogado} onChange={e => setFiltroAbogado(e.target.value)}>
-              <option value="">Todos</option>
-              {ABOGADOS.map(o => <option key={o} value={o}>{o}</option>)}
-            </select>
-          </div>
-          {filtroAbogado && (
-            <button onClick={() => setFiltroAbogado('')} className="self-end text-xs text-gray-500 hover:text-white flex items-center gap-1">
-              <X className="w-3 h-3"/>Limpiar
-            </button>
-          )}
-        </div>
-      )}
-
       {/* Content */}
       {filtered.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-24 text-gray-600">
-          <Scale className="w-14 h-14 mb-4 opacity-10"/>
-          <p className="text-lg font-semibold text-gray-500">Sin casos</p>
+        <div className="flex flex-col items-center justify-center py-20 text-gray-600">
+          <Scale className="w-12 h-12 mb-3 opacity-10"/>
+          <p className="text-base font-semibold text-gray-500">Sin casos</p>
           <p className="text-sm mt-1">Importá desde Notion o creá el primero</p>
-          <div className="flex gap-2 mt-5">
-            <button onClick={() => setImportOpen(true)} className="btn-secondary text-sm flex items-center gap-2"><Upload className="w-4 h-4"/>Importar</button>
-            <button onClick={() => setDetailCaso('new')} className="btn-primary text-sm flex items-center gap-2"><Plus className="w-4 h-4"/>Nuevo caso</button>
+          <div className="flex gap-2 mt-4">
+            <button onClick={() => setImportOpen(true)} className="btn-secondary text-sm flex items-center gap-2">
+              <Upload className="w-4 h-4"/>Importar
+            </button>
+            <button onClick={() => setDetailCaso('new')} className="btn-primary text-sm flex items-center gap-2">
+              <Plus className="w-4 h-4"/>Nuevo caso
+            </button>
           </div>
         </div>
       ) : view === 'kanban' ? (
@@ -1112,8 +1135,7 @@ export default function CasosGenerales() {
         <CaseDetailModal
           caso={detailCaso === 'new' ? null : detailCaso}
           onClose={() => setDetailCaso(null)}
-          onSaved={refetch}
-        />
+          onSaved={refetch}/>
       )}
       {importOpen && (
         <NotionImportModal onClose={() => setImportOpen(false)} onImported={refetch} totalExistentes={casos.length}/>
