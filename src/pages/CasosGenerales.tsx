@@ -228,8 +228,6 @@ function CaseDetailModal({
   const isNew = !initial;
   const meta = getEstado(editing.estado ?? null);
 
-  if (!initial && Object.keys(editing).length === 0) return null;
-
   function field(key: keyof CasoGeneral, label: string, type: 'text' | 'date' | 'textarea' | 'select' | 'bool' = 'text', options?: string[]) {
     const val = editing[key] as any;
     if (type === 'bool') {
@@ -252,7 +250,7 @@ function CaseDetailModal({
           <select
             value={val || ''}
             onChange={e => setEditing(p => ({ ...p, [key]: e.target.value || null }))}
-            className="bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-violet-500/50"
+            className="bg-[#141418] border border-white/10 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-violet-500/50 [&>option]:bg-[#141418] [&>option]:text-white"
           >
             <option value="">— Sin seleccionar —</option>
             {options.map(o => <option key={o} value={o}>{o}</option>)}
@@ -280,7 +278,7 @@ function CaseDetailModal({
           type={type}
           value={val || ''}
           onChange={e => setEditing(p => ({ ...p, [key]: e.target.value || null }))}
-          className="bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-violet-500/50"
+          className="bg-[#141418] border border-white/10 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-violet-500/50"
         />
       </div>
     );
@@ -465,7 +463,12 @@ function NotionImportModal({ onClose, onImported }: { onClose: () => void; onImp
         setResults([...localResults]);
       }
 
-      showToast(`${ok} caso(s) importado(s)${fail ? `, ${fail} con error` : ''}`, fail ? 'error' : 'success');
+      const firstErr = localResults.find(r => !r.ok)?.error;
+      if (firstErr?.includes('does not exist')) {
+        showToast('Tabla no existe. Corrí migration_casos_generales.sql en Supabase primero.', 'error');
+      } else {
+        showToast(`${ok} caso(s) importado(s)${fail ? `, ${fail} con error` : ''}`, fail ? 'error' : 'success');
+      }
       onImported();
     } catch (e: any) {
       showToast(`Error: ${e?.message || e}`, 'error');
@@ -529,6 +532,14 @@ function NotionImportModal({ onClose, onImported }: { onClose: () => void; onImp
                 <span className="flex items-center gap-1 text-emerald-300"><CheckCircle2 className="w-4 h-4" />{results.filter(r => r.ok).length} ok</span>
                 {results.some(r => !r.ok) && <span className="flex items-center gap-1 text-red-300"><AlertCircle className="w-4 h-4" />{results.filter(r => !r.ok).length} errores</span>}
               </div>
+              {results.find(r => !r.ok)?.error && (
+                <div className="rounded-xl bg-red-500/10 border border-red-500/20 p-3 text-xs text-red-300">
+                  <span className="font-semibold">Error: </span>{results.find(r => !r.ok)?.error}
+                  {results.find(r => !r.ok)?.error?.includes('does not exist') && (
+                    <p className="mt-1 font-semibold">→ Corrí migration_casos_generales.sql en el SQL Editor de Supabase primero.</p>
+                  )}
+                </div>
+              )}
               <div className="max-h-52 overflow-y-auto rounded-xl border border-white/10 text-xs">
                 <table className="w-full">
                   <thead className="bg-white/5 sticky top-0"><tr>
@@ -912,7 +923,7 @@ export default function CasosGenerales() {
               <select
                 value={f.value}
                 onChange={e => f.set(e.target.value)}
-                className="bg-white/5 border border-white/10 rounded-xl px-3 py-1.5 text-sm text-white focus:outline-none focus:border-violet-500/50"
+                className="bg-[#141418] border border-white/10 rounded-xl px-3 py-1.5 text-sm text-white focus:outline-none focus:border-violet-500/50 [&>option]:bg-[#141418] [&>option]:text-white"
               >
                 <option value="">Todos</option>
                 {f.options.map(o => <option key={o} value={o}>{o}</option>)}

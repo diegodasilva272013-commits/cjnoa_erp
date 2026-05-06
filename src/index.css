@@ -47,6 +47,12 @@
   input[type="number"] {
     -moz-appearance: textfield;
   }
+
+  /* Todas las opciones de select con fondo oscuro (evita dropdown blanco) */
+  select option {
+    background: #141418;
+    color: #e5e7eb;
+  }
 }
 
 @layer components {
