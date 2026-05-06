@@ -11,6 +11,7 @@ import { useCasosGenerales } from '../hooks/useCasosGenerales';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
 import { useAvatarUrl } from '../hooks/useAvatarUrl';
+import NotasFeedPanel from '../components/cases/NotasFeedPanel';
 import {
   TareaCompleta, EstadoTareaGeneral, PrioridadTareaGeneral,
   ESTADO_TAREA_GENERAL_LABELS, PRIORIDAD_TAREA_GENERAL_LABELS,
@@ -955,9 +956,11 @@ function CasoDetalleDrawer({ tipo, casoId, onClose, onOpenTarea }: {
   const expediente = caso?.expediente;
 
   return (
-    <div className="fixed inset-0 z-50 flex">
-      <div className="flex-1 bg-black/70 backdrop-blur-sm" onClick={onClose} />
-      <div className={`w-full max-w-2xl h-full overflow-y-auto bg-[#0a0a0a] border-l ${palette.border} shadow-2xl ring-1 ${palette.ring} animate-fade-in`}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4" onClick={onClose}>
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className={`glass-card w-full max-w-3xl flex flex-col max-h-[90vh] border ${palette.border} shadow-2xl ring-1 ${palette.ring} animate-fade-in overflow-hidden`}
+      >
         {loading ? (
           <div className="flex items-center justify-center h-full">
             <div className="w-6 h-6 border-2 border-violet-500/30 border-t-violet-500 rounded-full animate-spin" />
@@ -968,48 +971,50 @@ function CasoDetalleDrawer({ tipo, casoId, onClose, onOpenTarea }: {
             <button onClick={onClose} className="mt-4 btn-secondary text-xs">Cerrar</button>
           </div>
         ) : (
-          <div className="p-6 space-y-5">
-            {/* Header */}
-            <div className="flex items-start justify-between gap-3">
+          <>
+            {/* Header sticky */}
+            <div className={`flex items-start justify-between gap-3 px-6 py-4 border-b ${palette.border} flex-shrink-0 ${palette.bg}`}>
               <div className="flex items-start gap-3 min-w-0">
-                <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${palette.bg} border ${palette.border}`}>
+                <div className={`w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0 ${palette.bg} border ${palette.border}`}>
                   <Icon className={`w-5 h-5 ${palette.text}`} />
                 </div>
                 <div className="min-w-0">
-                  <p className={`text-[10px] font-medium uppercase tracking-widest ${palette.text}`}>
+                  <p className={`text-[10px] font-bold uppercase tracking-widest ${palette.text}`}>
                     {tipo === 'general' ? 'Caso general' : 'Caso legal'}
                   </p>
                   <h2 className="text-xl font-bold text-white truncate">{titulo || 'Sin título'}</h2>
                   {expediente && <p className="text-xs text-gray-500 font-mono mt-0.5">{expediente}</p>}
                 </div>
               </div>
-              <button onClick={onClose} className="text-gray-500 hover:text-white p-1.5 rounded-lg hover:bg-white/5">
+              <button onClick={onClose} className="text-gray-400 hover:text-white p-1.5 rounded-lg hover:bg-white/10">
                 <X className="w-5 h-5" />
               </button>
             </div>
 
+            {/* Body scrollable */}
+            <div className="flex-1 overflow-y-auto px-6 py-5 space-y-5">
             {/* Datos del caso */}
             <div className="grid grid-cols-2 gap-2">
               {tipo === 'general' ? (
                 <>
-                  <Field label="Estado" value={caso.estado} />
-                  <Field label="Tipo de caso" value={caso.tipo_caso} />
+                  <Field label="Estado" value={caso.estado} chip="violet" />
+                  <Field label="Tipo de caso" value={caso.tipo_caso} chip="violet" />
                   <Field label="Abogado" value={caso.abogado} />
-                  <Field label="Personería" value={caso.personeria} />
+                  <Field label="Personería" value={caso.personeria} chip="violet" />
                   <Field label="Próx. audiencia" value={fmt(caso.audiencias)} />
-                  <Field label="Vencimiento" value={fmt(caso.vencimiento)} />
-                  <Field label="Estadísticas" value={caso.estadisticas_estado} />
-                  <Field label="Prioridad" value={caso.prioridad ? 'Sí' : 'No'} />
+                  <Field label="Vencimiento" value={fmt(caso.vencimiento)} chip={caso.vencimiento ? 'orange' : undefined} />
+                  <Field label="Estadísticas" value={caso.estadisticas_estado} chip={caso.estadisticas_estado === 'al día' ? 'emerald' : 'orange'} />
+                  <Field label="Prioridad" value={caso.prioridad ? 'Sí' : 'No'} chip={caso.prioridad ? 'orange' : undefined} />
                 </>
               ) : (
                 <>
-                  <Field label="Cliente" value={caso.nombre_apellido} />
-                  <Field label="Expediente" value={caso.expediente} mono />
-                  <Field label="Tipo" value={caso.tipo_caso} />
-                  <Field label="Estado" value={caso.estado} />
+                  <Field label="Cliente" value={caso.nombre_apellido} chip="emerald" />
+                  <Field label="Expediente" value={caso.expediente} mono chip="emerald" />
+                  <Field label="Tipo" value={caso.tipo_caso} chip="emerald" />
+                  <Field label="Estado" value={caso.estado} chip="emerald" />
                   <Field label="Juzgado" value={caso.juzgado} />
                   <Field label="Carátula" value={caso.caratula} full />
-                  <Field label="Honorarios" value={caso.honorarios_total != null ? `$${Number(caso.honorarios_total).toLocaleString('es-AR')}` : null} />
+                  <Field label="Honorarios" value={caso.honorarios_total != null ? `$${Number(caso.honorarios_total).toLocaleString('es-AR')}` : null} chip="orange" />
                   <Field label="Fecha inicio" value={fmt(caso.fecha_inicio)} />
                 </>
               )}
@@ -1065,47 +1070,40 @@ function CasoDetalleDrawer({ tipo, casoId, onClose, onOpenTarea }: {
               </div>
             </div>
 
-            {/* Notas (solo caso general) */}
+            {/* Notas + audio + dictado (solo caso general) */}
             {tipo === 'general' && (
               <div className="pt-4 border-t border-white/[0.06]">
-                <h3 className="text-sm font-bold text-white flex items-center gap-2 mb-2">
+                <h3 className="text-sm font-bold text-white flex items-center gap-2 mb-3">
                   <FileText className="w-4 h-4 text-violet-300" />
-                  Notas del seguimiento <span className="text-gray-500 font-normal">({notas.length})</span>
+                  Seguimiento — notas, audio y dictado
                 </h3>
-                <div className="space-y-2">
-                  {notas.length === 0 && <p className="text-xs text-gray-600 italic">Sin notas todavía.</p>}
-                  {notas.map(n => (
-                    <div key={n.id} className="p-3 rounded-xl bg-white/[0.02] border border-white/[0.05]">
-                      <div className="flex items-center gap-2 mb-1">
-                        <MiniAvatar path={n.autor_avatar} nombre={n.autor_nombre} size={20} />
-                        <span className="text-xs font-medium text-white">{n.autor_nombre || 'Sistema'}</span>
-                        <span className="text-[10px] text-gray-600">· {fmtDateTime(n.created_at)}</span>
-                        {n.editado && <span className="text-[10px] text-gray-600 italic">(editado)</span>}
-                      </div>
-                      <p className="text-xs text-gray-300 whitespace-pre-wrap leading-relaxed">{n.contenido}</p>
-                      {n.tarea_titulo && (
-                        <div className="mt-2 px-2 py-1 rounded-lg bg-violet-500/10 border border-violet-500/20 text-[10px] text-violet-300 inline-flex items-center gap-1">
-                          <ListTodo className="w-3 h-3" /> Tarea: {n.tarea_titulo}
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
+                <NotasFeedPanel casoId={casoId} />
               </div>
             )}
-          </div>
+            </div>{/* /body */}
+          </>
         )}
       </div>
     </div>
   );
 }
 
-function Field({ label, value, mono, full }: { label: string; value: any; mono?: boolean; full?: boolean }) {
+function Field({ label, value, mono, full, chip }: { label: string; value: any; mono?: boolean; full?: boolean; chip?: 'violet' | 'emerald' | 'orange' | 'amber' }) {
   if (!value) return null;
+  const chipClass: Record<NonNullable<typeof chip>, string> = {
+    violet:  'bg-violet-500/15 text-violet-200 border border-violet-500/30',
+    emerald: 'bg-emerald-500/15 text-emerald-200 border border-emerald-500/30',
+    orange:  'bg-orange-500/15 text-orange-200 border border-orange-500/30',
+    amber:   'bg-amber-500/15 text-amber-200 border border-amber-500/30',
+  };
   return (
     <div className={`bg-white/[0.025] rounded-xl p-3 border border-white/[0.05] ${full ? 'col-span-2' : ''}`}>
-      <p className="text-[10px] text-gray-500 uppercase tracking-widest mb-1">{label}</p>
-      <p className={`text-sm text-white font-medium ${mono ? 'font-mono text-xs' : ''}`}>{value}</p>
+      <p className="text-[10px] text-gray-500 uppercase tracking-widest mb-1.5">{label}</p>
+      {chip ? (
+        <span className={`inline-block text-xs font-semibold rounded-md px-2 py-1 ${chipClass[chip]} ${mono ? 'font-mono' : ''}`}>{value}</span>
+      ) : (
+        <p className={`text-sm text-white font-medium ${mono ? 'font-mono text-xs' : ''}`}>{value}</p>
+      )}
     </div>
   );
 }
