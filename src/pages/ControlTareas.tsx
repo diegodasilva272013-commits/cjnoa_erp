@@ -64,8 +64,62 @@ export default function ControlTareas() {
     setLoading(true);
     // Disparar revisión de recordatorios (idempotente)
     try { await supabase.rpc('revisar_recordatorios_tareas'); } catch { /* noop si la migration aún no se aplicó */ }
-    const { data } = await supabase.from('control_tareas_v').select('*').order('fecha_limite', { ascending: true, nullsFirst: false });
-    setTareas((data as ControlTarea[]) || []);
+
+    // Estrategia: leer SIEMPRE de tareas_completas_v2 (que ya existe y trae todas las tareas
+    // con joins a casos / casos_generales / perfiles) y computar estado_tiempo en cliente.
+    // Esto evita depender de la vista control_tareas_v.
+    const { data, error } = await supabase
+      .from('tareas_completas_v2')
+      .select('*')
+      .eq('archivada', false)
+      .order('fecha_limite', { ascending: true, nullsFirst: false });
+
+    if (error) {
+      console.error('[ControlTareas] error cargando tareas_completas_v2', error);
+      setTareas([]);
+      setLoading(false);
+      return;
+    }
+
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    const mapped: ControlTarea[] = (data || []).map((t: any) => {
+      let estado_tiempo: ControlTarea['estado_tiempo'];
+      let dias_restantes: number | null = null;
+      if (t.estado === 'completada' || t.estado === 'finalizada') {
+        estado_tiempo = 'realizada';
+      } else if (!t.fecha_limite) {
+        estado_tiempo = 'sin_fecha';
+      } else {
+        const fl = new Date(t.fecha_limite); fl.setHours(0, 0, 0, 0);
+        const diff = Math.round((fl.getTime() - today.getTime()) / 86400000);
+        dias_restantes = diff;
+        if (diff < 0) estado_tiempo = 'vencida';
+        else if (diff === 0) estado_tiempo = 'hoy';
+        else if (diff <= 2) estado_tiempo = 'proxima';
+        else estado_tiempo = 'futura';
+      }
+      return {
+        id: t.id,
+        titulo: t.titulo,
+        estado: t.estado,
+        prioridad: t.prioridad,
+        fecha_limite: t.fecha_limite,
+        cargo_hora: t.cargo_hora,
+        responsable_id: t.responsable_id,
+        responsable_nombre: t.responsable_nombre,
+        responsable_avatar: t.responsable_avatar,
+        caso_general_id: t.caso_general_id,
+        caso_general_titulo: t.caso_general_titulo,
+        caso_general_expediente: t.caso_general_expediente,
+        cliente_nombre: t.cliente_nombre,
+        expediente_caso: t.expediente_caso ?? t.expediente,
+        estado_tiempo,
+        dias_restantes,
+        created_at: t.created_at,
+        fecha_completada: t.fecha_completada,
+      };
+    });
+    setTareas(mapped);
     setLoading(false);
   }
 
