@@ -19,11 +19,14 @@ CREATE TABLE IF NOT EXISTS public.caso_general_notas (
   caso_id     uuid NOT NULL REFERENCES public.casos_generales(id) ON DELETE CASCADE,
   contenido   text NOT NULL CHECK (length(trim(contenido)) > 0),
   tarea_id    uuid REFERENCES public.tareas(id) ON DELETE SET NULL,
+  audio_path  text,
   created_by  uuid REFERENCES public.perfiles(id) ON DELETE SET NULL,
   created_at  timestamptz NOT NULL DEFAULT now(),
   updated_at  timestamptz NOT NULL DEFAULT now(),
   editado     boolean NOT NULL DEFAULT false
 );
+-- Por si la tabla ya existía antes (idempotente)
+ALTER TABLE public.caso_general_notas ADD COLUMN IF NOT EXISTS audio_path text;
 CREATE INDEX IF NOT EXISTS idx_caso_gen_notas_caso ON public.caso_general_notas (caso_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_caso_gen_notas_tarea ON public.caso_general_notas (tarea_id);
 
@@ -188,6 +191,7 @@ SELECT
   n.caso_id,
   n.contenido,
   n.tarea_id,
+  n.audio_path,
   n.created_by,
   n.created_at,
   n.updated_at,

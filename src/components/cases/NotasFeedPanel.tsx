@@ -1,7 +1,7 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useRef, useEffect } from 'react';
 import {
   MessageSquare, Send, Clock, User as UserIcon, Trash2, CheckCircle2,
-  ListTodo, Calendar, Eye, ChevronDown, AlertCircle,
+  ListTodo, Calendar, Eye, ChevronDown, AlertCircle, Mic, MicOff, Square,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
@@ -11,6 +11,7 @@ import {
 } from '../../hooks/useCasoGeneralNotas';
 import { usePerfilesList } from '../../hooks/usePerfilesList';
 import { useAvatarUrl } from '../../hooks/useAvatarUrl';
+import { supabase } from '../../lib/supabase';
 
 function fmtFecha(iso: string): string {
   const d = new Date(iso);
@@ -41,6 +42,19 @@ function Avatar({ path, nombre, size = 32 }: { path: string | null; nombre: stri
   );
 }
 
+function AudioPlayer({ path }: { path: string }) {
+  const [url, setUrl] = useState<string | null>(null);
+  useEffect(() => {
+    let active = true;
+    supabase.storage.from('notas-voz').createSignedUrl(path, 3600).then(({ data }) => {
+      if (active && data?.signedUrl) setUrl(data.signedUrl);
+    });
+    return () => { active = false; };
+  }, [path]);
+  if (!url) return <span className="text-[10px] text-gray-500">cargando audio…</span>;
+  return <audio controls src={url} className="w-full max-w-sm h-8" />;
+}
+
 function NotaCard({ n, currentUserId, onDelete, onMarcarVista, onCambiarEstado }: {
   n: CasoGeneralNota;
   currentUserId: string | null;
@@ -65,6 +79,11 @@ function NotaCard({ n, currentUserId, onDelete, onMarcarVista, onCambiarEstado }
             {n.editado && <span className="text-[10px] text-gray-600 italic">(editado)</span>}
           </div>
           <p className="text-sm text-gray-200 whitespace-pre-wrap break-words mt-1">{n.contenido}</p>
+          {n.audio_path && (
+            <div className="mt-2">
+              <AudioPlayer path={n.audio_path} />
+            </div>
+          )}
         </div>
         {esAutor && (
           <button onClick={() => onDelete(n.id)} title="Eliminar nota"
@@ -166,6 +185,84 @@ export default function NotasFeedPanel({ casoId }: { casoId: string }) {
   const [cargoHora, setCargoHora] = useState('');
   const [enviando, setEnviando] = useState(false);
 
+  // Dictado (STT) y grabación de audio
+  const [dictando, setDictando] = useState(false);
+  const [grabando, setGrabando] = useState(false);
+  const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
+  const [audioPreviewUrl, setAudioPreviewUrl] = useState<string | null>(null);
+  const recognitionRef = useRef<any>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const streamRef = useRef<MediaStream | null>(null);
+
+  function toggleDictado() {
+    const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SR) { showToast('Tu navegador no soporta dictado de voz', 'error'); return; }
+    if (dictando) { recognitionRef.current?.stop(); setDictando(false); return; }
+    const rec = new SR();
+    rec.lang = 'es-AR'; rec.continuous = true; rec.interimResults = false;
+    let acc = contenido ? contenido + ' ' : '';
+    rec.onresult = (e: any) => {
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        if (e.results[i].isFinal) acc += e.results[i][0].transcript + ' ';
+      }
+      setContenido(acc.trimEnd());
+    };
+    rec.onerror = () => setDictando(false);
+    rec.onend = () => setDictando(false);
+    recognitionRef.current = rec;
+    rec.start();
+    setDictando(true);
+  }
+
+  async function toggleGrabacion() {
+    if (grabando) {
+      mediaRecorderRef.current?.stop();
+      recognitionRef.current?.stop();
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      streamRef.current = stream;
+      // STT en paralelo a la grabación
+      const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+      if (SR) {
+        const rec = new SR();
+        rec.lang = 'es-AR'; rec.continuous = true; rec.interimResults = false;
+        let acc = contenido ? contenido + ' ' : '';
+        rec.onresult = (e: any) => {
+          for (let i = e.resultIndex; i < e.results.length; i++) {
+            if (e.results[i].isFinal) acc += e.results[i][0].transcript + ' ';
+          }
+          setContenido(acc.trimEnd());
+        };
+        try { rec.start(); recognitionRef.current = rec; } catch { /* noop */ }
+      }
+      const mr = new MediaRecorder(stream);
+      audioChunksRef.current = [];
+      mr.ondataavailable = (e) => { if (e.data.size > 0) audioChunksRef.current.push(e.data); };
+      mr.onstop = () => {
+        streamRef.current?.getTracks().forEach(t => t.stop());
+        streamRef.current = null;
+        const blob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+        setAudioBlob(blob);
+        if (audioPreviewUrl) URL.revokeObjectURL(audioPreviewUrl);
+        setAudioPreviewUrl(URL.createObjectURL(blob));
+        setGrabando(false);
+      };
+      mr.start();
+      mediaRecorderRef.current = mr;
+      setGrabando(true);
+    } catch {
+      showToast('No se pudo acceder al micrófono', 'error');
+    }
+  }
+
+  function descartarAudio() {
+    if (audioPreviewUrl) URL.revokeObjectURL(audioPreviewUrl);
+    setAudioBlob(null); setAudioPreviewUrl(null);
+  }
+
   const responsablesOptions = useMemo(() => perfiles, [perfiles]);
 
   async function handleEnviar() {
@@ -187,15 +284,17 @@ export default function NotasFeedPanel({ casoId }: { casoId: string }) {
         descripcion: tareaDescripcion || undefined,
         prioridad,
         cargoHora: cargoHora || undefined,
+        audioBlob,
       });
       ok = res.ok; errMsg = res.error;
     } else {
-      ok = await agregarNota(contenido, user.id);
+      ok = await agregarNota(contenido, user.id, audioBlob);
     }
     if (ok) {
       setContenido(''); setTareaTitulo(''); setTareaDescripcion('');
       setResponsableId(''); setFechaLimite(''); setCargoHora('');
       setPrioridad('sin_prioridad'); setConTarea(false);
+      descartarAudio();
       showToast(conTarea ? 'Nota + tarea creadas' : 'Nota agregada', 'success');
     } else {
       showToast(errMsg || 'Error al guardar', 'error');
@@ -252,6 +351,50 @@ export default function NotasFeedPanel({ casoId }: { casoId: string }) {
           rows={3}
           className="w-full bg-transparent text-sm text-white placeholder-gray-500 resize-none focus:outline-none"
         />
+        {/* Barra de dictado / grabación */}
+        <div className="flex items-center gap-2 flex-wrap">
+          <button
+            type="button"
+            onClick={toggleDictado}
+            disabled={grabando}
+            title={dictando ? 'Detener dictado' : 'Dictar (voz → texto)'}
+            className={`flex items-center gap-1.5 text-[11px] px-2.5 py-1.5 rounded-lg border transition ${
+              dictando
+                ? 'bg-red-500/20 border-red-500/40 text-red-200 animate-pulse'
+                : 'bg-white/5 border-white/10 text-gray-300 hover:bg-white/10'
+            } disabled:opacity-40`}
+          >
+            {dictando ? <MicOff className="w-3.5 h-3.5" /> : <Mic className="w-3.5 h-3.5" />}
+            {dictando ? 'Detener dictado' : 'Dictar'}
+          </button>
+          <button
+            type="button"
+            onClick={toggleGrabacion}
+            disabled={dictando}
+            title={grabando ? 'Terminar nota de voz' : 'Grabar nota de voz (audio + transcripción)'}
+            className={`flex items-center gap-1.5 text-[11px] px-2.5 py-1.5 rounded-lg border transition ${
+              grabando
+                ? 'bg-red-500/20 border-red-500/40 text-red-200 animate-pulse'
+                : 'bg-white/5 border-white/10 text-gray-300 hover:bg-white/10'
+            } disabled:opacity-40`}
+          >
+            {grabando ? <Square className="w-3.5 h-3.5" /> : <Mic className="w-3.5 h-3.5" />}
+            {grabando ? 'Terminar grabación' : 'Nota de voz'}
+          </button>
+          {audioPreviewUrl && !grabando && (
+            <div className="flex items-center gap-2 ml-auto">
+              <audio controls src={audioPreviewUrl} className="h-8 max-w-[220px]" />
+              <button
+                type="button"
+                onClick={descartarAudio}
+                title="Descartar audio"
+                className="p-1 text-gray-500 hover:text-red-400"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          )}
+        </div>
         <div className="flex items-center justify-between border-t border-white/5 pt-3">
           <label className="flex items-center gap-2 cursor-pointer select-none text-xs text-gray-400 hover:text-violet-300">
             <input type="checkbox" checked={conTarea} onChange={(e) => setConTarea(e.target.checked)}

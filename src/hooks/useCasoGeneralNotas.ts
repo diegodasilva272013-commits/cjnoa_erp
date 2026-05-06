@@ -6,6 +6,7 @@ export interface CasoGeneralNota {
   caso_id: string;
   contenido: string;
   tarea_id: string | null;
+  audio_path: string | null;
   created_by: string | null;
   created_at: string;
   updated_at: string;
@@ -93,10 +94,16 @@ export function useCasoGeneralNotas(casoId: string | null) {
     return () => { supabase.removeChannel(ch); };
   }, [casoId, fetchNotas]);
 
-  async function agregarNota(contenido: string, userId: string): Promise<boolean> {
+  async function agregarNota(contenido: string, userId: string, audioBlob?: Blob | null): Promise<boolean> {
     if (!casoId || !contenido.trim()) return false;
+    let audio_path: string | null = null;
+    if (audioBlob) {
+      audio_path = `casos-generales/${casoId}/${Date.now()}.webm`;
+      const up = await supabase.storage.from('notas-voz').upload(audio_path, audioBlob, { contentType: 'audio/webm', upsert: false });
+      if (up.error) { console.error('[audio upload]', up.error); audio_path = null; }
+    }
     const { error } = await supabase.from('caso_general_notas')
-      .insert({ caso_id: casoId, contenido: contenido.trim(), created_by: userId });
+      .insert({ caso_id: casoId, contenido: contenido.trim(), created_by: userId, audio_path });
     if (error) { console.error(error); return false; }
     await fetchNotas();
     return true;
@@ -111,8 +118,15 @@ export function useCasoGeneralNotas(casoId: string | null) {
     descripcion?: string;
     prioridad?: 'alta' | 'media' | 'sin_prioridad';
     cargoHora?: string;
+    audioBlob?: Blob | null;
   }): Promise<{ ok: boolean; error?: string }> {
     if (!casoId) return { ok: false, error: 'casoId vacío' };
+    let audio_path: string | null = null;
+    if (params.audioBlob) {
+      audio_path = `casos-generales/${casoId}/${Date.now()}.webm`;
+      const up = await supabase.storage.from('notas-voz').upload(audio_path, params.audioBlob, { contentType: 'audio/webm', upsert: false });
+      if (up.error) { console.error('[audio upload]', up.error); audio_path = null; }
+    }
     // 1) crear tarea (los triggers se encargan de notificar)
     const { data: tareaIns, error: errTarea } = await supabase
       .from('tareas')
@@ -140,6 +154,7 @@ export function useCasoGeneralNotas(casoId: string | null) {
         caso_id: casoId,
         contenido: params.contenido.trim(),
         tarea_id: tareaIns.id,
+        audio_path,
         created_by: params.userId,
       });
     if (errNota) {
