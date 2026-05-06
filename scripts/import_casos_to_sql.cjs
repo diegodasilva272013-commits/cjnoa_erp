@@ -1,10 +1,77 @@
-// Read Notion _all.csv → emit a single SQL file with INSERTs ready to paste in Supabase SQL Editor.
+// Read Notion _all.csv + per-case .md files → emit a single SQL with INSERTs.
 // Usage: node scripts/import_casos_to_sql.cjs
 const fs = require('fs');
 const path = require('path');
 
 const CSV_PATH = 'C:/Users/diego/Downloads/CLIENTES GENERALES 26a91b02784080f29b9feade951c658a_all.csv';
+const MD_DIR   = 'C:/Users/diego/Downloads/notion_export_casos/unzipped';
 const OUT_PATH = path.join(__dirname, '..', 'supabase', 'import_casos_generales.sql');
+
+// ── Build a map: normalized-title → markdown body ──
+function normTitle(s) {
+  return (s ?? '').toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^\w]+/g, ' ')
+    .trim();
+}
+function readAllMd(dir) {
+  const out = [];
+  function walk(d) {
+    for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+      const full = path.join(d, e.name);
+      if (e.isDirectory()) walk(full);
+      else if (e.name.endsWith('.md')) out.push(full);
+    }
+  }
+  if (!fs.existsSync(dir)) { console.warn('MD_DIR not found:', dir); return []; }
+  walk(dir); return out;
+}
+function extractBody(mdContent) {
+  const lines = mdContent.split(/\r?\n/);
+  // skip H1
+  let i = 0;
+  if (lines[i]?.startsWith('# ')) i++;
+  // skip property lines (key: value) and blank lines until first non-property
+  while (i < lines.length) {
+    const ln = lines[i];
+    if (!ln.trim()) { i++; continue; }
+    // property line: "Word words: rest"  (no leading bullet/heading char)
+    if (/^[A-Za-zÁÉÍÓÚáéíóúÑñ][\w \(\)/áéíóúÁÉÍÓÚñÑ]*:\s/.test(ln)) { i++; continue; }
+    break;
+  }
+  return lines.slice(i).join('\n').trim();
+}
+const mdMap = new Map(); // normTitle → body
+const mdEntries = []; // [{ norm, body }] for fuzzy fallback
+for (const f of readAllMd(MD_DIR)) {
+  const txt = fs.readFileSync(f, 'utf8');
+  const m = txt.match(/^#\s+(.+?)\s*$/m);
+  if (!m) continue;
+  const title = m[1].trim();
+  const body = extractBody(txt);
+  if (body.length > 0) {
+    const norm = normTitle(title);
+    mdMap.set(norm, body);
+    mdEntries.push({ norm, body });
+  }
+}
+function findBody(csvTitle) {
+  const n = normTitle(csvTitle);
+  if (mdMap.has(n)) return mdMap.get(n);
+  // prefix match: find a md title where one is a prefix of the other (≥ 20 chars)
+  if (n.length >= 20) {
+    for (const e of mdEntries) {
+      if (e.norm.startsWith(n) || n.startsWith(e.norm)) return e.body;
+    }
+    // first 30-char fragment match (handles long titles where filesystem truncated the MD)
+    const frag = n.slice(0, 30);
+    for (const e of mdEntries) {
+      if (e.norm.startsWith(frag)) return e.body;
+    }
+  }
+  return null;
+}
+console.log(`Loaded ${mdMap.size} markdown bodies from ${MD_DIR}`);
 
 // ── CSV parser (RFC 4180, BOM-safe) ────────────────────────────────────────────
 function parseCSV(text) {
@@ -111,7 +178,11 @@ const sqlLines = [
 ];
 
 const valueLines = valid.map(r => {
-  return `(${sqlStr(r['NOMBRE'])}, ${sqlStr(r['Expediente'] || null)}, ${sqlStr(normEstado(r['Estado']))}, ${sqlStr(normTipo(r['tipo de caso']))}, ${sqlStr(r['SISTEMA'] || null)}, ${sqlStr(r['PERSONERIA'] || null)}, ${sqlStr(r['Radicado'] || null)}, ${sqlStr(r['URL del DRIVE'] || null)}, ${sqlStr(r['actualizacion'] || null)}, ${sqlDate(parseDate(r['Audiencias']))}, ${sqlDate(parseDate(r['vencimiento']))}, ${sqlBool(parseBool(r['Prioridad']))}, ${sqlBool(parseBool(r['Archivar']))}, ${sqlStr(r['Estadisticas (NO TOCAR)'] || 'al día')})`;
+  const titulo = r['NOMBRE'];
+  const csvNotes = (r['actualizacion'] || '').trim();
+  const mdBody = findBody(titulo) || '';
+  const combined = [csvNotes, mdBody].filter(Boolean).join('\n\n---\n\n') || null;
+  return `(${sqlStr(titulo)}, ${sqlStr(r['Expediente'] || null)}, ${sqlStr(normEstado(r['Estado']))}, ${sqlStr(normTipo(r['tipo de caso']))}, ${sqlStr(r['SISTEMA'] || null)}, ${sqlStr(r['PERSONERIA'] || null)}, ${sqlStr(r['Radicado'] || null)}, ${sqlStr(r['URL del DRIVE'] || null)}, ${sqlStr(combined)}, ${sqlDate(parseDate(r['Audiencias']))}, ${sqlDate(parseDate(r['vencimiento']))}, ${sqlBool(parseBool(r['Prioridad']))}, ${sqlBool(parseBool(r['Archivar']))}, ${sqlStr(r['Estadisticas (NO TOCAR)'] || 'al día')})`;
 });
 
 sqlLines.push(valueLines.join(',\n'));
@@ -133,3 +204,8 @@ const withVenc = valid.filter(r => parseDate(r['vencimiento'])).length;
 const withAbog = valid.filter(r => r['SISTEMA']).length;
 const withExp = valid.filter(r => r['Expediente']).length;
 console.log(`\nField completeness:\n  Drive URL: ${withDrive}\n  Audiencia: ${withAud}\n  Vencimiento: ${withVenc}\n  Abogado:   ${withAbog}\n  Expediente:${withExp}`);
+
+const matched = valid.filter(r => findBody(r['NOMBRE'])).length;
+console.log(`\nMD body matched: ${matched}/${valid.length} (${valid.length - matched} casos sin notas en .md)`);
+const unmatched = valid.filter(r => !findBody(r['NOMBRE'])).slice(0, 10);
+if (unmatched.length) console.log('Sample unmatched:\n  ' + unmatched.map(u => u['NOMBRE']).join('\n  '));
