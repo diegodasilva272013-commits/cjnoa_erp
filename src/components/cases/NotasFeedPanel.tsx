@@ -390,14 +390,6 @@ export default function NotasFeedPanel({ casoId }: { casoId: string }) {
         <h3 className="text-sm font-bold text-white">
           Seguimiento <span className="text-gray-500 font-normal">({notas.length})</span>
         </h3>
-        <button
-          type="button"
-          onClick={() => setAudModalOpen(true)}
-          className="ml-auto flex items-center gap-1.5 text-[11px] px-2.5 py-1.5 rounded-lg bg-orange-500/15 hover:bg-orange-500/25 border border-orange-500/40 text-orange-200 font-semibold"
-          title="Agendar una audiencia para este caso"
-        >
-          <Gavel className="w-3.5 h-3.5" /> Agendar audiencia
-        </button>
       </div>
 
       {migrationError && (
@@ -483,16 +475,6 @@ export default function NotasFeedPanel({ casoId }: { casoId: string }) {
         </div>
 
         {/* Acciones rápidas: agendar audiencia desde aquí */}
-        <div className="flex flex-wrap gap-2 border-t border-white/5 pt-3">
-          <button
-            type="button"
-            onClick={() => setAudModalOpen(true)}
-            className="flex items-center gap-2 text-xs px-3 py-2 rounded-xl bg-orange-500/15 hover:bg-orange-500/30 border border-orange-500/40 text-orange-200 font-semibold transition-colors"
-            title="Agendar una audiencia para este caso"
-          >
-            <Gavel className="w-4 h-4" /> Agendar audiencia para este caso
-          </button>
-        </div>
 
         {conTarea && (
           <div className="space-y-2 border-t border-white/5 pt-3">
@@ -565,7 +547,6 @@ export default function NotasFeedPanel({ casoId }: { casoId: string }) {
                 Aviso automático: el día que llegue esa fecha el sistema avisará que hay que <b>presentar el escrito</b> porque venció el plazo de la contraparte.
               </p>
             )}
-            </div>
             {!responsableId && (
               <p className="text-[10px] text-amber-400/80 flex items-center gap-1">
                 <AlertCircle className="w-3 h-3" /> Elegí un responsable para crear la tarea
