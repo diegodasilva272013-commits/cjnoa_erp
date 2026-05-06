@@ -68,11 +68,18 @@ export default function ControlTareas() {
     // Estrategia: leer SIEMPRE de tareas_completas_v2 (que ya existe y trae todas las tareas
     // con joins a casos / casos_generales / perfiles) y computar estado_tiempo en cliente.
     // Esto evita depender de la vista control_tareas_v.
-    const { data, error } = await supabase
-      .from('tareas_completas_v2')
-      .select('*')
-      .eq('archivada', false)
-      .order('fecha_limite', { ascending: true, nullsFirst: false });
+    const [{ data, error }, prevRes] = await Promise.all([
+      supabase
+        .from('tareas_completas_v2')
+        .select('*')
+        .eq('archivada', false)
+        .order('fecha_limite', { ascending: true, nullsFirst: false }),
+      // Tareas previsionales (lectura directa por si el trigger de sync no fue aplicado)
+      supabase
+        .from('tareas_previsional')
+        .select('id, titulo, descripcion, estado, prioridad, fecha_limite, cargo_hora, responsable_id, responsable_nombre, fecha_completada, created_at, cliente_prev_id, clientes_prev:cliente_prev_id(apellido_nombre)')
+        .order('fecha_limite', { ascending: true, nullsFirst: false }),
+    ]);
 
     if (error) {
       console.error('[ControlTareas] error cargando tareas_completas_v2', error);
@@ -82,22 +89,19 @@ export default function ControlTareas() {
     }
 
     const today = new Date(); today.setHours(0, 0, 0, 0);
+    const computeEstadoTiempo = (estado: string, fecha_limite: string | null): { et: ControlTarea['estado_tiempo']; dr: number | null } => {
+      if (estado === 'completada' || estado === 'finalizada') return { et: 'realizada', dr: null };
+      if (!fecha_limite) return { et: 'sin_fecha', dr: null };
+      const fl = new Date(fecha_limite); fl.setHours(0, 0, 0, 0);
+      const diff = Math.round((fl.getTime() - today.getTime()) / 86400000);
+      if (diff < 0) return { et: 'vencida', dr: diff };
+      if (diff === 0) return { et: 'hoy', dr: diff };
+      if (diff <= 2) return { et: 'proxima', dr: diff };
+      return { et: 'futura', dr: diff };
+    };
+
     const mapped: ControlTarea[] = (data || []).map((t: any) => {
-      let estado_tiempo: ControlTarea['estado_tiempo'];
-      let dias_restantes: number | null = null;
-      if (t.estado === 'completada' || t.estado === 'finalizada') {
-        estado_tiempo = 'realizada';
-      } else if (!t.fecha_limite) {
-        estado_tiempo = 'sin_fecha';
-      } else {
-        const fl = new Date(t.fecha_limite); fl.setHours(0, 0, 0, 0);
-        const diff = Math.round((fl.getTime() - today.getTime()) / 86400000);
-        dias_restantes = diff;
-        if (diff < 0) estado_tiempo = 'vencida';
-        else if (diff === 0) estado_tiempo = 'hoy';
-        else if (diff <= 2) estado_tiempo = 'proxima';
-        else estado_tiempo = 'futura';
-      }
+      const { et, dr } = computeEstadoTiempo(t.estado, t.fecha_limite);
       return {
         id: t.id,
         titulo: t.titulo,
@@ -113,13 +117,46 @@ export default function ControlTareas() {
         caso_general_expediente: t.caso_general_expediente,
         cliente_nombre: t.cliente_nombre,
         expediente_caso: t.expediente_caso ?? t.expediente,
-        estado_tiempo,
-        dias_restantes,
+        estado_tiempo: et,
+        dias_restantes: dr,
         created_at: t.created_at,
         fecha_completada: t.fecha_completada,
       };
     });
-    setTareas(mapped);
+
+    // Mergear tareas previsionales (evitando duplicados si el trigger SQL ya las clonó)
+    const prevsRaw = (prevRes?.data as any[]) || [];
+    const previsionalIdsYaSincronizados = new Set(
+      (data || []).map((t: any) => t.previsional_id).filter(Boolean)
+    );
+    const previsionalesMapped: ControlTarea[] = prevsRaw
+      .filter(p => !previsionalIdsYaSincronizados.has(p.id))
+      .map(p => {
+        const { et, dr } = computeEstadoTiempo(p.estado, p.fecha_limite);
+        const clienteNombre = (p as any).clientes_prev?.apellido_nombre || null;
+        return {
+          id: `prev-${p.id}`,
+          titulo: `[Previsional] ${p.titulo}`,
+          estado: p.estado === 'completada' ? 'completada' : 'en_curso',
+          prioridad: p.prioridad,
+          fecha_limite: p.fecha_limite,
+          cargo_hora: p.cargo_hora,
+          responsable_id: p.responsable_id,
+          responsable_nombre: p.responsable_nombre,
+          responsable_avatar: null,
+          caso_general_id: null,
+          caso_general_titulo: null,
+          caso_general_expediente: null,
+          cliente_nombre: clienteNombre,
+          expediente_caso: null,
+          estado_tiempo: et,
+          dias_restantes: dr,
+          created_at: p.created_at,
+          fecha_completada: p.fecha_completada,
+        };
+      });
+
+    setTareas([...mapped, ...previsionalesMapped]);
     setLoading(false);
   }
 
@@ -128,6 +165,7 @@ export default function ControlTareas() {
     // realtime: refrescar al cambiar tareas
     const ch = supabase.channel('control-tareas')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'tareas' }, () => load())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'tareas_previsional' }, () => load())
       .subscribe();
     return () => { supabase.removeChannel(ch); };
   }, []);
