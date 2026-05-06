@@ -58,12 +58,13 @@ export function useCasosGenerales() {
 
   useEffect(() => {
     fetchCasos();
-    const channel = supabase
-      .channel('casos-generales-rt')
+    // Unique name prevents "cannot add callbacks after subscribe()" on StrictMode double-mount
+    const ch = supabase
+      .channel(`casos-generales-rt-${Date.now()}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'casos_generales' }, fetchCasos)
       .subscribe();
-    return () => { supabase.removeChannel(channel); };
-  }, [fetchCasos]);
+    return () => { supabase.removeChannel(ch); };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const saveCaso = useCallback(async (
     data: Partial<Omit<CasoGeneral, 'id' | 'created_at' | 'updated_at'>>,

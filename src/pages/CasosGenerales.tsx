@@ -1,10 +1,15 @@
-import { useState, useMemo, useRef } from 'react';
+import { useState, useMemo, useRef, useEffect } from 'react';
 import {
   Search, Plus, Upload, Download, Trash2, Archive, Filter,
   ExternalLink, ChevronRight, AlertCircle, CheckCircle2,
   Loader2, X, Scale, Calendar, Gavel, FolderOpen,
-  Clock, Star, RefreshCw, Pencil, Eye
+  Clock, Star, RefreshCw, Pencil, Eye, Columns3, LayoutGrid,
 } from 'lucide-react';
+import {
+  DndContext, DragEndEvent, DragOverlay, PointerSensor,
+  useSensor, useSensors, rectIntersection, useDraggable, useDroppable,
+} from '@dnd-kit/core';
+import { CSS } from '@dnd-kit/utilities';
 import { useCasosGenerales, CasoGeneral, ESTADOS_CASO_GENERAL, TIPOS_CASO, ABOGADOS } from '../hooks/useCasosGenerales';
 import { useToast } from '../context/ToastContext';
 import { supabase } from '../lib/supabase';
@@ -549,11 +554,176 @@ function NotionImportModal({ onClose, onImported }: { onClose: () => void; onImp
   );
 }
 
-// ─── Main Page ─────────────────────────────────────────────────────────────────
-export default function CasosGenerales() {
-  const { casos, loading, refetch, deleteCaso, deleteMany } = useCasosGenerales();
+// ─── Kanban ───────────────────────────────────────────────────────────────────
+const KANBAN_COLUMNS = [
+  { key: 'activos',                            label: 'Activos',        border: 'border-t-emerald-500', badge: 'bg-emerald-500/10 text-emerald-400', dot: 'bg-emerald-400' },
+  { key: 'federales',                          label: 'Federales',      border: 'border-t-blue-500',    badge: 'bg-blue-500/10 text-blue-400',       dot: 'bg-blue-400' },
+  { key: 'esperando sentencias',               label: 'En espera',      border: 'border-t-amber-500',   badge: 'bg-amber-500/10 text-amber-400',     dot: 'bg-amber-400' },
+  { key: 'complicacion judicial/analisis',     label: 'En análisis',    border: 'border-t-orange-500',  badge: 'bg-orange-500/10 text-orange-400',   dot: 'bg-orange-400' },
+  { key: 'suspendido por falta de directivas', label: 'Sin directivas', border: 'border-t-gray-500',    badge: 'bg-gray-500/10 text-gray-400',       dot: 'bg-gray-400' },
+  { key: 'suspendido por falta de pago',       label: 'Sin pago',       border: 'border-t-red-500',     badge: 'bg-red-500/10 text-red-400',         dot: 'bg-red-400' },
+];
+
+function KanbanCard({ caso, onSelect, onDelete, confirmDel, askDel }: {
+  caso: CasoGeneral;
+  onSelect: (c: CasoGeneral) => void;
+  onDelete: (id: string) => void;
+  confirmDel: string | null;
+  askDel: (id: string) => void;
+}) {
+  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: caso.id });
+  const style = { transform: CSS.Translate.toString(transform), opacity: isDragging ? 0.25 : 1, touchAction: 'none' as const };
+  return (
+    <div ref={setNodeRef} style={style} {...attributes} {...listeners}
+      className="relative group p-3 rounded-xl bg-white/[0.03] border border-white/[0.07] hover:bg-white/[0.06] hover:border-white/10 transition-all cursor-grab active:cursor-grabbing select-none">
+      <button
+        onPointerDown={e => e.stopPropagation()}
+        onClick={e => { e.stopPropagation(); askDel(caso.id); }}
+        title={confirmDel === caso.id ? 'Confirmar' : 'Eliminar'}
+        className={`absolute top-1.5 right-1.5 p-1 rounded-md transition-colors ${confirmDel === caso.id ? 'bg-red-500/20 text-red-400 opacity-100' : 'opacity-0 group-hover:opacity-100 text-gray-500 hover:text-red-400 hover:bg-red-500/10'}`}
+      >
+        <Trash2 className="w-3 h-3" />
+      </button>
+      <button className="w-full text-left" onPointerDown={e => e.stopPropagation()} onClick={() => onSelect(caso)}>
+        <div className="flex items-start gap-1.5 pr-5">
+          {caso.prioridad && <Star className="w-3 h-3 fill-amber-400 text-amber-400 mt-0.5 shrink-0" />}
+          <p className="text-[11px] font-medium text-white leading-tight line-clamp-2">{caso.titulo}</p>
+        </div>
+        {caso.tipo_caso && (
+          <span className="inline-block mt-1.5 px-1.5 py-0.5 rounded-full bg-white/5 text-[10px] text-gray-400 capitalize">{caso.tipo_caso}</span>
+        )}
+        {caso.abogado && (
+          <div className="flex items-center gap-1.5 mt-1.5">
+            <div className={`w-4 h-4 rounded-full bg-gradient-to-br ${getAbogadoColor(caso.abogado)} flex items-center justify-center text-[8px] font-bold text-white shrink-0`}>
+              {abogadoInitials(caso.abogado)}
+            </div>
+            <span className="text-[10px] text-gray-500 truncate">{caso.abogado}</span>
+          </div>
+        )}
+        <div className="flex flex-wrap gap-1.5 mt-1.5">
+          {caso.audiencias && (
+            <span className={`text-[10px] flex items-center gap-0.5 ${isOverdue(caso.audiencias) ? 'text-red-400' : 'text-blue-400'}`}>
+              <Calendar className="w-2.5 h-2.5" />{formatDate(caso.audiencias)}
+            </span>
+          )}
+          {caso.vencimiento && (
+            <span className={`text-[10px] flex items-center gap-0.5 ${isOverdue(caso.vencimiento) ? 'text-red-400' : 'text-amber-400'}`}>
+              <Clock className="w-2.5 h-2.5" />{formatDate(caso.vencimiento)}
+            </span>
+          )}
+        </div>
+      </button>
+    </div>
+  );
+}
+
+function KanbanDropCol({ col, count, isOver, children }: {
+  col: typeof KANBAN_COLUMNS[0]; count: number; isOver: boolean; children: React.ReactNode;
+}) {
+  const { setNodeRef } = useDroppable({ id: col.key });
+  return (
+    <div ref={setNodeRef}
+      className={`glass-card p-0 overflow-hidden border-t-2 ${col.border} transition-all ${isOver ? 'ring-2 ring-white/20 scale-[1.01]' : ''}`}>
+      <div className="px-3 py-2.5 flex items-center justify-between border-b border-white/[0.06]">
+        <div className="flex items-center gap-2 min-w-0">
+          <div className={`w-2 h-2 rounded-full flex-shrink-0 ${col.dot}`} />
+          <h3 className="text-xs font-semibold text-white truncate">{col.label}</h3>
+        </div>
+        <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium flex-shrink-0 ml-1 ${col.badge}`}>{count}</span>
+      </div>
+      <div className="p-2 space-y-2 min-h-[80px] max-h-[65vh] overflow-y-auto">
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function CasosKanban({ casos, onSelect, onDelete, saveCaso }: {
+  casos: CasoGeneral[];
+  onSelect: (c: CasoGeneral) => void;
+  onDelete: (id: string) => void;
+  saveCaso: (data: Partial<Omit<CasoGeneral, 'id' | 'created_at' | 'updated_at'>>, id?: string) => Promise<{ ok: boolean }>;
+}) {
+  const [items, setItems] = useState<CasoGeneral[]>(casos);
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const [confirmDel, setConfirmDel] = useState<string | null>(null);
+  const [overCol, setOverCol] = useState<string | null>(null);
   const { showToast } = useToast();
 
+  useEffect(() => { setItems(casos); }, [casos]);
+
+  const colKeys = KANBAN_COLUMNS.map(c => c.key);
+
+  const askDel = (id: string) => {
+    if (confirmDel === id) { onDelete(id); setConfirmDel(null); }
+    else { setConfirmDel(id); setTimeout(() => setConfirmDel(p => p === id ? null : p), 3000); }
+  };
+
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }));
+  const activeCaso = items.find(c => c.id === activeId) ?? null;
+
+  const grouped = KANBAN_COLUMNS.reduce<Record<string, CasoGeneral[]>>((acc, col) => {
+    acc[col.key] = items.filter(c => (c.estado?.toLowerCase() ?? '') === col.key);
+    return acc;
+  }, {});
+  // casos sin estado válido → activos
+  items.filter(c => !colKeys.includes(c.estado?.toLowerCase() ?? '')).forEach(c => grouped['activos'].push(c));
+
+  async function handleDragEnd(e: DragEndEvent) {
+    const { active, over } = e;
+    setActiveId(null); setOverCol(null);
+    if (!over) return;
+    const newEstado = colKeys.includes(over.id as string)
+      ? (over.id as string)
+      : (items.find(c => c.id === over.id)?.estado ?? null);
+    if (!newEstado) return;
+    const card = items.find(c => c.id === active.id);
+    if (!card || card.estado === newEstado) return;
+    setItems(prev => prev.map(c => c.id === active.id ? { ...c, estado: newEstado } : c));
+    const r = await saveCaso({ estado: newEstado } as any, active.id as string);
+    if (!r.ok) {
+      showToast('No se pudo mover', 'error');
+      setItems(prev => prev.map(c => c.id === active.id ? { ...c, estado: card.estado } : c));
+    } else {
+      showToast(`→ ${KANBAN_COLUMNS.find(c => c.key === newEstado)?.label ?? newEstado}`, 'success');
+    }
+  }
+
+  return (
+    <DndContext sensors={sensors} collisionDetection={rectIntersection}
+      onDragStart={e => setActiveId(e.active.id as string)}
+      onDragOver={e => setOverCol(e.over?.id as string ?? null)}
+      onDragEnd={handleDragEnd}
+      onDragCancel={() => { setActiveId(null); setOverCol(null); }}>
+      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
+        {KANBAN_COLUMNS.map(col => (
+          <KanbanDropCol key={col.key} col={col} count={grouped[col.key]?.length ?? 0} isOver={overCol === col.key}>
+            {(grouped[col.key]?.length ?? 0) === 0
+              ? <p className="text-[10px] text-gray-600 text-center py-6">Sin casos</p>
+              : grouped[col.key].map(c => (
+                  <KanbanCard key={c.id} caso={c} onSelect={onSelect} onDelete={onDelete} confirmDel={confirmDel} askDel={askDel} />
+                ))
+            }
+          </KanbanDropCol>
+        ))}
+      </div>
+      <DragOverlay dropAnimation={null}>
+        {activeCaso && (
+          <div className="p-3 rounded-xl shadow-2xl w-44 select-none" style={{ background: '#1a1a2e', border: '1px solid rgba(139,92,246,0.4)' }}>
+            <p className="text-[11px] font-medium text-white leading-tight line-clamp-2">{activeCaso.titulo}</p>
+          </div>
+        )}
+      </DragOverlay>
+    </DndContext>
+  );
+}
+
+// ─── Main Page ─────────────────────────────────────────────────────────────────
+export default function CasosGenerales() {
+  const { casos, loading, refetch, saveCaso, deleteCaso, deleteMany } = useCasosGenerales();
+  const { showToast } = useToast();
+
+  const [view, setView] = useState<'tarjetas' | 'kanban'>('tarjetas');
   const [search, setSearch] = useState('');
   const [filtroEstado, setFiltroEstado] = useState('');
   const [filtroTipo, setFiltroTipo] = useState('');
@@ -700,6 +870,23 @@ export default function CasosGenerales() {
           Filtros {activeFilters > 0 && <span className="rounded-full bg-violet-500 text-white text-[10px] px-1.5">{activeFilters}</span>}
         </button>
 
+        <div className="flex items-center rounded-xl border border-white/10 overflow-hidden">
+          <button
+            onClick={() => setView('tarjetas')}
+            className={`px-3 py-2 transition-colors ${view === 'tarjetas' ? 'bg-violet-500/20 text-violet-300' : 'text-gray-500 hover:text-white'}`}
+            title="Vista tarjetas"
+          >
+            <LayoutGrid className="w-3.5 h-3.5" />
+          </button>
+          <button
+            onClick={() => setView('kanban')}
+            className={`px-3 py-2 transition-colors ${view === 'kanban' ? 'bg-violet-500/20 text-violet-300' : 'text-gray-500 hover:text-white'}`}
+            title="Vista kanban"
+          >
+            <Columns3 className="w-3.5 h-3.5" />
+          </button>
+        </div>
+
         <label className="flex items-center gap-2 text-sm text-gray-400 cursor-pointer">
           <div
             onClick={() => setMostrarArchivados(!mostrarArchivados)}
@@ -743,7 +930,7 @@ export default function CasosGenerales() {
         </div>
       )}
 
-      {/* Cards grid */}
+      {/* Content */}
       {filtered.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-20 text-gray-500">
           <Scale className="w-12 h-12 mb-3 opacity-20" />
@@ -753,6 +940,13 @@ export default function CasosGenerales() {
             <Plus className="w-4 h-4" /> Nuevo caso
           </button>
         </div>
+      ) : view === 'kanban' ? (
+        <CasosKanban
+          casos={filtered}
+          onSelect={c => setDetailCaso(c)}
+          onDelete={handleDelete}
+          saveCaso={saveCaso}
+        />
       ) : (
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
           {filtered.map(c => (
