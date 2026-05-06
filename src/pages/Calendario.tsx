@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
-import { ChevronLeft, ChevronRight, RefreshCw, Link as LinkIcon, Unlink, ExternalLink, Gavel, CalendarClock, Briefcase } from 'lucide-react';
+import { ChevronLeft, ChevronRight, RefreshCw, Link as LinkIcon, Unlink, ExternalLink, Gavel, CalendarClock, Briefcase, Plus, X } from 'lucide-react';
 
 type EventoCal = {
   id: string;
@@ -45,6 +45,63 @@ export default function Calendario() {
   const [diaSeleccionado, setDiaSeleccionado] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
+  const [nuevoEvento, setNuevoEvento] = useState<null | {
+    fecha: string; hora: string; duracion: number;
+    titulo: string; descripcion: string; ubicacion: string;
+    todoElDia: boolean; guardando: boolean;
+  }>(null);
+
+  function abrirNuevoEvento(fechaKey: string) {
+    setNuevoEvento({
+      fecha: fechaKey,
+      hora: '10:00',
+      duracion: 60,
+      titulo: '',
+      descripcion: '',
+      ubicacion: '',
+      todoElDia: false,
+      guardando: false,
+    });
+  }
+
+  async function guardarNuevoEvento() {
+    if (!nuevoEvento || !user) return;
+    if (!conectado) { setMsg('Primero conectá Google Calendar.'); return; }
+    if (!nuevoEvento.titulo.trim()) { setMsg('Poné un título al evento.'); return; }
+    setNuevoEvento({ ...nuevoEvento, guardando: true });
+    try {
+      const startISO = nuevoEvento.todoElDia
+        ? `${nuevoEvento.fecha}T00:00:00`
+        : `${nuevoEvento.fecha}T${nuevoEvento.hora}:00`;
+      const startDate = new Date(startISO);
+      const endDate = new Date(startDate.getTime() + Math.max(15, nuevoEvento.duracion) * 60_000);
+      const r = await fetch('/api/google/create-event', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          user_id: user.id,
+          summary: nuevoEvento.titulo,
+          description: nuevoEvento.descripcion,
+          location: nuevoEvento.ubicacion,
+          start: startDate.toISOString(),
+          end: endDate.toISOString(),
+          allDay: nuevoEvento.todoElDia,
+        }),
+      });
+      const j = await r.json();
+      if (!j.ok) {
+        setMsg('❌ No se pudo crear: ' + (j.error || 'error'));
+        setNuevoEvento({ ...nuevoEvento, guardando: false });
+        return;
+      }
+      setMsg('✅ Evento creado en Google Calendar.');
+      setNuevoEvento(null);
+      // refrescar la grilla forzando un re-fetch (cambia un dummy en cursor)
+      setCursor(new Date(cursor));
+    } catch (e: any) {
+      setMsg('❌ ' + (e?.message || 'error'));
+      setNuevoEvento({ ...nuevoEvento, guardando: false });
+    }
+  }
 
   // Mensaje desde callback
   useEffect(() => {
@@ -309,11 +366,20 @@ export default function Calendario() {
       {/* Detalle del dia seleccionado */}
       {diaSeleccionado && (
         <div className="rounded-xl border border-white/10 bg-[#0c0c0e] p-4 space-y-3">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between gap-2 flex-wrap">
             <h3 className="text-white font-semibold">
               Eventos del {new Date(diaSeleccionado).toLocaleDateString('es-AR', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' })}
             </h3>
-            <button onClick={() => setDiaSeleccionado(null)} className="text-xs text-gray-500 hover:text-white">Cerrar</button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => abrirNuevoEvento(diaSeleccionado)}
+                className="text-xs px-2.5 py-1.5 rounded-md bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-200 border border-emerald-500/30 flex items-center gap-1"
+                title={conectado ? 'Crear evento en Google Calendar' : 'Conectá Google Calendar primero'}
+              >
+                <Plus className="w-3.5 h-3.5" /> Nuevo evento
+              </button>
+              <button onClick={() => setDiaSeleccionado(null)} className="text-xs text-gray-500 hover:text-white">Cerrar</button>
+            </div>
           </div>
           {seleccion.length === 0 ? (
             <p className="text-sm text-gray-500">Sin eventos.</p>
@@ -370,6 +436,104 @@ export default function Calendario() {
       )}
 
       {loading && <div className="text-xs text-gray-500">Cargando eventos…</div>}
+
+      {/* Modal Nuevo evento */}
+      {nuevoEvento && (
+        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => !nuevoEvento.guardando && setNuevoEvento(null)}>
+          <div className="w-full max-w-md rounded-2xl bg-[#0c0c0e] border border-white/10 p-5 space-y-4" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between">
+              <h3 className="text-white font-semibold flex items-center gap-2"><Plus className="w-4 h-4 text-emerald-300" /> Nuevo evento</h3>
+              <button onClick={() => setNuevoEvento(null)} disabled={nuevoEvento.guardando} className="text-gray-400 hover:text-white"><X className="w-4 h-4" /></button>
+            </div>
+
+            {!conectado && (
+              <div className="text-xs px-3 py-2 rounded-md bg-amber-500/10 text-amber-200 border border-amber-500/30">
+                Necesitás conectar Google Calendar para crear eventos.
+              </div>
+            )}
+
+            <div className="space-y-3 text-sm">
+              <div>
+                <label className="text-[11px] uppercase tracking-wider text-gray-500">Título</label>
+                <input
+                  autoFocus
+                  value={nuevoEvento.titulo}
+                  onChange={(e) => setNuevoEvento({ ...nuevoEvento, titulo: e.target.value })}
+                  placeholder="Reunión con cliente…"
+                  className="w-full mt-1 px-3 py-2 rounded-md bg-white/5 border border-white/10 text-white placeholder:text-gray-600 focus:outline-none focus:border-white/30"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-[11px] uppercase tracking-wider text-gray-500">Fecha</label>
+                  <input type="date" value={nuevoEvento.fecha}
+                    onChange={(e) => setNuevoEvento({ ...nuevoEvento, fecha: e.target.value })}
+                    className="w-full mt-1 px-3 py-2 rounded-md bg-white/5 border border-white/10 text-white focus:outline-none focus:border-white/30"
+                  />
+                </div>
+                {!nuevoEvento.todoElDia && (
+                  <div>
+                    <label className="text-[11px] uppercase tracking-wider text-gray-500">Hora</label>
+                    <input type="time" value={nuevoEvento.hora}
+                      onChange={(e) => setNuevoEvento({ ...nuevoEvento, hora: e.target.value })}
+                      className="w-full mt-1 px-3 py-2 rounded-md bg-white/5 border border-white/10 text-white focus:outline-none focus:border-white/30"
+                    />
+                  </div>
+                )}
+              </div>
+
+              {!nuevoEvento.todoElDia && (
+                <div>
+                  <label className="text-[11px] uppercase tracking-wider text-gray-500">Duración (minutos)</label>
+                  <input type="number" min={15} step={15} value={nuevoEvento.duracion}
+                    onChange={(e) => setNuevoEvento({ ...nuevoEvento, duracion: parseInt(e.target.value) || 60 })}
+                    className="w-full mt-1 px-3 py-2 rounded-md bg-white/5 border border-white/10 text-white focus:outline-none focus:border-white/30"
+                  />
+                </div>
+              )}
+
+              <label className="flex items-center gap-2 text-xs text-gray-300">
+                <input type="checkbox" checked={nuevoEvento.todoElDia}
+                  onChange={(e) => setNuevoEvento({ ...nuevoEvento, todoElDia: e.target.checked })}
+                />
+                Evento de todo el día
+              </label>
+
+              <div>
+                <label className="text-[11px] uppercase tracking-wider text-gray-500">Ubicación</label>
+                <input value={nuevoEvento.ubicacion}
+                  onChange={(e) => setNuevoEvento({ ...nuevoEvento, ubicacion: e.target.value })}
+                  placeholder="Opcional…"
+                  className="w-full mt-1 px-3 py-2 rounded-md bg-white/5 border border-white/10 text-white placeholder:text-gray-600 focus:outline-none focus:border-white/30"
+                />
+              </div>
+
+              <div>
+                <label className="text-[11px] uppercase tracking-wider text-gray-500">Descripción</label>
+                <textarea value={nuevoEvento.descripcion}
+                  onChange={(e) => setNuevoEvento({ ...nuevoEvento, descripcion: e.target.value })}
+                  rows={3}
+                  placeholder="Notas, agenda…"
+                  className="w-full mt-1 px-3 py-2 rounded-md bg-white/5 border border-white/10 text-white placeholder:text-gray-600 focus:outline-none focus:border-white/30 resize-none"
+                />
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <button onClick={() => setNuevoEvento(null)} disabled={nuevoEvento.guardando}
+                className="px-3 py-2 text-xs rounded-md bg-white/5 hover:bg-white/10 text-gray-300 border border-white/10">
+                Cancelar
+              </button>
+              <button onClick={guardarNuevoEvento} disabled={nuevoEvento.guardando || !conectado}
+                className="px-3 py-2 text-xs rounded-md bg-emerald-500 hover:bg-emerald-400 text-black font-medium disabled:opacity-50 flex items-center gap-1.5">
+                {nuevoEvento.guardando && <RefreshCw className="w-3 h-3 animate-spin" />}
+                Crear en Google Calendar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
