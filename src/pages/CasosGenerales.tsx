@@ -1055,10 +1055,29 @@ function CasosKanban({ casos, onSelect, onDelete, saveCaso }: {
   const [overCol, setOverCol] = useState<string | null>(null);
   const [confirmDel, setConfirmDel] = useState<string | null>(null);
   const { showToast } = useToast();
-  // savingRef: prevents the realtime-triggered useEffect from reverting
-  // the optimistic update while the DB write is still in flight.
-  const savingRef = useRef(false);
-  useEffect(() => { if (!savingRef.current) setItems(casos); }, [casos]);
+  // pendingOverrides: id → estado that we just set optimistically.
+  // While the entry exists, fetched data for that id is overridden so realtime
+  // updates (which may briefly return stale data right after a save) cannot
+  // bounce the card back. Cleared once the fetched data confirms the new estado.
+  const pendingRef = useRef<Map<string, string>>(new Map());
+  useEffect(() => {
+    setItems(prev => {
+      const next = casos.map(c => {
+        const pending = pendingRef.current.get(c.id);
+        if (pending !== undefined) {
+          if (c.estado === pending) {
+            // server confirmed our optimistic value — we can stop overriding
+            pendingRef.current.delete(c.id);
+            return c;
+          }
+          // server returned stale data; keep showing the optimistic estado
+          return { ...c, estado: pending };
+        }
+        return c;
+      });
+      return next;
+    });
+  }, [casos]);
 
   const askDel = (id: string) => {
     if (confirmDel === id) { onDelete(id); setConfirmDel(null); }
@@ -1093,14 +1112,15 @@ function CasosKanban({ casos, onSelect, onDelete, saveCaso }: {
     const card = items.find(c => c.id === active.id);
     if (!card || card.estado === newEstado) return;
 
-    // Optimistic update — guard against RT-triggered useEffect resetting state
-    savingRef.current = true;
+    // Optimistic update + register the override so subsequent fetches don't bounce it back.
+    pendingRef.current.set(active.id as string, newEstado);
     setItems(prev => prev.map(c => c.id === active.id ? { ...c, estado: newEstado! } : c));
     const r = await saveCaso({ estado: newEstado }, active.id as string);
-    savingRef.current = false;
     if (!r.ok) {
-      showToast('No se pudo mover: ' + (r.error ?? ''), 'error');
+      // rollback: clear override and restore original estado
+      pendingRef.current.delete(active.id as string);
       setItems(prev => prev.map(c => c.id === active.id ? { ...c, estado: card.estado } : c));
+      showToast('No se pudo mover: ' + (r.error ?? ''), 'error');
     } else {
       showToast(`Movido a ${eLabel(newEstado)}`, 'success');
     }
