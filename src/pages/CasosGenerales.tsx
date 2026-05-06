@@ -348,46 +348,45 @@ function CaseDetailModal({ caso: initial, onClose, onSaved }: {
     <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
       <div className="modal-content sm:max-w-2xl sm:rounded-2xl !overflow-hidden flex flex-col">
         {/* Header */}
-        <div className="shrink-0 px-6 pt-5 pb-4 border-b border-white/[0.06] bg-gradient-to-br from-[#141418]/95 to-[#111115]/95">
-          {/* Fila 1: badges + cerrar */}
-          <div className="flex items-start justify-between gap-3 mb-2">
-            <div className="flex flex-wrap items-center gap-2 min-w-0">
+        <div className="shrink-0 px-5 sm:px-6 pt-4 pb-3 border-b border-white/[0.06] bg-gradient-to-br from-[#141418]/95 to-[#111115]/95">
+          {/* Fila 1: badges + acciones + cerrar (todo inline) */}
+          <div className="flex items-center justify-between gap-2 mb-2 flex-wrap">
+            <div className="flex flex-wrap items-center gap-1.5 min-w-0">
               <span className={`badge border ${eColor(editing.estado ?? null)}`}>
                 {eLabel(editing.estado ?? null)}
               </span>
               {editing.prioridad && (
                 <span className="badge border bg-amber-500/10 text-amber-400 border-amber-500/20 flex items-center gap-1">
-                  <Star className="w-3 h-3 fill-amber-400"/>Alta prioridad
+                  <Star className="w-3 h-3 fill-amber-400"/>Alta
                 </span>
               )}
             </div>
-            <button onClick={onClose}
-              className="w-8 h-8 flex items-center justify-center rounded-xl bg-white/5 hover:bg-red-500/20 hover:text-red-300 text-gray-400 transition-colors shrink-0">
-              <X className="w-4 h-4"/>
-            </button>
+            <div className="flex items-center gap-1.5 ml-auto">
+              {!isNew && editing.id && (
+                <button onClick={() => setAudOpen(true)}
+                  title="Agendar audiencia para este caso"
+                  className="px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-orange-500/15 hover:bg-orange-500/25 border border-orange-500/40 text-orange-200 flex items-center gap-1">
+                  <Gavel className="w-3 h-3" /> Audiencia
+                </button>
+              )}
+              {!isNew && (
+                <button onClick={() => setEditMode(m => !m)}
+                  className={`px-2.5 py-1 rounded-lg text-[11px] font-medium transition-colors ${editMode ? 'bg-violet-500/20 text-violet-300' : 'bg-white/5 text-gray-400 hover:text-white'}`}>
+                  {editMode ? 'Ver' : 'Editar'}
+                </button>
+              )}
+              <button onClick={onClose}
+                className="w-7 h-7 flex items-center justify-center rounded-lg bg-white/5 hover:bg-red-500/20 hover:text-red-300 text-gray-400 transition-colors shrink-0">
+                <X className="w-4 h-4"/>
+              </button>
+            </div>
           </div>
-          {/* Fila 2: titulo */}
-          <h2 className="text-base font-bold text-white leading-tight pr-2">
+          {/* Fila 2: titulo + expediente */}
+          <h2 className="text-base font-bold text-white leading-tight">
             {isNew ? (editing.titulo || 'Nuevo caso') : editing.titulo}
           </h2>
           {editing.expediente && (
             <p className="text-xs text-gray-500 font-mono mt-0.5">{editing.expediente}</p>
-          )}
-          {/* Fila 3: acciones (audiencia / editar) */}
-          {!isNew && (
-            <div className="flex flex-wrap items-center gap-2 mt-3">
-              {editing.id && (
-                <button onClick={() => setAudOpen(true)}
-                  title="Agendar audiencia para este caso"
-                  className="px-3 py-1.5 rounded-xl text-xs font-semibold bg-orange-500/15 hover:bg-orange-500/25 border border-orange-500/40 text-orange-200 flex items-center gap-1.5">
-                  <Gavel className="w-3.5 h-3.5" /> Agendar audiencia
-                </button>
-              )}
-              <button onClick={() => setEditMode(m => !m)}
-                className={`px-3 py-1.5 rounded-xl text-xs font-medium transition-colors ${editMode ? 'bg-violet-500/20 text-violet-300' : 'bg-white/5 text-gray-400 hover:text-white'}`}>
-                {editMode ? 'Ver' : 'Editar'}
-              </button>
-            </div>
           )}
         </div>
 
