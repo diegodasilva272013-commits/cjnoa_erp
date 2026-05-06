@@ -125,9 +125,7 @@ LEFT JOIN public.casos           c  ON c.id  = t.caso_id
 LEFT JOIN public.clientes        cl ON cl.id = c.cliente_id
 LEFT JOIN public.perfiles    p_resp   ON p_resp.id   = t.responsable_id
 LEFT JOIN public.perfiles    p_create ON p_create.id = t.created_by
-WHERE t.archivada = false
-  AND t.cargo_hora IS NOT NULL
-  AND length(trim(t.cargo_hora)) > 0;
+WHERE t.archivada = false;
 
 GRANT SELECT ON public.control_tareas_v TO authenticated;
 
