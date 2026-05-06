@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { useTareas, uploadTareaAdjunto, getTareaAdjuntoUrl } from '../hooks/useTareas';
 import { useCases } from '../hooks/useCases';
+import { useCasosGenerales } from '../hooks/useCasosGenerales';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
 import { useAvatarUrl } from '../hooks/useAvatarUrl';
@@ -26,6 +27,7 @@ export default function Tareas() {
   const { user } = useAuth();
   const { tareas, loading, upsert, completar, reabrir, archivar } = useTareas();
   const { casos } = useCases();
+  const { casos: casosGenerales } = useCasosGenerales();
   const [perfiles, setPerfiles] = useState<PerfilLite[]>([]);
 
   const [view, setView] = useState<'lista' | 'kanban' | 'calendario' | 'responsable'>('lista');
@@ -188,6 +190,7 @@ export default function Tareas() {
         <TareaModal
           tarea={selected}
           casos={casos}
+          casosGenerales={casosGenerales}
           perfiles={perfiles}
           onClose={() => { setModalOpen(false); setSelected(null); }}
           onSave={async (t) => { const ok = await upsert(t, user?.id || ''); if (ok) { setModalOpen(false); setSelected(null); } }}
@@ -582,9 +585,10 @@ function ResponsableView({ tareas, perfiles, onOpen, isVencida }: {
 // ============================================
 // TareaModal
 // ============================================
-function TareaModal({ tarea, casos, perfiles, onClose, onSave }: {
+function TareaModal({ tarea, casos, casosGenerales, perfiles, onClose, onSave }: {
   tarea: TareaCompleta | null;
   casos: any[];
+  casosGenerales: any[];
   perfiles: PerfilLite[];
   onClose: () => void;
   onSave: (t: any) => void;
@@ -593,6 +597,7 @@ function TareaModal({ tarea, casos, perfiles, onClose, onSave }: {
     id: tarea?.id,
     titulo: tarea?.titulo || '',
     caso_id: tarea?.caso_id || '',
+    caso_general_id: tarea?.caso_general_id || '',
     descripcion: tarea?.descripcion || '',
     culminacion: tarea?.culminacion || '',
     cargo_hora: tarea?.cargo_hora || '',
@@ -629,6 +634,7 @@ function TareaModal({ tarea, casos, perfiles, onClose, onSave }: {
     onSave({
       ...form,
       caso_id: form.caso_id || null,
+      caso_general_id: form.caso_general_id || null,
       responsable_id: form.responsable_id || null,
       fecha_limite: form.fecha_limite || null,
     });
@@ -652,11 +658,20 @@ function TareaModal({ tarea, casos, perfiles, onClose, onSave }: {
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
-            <label className="text-[10px] text-gray-500 uppercase tracking-wider">Cliente / Caso</label>
-            <select value={form.caso_id} onChange={e => setForm(s => ({ ...s, caso_id: e.target.value }))} className="select-dark text-sm mt-1">
+            <label className="text-[10px] text-gray-500 uppercase tracking-wider flex items-center gap-1"><FileText className="w-3 h-3 text-blue-400" /> Cliente / Caso legal</label>
+            <select value={form.caso_id} onChange={e => setForm(s => ({ ...s, caso_id: e.target.value, caso_general_id: e.target.value ? '' : s.caso_general_id }))} className="select-dark text-sm mt-1">
               <option value="">— Sin vincular —</option>
               {casos.map((c: any) => (
                 <option key={c.id} value={c.id}>{c.nombre_apellido} {c.expediente ? `· ${c.expediente}` : ''}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="text-[10px] text-gray-500 uppercase tracking-wider flex items-center gap-1"><Briefcase className="w-3 h-3 text-purple-400" /> Caso general</label>
+            <select value={form.caso_general_id} onChange={e => setForm(s => ({ ...s, caso_general_id: e.target.value, caso_id: e.target.value ? '' : s.caso_id }))} className="select-dark text-sm mt-1">
+              <option value="">— Sin vincular —</option>
+              {casosGenerales.filter((c: any) => !c.archivado).map((c: any) => (
+                <option key={c.id} value={c.id}>{c.titulo}{c.expediente ? ` · ${c.expediente}` : ''}</option>
               ))}
             </select>
           </div>
