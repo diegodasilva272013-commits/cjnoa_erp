@@ -71,7 +71,22 @@ export function useIngresos() {
   const [syncingCases, setSyncingCases] = useState(false);
   const { showToast } = useToast();
 
+  const cleanupOrphans = useCallback(async () => {
+    // Borra ingresos auto-generados cuyo caso ya no existe (caso_id NULL).
+    // No toca ingresos manuales (es_manual=true) ni los que tienen caso vivo.
+    try {
+      await supabase
+        .from('ingresos')
+        .delete()
+        .eq('es_manual', false)
+        .is('caso_id', null);
+    } catch {
+      // silencioso: si falla por RLS u otro motivo, no rompemos la carga
+    }
+  }, []);
+
   const readIngresos = useCallback(async () => {
+    await cleanupOrphans();
     const { data, error } = await supabase
       .from('ingresos')
       .select('*')
@@ -82,7 +97,7 @@ export function useIngresos() {
     }
 
     setIngresos((data || []) as Ingreso[]);
-  }, []);
+  }, [cleanupOrphans]);
 
   const fetchIngresos = useCallback(async (options?: { syncHistoricalCases?: boolean }) => {
     const shouldSyncHistoricalCases = options?.syncHistoricalCases === true;
@@ -118,6 +133,11 @@ export function useIngresos() {
     const channel = supabase
       .channel('ingresos-realtime')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'ingresos' }, () => {
+        fetchIngresos();
+      })
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'casos' }, () => {
+        // Si se borra un caso en cualquier parte de la app, refrescar ingresos
+        // (la cascada de la FK + cleanupOrphans dejan la lista consistente)
         fetchIngresos();
       })
       .subscribe();

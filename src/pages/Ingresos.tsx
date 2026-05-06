@@ -48,6 +48,7 @@ export default function Ingresos() {
   const [page, setPage] = useState(0);
   const [compact, setCompact] = useState(() => sessionStorage.getItem('ingresos_compact') === '1');
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [bulkDeleting, setBulkDeleting] = useState(false);
   const pageSize = 50;
 
   function getIngresoOrigen(ingreso: { es_manual: boolean; concepto: string | null }): { label: string; to: string | null; badge: string } {
@@ -209,6 +210,78 @@ export default function Ingresos() {
     }
   }
 
+  async function handleDeleteAllIngresos() {
+    const total = filtered.length;
+    if (total === 0) return;
+    const hayFiltro = !!(filtroFechaDesde || filtroFechaHasta || filtroSocio || filtroFuente || filtroModalidad);
+    const txt = hayFiltro
+      ? `los ${total} ingresos del filtro actual`
+      : `TODOS los ${total} ingresos`;
+    if (!window.confirm(`¿Eliminás ${txt}? Los autogenerados se desmarcarán en su origen. Esta acción NO se puede deshacer.`)) return;
+    const conf = window.prompt(`Para confirmar, escribí: BORRAR ${total}`);
+    if (conf !== `BORRAR ${total}`) { showToast('Cancelado', 'info'); return; }
+
+    setBulkDeleting(true);
+    let ok = 0, fail = 0;
+    const ids = filtered.map(i => i.id);
+
+    // Estrategia rápida: para los manuales, delete directo en bulk.
+    const manuales = filtered.filter(i => i.es_manual).map(i => i.id);
+    if (manuales.length > 0) {
+      const { data, error } = await supabase.from('ingresos').delete().in('id', manuales).select('id');
+      if (error) {
+        fail += manuales.length;
+      } else {
+        ok += data?.length || 0;
+        fail += manuales.length - (data?.length || 0);
+      }
+    }
+
+    // Para los auto-generados, ir uno por uno con la lógica de origen.
+    const autos = filtered.filter(i => !i.es_manual);
+    for (const ing of autos) {
+      try {
+        const ref = parseIncomeReference(ing.notas).reference;
+        if (ref?.type === 'cuota') {
+          await supabase.from('cuotas').update({ estado: 'Pendiente', fecha_pago: null }).eq('id', ref.id);
+        } else if (ref?.type === 'pago_unico') {
+          await supabase.from('casos_completos').update({ pago_unico_pagado: false }).eq('id', ref.caseId);
+        } else {
+          // Buscar origen en consultas_agendadas / casos_pagos / casos_pagos_cuotas
+          const [{ data: ca }, { data: cpr }, { data: cps }, { data: cpc }] = await Promise.all([
+            supabase.from('consultas_agendadas').select('id').eq('ingreso_reserva_id', ing.id).maybeSingle(),
+            supabase.from('casos_pagos').select('id').eq('ingreso_reserva_id', ing.id).maybeSingle(),
+            supabase.from('casos_pagos').select('id').eq('ingreso_saldo_id', ing.id).maybeSingle(),
+            supabase.from('casos_pagos_cuotas').select('id').eq('ingreso_id', ing.id).maybeSingle(),
+          ]);
+          if (ca) await supabase.from('consultas_agendadas').update({ reserva_pagada: false }).eq('id', ca.id);
+          else if (cpr) await supabase.from('casos_pagos').update({ reserva_pagada: false }).eq('id', cpr.id);
+          else if (cps) await supabase.from('casos_pagos').update({ saldo_pagado: false }).eq('id', cps.id);
+          else if (cpc) await supabase.from('casos_pagos_cuotas').update({ estado: 'Pendiente', fecha_pago: null }).eq('id', cpc.id);
+        }
+        // Verificar y forzar borrado si trigger no actuó
+        const { data: still } = await supabase.from('ingresos').select('id').eq('id', ing.id).maybeSingle();
+        if (still) {
+          const { data: dr } = await supabase.from('ingresos').delete().eq('id', ing.id).select('id');
+          if (dr && dr.length > 0) ok++;
+          else fail++;
+        } else {
+          ok++;
+        }
+      } catch {
+        fail++;
+      }
+    }
+
+    setBulkDeleting(false);
+    await refetch();
+    void ids; // referencia, evita warnings si se reordena
+    showToast(
+      `${ok} eliminado${ok === 1 ? '' : 's'}${fail ? `, ${fail} con error` : ''}`,
+      fail ? 'error' : 'success'
+    );
+  }
+
   const filtered = useMemo(() => ingresos.filter(ingreso => {
     if (filtroFechaDesde && ingreso.fecha < filtroFechaDesde) return false;
     if (filtroFechaHasta && ingreso.fecha > filtroFechaHasta) return false;
@@ -332,6 +405,15 @@ export default function Ingresos() {
           <button onClick={() => setManualModalOpen(true)} className="btn-primary flex items-center gap-2 text-sm">
             <Plus className="h-4 w-4" />
             <span className="hidden sm:inline">Ingreso manual</span>
+          </button>
+          <button
+            onClick={handleDeleteAllIngresos}
+            disabled={filtered.length === 0 || bulkDeleting}
+            className="flex items-center gap-2 text-sm px-3 py-2 rounded-xl border border-red-500/30 bg-red-500/10 text-red-300 hover:bg-red-500/20 disabled:opacity-40 disabled:cursor-not-allowed"
+            title="Eliminar todos los ingresos del filtro actual (manuales y solo-manuales). Los automáticos requieren desmarcar el origen."
+          >
+            <Trash2 className="h-4 w-4" />
+            <span className="hidden sm:inline">{bulkDeleting ? 'Borrando…' : 'Eliminar todos'}</span>
           </button>
         </div>
       </div>
