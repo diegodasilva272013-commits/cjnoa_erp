@@ -10,14 +10,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (error) return res.redirect(`/calendario?google_error=${encodeURIComponent(error)}`);
     if (!code || !state) return res.status(400).send('Faltan code o state');
 
-    const clientId = process.env.GOOGLE_CLIENT_ID;
-    const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
-    const redirectUri = process.env.GOOGLE_REDIRECT_URI;
+    const clientId = process.env.GOOGLE_CLIENT_ID || process.env.id_cliente_calendar;
+    const clientSecret = process.env.GOOGLE_CLIENT_SECRET || process.env.secret_calendar;
+    const host = (req.headers['x-forwarded-host'] as string) || req.headers.host || '';
+    const proto = (req.headers['x-forwarded-proto'] as string) || 'https';
+    const redirectUri = process.env.GOOGLE_REDIRECT_URI || (host ? `${proto}://${host}/api/google/callback` : '');
     const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
     const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
     if (!clientId || !clientSecret || !redirectUri || !supabaseUrl || !serviceRoleKey) {
-      return res.status(500).send('Faltan variables de entorno');
+      return res.status(500).send('Faltan variables de entorno (id_cliente_calendar / secret_calendar / SUPABASE_*)');
     }
 
     const tokenRes = await fetch('https://oauth2.googleapis.com/token', {

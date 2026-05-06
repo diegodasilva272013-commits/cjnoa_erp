@@ -35,10 +35,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const { audiencia_id, source } = (req.body || {}) as { audiencia_id?: string; source?: string };
     if (!audiencia_id) return res.status(400).json({ error: 'audiencia_id requerido' });
 
-    const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL!;
-    const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-    const clientId = process.env.GOOGLE_CLIENT_ID!;
-    const clientSecret = process.env.GOOGLE_CLIENT_SECRET!;
+    const supabaseUrl = (process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL) as string;
+    const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY as string;
+    const clientId = (process.env.GOOGLE_CLIENT_ID || process.env.id_cliente_calendar) as string;
+    const clientSecret = (process.env.GOOGLE_CLIENT_SECRET || process.env.secret_calendar) as string;
     if (!supabaseUrl || !serviceRoleKey || !clientId || !clientSecret) {
       return res.status(500).json({ error: 'Faltan variables de entorno' });
     }

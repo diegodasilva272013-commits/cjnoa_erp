@@ -5,10 +5,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const userId = (req.query.user_id as string) || '';
     if (!userId) return res.status(400).json({ error: 'user_id requerido' });
 
-    const clientId = process.env.GOOGLE_CLIENT_ID;
-    const redirectUri = process.env.GOOGLE_REDIRECT_URI;
+    const clientId = process.env.GOOGLE_CLIENT_ID || process.env.id_cliente_calendar;
+    const host = (req.headers['x-forwarded-host'] as string) || req.headers.host || '';
+    const proto = (req.headers['x-forwarded-proto'] as string) || 'https';
+    const redirectUri = process.env.GOOGLE_REDIRECT_URI || (host ? `${proto}://${host}/api/google/callback` : '');
     if (!clientId || !redirectUri) {
-      return res.status(500).json({ error: 'Faltan GOOGLE_CLIENT_ID / GOOGLE_REDIRECT_URI' });
+      return res.status(500).json({ error: 'Faltan id_cliente_calendar (GOOGLE_CLIENT_ID) o redirect_uri' });
     }
 
     const scope = [
