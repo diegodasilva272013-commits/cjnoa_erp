@@ -14,6 +14,7 @@ import { useCasosGenerales, CasoGeneral, TIPOS_CASO, ABOGADOS } from '../hooks/u
 import { useToast } from '../context/ToastContext';
 import { supabase } from '../lib/supabase';
 import NotasFeedPanel from '../components/cases/NotasFeedPanel';
+import ArchivosCasoGeneralPanel from '../components/cases/ArchivosCasoGeneralPanel';
 
 // ─── Estado constants (same pattern as PIPELINE_COLORS in previsional) ─────────
 const ESTADOS_ORDERED = [
@@ -477,6 +478,12 @@ function CaseDetailModal({ caso: initial, onClose, onSaved }: {
               {!isNew && editing.id && (
                 <div className="pt-3 border-t border-white/[0.06]">
                   <NotasFeedPanel casoId={editing.id} />
+                </div>
+              )}
+              {/* Archivos: fotos / PDFs / audios / cualquier tipo */}
+              {!isNew && editing.id && (
+                <div className="pt-3 border-t border-white/[0.06]">
+                  <ArchivosCasoGeneralPanel casoId={editing.id} />
                 </div>
               )}
               {/* Histórico importado de Notion (colapsable) */}
