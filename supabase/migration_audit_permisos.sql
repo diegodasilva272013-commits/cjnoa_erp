@@ -64,9 +64,10 @@ CREATE OR REPLACE VIEW audit_log_permisos_completo AS
 SELECT
   a.*,
   p.nombre  AS perfil_nombre,
-  p.email   AS perfil_email,
+  u.email   AS perfil_email,
   pc.nombre AS changed_by_nombre
 FROM audit_log_permisos a
-LEFT JOIN perfiles p  ON p.id = a.perfil_id
-LEFT JOIN perfiles pc ON pc.id = a.changed_by
+LEFT JOIN perfiles p   ON p.id = a.perfil_id
+LEFT JOIN auth.users u ON u.id = a.perfil_id
+LEFT JOIN perfiles pc  ON pc.id = a.changed_by
 ORDER BY a.created_at DESC;
