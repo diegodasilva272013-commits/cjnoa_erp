@@ -6,7 +6,7 @@ import { ChevronLeft, ChevronRight, RefreshCw, Link as LinkIcon, Unlink, Externa
 
 type EventoCal = {
   id: string;
-  source: 'audiencia_general' | 'consulta' | 'audiencia_legal';
+  source: 'audiencia_general' | 'consulta' | 'audiencia_legal' | 'gcal';
   fecha: Date;
   titulo: string;
   subtitulo?: string;
@@ -92,7 +92,12 @@ export default function Calendario() {
       supabase.from('audiencias')
         .select('*')
         .gte('fecha', startISO).lte('fecha', endISO),
-    ]).then(([ag, cs, al]) => {
+      // Eventos directos del Google Calendar del usuario (si esta conectado)
+      conectado && user
+        ? fetch(`/api/google/list-events?user_id=${encodeURIComponent(user.id)}&timeMin=${encodeURIComponent(startISO)}&timeMax=${encodeURIComponent(endISO)}`)
+            .then(r => r.json()).catch(() => ({ events: [] }))
+        : Promise.resolve({ events: [] as any[] }),
+    ]).then(([ag, cs, al, gc]) => {
       if (!alive) return;
       const out: EventoCal[] = [];
       (ag.data || []).forEach((r: any) => {
@@ -132,12 +137,32 @@ export default function Calendario() {
           raw: r,
         });
       });
+      // Eventos de Google Calendar (excluye los que ya creamos nosotros para no duplicar)
+      const idsLocales = new Set(
+        (ag.data || [])
+          .map((r: any) => r.google_event_id)
+          .filter(Boolean)
+      );
+      ((gc as any).events || []).forEach((e: any) => {
+        if (!e.start) return;
+        if (idsLocales.has(e.id)) return;
+        out.push({
+          id: 'gc-' + e.id,
+          source: 'gcal',
+          fecha: new Date(e.start),
+          titulo: e.summary || '(sin título)',
+          subtitulo: e.location || e.description || '',
+          color: 'border-emerald-400/40',
+          bg: 'bg-emerald-500/15 text-emerald-200',
+          raw: e,
+        });
+      });
       setEventos(out.sort((a,b) => a.fecha.getTime() - b.fecha.getTime()));
       setLoading(false);
     });
 
     return () => { alive = false; };
-  }, [cursor]);
+  }, [cursor, conectado, user]);
 
   const grid = useMemo(() => buildGrid(cursor), [cursor]);
   const eventosPorDia = useMemo(() => {
@@ -247,6 +272,7 @@ export default function Calendario() {
         <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-orange-500/60" /> Audiencias generales</span>
         <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-violet-500/60" /> Consultas</span>
         <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-sky-500/60" /> Audiencias (casos legales)</span>
+        <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-emerald-500/60" /> Google Calendar</span>
       </div>
 
       <div className="grid grid-cols-7 gap-px bg-white/5 border border-white/10 rounded-xl overflow-hidden text-[11px]">
