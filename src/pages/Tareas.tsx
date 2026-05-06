@@ -3,6 +3,7 @@ import {
   Plus, Search, ListTodo, Columns3, Calendar as CalendarIcon,
   Clock, CheckCircle, AlertTriangle, Trash2, User, X, Paperclip,
   Filter, Edit2, FileDown, Briefcase, FileText, ArrowRight, Eye,
+  ExternalLink,
 } from 'lucide-react';
 import { useTareas, uploadTareaAdjunto, getTareaAdjuntoUrl } from '../hooks/useTareas';
 import { useCases } from '../hooks/useCases';
@@ -44,6 +45,7 @@ export default function Tareas() {
   const [filterSemana, setFilterSemana] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
   const [selected, setSelected] = useState<TareaCompleta | null>(null);
+  const [drawerCaso, setDrawerCaso] = useState<{ type: 'general' | 'legal'; id: string } | null>(null);
   const [confirmDel, setConfirmDel] = useState<string | null>(null);
 
   useEffect(() => {
@@ -180,6 +182,7 @@ export default function Tareas() {
         </div>
       ) : view === 'lista' ? (
         <ListaView tareas={filtered} onOpen={t => { setSelected(t); setModalOpen(true); }}
+          onOpenCaso={(type, id) => setDrawerCaso({ type, id })}
           onCompletar={id => completar(id, user?.id || '')}
           onReabrir={id => reabrir(id, user?.id || '')}
           onArchivar={handleArchivar} confirmDel={confirmDel} isVencida={isVencida} />
@@ -200,6 +203,15 @@ export default function Tareas() {
           perfiles={perfiles}
           onClose={() => { setModalOpen(false); setSelected(null); }}
           onSave={async (t) => { const ok = await upsert(t, user?.id || ''); if (ok) { setModalOpen(false); setSelected(null); } }}
+        />
+      )}
+
+      {drawerCaso && (
+        <CasoDetalleDrawer
+          tipo={drawerCaso.type}
+          casoId={drawerCaso.id}
+          onClose={() => setDrawerCaso(null)}
+          onOpenTarea={(t) => { setDrawerCaso(null); setSelected(t); setModalOpen(true); }}
         />
       )}
     </div>
@@ -224,39 +236,46 @@ function MiniAvatar({ path, nombre, size = 24 }: { path?: string | null; nombre?
 }
 
 // ============================================
-// CasoInfoBar
+// CasoInfoBar (clickable -> abre drawer con todo el caso)
 // ============================================
-function CasoInfoBar({ t }: { t: TareaCompleta }) {
+function CasoInfoBar({ t, onOpenCaso }: {
+  t: TareaCompleta;
+  onOpenCaso?: (type: 'general' | 'legal', id: string) => void;
+}) {
   const hasCasoGeneral = !!t.caso_general_id;
-  const hasCaso = !!t.cliente_nombre || !!t.expediente_caso;
+  const hasCaso = !!t.caso_id;
   if (!hasCasoGeneral && !hasCaso) return null;
   const palette = hasCasoGeneral
-    ? { bg: 'bg-violet-500/[0.06]', border: 'border-violet-500/20', icon: 'text-violet-300', text: 'text-violet-200', mono: 'text-violet-400/70' }
-    : { bg: 'bg-emerald-500/[0.06]', border: 'border-emerald-500/20', icon: 'text-emerald-300', text: 'text-emerald-100', mono: 'text-emerald-400/70' };
+    ? { bg: 'bg-violet-500/[0.08]', hover: 'hover:bg-violet-500/[0.15]', border: 'border-violet-500/30', icon: 'text-violet-300', text: 'text-violet-100', mono: 'text-violet-400/80' }
+    : { bg: 'bg-emerald-500/[0.08]', hover: 'hover:bg-emerald-500/[0.15]', border: 'border-emerald-500/30', icon: 'text-emerald-300', text: 'text-emerald-100', mono: 'text-emerald-400/80' };
   return (
-    <div className={`mt-2.5 flex items-center gap-2 px-3 py-2 rounded-xl border ${palette.bg} ${palette.border} text-[11px]`}>
-      {hasCasoGeneral ? (
-        <>
-          <Briefcase className={`w-3.5 h-3.5 flex-shrink-0 ${palette.icon}`} />
-          <span className={`font-semibold truncate ${palette.text}`}>{t.caso_general_titulo}</span>
-          {t.caso_general_expediente && <span className={`font-mono text-[10px] truncate ${palette.mono}`}>· {t.caso_general_expediente}</span>}
-        </>
-      ) : (
-        <>
-          <FileText className={`w-3.5 h-3.5 flex-shrink-0 ${palette.icon}`} />
-          {t.cliente_nombre && <span className={`font-semibold truncate ${palette.text}`}>{t.cliente_nombre}</span>}
-          {t.expediente_caso && <span className={`font-mono text-[10px] truncate ${palette.mono}`}>· {t.expediente_caso}</span>}
-        </>
+    <button type="button"
+      onClick={e => {
+        e.stopPropagation();
+        if (onOpenCaso) onOpenCaso(hasCasoGeneral ? 'general' : 'legal', (hasCasoGeneral ? t.caso_general_id : t.caso_id) as string);
+      }}
+      className={`mt-2.5 w-full flex items-center gap-2 px-3 py-2 rounded-xl border transition-all ${palette.bg} ${palette.hover} ${palette.border} text-[11px] text-left group`}
+      title="Ver detalle completo del caso">
+      {hasCasoGeneral ? <Briefcase className={`w-3.5 h-3.5 flex-shrink-0 ${palette.icon}`} /> : <FileText className={`w-3.5 h-3.5 flex-shrink-0 ${palette.icon}`} />}
+      <span className={`font-semibold truncate ${palette.text}`}>
+        {hasCasoGeneral ? t.caso_general_titulo : t.cliente_nombre}
+      </span>
+      {(hasCasoGeneral ? t.caso_general_expediente : t.expediente_caso) && (
+        <span className={`font-mono text-[10px] truncate ${palette.mono}`}>· {hasCasoGeneral ? t.caso_general_expediente : t.expediente_caso}</span>
       )}
-    </div>
+      <span className={`ml-auto text-[10px] ${palette.mono} opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1 flex-shrink-0`}>
+        Ver caso <ArrowRight className="w-3 h-3" />
+      </span>
+    </button>
   );
 }
 
 // ============================================
 // ListaView
 // ============================================
-function ListaView({ tareas, onOpen, onCompletar, onReabrir, onArchivar, confirmDel, isVencida }: {
+function ListaView({ tareas, onOpen, onOpenCaso, onCompletar, onReabrir, onArchivar, confirmDel, isVencida }: {
   tareas: TareaCompleta[]; onOpen: (t: TareaCompleta) => void;
+  onOpenCaso: (type: 'general' | 'legal', id: string) => void;
   onCompletar: (id: string) => void; onReabrir: (id: string) => void;
   onArchivar: (t: TareaCompleta) => void; confirmDel: string | null;
   isVencida: (t: TareaCompleta) => boolean;
@@ -307,7 +326,7 @@ function ListaView({ tareas, onOpen, onCompletar, onReabrir, onArchivar, confirm
           </div>
 
           {/* Row 2: caso info bar (full width, color según tipo) */}
-          <CasoInfoBar t={t} />
+          <CasoInfoBar t={t} onOpenCaso={onOpenCaso} />
 
           {/* Row 3: grid simétrico  [personas]  [chips meta]  */}
           <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3 items-center">
@@ -771,6 +790,242 @@ function TareaModal({ tarea, casos, casosGenerales, perfiles, onClose, onSave }:
           </button>
         </div>
       </form>
+    </div>
+  );
+}
+
+// ============================================
+// CasoDetalleDrawer — toda la info del caso + notas + tareas
+// ============================================
+function CasoDetalleDrawer({ tipo, casoId, onClose, onOpenTarea }: {
+  tipo: 'general' | 'legal';
+  casoId: string;
+  onClose: () => void;
+  onOpenTarea: (t: TareaCompleta) => void;
+}) {
+  const [caso, setCaso] = useState<any>(null);
+  const [tareasCaso, setTareasCaso] = useState<TareaCompleta[]>([]);
+  const [notas, setNotas] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      setLoading(true);
+      // 1. cargar el caso
+      let casoData: any = null;
+      if (tipo === 'general') {
+        const { data } = await supabase.from('casos_generales').select('*').eq('id', casoId).maybeSingle();
+        casoData = data;
+      } else {
+        const { data } = await supabase.from('casos_completos').select('*').eq('id', casoId).maybeSingle();
+        casoData = data;
+      }
+      if (!alive) return;
+      setCaso(casoData);
+
+      // 2. cargar tareas del caso (de la vista v2 con avatares)
+      const filterCol = tipo === 'general' ? 'caso_general_id' : 'caso_id';
+      let q = await supabase.from('tareas_completas_v2').select('*').eq(filterCol, casoId).eq('archivada', false).order('created_at', { ascending: false });
+      if (q.error && (q.error.code === '42P01' || /does not exist/i.test(q.error.message))) {
+        q = await supabase.from('tareas_completas').select('*').eq(filterCol, casoId).eq('archivada', false).order('created_at', { ascending: false });
+      }
+      if (!alive) return;
+      setTareasCaso((q.data as TareaCompleta[]) || []);
+
+      // 3. cargar notas (solo casos generales tienen notas)
+      if (tipo === 'general') {
+        let n = await supabase.from('caso_general_notas_completo').select('*').eq('caso_id', casoId).order('created_at', { ascending: false });
+        if (n.error) n = await supabase.from('caso_general_notas').select('*').eq('caso_id', casoId).order('created_at', { ascending: false }) as any;
+        if (!alive) return;
+        setNotas(n.data || []);
+      } else {
+        setNotas([]);
+      }
+      setLoading(false);
+    })();
+
+    // realtime: refetch on changes
+    const ch = supabase.channel(`caso-drawer-${casoId}-${Date.now()}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'tareas' }, () => {
+        if (!alive) return;
+        const filterCol = tipo === 'general' ? 'caso_general_id' : 'caso_id';
+        supabase.from('tareas_completas_v2').select('*').eq(filterCol, casoId).eq('archivada', false).order('created_at', { ascending: false })
+          .then(({ data }) => alive && data && setTareasCaso(data as TareaCompleta[]));
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'caso_general_notas' }, () => {
+        if (!alive || tipo !== 'general') return;
+        supabase.from('caso_general_notas_completo').select('*').eq('caso_id', casoId).order('created_at', { ascending: false })
+          .then(({ data }) => alive && data && setNotas(data));
+      })
+      .subscribe();
+
+    return () => { alive = false; supabase.removeChannel(ch); };
+  }, [tipo, casoId]);
+
+  const fmt = (d: string | null | undefined) => d ? new Date(d).toLocaleDateString('es-AR', { day: '2-digit', month: 'short', year: 'numeric' }) : '—';
+  const fmtDateTime = (d: string | null | undefined) => d ? new Date(d).toLocaleString('es-AR', { dateStyle: 'short', timeStyle: 'short' }) : '—';
+
+  const palette = tipo === 'general'
+    ? { ring: 'ring-violet-500/30', text: 'text-violet-300', bg: 'bg-violet-500/10', border: 'border-violet-500/30', icon: Briefcase }
+    : { ring: 'ring-emerald-500/30', text: 'text-emerald-300', bg: 'bg-emerald-500/10', border: 'border-emerald-500/30', icon: FileText };
+  const Icon = palette.icon;
+
+  const titulo = tipo === 'general' ? caso?.titulo : caso?.nombre_apellido;
+  const expediente = caso?.expediente;
+
+  return (
+    <div className="fixed inset-0 z-50 flex">
+      <div className="flex-1 bg-black/70 backdrop-blur-sm" onClick={onClose} />
+      <div className={`w-full max-w-2xl h-full overflow-y-auto bg-[#0a0a0a] border-l ${palette.border} shadow-2xl ring-1 ${palette.ring} animate-fade-in`}>
+        {loading ? (
+          <div className="flex items-center justify-center h-full">
+            <div className="w-6 h-6 border-2 border-violet-500/30 border-t-violet-500 rounded-full animate-spin" />
+          </div>
+        ) : !caso ? (
+          <div className="p-8 text-center text-gray-500">
+            <p>No se encontró el caso</p>
+            <button onClick={onClose} className="mt-4 btn-secondary text-xs">Cerrar</button>
+          </div>
+        ) : (
+          <div className="p-6 space-y-5">
+            {/* Header */}
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-start gap-3 min-w-0">
+                <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${palette.bg} border ${palette.border}`}>
+                  <Icon className={`w-5 h-5 ${palette.text}`} />
+                </div>
+                <div className="min-w-0">
+                  <p className={`text-[10px] font-medium uppercase tracking-widest ${palette.text}`}>
+                    {tipo === 'general' ? 'Caso general' : 'Caso legal'}
+                  </p>
+                  <h2 className="text-xl font-bold text-white truncate">{titulo || 'Sin título'}</h2>
+                  {expediente && <p className="text-xs text-gray-500 font-mono mt-0.5">{expediente}</p>}
+                </div>
+              </div>
+              <button onClick={onClose} className="text-gray-500 hover:text-white p-1.5 rounded-lg hover:bg-white/5">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Datos del caso */}
+            <div className="grid grid-cols-2 gap-2">
+              {tipo === 'general' ? (
+                <>
+                  <Field label="Estado" value={caso.estado} />
+                  <Field label="Tipo de caso" value={caso.tipo_caso} />
+                  <Field label="Abogado" value={caso.abogado} />
+                  <Field label="Personería" value={caso.personeria} />
+                  <Field label="Próx. audiencia" value={fmt(caso.audiencias)} />
+                  <Field label="Vencimiento" value={fmt(caso.vencimiento)} />
+                  <Field label="Estadísticas" value={caso.estadisticas_estado} />
+                  <Field label="Prioridad" value={caso.prioridad ? 'Sí' : 'No'} />
+                </>
+              ) : (
+                <>
+                  <Field label="Cliente" value={caso.nombre_apellido} />
+                  <Field label="Expediente" value={caso.expediente} mono />
+                  <Field label="Tipo" value={caso.tipo_caso} />
+                  <Field label="Estado" value={caso.estado} />
+                  <Field label="Juzgado" value={caso.juzgado} />
+                  <Field label="Carátula" value={caso.caratula} full />
+                  <Field label="Honorarios" value={caso.honorarios_total != null ? `$${Number(caso.honorarios_total).toLocaleString('es-AR')}` : null} />
+                  <Field label="Fecha inicio" value={fmt(caso.fecha_inicio)} />
+                </>
+              )}
+            </div>
+
+            {tipo === 'general' && caso.radicado && (
+              <Field label="Tribunal / Radicado" value={caso.radicado} full />
+            )}
+            {tipo === 'general' && caso.url_drive && (
+              <a href={caso.url_drive} target="_blank" rel="noopener noreferrer"
+                className="flex items-center gap-2 px-3 py-2 rounded-xl bg-violet-500/10 border border-violet-500/20 text-violet-300 text-xs hover:bg-violet-500/20 transition-colors">
+                <ExternalLink className="w-3.5 h-3.5" /> Abrir carpeta en Drive
+              </a>
+            )}
+            {tipo === 'general' && caso.actualizacion && (
+              <details className="bg-white/[0.025] rounded-xl border border-white/[0.05] group">
+                <summary className="cursor-pointer px-3 py-2 flex items-center justify-between hover:bg-white/[0.03] rounded-xl">
+                  <p className="text-[10px] text-gray-500 uppercase tracking-widest">Histórico</p>
+                  <span className="text-[10px] text-gray-600 group-open:hidden">Ver ▾</span>
+                  <span className="text-[10px] text-gray-600 hidden group-open:inline">Ocultar ▴</span>
+                </summary>
+                <div className="p-3 pt-0 border-t border-white/[0.04]">
+                  <p className="text-xs text-gray-400 whitespace-pre-wrap leading-relaxed">{caso.actualizacion}</p>
+                </div>
+              </details>
+            )}
+
+            {/* Tareas del caso */}
+            <div className="pt-4 border-t border-white/[0.06]">
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                  <ListTodo className="w-4 h-4 text-violet-300" />
+                  Tareas <span className="text-gray-500 font-normal">({tareasCaso.length})</span>
+                </h3>
+              </div>
+              <div className="space-y-1.5">
+                {tareasCaso.length === 0 && <p className="text-xs text-gray-600 italic">Este caso no tiene tareas todavía.</p>}
+                {tareasCaso.map(t => (
+                  <button key={t.id} onClick={() => onOpenTarea(t)}
+                    className="w-full text-left flex items-center gap-2 p-2 rounded-lg hover:bg-white/[0.04] border border-transparent hover:border-white/10 transition-colors">
+                    <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
+                      t.estado === 'completada' ? 'bg-emerald-500' : t.prioridad === 'alta' ? 'bg-orange-500' : 'bg-violet-500'
+                    }`} />
+                    <span className={`text-xs flex-1 truncate ${t.estado === 'completada' ? 'text-gray-500 line-through' : 'text-white'}`}>{t.titulo}</span>
+                    {t.responsable_nombre && <MiniAvatar path={t.responsable_avatar} nombre={t.responsable_nombre} size={18} />}
+                    {t.fecha_limite && (
+                      <span className="text-[10px] text-gray-500 flex-shrink-0">
+                        {new Date(t.fecha_limite).toLocaleDateString('es-AR', { day: '2-digit', month: 'short' })}
+                      </span>
+                    )}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Notas (solo caso general) */}
+            {tipo === 'general' && (
+              <div className="pt-4 border-t border-white/[0.06]">
+                <h3 className="text-sm font-bold text-white flex items-center gap-2 mb-2">
+                  <FileText className="w-4 h-4 text-violet-300" />
+                  Notas del seguimiento <span className="text-gray-500 font-normal">({notas.length})</span>
+                </h3>
+                <div className="space-y-2">
+                  {notas.length === 0 && <p className="text-xs text-gray-600 italic">Sin notas todavía.</p>}
+                  {notas.map(n => (
+                    <div key={n.id} className="p-3 rounded-xl bg-white/[0.02] border border-white/[0.05]">
+                      <div className="flex items-center gap-2 mb-1">
+                        <MiniAvatar path={n.autor_avatar} nombre={n.autor_nombre} size={20} />
+                        <span className="text-xs font-medium text-white">{n.autor_nombre || 'Sistema'}</span>
+                        <span className="text-[10px] text-gray-600">· {fmtDateTime(n.created_at)}</span>
+                        {n.editado && <span className="text-[10px] text-gray-600 italic">(editado)</span>}
+                      </div>
+                      <p className="text-xs text-gray-300 whitespace-pre-wrap leading-relaxed">{n.contenido}</p>
+                      {n.tarea_titulo && (
+                        <div className="mt-2 px-2 py-1 rounded-lg bg-violet-500/10 border border-violet-500/20 text-[10px] text-violet-300 inline-flex items-center gap-1">
+                          <ListTodo className="w-3 h-3" /> Tarea: {n.tarea_titulo}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function Field({ label, value, mono, full }: { label: string; value: any; mono?: boolean; full?: boolean }) {
+  if (!value) return null;
+  return (
+    <div className={`bg-white/[0.025] rounded-xl p-3 border border-white/[0.05] ${full ? 'col-span-2' : ''}`}>
+      <p className="text-[10px] text-gray-500 uppercase tracking-widest mb-1">{label}</p>
+      <p className={`text-sm text-white font-medium ${mono ? 'font-mono text-xs' : ''}`}>{value}</p>
     </div>
   );
 }
