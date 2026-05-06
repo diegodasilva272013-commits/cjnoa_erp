@@ -472,6 +472,18 @@ export default function NotasFeedPanel({ casoId }: { casoId: string }) {
           </button>
         </div>
 
+        {/* Acciones rápidas: agendar audiencia desde aquí */}
+        <div className="flex flex-wrap gap-2 border-t border-white/5 pt-3">
+          <button
+            type="button"
+            onClick={() => setAudModalOpen(true)}
+            className="flex items-center gap-2 text-xs px-3 py-2 rounded-xl bg-orange-500/15 hover:bg-orange-500/30 border border-orange-500/40 text-orange-200 font-semibold transition-colors"
+            title="Agendar una audiencia para este caso"
+          >
+            <Gavel className="w-4 h-4" /> Agendar audiencia para este caso
+          </button>
+        </div>
+
         {conTarea && (
           <div className="space-y-2 border-t border-white/5 pt-3">
             <input
