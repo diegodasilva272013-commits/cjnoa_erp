@@ -1,11 +1,12 @@
 import { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Plus, Download, LayoutList, LayoutGrid, Briefcase, CheckSquare, X, ChevronDown, Trash2 } from 'lucide-react';
+import { Plus, Download, LayoutList, LayoutGrid, Briefcase, CheckSquare, X, ChevronDown, Trash2, Upload } from 'lucide-react';
 import { useCases, filterCases, emptyFilters } from '../hooks/useCases';
 import CaseTable from '../components/cases/CaseTable';
 import CaseKanban from '../components/cases/CaseKanban';
 import CaseFilters from '../components/cases/CaseFilters';
 import CaseModal from '../components/cases/CaseModal';
+import CaseImportModal from '../components/cases/CaseImportModal';
 import { CasoCompleto, FilterState, EstadoCaso, ESTADOS_CASO } from '../types/database';
 import { exportToExcel } from '../lib/exportExcel';
 import { supabase } from '../lib/supabase';
@@ -20,6 +21,7 @@ export default function Cases() {
     busqueda: searchParams.get('q') || '',
   }));
   const [modalOpen, setModalOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
   const [selectedCaso, setSelectedCaso] = useState<CasoCompleto | null>(null);
   const [viewMode, setViewMode] = useState<'list' | 'kanban'>(() => (sessionStorage.getItem('cases-view') as 'list' | 'kanban') || 'list');
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -176,6 +178,10 @@ export default function Cases() {
             <Download className="w-4 h-4" />
             <span className="hidden sm:inline">Exportar Excel</span>
           </button>
+          <button onClick={() => setImportOpen(true)} className="btn-secondary flex items-center gap-2 text-sm">
+            <Upload className="w-4 h-4" />
+            <span className="hidden sm:inline">Importar Excel</span>
+          </button>
           <button
             onClick={handleDeleteAll}
             disabled={filteredCasos.length === 0 || bulkLoading}
@@ -269,6 +275,11 @@ export default function Cases() {
         onClose={() => { setModalOpen(false); setSelectedCaso(null); }}
         caso={selectedCaso}
         onSaved={refetch}
+      />
+      <CaseImportModal
+        open={importOpen}
+        onClose={() => setImportOpen(false)}
+        onImported={refetch}
       />
     </div>
   );
