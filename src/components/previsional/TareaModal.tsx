@@ -7,7 +7,7 @@ import {
   PRIORIDAD_LABELS, ESTADO_TAREA_LABELS,
 } from '../../types/previsional';
 import { useAuth } from '../../context/AuthContext';
-import { supabase } from '../../lib/supabase';
+import { usePerfilesList } from '../../hooks/usePerfilesList';
 
 interface Props {
   open: boolean;
@@ -23,7 +23,7 @@ const ESTADOS: EstadoTarea[] = ['pendiente', 'en_curso', 'completada'];
 export default function TareaModal({ open, onClose, tarea, clientes, onSave }: Props) {
   const { user } = useAuth();
   const [saving, setSaving] = useState(false);
-  const [perfiles, setPerfiles] = useState<{id:string; nombre:string; rol:string}[]>([]);
+  const { perfiles, loading: loadingPerfiles } = usePerfilesList();
   const [form, setForm] = useState({
     titulo: '',
     descripcion: '',
@@ -32,18 +32,13 @@ export default function TareaModal({ open, onClose, tarea, clientes, onSave }: P
     estado: 'pendiente' as EstadoTarea,
     prioridad: 'sin_prioridad' as PrioridadTarea,
     fecha_limite: '',
+    responsable_id: '',
     responsable_nombre: '',
     derivada_a: '',
     cargo_hora: '',
     cargo_hora_fecha: '',
     observaciones_demora: '',
   });
-
-  useEffect(() => {
-    supabase.from('perfiles').select('id, nombre, rol').eq('activo', true).order('nombre').then(({ data }) => {
-      if (data) setPerfiles(data as any);
-    });
-  }, []);
 
   useEffect(() => {
     if (tarea) {
@@ -55,6 +50,7 @@ export default function TareaModal({ open, onClose, tarea, clientes, onSave }: P
         estado: tarea.estado,
         prioridad: tarea.prioridad,
         fecha_limite: tarea.fecha_limite || '',
+        responsable_id: tarea.responsable_id || '',
         responsable_nombre: tarea.responsable_nombre || '',
         derivada_a: tarea.derivada_a || '',
         cargo_hora: tarea.cargo_hora || '',
@@ -65,7 +61,7 @@ export default function TareaModal({ open, onClose, tarea, clientes, onSave }: P
       setForm({
         titulo: '', descripcion: '', avance: '', cliente_prev_id: '',
         estado: 'pendiente', prioridad: 'sin_prioridad', fecha_limite: '',
-        responsable_nombre: '', derivada_a: '', cargo_hora: '', cargo_hora_fecha: '',
+        responsable_id: '', responsable_nombre: '', derivada_a: '', cargo_hora: '', cargo_hora_fecha: '',
         observaciones_demora: '',
       });
     }
@@ -80,6 +76,7 @@ export default function TareaModal({ open, onClose, tarea, clientes, onSave }: P
       descripcion: form.descripcion || null,
       avance: form.avance || null,
       fecha_limite: form.fecha_limite || null,
+      responsable_id: form.responsable_id || null,
       responsable_nombre: form.responsable_nombre || null,
       derivada_a: form.derivada_a || null,
       cargo_hora: form.cargo_hora || null,
@@ -132,18 +129,29 @@ export default function TareaModal({ open, onClose, tarea, clientes, onSave }: P
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-gray-400 mb-1.5">Responsable</label>
-            <input
-              type="text"
-              value={form.responsable_nombre}
-              onChange={e => setForm({ ...form, responsable_nombre: e.target.value })}
-              className="input-dark"
-              placeholder="Nombre del responsable"
-            />
+            <label className="block text-xs font-medium text-gray-400 mb-1.5">Asignado a (responsable) *</label>
+            <select
+              value={form.responsable_id}
+              onChange={e => {
+                const id = e.target.value;
+                const p = perfiles.find(x => x.id === id);
+                setForm({ ...form, responsable_id: id, responsable_nombre: p?.nombre || '' });
+              }}
+              className="select-dark"
+            >
+              <option value="">— Sin asignar —</option>
+              {perfiles.map(p => (
+                <option key={p.id} value={p.id}>{p.nombre}{p.rol ? ` · ${p.rol}` : ''}</option>
+              ))}
+            </select>
+            {loadingPerfiles && <p className="text-[10px] text-gray-500 mt-1">Cargando usuarios…</p>}
+            {!loadingPerfiles && perfiles.length === 0 && (
+              <p className="text-[10px] text-amber-400 mt-1">No se encontraron usuarios activos. Verificá permisos en Supabase.</p>
+            )}
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-gray-400 mb-1.5">Derivada a (usuario)</label>
+            <label className="block text-xs font-medium text-gray-400 mb-1.5">Derivada a (opcional)</label>
             <select
               value={form.derivada_a}
               onChange={e => setForm({ ...form, derivada_a: e.target.value })}
