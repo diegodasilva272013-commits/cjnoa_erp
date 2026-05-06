@@ -7,6 +7,7 @@ const Layout = lazy(() => import('./components/Layout'));
 const Login = lazy(() => import('./pages/Login'));
 const Dashboard = lazy(() => import('./pages/Dashboard'));
 const Cases = lazy(() => import('./pages/Cases'));
+const CasosGenerales = lazy(() => import('./pages/CasosGenerales'));
 const AgendamientoConsultas = lazy(() => import('./pages/AgendamientoConsultas'));
 const CasosPagos = lazy(() => import('./pages/CasosPagos'));
 const Ingresos = lazy(() => import('./pages/Ingresos'));
@@ -27,7 +28,7 @@ const CargosHora = lazy(() => import('./pages/CargosHora'));
 
 function ProtectedRoute({ modulo, children }: { modulo: 'dashboard' | 'casos' | 'finanzas' | 'equipo' | 'agenda' | 'previsional' | 'honorarios'; children: React.ReactNode }) {
   const { canSee } = usePermisos();
-  if (!canSee(modulo)) return <Navigate to="/casos-trabajo" replace />;
+  if (!canSee(modulo)) return <Navigate to="/casos-generales" replace />;
   return <>{children}</>;
 }
 
@@ -70,8 +71,9 @@ export default function App() {
       <Routes>
         <Route element={<Layout />}>
           <Route path="/" element={<ProtectedRoute modulo="dashboard"><Dashboard /></ProtectedRoute>} />
-          <Route path="/casos" element={<Navigate to="/casos-trabajo" replace />} />
-          <Route path="/casos-trabajo" element={<Cases />} />
+          <Route path="/casos" element={<Navigate to="/casos-generales" replace />} />
+          <Route path="/casos-trabajo" element={<Navigate to="/casos-generales" replace />} />
+          <Route path="/casos-generales" element={<CasosGenerales />} />
           <Route path="/agendamiento-consultas" element={<AgendamientoConsultas />} />
           <Route path="/casos-pagos" element={<CasosPagos />} />
           <Route path="/tareas" element={<Tareas />} />
@@ -89,7 +91,7 @@ export default function App() {
           <Route path="/previsional/mi-panel" element={<ProtectedRoute modulo="previsional"><MiPanel /></ProtectedRoute>} />
           <Route path="/perfil" element={<Perfil />} />
           <Route path="/timeline" element={<Timeline />} />
-          <Route path="*" element={<Navigate to="/casos-trabajo" replace />} />
+          <Route path="*" element={<Navigate to="/casos-generales" replace />} />
         </Route>
       </Routes>
     </Suspense>

@@ -19,6 +19,7 @@ import {
   Wallet,
   Clock,
   CalendarClock,
+  Scale,
 } from 'lucide-react';
 import { usePermisos } from '../hooks/usePermisos';
 import { useAuth } from '../context/AuthContext';
@@ -90,10 +91,10 @@ export default function Sidebar({ open, onClose }: SidebarProps) {
             </NavLink>
           )}
 
-          {/* CASOS - TRABAJO: visible para empleados y socios */}
-          <NavLink to="/casos-trabajo" onClick={onClose} className={({ isActive }) => linkClass(isActive || location.pathname === '/casos')}>
-            <Users className="w-5 h-5" />
-            Casos - Trabajo
+          {/* CASOS GENERALES */}
+          <NavLink to="/casos-generales" onClick={onClose} className={({ isActive }) => linkClass(isActive || location.pathname === '/casos' || location.pathname === '/casos-trabajo')}>
+            <Scale className="w-5 h-5" />
+            Casos Generales
           </NavLink>
 
           {/* AGENDAMIENTO: visible para empleados, socios y admin */}
