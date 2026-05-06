@@ -73,40 +73,42 @@ function findBody(csvTitle) {
 }
 console.log(`Loaded ${mdMap.size} markdown bodies from ${MD_DIR}`);
 
-// ── CSV parser (RFC 4180, BOM-safe) ────────────────────────────────────────────
+// ── CSV parser (RFC 4180, BOM-safe, single-pass) ───────────────────────────
 function parseCSV(text) {
   const raw = text.replace(/^\uFEFF/, '');
-  const lines = []; let cur = '', inQ = false;
+  const rows = [];
+  let row = [];
+  let f = '';
+  let inQ = false;
   for (let i = 0; i < raw.length; i++) {
     const ch = raw[i];
-    if (ch === '"') { if (inQ && raw[i+1] === '"') { cur += '"'; i++; } else inQ = !inQ; }
-    else if ((ch === '\n' || ch === '\r') && !inQ) {
-      if (ch === '\r' && raw[i+1] === '\n') i++;
-      lines.push(cur); cur = '';
-    } else cur += ch;
-  }
-  if (cur) lines.push(cur);
-  const fields = (line) => {
-    const out = []; let f = '', q = false;
-    for (let j = 0; j < line.length; j++) {
-      const c = line[j];
-      if (c === '"') { if (q && line[j+1] === '"') { f += '"'; j++; } else q = !q; }
-      else if (c === ',' && !q) { out.push(f); f = ''; }
-      else f += c;
+    if (inQ) {
+      if (ch === '"') {
+        if (raw[i+1] === '"') { f += '"'; i++; }
+        else inQ = false;
+      } else {
+        f += ch;
+      }
+    } else {
+      if (ch === '"') {
+        inQ = true;
+      } else if (ch === ',') {
+        row.push(f); f = '';
+      } else if (ch === '\r') {
+        // ignore, handled by \n
+      } else if (ch === '\n') {
+        row.push(f); f = '';
+        rows.push(row); row = [];
+      } else {
+        f += ch;
+      }
     }
-    out.push(f); return out;
-  };
-  if (!lines[0]) return [];
-  const headers = fields(lines[0]).map(h => h.trim().replace(/^\uFEFF/, ''));
-  const rows = [];
-  for (let i = 1; i < lines.length; i++) {
-    const ln = lines[i]; if (!ln.trim()) continue;
-    const vs = fields(ln);
-    const row = {};
-    headers.forEach((h, k) => { row[h] = (vs[k] ?? '').trim(); });
-    rows.push(row);
   }
-  return rows;
+  if (f.length || row.length) { row.push(f); rows.push(row); }
+  if (!rows.length) return [];
+  const headers = rows[0];
+  return rows.slice(1).filter(r => r.some(c => c && c.trim().length))
+    .map(r => Object.fromEntries(headers.map((h, i) => [h, (r[i] ?? '').trim()])));
 }
 
 // ── Notion normalizers ────────────────────────────────────────────────────────
