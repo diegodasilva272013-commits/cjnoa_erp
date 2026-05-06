@@ -2,12 +2,13 @@ import { useState, useMemo, useEffect } from 'react';
 import {
   Plus, Search, ListTodo, Columns3, Calendar as CalendarIcon,
   Clock, CheckCircle, AlertTriangle, Trash2, User, X, Paperclip,
-  Filter, Edit2, FileDown,
+  Filter, Edit2, FileDown, Briefcase, FileText, ArrowRight, Eye,
 } from 'lucide-react';
 import { useTareas, uploadTareaAdjunto, getTareaAdjuntoUrl } from '../hooks/useTareas';
 import { useCases } from '../hooks/useCases';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
+import { useAvatarUrl } from '../hooks/useAvatarUrl';
 import {
   TareaCompleta, EstadoTareaGeneral, PrioridadTareaGeneral,
   ESTADO_TAREA_GENERAL_LABELS, PRIORIDAD_TAREA_GENERAL_LABELS,
@@ -113,50 +114,52 @@ export default function Tareas() {
       </div>
 
       {/* Filters */}
-      <div className="flex flex-col lg:flex-row gap-3">
-        <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
-          <input value={search} onChange={e => setSearch(e.target.value)}
-            className="input-dark pl-10 text-sm" placeholder="Buscar por tarea, cliente, expediente..." />
+      <div className="glass-card p-3 space-y-3">
+        <div className="flex flex-col lg:flex-row gap-3">
+          <div className="relative flex-1 min-w-[220px]">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
+            <input value={search} onChange={e => setSearch(e.target.value)}
+              className="input-dark pl-10 text-sm w-full" placeholder="Buscar por tarea, cliente, expediente…" />
+          </div>
+          <div className="flex gap-1 p-1 bg-white/[0.03] rounded-xl shrink-0">
+            {[
+              { id: 'lista', icon: ListTodo, label: 'Lista' },
+              { id: 'kanban', icon: Columns3, label: 'Kanban' },
+              { id: 'calendario', icon: CalendarIcon, label: 'Calendario' },
+              { id: 'responsable', icon: User, label: 'Responsable' },
+            ].map(v => (
+              <button key={v.id} onClick={() => setView(v.id as any)}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                  view === v.id ? 'bg-white/10 text-white' : 'text-gray-500 hover:text-white'
+                }`}>
+                <v.icon className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">{v.label}</span>
+              </button>
+            ))}
+          </div>
         </div>
         <div className="flex flex-wrap gap-2">
-          <select value={filterEstado} onChange={e => setFilterEstado(e.target.value as any)} className="select-dark text-xs py-2">
+          <select value={filterEstado} onChange={e => setFilterEstado(e.target.value as any)} className="select-dark text-xs py-1.5 min-w-[140px]">
             <option value="all">Todos los estados</option>
             <option value="en_curso">En curso</option>
             <option value="completada">Completada</option>
           </select>
-          <select value={filterPrioridad} onChange={e => setFilterPrioridad(e.target.value as any)} className="select-dark text-xs py-2">
+          <select value={filterPrioridad} onChange={e => setFilterPrioridad(e.target.value as any)} className="select-dark text-xs py-1.5 min-w-[140px]">
             <option value="all">Todas las prioridades</option>
             <option value="alta">Alta</option>
             <option value="media">Media</option>
             <option value="sin_prioridad">Sin prioridad</option>
           </select>
-          <select value={filterResponsable} onChange={e => setFilterResponsable(e.target.value)} className="select-dark text-xs py-2">
+          <select value={filterResponsable} onChange={e => setFilterResponsable(e.target.value)} className="select-dark text-xs py-1.5 min-w-[160px]">
             <option value="all">Todos los responsables</option>
             {perfiles.map(p => <option key={p.id} value={p.id}>{p.nombre}</option>)}
           </select>
           <button onClick={() => setFilterSemana(s => !s)}
-            className={`text-xs px-3 py-2 rounded-xl border transition-colors flex items-center gap-1.5 ${
+            className={`text-xs px-3 py-1.5 rounded-xl border transition-colors flex items-center gap-1.5 ${
               filterSemana ? 'bg-blue-500/20 border-blue-500/40 text-blue-300' : 'border-white/10 text-gray-500 hover:text-white'
             }`}>
             <Filter className="w-3 h-3" /> Esta semana
           </button>
-        </div>
-        <div className="flex gap-1 p-1 bg-white/[0.03] rounded-xl">
-          {[
-            { id: 'lista', icon: ListTodo, label: 'Lista' },
-            { id: 'kanban', icon: Columns3, label: 'Kanban' },
-            { id: 'calendario', icon: CalendarIcon, label: 'Calendario' },
-            { id: 'responsable', icon: User, label: 'Responsable' },
-          ].map(v => (
-            <button key={v.id} onClick={() => setView(v.id as any)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
-                view === v.id ? 'bg-white/10 text-white' : 'text-gray-500 hover:text-white'
-              }`}>
-              <v.icon className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">{v.label}</span>
-            </button>
-          ))}
         </div>
       </div>
 
@@ -195,6 +198,49 @@ export default function Tareas() {
 }
 
 // ============================================
+// MiniAvatar
+// ============================================
+function MiniAvatar({ path, nombre, size = 24 }: { path?: string | null; nombre?: string | null; size?: number }) {
+  const url = useAvatarUrl(path);
+  const initial = (nombre || '?').trim().charAt(0).toUpperCase();
+  if (url) {
+    return <img src={url} alt={nombre || ''} className="rounded-full object-cover ring-1 ring-white/10" style={{ width: size, height: size }} />;
+  }
+  return (
+    <div className="rounded-full bg-gradient-to-br from-blue-500/30 to-purple-500/30 ring-1 ring-white/10 flex items-center justify-center text-white font-semibold"
+      style={{ width: size, height: size, fontSize: size * 0.45 }}>
+      {initial}
+    </div>
+  );
+}
+
+// ============================================
+// CasoInfoBar
+// ============================================
+function CasoInfoBar({ t }: { t: TareaCompleta }) {
+  const hasCasoGeneral = !!t.caso_general_id;
+  const hasCaso = !!t.cliente_nombre || !!t.expediente_caso;
+  if (!hasCasoGeneral && !hasCaso) return null;
+  return (
+    <div className="mt-2 flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-white/[0.02] border border-white/5 text-[11px]">
+      {hasCasoGeneral ? (
+        <>
+          <Briefcase className="w-3.5 h-3.5 text-purple-400 flex-shrink-0" />
+          <span className="text-purple-300 font-medium truncate">{t.caso_general_titulo}</span>
+          {t.caso_general_expediente && <span className="text-gray-500 font-mono text-[10px] truncate">· {t.caso_general_expediente}</span>}
+        </>
+      ) : (
+        <>
+          <FileText className="w-3.5 h-3.5 text-blue-400 flex-shrink-0" />
+          {t.cliente_nombre && <span className="text-gray-300 truncate">{t.cliente_nombre}</span>}
+          {t.expediente_caso && <span className="text-gray-500 font-mono text-[10px] truncate">· {t.expediente_caso}</span>}
+        </>
+      )}
+    </div>
+  );
+}
+
+// ============================================
 // ListaView
 // ============================================
 function ListaView({ tareas, onOpen, onCompletar, onReabrir, onArchivar, confirmDel, isVencida }: {
@@ -203,62 +249,114 @@ function ListaView({ tareas, onOpen, onCompletar, onReabrir, onArchivar, confirm
   onArchivar: (t: TareaCompleta) => void; confirmDel: string | null;
   isVencida: (t: TareaCompleta) => boolean;
 }) {
+  if (tareas.length === 0) {
+    return (
+      <div className="glass-card p-12 text-center">
+        <ListTodo className="w-10 h-10 text-gray-700 mx-auto mb-3" />
+        <p className="text-sm text-gray-500">No hay tareas que coincidan con los filtros</p>
+      </div>
+    );
+  }
   return (
     <div className="space-y-2">
-      {tareas.map((t, i) => (
+      {tareas.map((t, i) => {
+        const vencida = isVencida(t);
+        return (
         <div key={t.id}
-          className={`glass-card p-4 cursor-pointer hover:bg-white/[0.03] transition-all animate-fade-in ${isVencida(t) ? 'border-red-500/20' : ''}`}
+          className={`glass-card p-4 cursor-pointer hover:bg-white/[0.04] transition-all animate-fade-in ${vencida ? 'border-red-500/30' : ''}`}
           style={{ animationDelay: `${i * 20}ms` }}
           onClick={() => onOpen(t)}>
-          <div className="flex items-start justify-between gap-3">
-            <div className="flex items-start gap-3 flex-1 min-w-0">
-              <button onClick={e => { e.stopPropagation(); t.estado === 'completada' ? onReabrir(t.id) : onCompletar(t.id); }}
-                className={`mt-0.5 w-5 h-5 rounded-md border-2 flex items-center justify-center transition-all flex-shrink-0 ${
-                  t.estado === 'completada' ? 'bg-emerald-500/20 border-emerald-500 text-emerald-400' : 'border-gray-600 hover:border-white'
-                }`}>
-                {t.estado === 'completada' && <CheckCircle className="w-3.5 h-3.5" />}
-              </button>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <h4 className={`text-sm font-medium ${t.estado === 'completada' ? 'text-gray-500 line-through' : 'text-white'}`}>{t.titulo}</h4>
-                  {isVencida(t) && (
-                    <span className="flex items-center gap-1 text-[10px] text-red-400 bg-red-500/10 px-1.5 py-0.5 rounded-full">
+          {/* Header: checkbox + título + badges + trash */}
+          <div className="flex items-start gap-3">
+            <button onClick={e => { e.stopPropagation(); t.estado === 'completada' ? onReabrir(t.id) : onCompletar(t.id); }}
+              className={`mt-0.5 w-5 h-5 rounded-md border-2 flex items-center justify-center transition-all flex-shrink-0 ${
+                t.estado === 'completada' ? 'bg-emerald-500/20 border-emerald-500 text-emerald-400' : 'border-gray-600 hover:border-white'
+              }`}>
+              {t.estado === 'completada' && <CheckCircle className="w-3.5 h-3.5" />}
+            </button>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-start justify-between gap-2">
+                <div className="flex items-center gap-2 flex-wrap min-w-0">
+                  <h4 className={`text-sm font-semibold truncate ${t.estado === 'completada' ? 'text-gray-500 line-through' : 'text-white'}`}>
+                    {t.titulo}
+                  </h4>
+                  {t.adjunto_path && <Paperclip className="w-3 h-3 text-gray-500 flex-shrink-0" />}
+                </div>
+                <div className="flex items-center gap-1.5 flex-shrink-0">
+                  <span className={`text-[10px] px-2 py-0.5 rounded-full border whitespace-nowrap ${PRIORIDAD_TAREA_GENERAL_COLORS[t.prioridad]}`}>
+                    {PRIORIDAD_TAREA_GENERAL_LABELS[t.prioridad]}
+                  </span>
+                  {vencida && (
+                    <span className="flex items-center gap-1 text-[10px] text-red-400 bg-red-500/10 border border-red-500/20 px-2 py-0.5 rounded-full whitespace-nowrap">
                       <AlertTriangle className="w-2.5 h-2.5" /> Vencida
                     </span>
                   )}
-                  {t.adjunto_path && <Paperclip className="w-3 h-3 text-gray-500" />}
+                  <button onClick={e => { e.stopPropagation(); onArchivar(t); }}
+                    className={`p-1 rounded-lg transition-colors ${
+                      confirmDel === t.id ? 'bg-red-500/20 text-red-400' : 'text-gray-600 hover:text-red-400 hover:bg-red-500/10'
+                    }`}
+                    title={confirmDel === t.id ? 'Click otra vez para archivar' : 'Archivar'}>
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
                 </div>
-                <div className="flex items-center gap-2 mt-1 flex-wrap">
-                  {t.cliente_nombre && <span className="text-xs text-gray-500">{t.cliente_nombre}</span>}
-                  <span className={`text-[10px] px-1.5 py-0.5 rounded-full border ${ESTADO_COLORS[t.estado]}`}>{ESTADO_TAREA_GENERAL_LABELS[t.estado]}</span>
-                  <span className={`text-[10px] px-1.5 py-0.5 rounded-full border ${PRIORIDAD_TAREA_GENERAL_COLORS[t.prioridad]}`}>{PRIORIDAD_TAREA_GENERAL_LABELS[t.prioridad]}</span>
-                  {t.responsable_nombre && (
-                    <span className="text-[10px] text-gray-600 flex items-center gap-1"><User className="w-2.5 h-2.5" /> {t.responsable_nombre}</span>
+              </div>
+
+              {/* Caso info bar */}
+              <CasoInfoBar t={t} />
+
+              {/* Footer: creador → responsable + fecha + cargo_hora */}
+              <div className="mt-2.5 flex items-center justify-between gap-3 flex-wrap">
+                <div className="flex items-center gap-2 text-[11px] text-gray-400">
+                  {t.creado_por_nombre && (
+                    <div className="flex items-center gap-1.5" title={`Creada por ${t.creado_por_nombre}`}>
+                      <MiniAvatar path={t.creado_por_avatar} nombre={t.creado_por_nombre} size={20} />
+                      <span className="truncate max-w-[110px]">{t.creado_por_nombre}</span>
+                    </div>
                   )}
+                  {t.responsable_nombre && (
+                    <>
+                      <ArrowRight className="w-3 h-3 text-gray-600" />
+                      <div className="flex items-center gap-1.5" title={`Asignada a ${t.responsable_nombre}`}>
+                        <MiniAvatar path={t.responsable_avatar} nombre={t.responsable_nombre} size={22} />
+                        <span className="text-gray-200 font-medium truncate max-w-[140px]">{t.responsable_nombre}</span>
+                      </div>
+                    </>
+                  )}
+                  {t.visto_por_asignado && (
+                    <span className="flex items-center gap-1 text-[10px] text-emerald-400/80" title="Visto por el responsable">
+                      <Eye className="w-3 h-3" />
+                    </span>
+                  )}
+                </div>
+                <div className="flex items-center gap-3 text-[11px]">
                   {t.fecha_limite && (
-                    <span className={`text-[10px] flex items-center gap-1 ${isVencida(t) ? 'text-red-400' : 'text-gray-600'}`}>
-                      <Clock className="w-2.5 h-2.5" /> {new Date(t.fecha_limite).toLocaleDateString('es-AR')}
+                    <span className={`flex items-center gap-1 ${vencida ? 'text-red-400' : 'text-gray-500'}`}>
+                      <Clock className="w-3 h-3" />
+                      {new Date(t.fecha_limite).toLocaleDateString('es-AR', { day: '2-digit', month: 'short' })}
                     </span>
                   )}
                   {t.cargo_hora && (
-                    <span className="text-[10px] text-amber-400">⏰ {t.cargo_hora}</span>
+                    <span className="text-amber-400/90 font-mono text-[10px] bg-amber-500/10 px-1.5 py-0.5 rounded border border-amber-500/20">
+                      {t.cargo_hora}
+                    </span>
                   )}
+                  <span className={`text-[10px] px-2 py-0.5 rounded-full border ${ESTADO_COLORS[t.estado]}`}>
+                    {ESTADO_TAREA_GENERAL_LABELS[t.estado]}
+                  </span>
                 </div>
-                {t.observaciones_demora && (
-                  <p className="text-[10px] text-amber-400/80 mt-1.5 italic">⚠ {t.observaciones_demora}</p>
-                )}
               </div>
+
+              {t.observaciones_demora && (
+                <p className="text-[10px] text-amber-400/80 mt-2 italic flex items-start gap-1">
+                  <AlertTriangle className="w-3 h-3 flex-shrink-0 mt-0.5" />
+                  <span>{t.observaciones_demora}</span>
+                </p>
+              )}
             </div>
-            <button onClick={e => { e.stopPropagation(); onArchivar(t); }}
-              className={`p-1.5 rounded-lg transition-colors flex-shrink-0 ${
-                confirmDel === t.id ? 'bg-red-500/20 text-red-400' : 'text-gray-600 hover:text-red-400 hover:bg-red-500/10'
-              }`}
-              title={confirmDel === t.id ? 'Click otra vez para archivar' : 'Archivar'}>
-              <Trash2 className="w-3.5 h-3.5" />
-            </button>
           </div>
         </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
@@ -285,15 +383,26 @@ function KanbanView({ tareas, onOpen, isVencida }: {
             <div className="space-y-2 min-h-[160px]">
               {list.map(t => (
                 <div key={t.id} onClick={() => onOpen(t)}
-                  className={`glass-card p-3 cursor-pointer hover:bg-white/[0.03] transition-all ${isVencida(t) ? 'border-red-500/20' : ''}`}>
-                  <h4 className="text-xs font-medium text-white mb-1 truncate">{t.titulo}</h4>
-                  {t.cliente_nombre && <p className="text-[10px] text-gray-500 truncate">{t.cliente_nombre}</p>}
-                  <div className="flex items-center gap-1.5 mt-2 flex-wrap">
-                    <span className={`text-[10px] px-1.5 py-0.5 rounded-full border ${PRIORIDAD_TAREA_GENERAL_COLORS[t.prioridad]}`}>
-                      {PRIORIDAD_TAREA_GENERAL_LABELS[t.prioridad]}
-                    </span>
-                    {isVencida(t) && <AlertTriangle className="w-3 h-3 text-red-400" />}
-                    {t.adjunto_path && <Paperclip className="w-3 h-3 text-gray-500" />}
+                  className={`glass-card p-3 cursor-pointer hover:bg-white/[0.04] transition-all ${isVencida(t) ? 'border-red-500/30' : ''}`}>
+                  <h4 className="text-xs font-semibold text-white mb-1 line-clamp-2">{t.titulo}</h4>
+                  {(t.caso_general_titulo || t.cliente_nombre) && (
+                    <p className="text-[10px] text-gray-500 truncate flex items-center gap-1">
+                      {t.caso_general_titulo
+                        ? <><Briefcase className="w-2.5 h-2.5 text-purple-400" /> {t.caso_general_titulo}</>
+                        : <><FileText className="w-2.5 h-2.5 text-blue-400" /> {t.cliente_nombre}</>}
+                    </p>
+                  )}
+                  <div className="flex items-center justify-between gap-1.5 mt-2">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span className={`text-[10px] px-1.5 py-0.5 rounded-full border ${PRIORIDAD_TAREA_GENERAL_COLORS[t.prioridad]}`}>
+                        {PRIORIDAD_TAREA_GENERAL_LABELS[t.prioridad]}
+                      </span>
+                      {isVencida(t) && <AlertTriangle className="w-3 h-3 text-red-400" />}
+                      {t.adjunto_path && <Paperclip className="w-3 h-3 text-gray-500" />}
+                    </div>
+                    {t.responsable_nombre && (
+                      <MiniAvatar path={t.responsable_avatar} nombre={t.responsable_nombre} size={20} />
+                    )}
                   </div>
                 </div>
               ))}
@@ -394,11 +503,14 @@ function ResponsableView({ tareas, perfiles, onOpen, isVencida }: {
         const vencidas = pendientes.filter(isVencida);
         const completadas = g.tareas.length - pendientes.length;
         const altas = pendientes.filter(t => t.prioridad === 'alta').length;
+        const avatarPath = g.tareas.find(t => t.responsable_avatar)?.responsable_avatar || null;
         return (
           <div key={id} className="glass-card p-4">
             <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
               <h3 className="text-sm font-semibold text-white flex items-center gap-2">
-                <User className="w-4 h-4 text-gray-500" />
+                {id === '__sin'
+                  ? <User className="w-4 h-4 text-gray-500" />
+                  : <MiniAvatar path={avatarPath} nombre={g.nombre} size={28} />}
                 {g.nombre}
                 {g.rol && <span className="text-[10px] text-gray-600 uppercase">· {g.rol}</span>}
               </h3>
@@ -447,7 +559,9 @@ function ResponsableView({ tareas, perfiles, onOpen, isVencida }: {
                         t.prioridad === 'alta' ? 'bg-red-500' : t.prioridad === 'media' ? 'bg-amber-500' : 'bg-gray-500'
                       }`} />
                       <span className={`text-xs truncate ${t.estado === 'completada' ? 'text-gray-500 line-through' : 'text-white'}`}>{t.titulo}</span>
-                      {t.cliente_nombre && <span className="text-[10px] text-gray-600 truncate">· {t.cliente_nombre}</span>}
+                      {t.caso_general_titulo
+                        ? <span className="text-[10px] text-purple-400 truncate flex items-center gap-1"><Briefcase className="w-2.5 h-2.5" /> {t.caso_general_titulo}</span>
+                        : t.cliente_nombre && <span className="text-[10px] text-gray-600 truncate">· {t.cliente_nombre}</span>}
                       {t.cargo_hora && <span className="text-[10px] text-amber-400 flex-shrink-0">⏰ {t.cargo_hora}</span>}
                     </div>
                     {t.fecha_limite && (

@@ -303,8 +303,16 @@ export interface Tarea {
 export interface TareaCompleta extends Tarea {
   cliente_nombre: string | null;
   expediente: string | null;
+  expediente_caso: string | null;
   responsable_nombre: string | null;
+  responsable_avatar: string | null;
   creado_por_nombre: string | null;
+  creado_por_avatar: string | null;
+  caso_general_id: string | null;
+  caso_general_titulo: string | null;
+  caso_general_expediente: string | null;
+  visto_por_asignado: boolean | null;
+  visto_at: string | null;
 }
 
 export interface AudienciaGeneral {

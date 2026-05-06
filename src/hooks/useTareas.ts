@@ -20,11 +20,16 @@ export function useTareas() {
   const { showToast } = useToast();
 
   const fetch = useCallback(async () => {
-    const { data, error } = await supabase
-      .from('tareas_completas')
+    // Intenta primero la vista v2 (incluye caso_general + avatares); si no existe, cae a la legacy
+    let { data, error } = await supabase
+      .from('tareas_completas_v2')
       .select('*')
       .eq('archivada', false)
       .order('created_at', { ascending: false });
+    if (error && (error.code === '42P01' || /does not exist/i.test(error.message))) {
+      const r = await supabase.from('tareas_completas').select('*').eq('archivada', false).order('created_at', { ascending: false });
+      data = r.data; error = r.error;
+    }
     if (error) {
       showToast('Error al cargar tareas: ' + error.message, 'error');
     } else if (data) {
