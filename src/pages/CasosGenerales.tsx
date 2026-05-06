@@ -139,7 +139,15 @@ function parseCSV(text: string): Record<string, string>[] {
 
 // ─── Case-insensitive, accent-stripped, space-collapsed row accessor ─────────
 function normalizeKey(k: string) {
-  return k.trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[\s_\-/]+/g, ' ').trim();
+  return k
+    .trim()
+    // strip emoji and non-latin symbols (Notion sometimes prepends emojis to column names)
+    .replace(/[^\w\s\u00C0-\u024F/\-]/g, '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[\s_\-/]+/g, ' ')
+    .trim();
 }
 function makeAccessor(raw: Record<string, string>) {
   const norm: Record<string, string> = {};
@@ -201,16 +209,27 @@ function parseNotionBool(v: string) {
   return ['yes','sí','si','true','1','✓'].includes((v ?? '').trim().toLowerCase());
 }
 function normEstado(v: string): string {
-  const s = (v ?? '').toLowerCase().trim().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-  if (!s) return 'activos';
-  const exact = ESTADOS_ORDERED.find(k => k.normalize('NFD').replace(/[\u0300-\u036f]/g,'') === s);
+  const raw = (v ?? '').trim();
+  if (!raw) return 'activos';
+  // normalize: lowercase, strip accents, strip emoji/symbols, collapse spaces
+  const s = raw.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^\w\s/]/g, ' ').replace(/\s+/g, ' ').trim();
+  // 1. exact match (handles 'activos', 'federales', etc.)
+  const exact = ESTADOS_ORDERED.find(k =>
+    k.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^\w\s/]/g, ' ').replace(/\s+/g, ' ').trim() === s
+  );
   if (exact) return exact;
+  // 2. singular forms: 'activo' → 'activos', 'federal' → 'federales'
+  const withS = ESTADOS_ORDERED.find(k => k.normalize('NFD').replace(/[\u0300-\u036f]/g,'').startsWith(s));
+  if (withS) return withS;
+  // 3. fuzzy keyword matching
   if (s.includes('federal')) return 'federales';
   if (s.includes('espera') || s.includes('sentencia')) return 'esperando sentencias';
-  if (s.includes('complic') || s.includes('analisis') || s.includes('analisis')) return 'complicacion judicial/analisis';
-  if (s.includes('directiva')) return 'suspendido por falta de directivas';
-  if (s.includes('pago')) return 'suspendido por falta de pago';
-  return 'activos';
+  if (s.includes('complic') || s.includes('judicial') || s.includes('analisis')) return 'complicacion judicial/analisis';
+  if (s.includes('directiva') || (s.includes('suspendido') && !s.includes('pago'))) return 'suspendido por falta de directivas';
+  if (s.includes('pago') || (s.includes('suspendido') && s.includes('pago'))) return 'suspendido por falta de pago';
+  if (s.includes('activo') || s.includes('activ') || s.includes('vigente') || s.includes('actua') || s.includes('en curso')) return 'activos';
+  // 4. unknown — store raw value so the badge shows the real value instead of silently becoming "Activo"
+  return raw.toLowerCase();
 }
 function normTipo(v: string): string | null {
   const s = (v ?? '').toLowerCase().trim();
@@ -448,8 +467,8 @@ const COL_ARCHIVAR = ['archivar','archivado','archived','archive','cerrado','ina
 const COL_ESTADISTICAS = ['estadisticas (no tocar)','estadisticas_estado','estadisticas','statistics','avance'];
 
 interface ImportRow { titulo: string; ok: boolean; error?: string }
-interface PreviewRow { titulo: string; estado: string; abogado: string; expediente: string; tipo: string }
-interface FieldMapping { field: string; csvCol: string | null; aliases: string[] }
+interface PreviewRow { titulo: string; estadoRaw: string; estadoNorm: string; abogado: string; expediente: string; tipo: string }
+interface FieldMapping { field: string; csvCol: string | null; rawSample: string }
 
 function NotionImportModal({ onClose, onImported, totalExistentes }: {
   onClose: () => void; onImported: () => void; totalExistentes: number;
@@ -486,29 +505,39 @@ function NotionImportModal({ onClose, onImported, totalExistentes }: {
       if (skipArchived) filtered = filtered.filter(r => !parseNotionBool(makeAccessor(r)(...COL_ARCHIVAR)));
       setPreviewTotal(filtered.length);
       if (!filtered.length) return;
-      // Build field mapping from first row
-      const g0 = makeAccessor(filtered[0]);
+      // Build field mapping — scan ALL rows to find first non-empty value per field
+      const buildMapping = (cols: string[], label: string): FieldMapping => {
+        let csvCol: string | null = null; let rawSample = '';
+        for (const row of filtered) {
+          const g = makeAccessor(row);
+          const key = g.detectedKey(...cols);
+          if (key) { csvCol = key; rawSample = g(...cols); break; }
+        }
+        return { field: label, csvCol, rawSample };
+      };
       setFieldMapping([
-        { field: 'Título',      csvCol: g0.detectedKey(...COL_TITULO),      aliases: COL_TITULO },
-        { field: 'Estado',      csvCol: g0.detectedKey(...COL_ESTADO),      aliases: COL_ESTADO },
-        { field: 'Abogado',     csvCol: g0.detectedKey(...COL_ABOGADO),     aliases: COL_ABOGADO },
-        { field: 'Personería',  csvCol: g0.detectedKey(...COL_PERSONERIA),  aliases: COL_PERSONERIA },
-        { field: 'Expediente',  csvCol: g0.detectedKey(...COL_EXPEDIENTE),  aliases: COL_EXPEDIENTE },
-        { field: 'Radicado',    csvCol: g0.detectedKey(...COL_RADICADO),    aliases: COL_RADICADO },
-        { field: 'Tipo',        csvCol: g0.detectedKey(...COL_TIPO),        aliases: COL_TIPO },
-        { field: 'Audiencia',   csvCol: g0.detectedKey(...COL_AUDIENCIAS),  aliases: COL_AUDIENCIAS },
-        { field: 'Vencimiento', csvCol: g0.detectedKey(...COL_VENCIMIENTO), aliases: COL_VENCIMIENTO },
-        { field: 'Drive URL',   csvCol: g0.detectedKey(...COL_URL_DRIVE),   aliases: COL_URL_DRIVE },
-        { field: 'Notas',       csvCol: g0.detectedKey(...COL_ACTUALIZACION),aliases: COL_ACTUALIZACION },
+        buildMapping(COL_TITULO,      'Título'),
+        buildMapping(COL_ESTADO,      'Estado'),
+        buildMapping(COL_ABOGADO,     'Abogado'),
+        buildMapping(COL_PERSONERIA,  'Personería'),
+        buildMapping(COL_EXPEDIENTE,  'Expediente'),
+        buildMapping(COL_RADICADO,    'Radicado'),
+        buildMapping(COL_TIPO,        'Tipo'),
+        buildMapping(COL_AUDIENCIAS,  'Audiencia'),
+        buildMapping(COL_VENCIMIENTO, 'Vencimiento'),
+        buildMapping(COL_URL_DRIVE,   'Drive URL'),
+        buildMapping(COL_ACTUALIZACION,'Notas'),
       ]);
-      setPreview(filtered.slice(0, 5).map(r => {
+      setPreview(filtered.slice(0, 8).map(r => {
         const g = makeAccessor(r);
+        const estadoRaw = g(...COL_ESTADO);
         return {
-          titulo: g(...COL_TITULO),
-          estado: normEstado(g(...COL_ESTADO)),
-          abogado: g(...COL_ABOGADO),
+          titulo:    g(...COL_TITULO),
+          estadoRaw,
+          estadoNorm: normEstado(estadoRaw),
+          abogado:   g(...COL_ABOGADO),
           expediente: g(...COL_EXPEDIENTE),
-          tipo: normTipo(g(...COL_TIPO)) ?? '',
+          tipo:      normTipo(g(...COL_TIPO)) ?? '',
         };
       }));
     } catch { /* ignore */ }
@@ -634,25 +663,27 @@ function NotionImportModal({ onClose, onImported, totalExistentes }: {
           {/* Preview */}
           {preview && !importing && !results.length && (
             <div className="space-y-3">
-              {/* Field mapping table — shows exactly which CSV col maps to which field */}
+              {/* Field mapping table — shows exactly which CSV col maps to which field + raw sample value */}
               {fieldMapping.length > 0 && (
                 <div className="rounded-xl bg-white/[0.025] border border-white/[0.06] p-3">
                   <p className="text-[10px] text-gray-500 uppercase tracking-widest mb-2 flex items-center gap-1">
                     <Eye className="w-3 h-3"/>Mapeo de columnas CSV → base de datos
                   </p>
-                  <div className="grid grid-cols-2 gap-1 text-[11px]">
+                  <div className="space-y-0.5 text-[11px]">
                     {fieldMapping.map(fm => (
-                      <div key={fm.field} className={`flex items-center gap-1.5 px-2 py-1 rounded-lg ${fm.csvCol ? 'bg-emerald-500/5 border border-emerald-500/15' : 'bg-white/[0.02] border border-white/5'}`}>
-                        <span className={`font-semibold shrink-0 ${fm.csvCol ? 'text-emerald-400' : 'text-gray-600'}`}>{fm.field}:</span>
+                      <div key={fm.field} className={`flex items-center gap-2 px-2 py-1 rounded-lg ${fm.csvCol ? 'bg-emerald-500/5 border border-emerald-500/15' : 'bg-white/[0.02] border border-white/5'}`}>
+                        <span className={`font-semibold shrink-0 w-20 ${fm.csvCol ? 'text-emerald-400' : 'text-gray-600'}`}>{fm.field}:</span>
                         {fm.csvCol
-                          ? <span className="text-white font-mono truncate">{fm.csvCol}</span>
-                          : <span className="text-gray-600 italic">no detectada</span>}
+                          ? <><span className="text-white font-mono text-[10px]">{fm.csvCol}</span>
+                              {fm.rawSample && <span className="text-gray-500 text-[10px] truncate max-w-[160px]" title={fm.rawSample}>= "{fm.rawSample}"</span>}
+                            </>
+                          : <span className="text-red-400/70 italic">⚠ no detectada</span>}
                       </div>
                     ))}
                   </div>
                   {fieldMapping.some(fm => !fm.csvCol) && (
                     <p className="text-[10px] text-amber-400/70 mt-2">
-                      Los campos sin detectar quedarán vacíos. Verificá que tu CSV tenga esas columnas.
+                      Los campos marcados ⚠ no se encontraron en el CSV. Verificá los nombres de columna.
                     </p>
                   )}
                 </div>
@@ -678,32 +709,38 @@ function NotionImportModal({ onClose, onImported, totalExistentes }: {
                 <p className="text-[10px] text-gray-500 uppercase tracking-widest mb-2">
                   Vista previa — {previewTotal} filas para importar
                 </p>
-                <div className="rounded-xl border border-white/[0.06] overflow-hidden text-xs">
-                  <table className="w-full">
+                <div className="rounded-xl border border-white/[0.06] overflow-x-auto text-xs">
+                  <table className="w-full min-w-max">
                     <thead className="bg-white/[0.04]">
-                      <tr>{['Nombre','Estado','Abogado','Expediente','Tipo'].map(h => (
-                        <th key={h} className="px-3 py-2 text-left text-[10px] text-gray-500 font-semibold uppercase">{h}</th>
-                      ))}</tr>
+                      <tr>
+                        <th className="px-3 py-2 text-left text-[10px] text-gray-500 font-semibold uppercase">Nombre</th>
+                        <th className="px-3 py-2 text-left text-[10px] text-gray-500 font-semibold uppercase">Estado (CSV raw)</th>
+                        <th className="px-3 py-2 text-left text-[10px] text-gray-500 font-semibold uppercase">→ Importado como</th>
+                        <th className="px-3 py-2 text-left text-[10px] text-gray-500 font-semibold uppercase">Abogado</th>
+                        <th className="px-3 py-2 text-left text-[10px] text-gray-500 font-semibold uppercase">Expediente</th>
+                      </tr>
                     </thead>
                     <tbody>
                       {preview.map((p, i) => (
                         <tr key={i} className="border-t border-white/5">
-                          <td className="px-3 py-2 text-white font-medium max-w-[160px] truncate">
-                            {p.titulo || <span className="text-red-400">vacío!</span>}
+                          <td className="px-3 py-2 text-white font-medium max-w-[200px] truncate">
+                            {p.titulo || <span className="text-red-400">¡vacío!</span>}
+                          </td>
+                          <td className="px-3 py-2 text-amber-300/80 font-mono text-[10px] max-w-[140px] truncate" title={p.estadoRaw}>
+                            {p.estadoRaw || <span className="text-gray-600 italic">—</span>}
                           </td>
                           <td className="px-3 py-2 whitespace-nowrap">
-                            <span className={`badge border ${eColor(p.estado)}`}>{eLabel(p.estado)}</span>
+                            <span className={`badge border ${eColor(p.estadoNorm)}`}>{eLabel(p.estadoNorm)}</span>
                           </td>
-                          <td className="px-3 py-2 text-gray-300 max-w-[110px] truncate">{p.abogado || '—'}</td>
-                          <td className="px-3 py-2 text-gray-400 font-mono max-w-[90px] truncate">{p.expediente || '—'}</td>
-                          <td className="px-3 py-2 text-gray-500 capitalize">{p.tipo || '—'}</td>
+                          <td className="px-3 py-2 text-gray-300 max-w-[120px] truncate">{p.abogado || '—'}</td>
+                          <td className="px-3 py-2 text-gray-400 font-mono">{p.expediente || '—'}</td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
                 </div>
-                {previewTotal > 5 && (
-                  <p className="text-[10px] text-gray-600 mt-1.5 text-center">… y {previewTotal - 5} más</p>
+                {previewTotal > 8 && (
+                  <p className="text-[10px] text-gray-600 mt-1.5 text-center">… y {previewTotal - 8} más</p>
                 )}
               </div>
               <button onClick={handleImport} className="btn-primary text-sm w-full">
