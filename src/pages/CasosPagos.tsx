@@ -60,7 +60,7 @@ export default function CasosPagos() {
     if (target) { setEditing(target); setModalOpen(true); }
   }, [items, searchParams]);
 
-  const canAccessCasosPagos = perfil?.rol === 'socio' || perfil?.rol === 'admin';
+  const canAccessCasosPagos = perfil?.rol === 'socio' || perfil?.rol === 'admin' || perfil?.rol === 'abogado' || (perfil?.permisos?.finanzas === true);
 
   async function load() {
     setLoading(true);
