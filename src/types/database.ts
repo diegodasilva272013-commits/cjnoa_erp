@@ -318,6 +318,7 @@ export interface TareaCompleta extends Tarea {
 export interface AudienciaGeneral {
   id: string;
   caso_id: string | null;
+  caso_general_id: string | null;
   fecha: string;
   juzgado: string | null;
   tipo: string | null;
@@ -331,6 +332,8 @@ export interface AudienciaGeneral {
 export interface AudienciaGeneralCompleta extends AudienciaGeneral {
   cliente_nombre: string | null;
   abogado_nombre: string | null;
+  caso_general_titulo: string | null;
+  caso_general_expediente: string | null;
 }
 
 export interface HistorialCaso {

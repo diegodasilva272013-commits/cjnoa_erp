@@ -1,7 +1,8 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Plus, Search, Calendar as CalendarIcon, X, Edit2, Trash2, MapPin, User, Clock, CheckCircle } from 'lucide-react';
+import { Plus, Search, Calendar as CalendarIcon, X, Edit2, Trash2, MapPin, User, Clock, CheckCircle, Briefcase } from 'lucide-react';
 import { useAudienciasGeneral } from '../hooks/useTareas';
 import { useCases } from '../hooks/useCases';
+import { useCasosGenerales } from '../hooks/useCasosGenerales';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
 import { AudienciaGeneralCompleta } from '../types/database';
@@ -12,6 +13,7 @@ export default function Audiencias() {
   const { user } = useAuth();
   const { audiencias, loading, upsert, remove } = useAudienciasGeneral();
   const { casos } = useCases();
+  const { casos: casosGenerales } = useCasosGenerales();
   const [perfiles, setPerfiles] = useState<PerfilLite[]>([]);
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<'todas' | 'proximas' | 'pasadas' | 'semana'>('proximas');
@@ -32,7 +34,8 @@ export default function Audiencias() {
       const f = new Date(a.fecha);
       const s = search.toLowerCase();
       const matchSearch = !s || (a.cliente_nombre || '').toLowerCase().includes(s) ||
-        (a.juzgado || '').toLowerCase().includes(s) || (a.tipo || '').toLowerCase().includes(s);
+        (a.juzgado || '').toLowerCase().includes(s) || (a.tipo || '').toLowerCase().includes(s) ||
+        (a.caso_general_titulo || '').toLowerCase().includes(s);
       const matchFilter =
         filter === 'todas' ? true :
         filter === 'proximas' ? f >= ahora :
@@ -125,7 +128,12 @@ export default function Audiencias() {
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
-                        <h4 className="text-sm font-medium text-white">{a.cliente_nombre || '— Sin cliente —'}</h4>
+                        <h4 className="text-sm font-medium text-white">{a.cliente_nombre || a.caso_general_titulo || '— Sin caso —'}</h4>
+                        {a.caso_general_titulo && !a.cliente_nombre && (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-violet-500/15 text-violet-300 border border-violet-500/30 flex items-center gap-1">
+                            <Briefcase className="w-2.5 h-2.5" /> Caso general
+                          </span>
+                        )}
                         {a.realizada && <span className="text-[10px] text-emerald-400 flex items-center gap-1"><CheckCircle className="w-2.5 h-2.5" /> Realizada</span>}
                       </div>
                       <div className="flex items-center gap-3 mt-1 flex-wrap text-[11px] text-gray-500">
@@ -169,6 +177,7 @@ export default function Audiencias() {
         <AudienciaModal
           audiencia={selected}
           casos={casos}
+          casosGenerales={casosGenerales}
           perfiles={perfiles}
           onClose={() => { setModalOpen(false); setSelected(null); }}
           onSave={async (a) => { const ok = await upsert(a, user?.id || ''); if (ok) { setModalOpen(false); setSelected(null); } }}
@@ -178,15 +187,16 @@ export default function Audiencias() {
   );
 }
 
-function AudienciaModal({ audiencia, casos, perfiles, onClose, onSave }: {
+function AudienciaModal({ audiencia, casos, casosGenerales, perfiles, onClose, onSave }: {
   audiencia: AudienciaGeneralCompleta | null;
-  casos: any[]; perfiles: PerfilLite[];
+  casos: any[]; casosGenerales: any[]; perfiles: PerfilLite[];
   onClose: () => void; onSave: (a: any) => void;
 }) {
   const initialFecha = audiencia ? new Date(audiencia.fecha).toISOString().slice(0, 16) : '';
   const [form, setForm] = useState({
     id: audiencia?.id,
     caso_id: audiencia?.caso_id || '',
+    caso_general_id: audiencia?.caso_general_id || '',
     fecha: initialFecha,
     juzgado: audiencia?.juzgado || '',
     tipo: audiencia?.tipo || '',
@@ -201,6 +211,7 @@ function AudienciaModal({ audiencia, casos, perfiles, onClose, onSave }: {
     onSave({
       ...form,
       caso_id: form.caso_id || null,
+      caso_general_id: form.caso_general_id || null,
       abogado_id: form.abogado_id || null,
       fecha: new Date(form.fecha).toISOString(),
     });
@@ -217,11 +228,21 @@ function AudienciaModal({ audiencia, casos, perfiles, onClose, onSave }: {
         </div>
 
         <div>
-          <label className="text-[10px] text-gray-500 uppercase tracking-wider">Cliente / Caso</label>
+          <label className="text-[10px] text-gray-500 uppercase tracking-wider">Cliente / Caso legal</label>
           <select value={form.caso_id} onChange={e => setForm(s => ({ ...s, caso_id: e.target.value }))} className="select-dark text-sm mt-1">
             <option value="">— Sin vincular —</option>
             {casos.map((c: any) => (
               <option key={c.id} value={c.id}>{c.nombre_apellido} {c.expediente ? `· ${c.expediente}` : ''}</option>
+            ))}
+          </select>
+        </div>
+
+        <div>
+          <label className="text-[10px] text-gray-500 uppercase tracking-wider">Caso general</label>
+          <select value={form.caso_general_id} onChange={e => setForm(s => ({ ...s, caso_general_id: e.target.value }))} className="select-dark text-sm mt-1">
+            <option value="">— Sin vincular —</option>
+            {casosGenerales.map((c: any) => (
+              <option key={c.id} value={c.id}>{c.titulo} {c.expediente ? `· ${c.expediente}` : ''}</option>
             ))}
           </select>
         </div>

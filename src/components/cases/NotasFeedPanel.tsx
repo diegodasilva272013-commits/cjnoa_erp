@@ -2,6 +2,7 @@ import { useState, useMemo, useRef, useEffect } from 'react';
 import {
   MessageSquare, Send, Clock, User as UserIcon, Trash2, CheckCircle2,
   ListTodo, Calendar, Eye, ChevronDown, AlertCircle, Mic, MicOff, Square,
+  Gavel, X as XIcon, MapPin,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
@@ -185,6 +186,59 @@ export default function NotasFeedPanel({ casoId }: { casoId: string }) {
   const [cargoHora, setCargoHora] = useState('');
   const [enviando, setEnviando] = useState(false);
 
+  // Modal: Agendar audiencia
+  const [audModalOpen, setAudModalOpen] = useState(false);
+  const [audFecha, setAudFecha] = useState('');
+  const [audJuzgado, setAudJuzgado] = useState('');
+  const [audTipo, setAudTipo] = useState('');
+  const [audAbogadoId, setAudAbogadoId] = useState('');
+  const [audNotas, setAudNotas] = useState('');
+  const [audGuardando, setAudGuardando] = useState(false);
+
+  async function handleAgendarAudiencia() {
+    if (!user?.id || !audFecha) {
+      showToast('Falta la fecha de la audiencia', 'error');
+      return;
+    }
+    setAudGuardando(true);
+    const fechaIso = new Date(audFecha).toISOString();
+    const { data, error } = await supabase
+      .from('audiencias_general')
+      .insert({
+        caso_general_id: casoId,
+        fecha: fechaIso,
+        juzgado: audJuzgado || null,
+        tipo: audTipo || null,
+        abogado_id: audAbogadoId || null,
+        notas: audNotas || null,
+        created_by: user.id,
+      })
+      .select()
+      .single();
+    if (error) {
+      showToast('Error al crear audiencia: ' + error.message, 'error');
+      setAudGuardando(false);
+      return;
+    }
+    // Crear nota de seguimiento referenciando la audiencia
+    const fechaLegible = new Date(audFecha).toLocaleString('es-AR', {
+      day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit',
+    });
+    const partes = [
+      `📅 Audiencia agendada para ${fechaLegible}`,
+      audTipo ? `Tipo: ${audTipo}` : '',
+      audJuzgado ? `Juzgado: ${audJuzgado}` : '',
+      audNotas ? `Notas: ${audNotas}` : '',
+    ].filter(Boolean);
+    await agregarNota(partes.join('\n'), user.id, null);
+
+    showToast('Audiencia agendada y agregada al seguimiento', 'success');
+    setAudModalOpen(false);
+    setAudFecha(''); setAudJuzgado(''); setAudTipo(''); setAudAbogadoId(''); setAudNotas('');
+    setAudGuardando(false);
+    void data;
+  }
+
   // Dictado (STT) y grabación de audio
   const [dictando, setDictando] = useState(false);
   const [grabando, setGrabando] = useState(false);
@@ -326,6 +380,14 @@ export default function NotasFeedPanel({ casoId }: { casoId: string }) {
         <h3 className="text-sm font-bold text-white">
           Seguimiento <span className="text-gray-500 font-normal">({notas.length})</span>
         </h3>
+        <button
+          type="button"
+          onClick={() => setAudModalOpen(true)}
+          className="ml-auto flex items-center gap-1.5 text-[11px] px-2.5 py-1.5 rounded-lg bg-orange-500/15 hover:bg-orange-500/25 border border-orange-500/40 text-orange-200 font-semibold"
+          title="Agendar una audiencia para este caso"
+        >
+          <Gavel className="w-3.5 h-3.5" /> Agendar audiencia
+        </button>
       </div>
 
       {migrationError && (
@@ -497,6 +559,72 @@ export default function NotasFeedPanel({ casoId }: { casoId: string }) {
               onCambiarEstado={handleCambiarEstado}
             />
           ))}
+        </div>
+      )}
+
+      {audModalOpen && (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4 overflow-y-auto"
+          onClick={() => !audGuardando && setAudModalOpen(false)}>
+          <div className="glass-card w-full max-w-md p-5 space-y-3" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                <Gavel className="w-4 h-4 text-orange-300" /> Agendar audiencia
+              </h3>
+              <button type="button" onClick={() => setAudModalOpen(false)} className="text-gray-500 hover:text-white">
+                <XIcon className="w-4 h-4" />
+              </button>
+            </div>
+            <p className="text-[11px] text-gray-400">
+              Se crea la audiencia y queda visible en el menú <span className="text-orange-300 font-semibold">Audiencias</span>.
+              También se agrega una nota en el seguimiento de este caso.
+            </p>
+            <div>
+              <label className="text-[10px] text-gray-500 uppercase tracking-wider">Fecha y hora *</label>
+              <input type="datetime-local" required value={audFecha}
+                onChange={e => setAudFecha(e.target.value)}
+                className="w-full mt-1 bg-white/5 border border-white/10 rounded-lg px-2 py-2 text-sm text-white focus:outline-none focus:border-orange-500/50" />
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="text-[10px] text-gray-500 uppercase tracking-wider">Tipo</label>
+                <input value={audTipo} onChange={e => setAudTipo(e.target.value)}
+                  placeholder="Ej: Conciliatoria"
+                  className="w-full mt-1 bg-white/5 border border-white/10 rounded-lg px-2 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-orange-500/50" />
+              </div>
+              <div>
+                <label className="text-[10px] text-gray-500 uppercase tracking-wider">Abogado</label>
+                <select value={audAbogadoId} onChange={e => setAudAbogadoId(e.target.value)}
+                  className="w-full mt-1 bg-white/5 border border-white/10 rounded-lg px-2 py-2 text-sm text-white focus:outline-none focus:border-orange-500/50">
+                  <option value="">— Sin asignar —</option>
+                  {responsablesOptions.map(p => (
+                    <option key={p.id} value={p.id}>{p.nombre}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            <div>
+              <label className="text-[10px] text-gray-500 uppercase tracking-wider flex items-center gap-1"><MapPin className="w-3 h-3" /> Juzgado</label>
+              <input value={audJuzgado} onChange={e => setAudJuzgado(e.target.value)}
+                placeholder="Ej: Juzgado Civil 3 - Sec 6"
+                className="w-full mt-1 bg-white/5 border border-white/10 rounded-lg px-2 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-orange-500/50" />
+            </div>
+            <div>
+              <label className="text-[10px] text-gray-500 uppercase tracking-wider">Notas</label>
+              <textarea value={audNotas} onChange={e => setAudNotas(e.target.value)}
+                rows={3}
+                className="w-full mt-1 bg-white/5 border border-white/10 rounded-lg px-2 py-2 text-sm text-white focus:outline-none focus:border-orange-500/50" />
+            </div>
+            <div className="flex justify-end gap-2 pt-1">
+              <button type="button" onClick={() => setAudModalOpen(false)}
+                disabled={audGuardando}
+                className="text-xs px-3 py-2 rounded-lg text-gray-300 hover:bg-white/5">Cancelar</button>
+              <button type="button" onClick={handleAgendarAudiencia}
+                disabled={!audFecha || audGuardando}
+                className="text-xs px-4 py-2 rounded-lg bg-orange-500 hover:bg-orange-400 text-white font-semibold flex items-center gap-1.5 disabled:opacity-40">
+                <Gavel className="w-3.5 h-3.5" /> {audGuardando ? 'Agendando…' : 'Agendar'}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>
