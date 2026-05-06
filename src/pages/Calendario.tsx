@@ -368,7 +368,10 @@ export default function Calendario() {
         <div className="rounded-xl border border-white/10 bg-[#0c0c0e] p-4 space-y-3">
           <div className="flex items-center justify-between gap-2 flex-wrap">
             <h3 className="text-white font-semibold">
-              Eventos del {new Date(diaSeleccionado).toLocaleDateString('es-AR', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' })}
+              Eventos del {(() => {
+                const [y, m, d] = diaSeleccionado.split('-').map(Number);
+                return new Date(y, m - 1, d).toLocaleDateString('es-AR', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' });
+              })()}
             </h3>
             <div className="flex items-center gap-2">
               <button
