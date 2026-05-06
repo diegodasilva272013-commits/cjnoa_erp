@@ -17,8 +17,14 @@ import {
 } from '../types/database';
 
 const ESTADO_COLORS: Record<EstadoTareaGeneral, string> = {
-  en_curso: 'bg-blue-500/10 text-blue-400 border-blue-500/20',
-  completada: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20',
+  en_curso: 'bg-violet-500/15 text-violet-300 border-violet-500/30',
+  completada: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30',
+};
+
+const PRIORIDAD_COLORS_V2: Record<PrioridadTareaGeneral, string> = {
+  alta: 'bg-orange-500/15 text-orange-300 border-orange-500/30',
+  media: 'bg-amber-500/15 text-amber-300 border-amber-500/30',
+  sin_prioridad: 'bg-white/5 text-gray-400 border-white/10',
 };
 
 interface PerfilLite { id: string; nombre: string; rol: string }
@@ -224,19 +230,22 @@ function CasoInfoBar({ t }: { t: TareaCompleta }) {
   const hasCasoGeneral = !!t.caso_general_id;
   const hasCaso = !!t.cliente_nombre || !!t.expediente_caso;
   if (!hasCasoGeneral && !hasCaso) return null;
+  const palette = hasCasoGeneral
+    ? { bg: 'bg-violet-500/[0.06]', border: 'border-violet-500/20', icon: 'text-violet-300', text: 'text-violet-200', mono: 'text-violet-400/70' }
+    : { bg: 'bg-emerald-500/[0.06]', border: 'border-emerald-500/20', icon: 'text-emerald-300', text: 'text-emerald-100', mono: 'text-emerald-400/70' };
   return (
-    <div className="mt-2 flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-white/[0.02] border border-white/5 text-[11px]">
+    <div className={`mt-2.5 flex items-center gap-2 px-3 py-2 rounded-xl border ${palette.bg} ${palette.border} text-[11px]`}>
       {hasCasoGeneral ? (
         <>
-          <Briefcase className="w-3.5 h-3.5 text-purple-400 flex-shrink-0" />
-          <span className="text-purple-300 font-medium truncate">{t.caso_general_titulo}</span>
-          {t.caso_general_expediente && <span className="text-gray-500 font-mono text-[10px] truncate">· {t.caso_general_expediente}</span>}
+          <Briefcase className={`w-3.5 h-3.5 flex-shrink-0 ${palette.icon}`} />
+          <span className={`font-semibold truncate ${palette.text}`}>{t.caso_general_titulo}</span>
+          {t.caso_general_expediente && <span className={`font-mono text-[10px] truncate ${palette.mono}`}>· {t.caso_general_expediente}</span>}
         </>
       ) : (
         <>
-          <FileText className="w-3.5 h-3.5 text-blue-400 flex-shrink-0" />
-          {t.cliente_nombre && <span className="text-gray-300 truncate">{t.cliente_nombre}</span>}
-          {t.expediente_caso && <span className="text-gray-500 font-mono text-[10px] truncate">· {t.expediente_caso}</span>}
+          <FileText className={`w-3.5 h-3.5 flex-shrink-0 ${palette.icon}`} />
+          {t.cliente_nombre && <span className={`font-semibold truncate ${palette.text}`}>{t.cliente_nombre}</span>}
+          {t.expediente_caso && <span className={`font-mono text-[10px] truncate ${palette.mono}`}>· {t.expediente_caso}</span>}
         </>
       )}
     </div>
@@ -261,102 +270,105 @@ function ListaView({ tareas, onOpen, onCompletar, onReabrir, onArchivar, confirm
     );
   }
   return (
-    <div className="space-y-2">
+    <div className="space-y-2.5">
       {tareas.map((t, i) => {
         const vencida = isVencida(t);
+        const completada = t.estado === 'completada';
         return (
         <div key={t.id}
-          className={`glass-card p-4 cursor-pointer hover:bg-white/[0.04] transition-all animate-fade-in ${vencida ? 'border-red-500/30' : ''}`}
+          className={`glass-card p-4 cursor-pointer hover:bg-white/[0.04] transition-all animate-fade-in ${
+            vencida ? 'border-red-500/30 ring-1 ring-red-500/10' : ''
+          } ${completada ? 'opacity-70' : ''}`}
           style={{ animationDelay: `${i * 20}ms` }}
           onClick={() => onOpen(t)}>
-          {/* Header: checkbox + título + badges + trash */}
-          <div className="flex items-start gap-3">
-            <button onClick={e => { e.stopPropagation(); t.estado === 'completada' ? onReabrir(t.id) : onCompletar(t.id); }}
-              className={`mt-0.5 w-5 h-5 rounded-md border-2 flex items-center justify-center transition-all flex-shrink-0 ${
-                t.estado === 'completada' ? 'bg-emerald-500/20 border-emerald-500 text-emerald-400' : 'border-gray-600 hover:border-white'
+
+          {/* Row 1: checkbox + título  ---  estado + acciones */}
+          <div className="flex items-center gap-3">
+            <button onClick={e => { e.stopPropagation(); completada ? onReabrir(t.id) : onCompletar(t.id); }}
+              className={`w-5 h-5 rounded-md border-2 flex items-center justify-center transition-all flex-shrink-0 ${
+                completada ? 'bg-emerald-500/20 border-emerald-500 text-emerald-400' : 'border-gray-600 hover:border-violet-400'
               }`}>
-              {t.estado === 'completada' && <CheckCircle className="w-3.5 h-3.5" />}
+              {completada && <CheckCircle className="w-3.5 h-3.5" />}
             </button>
-            <div className="flex-1 min-w-0">
-              <div className="flex items-start justify-between gap-2">
-                <div className="flex items-center gap-2 flex-wrap min-w-0">
-                  <h4 className={`text-sm font-semibold truncate ${t.estado === 'completada' ? 'text-gray-500 line-through' : 'text-white'}`}>
-                    {t.titulo}
-                  </h4>
-                  {t.adjunto_path && <Paperclip className="w-3 h-3 text-gray-500 flex-shrink-0" />}
-                </div>
-                <div className="flex items-center gap-1.5 flex-shrink-0">
-                  <span className={`text-[10px] px-2 py-0.5 rounded-full border whitespace-nowrap ${PRIORIDAD_TAREA_GENERAL_COLORS[t.prioridad]}`}>
-                    {PRIORIDAD_TAREA_GENERAL_LABELS[t.prioridad]}
-                  </span>
-                  {vencida && (
-                    <span className="flex items-center gap-1 text-[10px] text-red-400 bg-red-500/10 border border-red-500/20 px-2 py-0.5 rounded-full whitespace-nowrap">
-                      <AlertTriangle className="w-2.5 h-2.5" /> Vencida
-                    </span>
-                  )}
-                  <button onClick={e => { e.stopPropagation(); onArchivar(t); }}
-                    className={`p-1 rounded-lg transition-colors ${
-                      confirmDel === t.id ? 'bg-red-500/20 text-red-400' : 'text-gray-600 hover:text-red-400 hover:bg-red-500/10'
-                    }`}
-                    title={confirmDel === t.id ? 'Click otra vez para archivar' : 'Archivar'}>
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              </div>
+            <h4 className={`text-sm font-semibold flex-1 min-w-0 truncate ${completada ? 'text-gray-500 line-through' : 'text-white'}`}>
+              {t.titulo}
+            </h4>
+            {t.adjunto_path && <Paperclip className="w-3.5 h-3.5 text-gray-500 flex-shrink-0" />}
+            <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full border whitespace-nowrap ${ESTADO_COLORS[t.estado]}`}>
+              {ESTADO_TAREA_GENERAL_LABELS[t.estado]}
+            </span>
+            <button onClick={e => { e.stopPropagation(); onArchivar(t); }}
+              className={`p-1.5 rounded-lg transition-colors flex-shrink-0 ${
+                confirmDel === t.id ? 'bg-red-500/20 text-red-400' : 'text-gray-600 hover:text-red-400 hover:bg-red-500/10'
+              }`}
+              title={confirmDel === t.id ? 'Click otra vez para archivar' : 'Archivar'}>
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
+          </div>
 
-              {/* Caso info bar */}
-              <CasoInfoBar t={t} />
+          {/* Row 2: caso info bar (full width, color según tipo) */}
+          <CasoInfoBar t={t} />
 
-              {/* Footer: creador → responsable + fecha + cargo_hora */}
-              <div className="mt-2.5 flex items-center justify-between gap-3 flex-wrap">
-                <div className="flex items-center gap-2 text-[11px] text-gray-400">
-                  {t.creado_por_nombre && (
-                    <div className="flex items-center gap-1.5" title={`Creada por ${t.creado_por_nombre}`}>
-                      <MiniAvatar path={t.creado_por_avatar} nombre={t.creado_por_nombre} size={20} />
-                      <span className="truncate max-w-[110px]">{t.creado_por_nombre}</span>
-                    </div>
-                  )}
-                  {t.responsable_nombre && (
-                    <>
-                      <ArrowRight className="w-3 h-3 text-gray-600" />
-                      <div className="flex items-center gap-1.5" title={`Asignada a ${t.responsable_nombre}`}>
-                        <MiniAvatar path={t.responsable_avatar} nombre={t.responsable_nombre} size={22} />
-                        <span className="text-gray-200 font-medium truncate max-w-[140px]">{t.responsable_nombre}</span>
-                      </div>
-                    </>
-                  )}
-                  {t.visto_por_asignado && (
-                    <span className="flex items-center gap-1 text-[10px] text-emerald-400/80" title="Visto por el responsable">
-                      <Eye className="w-3 h-3" />
-                    </span>
-                  )}
+          {/* Row 3: grid simétrico  [personas]  [chips meta]  */}
+          <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3 items-center">
+            {/* Izquierda: creador → responsable */}
+            <div className="flex items-center gap-2 text-[11px] text-gray-400 min-w-0">
+              {t.creado_por_nombre && (
+                <div className="flex items-center gap-1.5 min-w-0" title={`Creada por ${t.creado_por_nombre}`}>
+                  <MiniAvatar path={t.creado_por_avatar} nombre={t.creado_por_nombre} size={22} />
+                  <span className="truncate text-gray-400">{t.creado_por_nombre}</span>
                 </div>
-                <div className="flex items-center gap-3 text-[11px]">
-                  {t.fecha_limite && (
-                    <span className={`flex items-center gap-1 ${vencida ? 'text-red-400' : 'text-gray-500'}`}>
-                      <Clock className="w-3 h-3" />
-                      {new Date(t.fecha_limite).toLocaleDateString('es-AR', { day: '2-digit', month: 'short' })}
-                    </span>
-                  )}
-                  {t.cargo_hora && (
-                    <span className="text-amber-400/90 font-mono text-[10px] bg-amber-500/10 px-1.5 py-0.5 rounded border border-amber-500/20">
-                      {t.cargo_hora}
-                    </span>
-                  )}
-                  <span className={`text-[10px] px-2 py-0.5 rounded-full border ${ESTADO_COLORS[t.estado]}`}>
-                    {ESTADO_TAREA_GENERAL_LABELS[t.estado]}
-                  </span>
-                </div>
-              </div>
+              )}
+              {t.responsable_nombre && (
+                <>
+                  <ArrowRight className="w-3 h-3 text-violet-400/60 flex-shrink-0" />
+                  <div className="flex items-center gap-1.5 min-w-0" title={`Asignada a ${t.responsable_nombre}`}>
+                    <MiniAvatar path={t.responsable_avatar} nombre={t.responsable_nombre} size={22} />
+                    <span className="text-white font-medium truncate">{t.responsable_nombre}</span>
+                  </div>
+                </>
+              )}
+              {t.visto_por_asignado && (
+                <span className="flex items-center gap-1 text-[10px] text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-1.5 py-0.5 rounded-full flex-shrink-0" title="Visto por el responsable">
+                  <Eye className="w-3 h-3" /> Visto
+                </span>
+              )}
+            </div>
 
-              {t.observaciones_demora && (
-                <p className="text-[10px] text-amber-400/80 mt-2 italic flex items-start gap-1">
-                  <AlertTriangle className="w-3 h-3 flex-shrink-0 mt-0.5" />
-                  <span>{t.observaciones_demora}</span>
-                </p>
+            {/* Derecha: chips de meta (prioridad / vencida / fecha / cargo_hora) */}
+            <div className="flex items-center justify-end gap-1.5 flex-wrap">
+              {t.prioridad !== 'sin_prioridad' && (
+                <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full border whitespace-nowrap ${PRIORIDAD_COLORS_V2[t.prioridad]}`}>
+                  {PRIORIDAD_TAREA_GENERAL_LABELS[t.prioridad]}
+                </span>
+              )}
+              {vencida && (
+                <span className="flex items-center gap-1 text-[10px] text-red-300 bg-red-500/15 border border-red-500/30 px-2 py-0.5 rounded-full whitespace-nowrap">
+                  <AlertTriangle className="w-2.5 h-2.5" /> Vencida
+                </span>
+              )}
+              {t.fecha_limite && (
+                <span className={`flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full border whitespace-nowrap ${
+                  vencida ? 'bg-red-500/10 text-red-300 border-red-500/20' : 'bg-white/5 text-gray-300 border-white/10'
+                }`}>
+                  <Clock className="w-2.5 h-2.5" />
+                  {new Date(t.fecha_limite).toLocaleDateString('es-AR', { day: '2-digit', month: 'short' })}
+                </span>
+              )}
+              {t.cargo_hora && (
+                <span className="text-[10px] font-mono px-2 py-0.5 rounded-full border bg-orange-500/15 text-orange-300 border-orange-500/30 whitespace-nowrap">
+                  {t.cargo_hora}
+                </span>
               )}
             </div>
           </div>
+
+          {t.observaciones_demora && (
+            <div className="mt-2.5 flex items-start gap-2 px-3 py-2 rounded-xl border border-orange-500/20 bg-orange-500/[0.06]">
+              <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5 text-orange-300" />
+              <p className="text-[11px] text-orange-200 italic">{t.observaciones_demora}</p>
+            </div>
+          )}
         </div>
         );
       })}
@@ -389,17 +401,19 @@ function KanbanView({ tareas, onOpen, isVencida }: {
                   className={`glass-card p-3 cursor-pointer hover:bg-white/[0.04] transition-all ${isVencida(t) ? 'border-red-500/30' : ''}`}>
                   <h4 className="text-xs font-semibold text-white mb-1 line-clamp-2">{t.titulo}</h4>
                   {(t.caso_general_titulo || t.cliente_nombre) && (
-                    <p className="text-[10px] text-gray-500 truncate flex items-center gap-1">
+                    <p className="text-[10px] truncate flex items-center gap-1">
                       {t.caso_general_titulo
-                        ? <><Briefcase className="w-2.5 h-2.5 text-purple-400" /> {t.caso_general_titulo}</>
-                        : <><FileText className="w-2.5 h-2.5 text-blue-400" /> {t.cliente_nombre}</>}
+                        ? <><Briefcase className="w-2.5 h-2.5 text-violet-400" /> <span className="text-violet-300">{t.caso_general_titulo}</span></>
+                        : <><FileText className="w-2.5 h-2.5 text-emerald-400" /> <span className="text-emerald-300">{t.cliente_nombre}</span></>}
                     </p>
                   )}
                   <div className="flex items-center justify-between gap-1.5 mt-2">
                     <div className="flex items-center gap-1.5 flex-wrap">
-                      <span className={`text-[10px] px-1.5 py-0.5 rounded-full border ${PRIORIDAD_TAREA_GENERAL_COLORS[t.prioridad]}`}>
-                        {PRIORIDAD_TAREA_GENERAL_LABELS[t.prioridad]}
-                      </span>
+                      {t.prioridad !== 'sin_prioridad' && (
+                        <span className={`text-[10px] px-1.5 py-0.5 rounded-full border ${PRIORIDAD_COLORS_V2[t.prioridad]}`}>
+                          {PRIORIDAD_TAREA_GENERAL_LABELS[t.prioridad]}
+                        </span>
+                      )}
                       {isVencida(t) && <AlertTriangle className="w-3 h-3 text-red-400" />}
                       {t.adjunto_path && <Paperclip className="w-3 h-3 text-gray-500" />}
                     </div>
@@ -563,9 +577,9 @@ function ResponsableView({ tareas, perfiles, onOpen, isVencida }: {
                       }`} />
                       <span className={`text-xs truncate ${t.estado === 'completada' ? 'text-gray-500 line-through' : 'text-white'}`}>{t.titulo}</span>
                       {t.caso_general_titulo
-                        ? <span className="text-[10px] text-purple-400 truncate flex items-center gap-1"><Briefcase className="w-2.5 h-2.5" /> {t.caso_general_titulo}</span>
-                        : t.cliente_nombre && <span className="text-[10px] text-gray-600 truncate">· {t.cliente_nombre}</span>}
-                      {t.cargo_hora && <span className="text-[10px] text-amber-400 flex-shrink-0">⏰ {t.cargo_hora}</span>}
+                        ? <span className="text-[10px] text-violet-300 truncate flex items-center gap-1"><Briefcase className="w-2.5 h-2.5" /> {t.caso_general_titulo}</span>
+                        : t.cliente_nombre && <span className="text-[10px] text-emerald-300/80 truncate flex items-center gap-1"><FileText className="w-2.5 h-2.5" /> {t.cliente_nombre}</span>}
+                      {t.cargo_hora && <span className="text-[10px] text-orange-300 flex-shrink-0">⏰ {t.cargo_hora}</span>}
                     </div>
                     {t.fecha_limite && (
                       <span className={`text-[10px] flex-shrink-0 ${isVencida(t) ? 'text-red-400' : 'text-gray-600'}`}>
@@ -658,7 +672,7 @@ function TareaModal({ tarea, casos, casosGenerales, perfiles, onClose, onSave }:
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
-            <label className="text-[10px] text-gray-500 uppercase tracking-wider flex items-center gap-1"><FileText className="w-3 h-3 text-blue-400" /> Cliente / Caso legal</label>
+            <label className="text-[10px] text-gray-500 uppercase tracking-wider flex items-center gap-1"><FileText className="w-3 h-3 text-emerald-400" /> Cliente / Caso legal</label>
             <select value={form.caso_id} onChange={e => setForm(s => ({ ...s, caso_id: e.target.value, caso_general_id: e.target.value ? '' : s.caso_general_id }))} className="select-dark text-sm mt-1">
               <option value="">— Sin vincular —</option>
               {casos.map((c: any) => (
@@ -667,7 +681,7 @@ function TareaModal({ tarea, casos, casosGenerales, perfiles, onClose, onSave }:
             </select>
           </div>
           <div>
-            <label className="text-[10px] text-gray-500 uppercase tracking-wider flex items-center gap-1"><Briefcase className="w-3 h-3 text-purple-400" /> Caso general</label>
+            <label className="text-[10px] text-gray-500 uppercase tracking-wider flex items-center gap-1"><Briefcase className="w-3 h-3 text-violet-400" /> Caso general</label>
             <select value={form.caso_general_id} onChange={e => setForm(s => ({ ...s, caso_general_id: e.target.value, caso_id: e.target.value ? '' : s.caso_id }))} className="select-dark text-sm mt-1">
               <option value="">— Sin vincular —</option>
               {casosGenerales.filter((c: any) => !c.archivado).map((c: any) => (
