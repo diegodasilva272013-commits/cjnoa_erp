@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import {
   Search, Plus, Upload, Trash2, AlertCircle, CheckCircle2,
   Loader2, X, Scale, Calendar, Clock, Star, RefreshCw,
@@ -137,21 +137,34 @@ function parseCSV(text: string): Record<string, string>[] {
   return rows;
 }
 
-// ─── Case-insensitive, accent-stripped row accessor ───────────────────────────
+// ─── Case-insensitive, accent-stripped, space-collapsed row accessor ─────────
+function normalizeKey(k: string) {
+  return k.trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[\s_\-/]+/g, ' ').trim();
+}
 function makeAccessor(raw: Record<string, string>) {
   const norm: Record<string, string> = {};
+  const originalKeys: Record<string, string> = {}; // normalized → original key
   for (const [k, v] of Object.entries(raw)) {
-    const nk = k.trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    const nk = normalizeKey(k);
     norm[nk] = v;
+    originalKeys[nk] = k;
   }
-  return function get(...candidates: string[]): string {
+  function get(...candidates: string[]): string {
     for (const c of candidates) {
-      const nk = c.trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+      const nk = normalizeKey(c);
       const val = norm[nk];
       if (val !== undefined && val !== '') return val.trim();
     }
     return '';
+  }
+  get.detectedKey = function(...candidates: string[]): string | null {
+    for (const c of candidates) {
+      const nk = normalizeKey(c);
+      if (norm[nk] !== undefined && norm[nk] !== '') return originalKeys[nk];
+    }
+    return null;
   };
+  return get;
 }
 
 // ─── Notion normalizers ───────────────────────────────────────────────────────
@@ -159,13 +172,29 @@ const MESES: Record<string, string> = {
   enero:'01',febrero:'02',marzo:'03',abril:'04',mayo:'05',junio:'06',
   julio:'07',agosto:'08',septiembre:'09',octubre:'10',noviembre:'11',diciembre:'12',
 };
+const MESES_EN: Record<string, string> = {
+  january:'01',february:'02',march:'03',april:'04',may:'05',june:'06',
+  july:'07',august:'08',september:'09',october:'10',november:'11',december:'12',
+  jan:'01',feb:'02',mar:'03',apr:'04',jun:'06',jul:'07',aug:'08',sep:'09',oct:'10',nov:'11',dec:'12',
+};
 function parseNotionDate(v: string): string | null {
   if (!v?.trim()) return null;
-  const slash = v.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  const s = v.trim();
+  // ISO with optional time: 2026-05-06 or 2026-05-06T...
+  const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`;
+  // DD/MM/YYYY
+  const slash = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
   if (slash) return `${slash[3]}-${slash[2].padStart(2,'0')}-${slash[1].padStart(2,'0')}`;
-  const sp = v.match(/(\d{1,2})\s+de\s+([a-záéíóú]+)\s+de\s+(\d{4})/i);
+  // X de mes de YYYY (Spanish)
+  const sp = s.match(/(\d{1,2})\s+de\s+([a-záéíóú]+)\s+de\s+(\d{4})/i);
   if (sp) { const m = MESES[sp[2].toLowerCase()]; if (m) return `${sp[3]}-${m}-${sp[1].padStart(2,'0')}`; }
-  if (/^\d{4}-\d{2}-\d{2}$/.test(v)) return v;
+  // Month DD, YYYY (English, from Notion default locale)
+  const engLong = s.match(/([A-Za-z]+)\s+(\d{1,2}),?\s+(\d{4})/);
+  if (engLong) { const m = MESES_EN[engLong[1].toLowerCase()]; if (m) return `${engLong[3]}-${m}-${engLong[2].padStart(2,'0')}`; }
+  // DD-MM-YYYY
+  const dash = s.match(/^(\d{1,2})-(\d{1,2})-(\d{4})$/);
+  if (dash) return `${dash[3]}-${dash[2].padStart(2,'0')}-${dash[1].padStart(2,'0')}`;
   return null;
 }
 function parseNotionBool(v: string) {
@@ -402,8 +431,25 @@ function CaseDetailModal({ caso: initial, onClose, onSaved }: {
 }
 
 // ─── NotionImportModal ─────────────────────────────────────────────────────────
+// Per-field alias lists — the more the better for Notion CSV variety
+const COL_TITULO = ['nombre','titulo','name','title','caratula','caratula del expediente','denominacion','caso'];
+const COL_ESTADO = ['estado','status','state','situacion','pipeline'];
+const COL_ABOGADO = ['sistema','abogado','abogado/a','abogada','captado por','dr','dra','letrado','letrada','profesional','responsable','asignado','a cargo','letrada/o'];
+const COL_PERSONERIA = ['personeria','personeria procesal','caracter','rol procesal','facultad'];
+const COL_EXPEDIENTE = ['expediente','exp','numero expediente','nro expediente','num exp','n expediente','n° expediente','numero de expediente','nro exp'];
+const COL_RADICADO = ['radicado','tribunal','juzgado','juzgado/tribunal','radicacion','fuero','juzgado actuante','juzgado de radicacion'];
+const COL_TIPO = ['tipo de caso','tipo caso','tipodecaso','tipo_caso','tipo','type','category','categoria','materia','fuero juridico'];
+const COL_AUDIENCIAS = ['audiencias','audiencia','proxima audiencia','proxima audiencia','fecha audiencia','fecha de audiencia','proxima fecha','fecha proxima','div audiencias'];
+const COL_VENCIMIENTO = ['vencimiento','vence','fecha vencimiento','fecha de vencimiento','fecha limite','fecha_vencimiento','plazo'];
+const COL_URL_DRIVE = ['url del drive','url drive','url del drive','drive','url_drive','link drive','carpeta drive','google drive','link carpeta','url carpeta','enlace drive','link de drive'];
+const COL_ACTUALIZACION = ['actualizacion','actualizaciones','notas','notes','observaciones','novedad','novedades','situacion actual','situacion','nota','comentario','comentarios','ultima novedad','estado de avance'];
+const COL_PRIORIDAD = ['prioridad','priority','urgente','urgent','prioritario'];
+const COL_ARCHIVAR = ['archivar','archivado','archived','archive','cerrado','inactivo','cancelado'];
+const COL_ESTADISTICAS = ['estadisticas (no tocar)','estadisticas_estado','estadisticas','statistics','avance'];
+
 interface ImportRow { titulo: string; ok: boolean; error?: string }
 interface PreviewRow { titulo: string; estado: string; abogado: string; expediente: string; tipo: string }
+interface FieldMapping { field: string; csvCol: string | null; aliases: string[] }
 
 function NotionImportModal({ onClose, onImported, totalExistentes }: {
   onClose: () => void; onImported: () => void; totalExistentes: number;
@@ -418,9 +464,9 @@ function NotionImportModal({ onClose, onImported, totalExistentes }: {
   const [preview, setPreview] = useState<PreviewRow[] | null>(null);
   const [detectedHeaders, setDetectedHeaders] = useState<string[]>([]);
   const [previewTotal, setPreviewTotal] = useState(0);
+  const [fieldMapping, setFieldMapping] = useState<FieldMapping[]>([]);
 
-  const KNOWN_COLS = ['nombre','estado','sistema','personeria','expediente','radicado',
-    'tipo de caso','audiencias','vencimiento','prioridad','archivar','url del drive'];
+  const ALL_EXPECTED = [...COL_TITULO,...COL_ESTADO,...COL_ABOGADO,...COL_PERSONERIA,...COL_EXPEDIENTE,...COL_RADICADO,...COL_TIPO,...COL_AUDIENCIAS,...COL_VENCIMIENTO,...COL_URL_DRIVE,...COL_ACTUALIZACION,...COL_PRIORIDAD,...COL_ARCHIVAR];
 
   async function handleFileChange(f: File | undefined) {
     if (!f) return;
@@ -436,17 +482,33 @@ function NotionImportModal({ onClose, onImported, totalExistentes }: {
       }
       if (!rows.length) return;
       setDetectedHeaders(Object.keys(rows[0]));
-      let filtered = rows.filter(r => makeAccessor(r)('nombre','titulo','title','name').length > 0);
-      if (skipArchived) filtered = filtered.filter(r => !parseNotionBool(makeAccessor(r)('archivar','archivado')));
+      let filtered = rows.filter(r => makeAccessor(r)(...COL_TITULO).length > 0);
+      if (skipArchived) filtered = filtered.filter(r => !parseNotionBool(makeAccessor(r)(...COL_ARCHIVAR)));
       setPreviewTotal(filtered.length);
+      if (!filtered.length) return;
+      // Build field mapping from first row
+      const g0 = makeAccessor(filtered[0]);
+      setFieldMapping([
+        { field: 'Título',      csvCol: g0.detectedKey(...COL_TITULO),      aliases: COL_TITULO },
+        { field: 'Estado',      csvCol: g0.detectedKey(...COL_ESTADO),      aliases: COL_ESTADO },
+        { field: 'Abogado',     csvCol: g0.detectedKey(...COL_ABOGADO),     aliases: COL_ABOGADO },
+        { field: 'Personería',  csvCol: g0.detectedKey(...COL_PERSONERIA),  aliases: COL_PERSONERIA },
+        { field: 'Expediente',  csvCol: g0.detectedKey(...COL_EXPEDIENTE),  aliases: COL_EXPEDIENTE },
+        { field: 'Radicado',    csvCol: g0.detectedKey(...COL_RADICADO),    aliases: COL_RADICADO },
+        { field: 'Tipo',        csvCol: g0.detectedKey(...COL_TIPO),        aliases: COL_TIPO },
+        { field: 'Audiencia',   csvCol: g0.detectedKey(...COL_AUDIENCIAS),  aliases: COL_AUDIENCIAS },
+        { field: 'Vencimiento', csvCol: g0.detectedKey(...COL_VENCIMIENTO), aliases: COL_VENCIMIENTO },
+        { field: 'Drive URL',   csvCol: g0.detectedKey(...COL_URL_DRIVE),   aliases: COL_URL_DRIVE },
+        { field: 'Notas',       csvCol: g0.detectedKey(...COL_ACTUALIZACION),aliases: COL_ACTUALIZACION },
+      ]);
       setPreview(filtered.slice(0, 5).map(r => {
         const g = makeAccessor(r);
         return {
-          titulo: g('nombre','titulo','title','name'),
-          estado: normEstado(g('estado','status','state')),
-          abogado: g('sistema','abogado','abogado/a','captado por'),
-          expediente: g('expediente','exp','numero expediente'),
-          tipo: normTipo(g('tipo de caso','tipo_caso','tipo','type','category')) ?? '',
+          titulo: g(...COL_TITULO),
+          estado: normEstado(g(...COL_ESTADO)),
+          abogado: g(...COL_ABOGADO),
+          expediente: g(...COL_EXPEDIENTE),
+          tipo: normTipo(g(...COL_TIPO)) ?? '',
         };
       }));
     } catch { /* ignore */ }
@@ -464,8 +526,8 @@ function NotionImportModal({ onClose, onImported, totalExistentes }: {
       } else {
         rows = parseCSV(await file.text());
       }
-      rows = rows.filter(r => makeAccessor(r)('nombre','titulo','title','name').length > 0);
-      if (skipArchived) rows = rows.filter(r => !parseNotionBool(makeAccessor(r)('archivar','archivado')));
+      rows = rows.filter(r => makeAccessor(r)(...COL_TITULO).length > 0);
+      if (skipArchived) rows = rows.filter(r => !parseNotionBool(makeAccessor(r)(...COL_ARCHIVAR)));
       setProgress({ done: 0, total: rows.length });
       if (!rows.length) { showToast('No hay filas para importar', 'error'); setImporting(false); return; }
 
@@ -479,20 +541,20 @@ function NotionImportModal({ onClose, onImported, totalExistentes }: {
       const batch = rows.map(r => {
         const g = makeAccessor(r);
         return {
-          titulo:              g('nombre','titulo','title','name'),
-          expediente:          g('expediente','exp','numero expediente') || null,
-          estado:              normEstado(g('estado','status','state')),
-          tipo_caso:           normTipo(g('tipo de caso','tipo_caso','tipo','type','category')),
-          abogado:             g('sistema','abogado','abogado/a','captado por') || null,
-          personeria:          g('personeria','personería') || null,
-          radicado:            g('radicado','tribunal','juzgado') || null,
-          url_drive:           g('url del drive','drive','url_drive','link drive') || null,
-          actualizacion:       g('actualizacion','actualización','notas','notes','observaciones') || null,
-          audiencias:          parseNotionDate(g('audiencias','audiencia','proxima audiencia')),
-          vencimiento:         parseNotionDate(g('vencimiento','vence','fecha vencimiento')),
-          prioridad:           parseNotionBool(g('prioridad','priority','urgente')),
-          archivado:           parseNotionBool(g('archivar','archivado','archived')),
-          estadisticas_estado: g('estadisticas (no tocar)','estadisticas_estado','estadisticas') || 'al día',
+          titulo:              g(...COL_TITULO),
+          expediente:          g(...COL_EXPEDIENTE) || null,
+          estado:              normEstado(g(...COL_ESTADO)),
+          tipo_caso:           normTipo(g(...COL_TIPO)),
+          abogado:             g(...COL_ABOGADO) || null,
+          personeria:          g(...COL_PERSONERIA) || null,
+          radicado:            g(...COL_RADICADO) || null,
+          url_drive:           g(...COL_URL_DRIVE) || null,
+          actualizacion:       g(...COL_ACTUALIZACION) || null,
+          audiencias:          parseNotionDate(g(...COL_AUDIENCIAS)),
+          vencimiento:         parseNotionDate(g(...COL_VENCIMIENTO)),
+          prioridad:           parseNotionBool(g(...COL_PRIORIDAD)),
+          archivado:           parseNotionBool(g(...COL_ARCHIVAR)),
+          estadisticas_estado: g(...COL_ESTADISTICAS) || 'al día',
           created_by:          userId,
         };
       });
@@ -572,14 +634,38 @@ function NotionImportModal({ onClose, onImported, totalExistentes }: {
           {/* Preview */}
           {preview && !importing && !results.length && (
             <div className="space-y-3">
+              {/* Field mapping table — shows exactly which CSV col maps to which field */}
+              {fieldMapping.length > 0 && (
+                <div className="rounded-xl bg-white/[0.025] border border-white/[0.06] p-3">
+                  <p className="text-[10px] text-gray-500 uppercase tracking-widest mb-2 flex items-center gap-1">
+                    <Eye className="w-3 h-3"/>Mapeo de columnas CSV → base de datos
+                  </p>
+                  <div className="grid grid-cols-2 gap-1 text-[11px]">
+                    {fieldMapping.map(fm => (
+                      <div key={fm.field} className={`flex items-center gap-1.5 px-2 py-1 rounded-lg ${fm.csvCol ? 'bg-emerald-500/5 border border-emerald-500/15' : 'bg-white/[0.02] border border-white/5'}`}>
+                        <span className={`font-semibold shrink-0 ${fm.csvCol ? 'text-emerald-400' : 'text-gray-600'}`}>{fm.field}:</span>
+                        {fm.csvCol
+                          ? <span className="text-white font-mono truncate">{fm.csvCol}</span>
+                          : <span className="text-gray-600 italic">no detectada</span>}
+                      </div>
+                    ))}
+                  </div>
+                  {fieldMapping.some(fm => !fm.csvCol) && (
+                    <p className="text-[10px] text-amber-400/70 mt-2">
+                      Los campos sin detectar quedarán vacíos. Verificá que tu CSV tenga esas columnas.
+                    </p>
+                  )}
+                </div>
+              )}
+              {/* All CSV headers */}
               <div className="rounded-xl bg-white/[0.025] border border-white/[0.06] p-3">
                 <p className="text-[10px] text-gray-500 uppercase tracking-widest mb-2 flex items-center gap-1">
-                  <Eye className="w-3 h-3"/>Columnas detectadas ({detectedHeaders.length})
+                  <Eye className="w-3 h-3"/>Columnas en el CSV ({detectedHeaders.length})
                 </p>
                 <div className="flex flex-wrap gap-1">
                   {detectedHeaders.map(h => {
-                    const nk = h.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
-                    const known = KNOWN_COLS.some(k => nk.includes(k));
+                    const nk = normalizeKey(h);
+                    const known = ALL_EXPECTED.some(k => normalizeKey(k) === nk);
                     return (
                       <span key={h} className={`px-2 py-0.5 rounded-full text-[10px] font-medium ${known ? 'bg-emerald-500/10 text-emerald-300 border border-emerald-500/20' : 'bg-white/5 text-gray-500 border border-white/10'}`}>
                         {h}{known ? ' ✓' : ''}
@@ -905,7 +991,10 @@ function CasosKanban({ casos, onSelect, onDelete, saveCaso }: {
   const [overCol, setOverCol] = useState<string | null>(null);
   const [confirmDel, setConfirmDel] = useState<string | null>(null);
   const { showToast } = useToast();
-  useEffect(() => { setItems(casos); }, [casos]);
+  // savingRef: prevents the realtime-triggered useEffect from reverting
+  // the optimistic update while the DB write is still in flight.
+  const savingRef = useRef(false);
+  useEffect(() => { if (!savingRef.current) setItems(casos); }, [casos]);
 
   const askDel = (id: string) => {
     if (confirmDel === id) { onDelete(id); setConfirmDel(null); }
@@ -940,9 +1029,11 @@ function CasosKanban({ casos, onSelect, onDelete, saveCaso }: {
     const card = items.find(c => c.id === active.id);
     if (!card || card.estado === newEstado) return;
 
-    // Optimistic update
+    // Optimistic update — guard against RT-triggered useEffect resetting state
+    savingRef.current = true;
     setItems(prev => prev.map(c => c.id === active.id ? { ...c, estado: newEstado! } : c));
     const r = await saveCaso({ estado: newEstado }, active.id as string);
+    savingRef.current = false;
     if (!r.ok) {
       showToast('No se pudo mover: ' + (r.error ?? ''), 'error');
       setItems(prev => prev.map(c => c.id === active.id ? { ...c, estado: card.estado } : c));
