@@ -3,7 +3,7 @@ import {
   Search, Plus, Upload, Trash2, AlertCircle, CheckCircle2,
   Loader2, X, Scale, Calendar, Clock, Star, RefreshCw,
   Columns3, Table2, ChevronRight, ExternalLink, AlertTriangle, Eye,
-  ArrowUp, ArrowDown, ArrowUpDown,
+  ArrowUp, ArrowDown, ArrowUpDown, Gavel,
 } from 'lucide-react';
 import {
   DndContext, DragEndEvent, DragOverlay, PointerSensor,
@@ -14,6 +14,7 @@ import { useCasosGenerales, CasoGeneral, TIPOS_CASO, ABOGADOS } from '../hooks/u
 import { useToast } from '../context/ToastContext';
 import { supabase } from '../lib/supabase';
 import NotasFeedPanel from '../components/cases/NotasFeedPanel';
+import AgendarAudienciaModal from '../components/cases/AgendarAudienciaModal';
 import ArchivosCasoGeneralPanel from '../components/cases/ArchivosCasoGeneralPanel';
 
 // ─── Estado constants (same pattern as PIPELINE_COLORS in previsional) ─────────
@@ -323,6 +324,7 @@ function CaseDetailModal({ caso: initial, onClose, onSaved }: {
   const [editing, setEditing] = useState<Partial<CasoGeneral>>(initial ?? {});
   const [saving, setSaving] = useState(false);
   const [editMode, setEditMode] = useState(!initial);
+  const [audOpen, setAudOpen] = useState(false);
   const isNew = !initial;
 
   const set = (key: keyof CasoGeneral, val: unknown) =>
@@ -364,6 +366,13 @@ function CaseDetailModal({ caso: initial, onClose, onSaved }: {
             )}
           </div>
           <div className="flex items-center gap-2 shrink-0">
+            {!isNew && editing.id && (
+              <button onClick={() => setAudOpen(true)}
+                title="Agendar audiencia para este caso"
+                className="px-3 py-1.5 rounded-xl text-xs font-semibold bg-orange-500/15 hover:bg-orange-500/25 border border-orange-500/40 text-orange-200 flex items-center gap-1.5">
+                <Gavel className="w-3.5 h-3.5" /> Audiencia
+              </button>
+            )}
             {!isNew && (
               <button onClick={() => setEditMode(m => !m)}
                 className={`px-3 py-1.5 rounded-xl text-xs font-medium transition-colors ${editMode ? 'bg-violet-500/20 text-violet-300' : 'bg-white/5 text-gray-400 hover:text-white'}`}>
@@ -520,6 +529,13 @@ function CaseDetailModal({ caso: initial, onClose, onSaved }: {
           </div>
         </div>
       </div>
+      {audOpen && editing.id && (
+        <AgendarAudienciaModal
+          casoGeneralId={editing.id}
+          casoTitulo={editing.titulo ?? null}
+          onClose={() => setAudOpen(false)}
+        />
+      )}
     </div>
   );
 }
