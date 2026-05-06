@@ -2,7 +2,7 @@ import { useState, useMemo, useEffect } from 'react';
 import {
   Search, Plus, Upload, Trash2, Filter, AlertCircle, CheckCircle2,
   Loader2, X, Scale, Calendar, Gavel, Clock, Star, RefreshCw,
-  Columns3, Table2, ChevronRight, ExternalLink, AlertTriangle,
+  Columns3, Table2, ChevronRight, ExternalLink, AlertTriangle, Eye,
 } from 'lucide-react';
 import {
   DndContext, DragEndEvent, DragOverlay, PointerSensor,
@@ -14,30 +14,61 @@ import { useToast } from '../context/ToastContext';
 import { supabase } from '../lib/supabase';
 
 // ─── Estado meta ──────────────────────────────────────────────────────────────
-const ESTADO_META: Record<string, { label: string; color: string; dot: string; bg: string; border: string }> = {
-  activos:                              { label: 'Activo',          color: 'text-emerald-300', dot: 'bg-emerald-400', bg: 'bg-emerald-400/10', border: 'border-l-emerald-500' },
-  federales:                            { label: 'Federal',         color: 'text-blue-300',    dot: 'bg-blue-400',    bg: 'bg-blue-400/10',    border: 'border-l-blue-500' },
-  'esperando sentencias':               { label: 'En espera',       color: 'text-amber-300',   dot: 'bg-amber-400',   bg: 'bg-amber-400/10',   border: 'border-l-amber-500' },
-  'complicacion judicial/analisis':     { label: 'En análisis',     color: 'text-orange-300',  dot: 'bg-orange-400',  bg: 'bg-orange-400/10',  border: 'border-l-orange-500' },
-  'suspendido por falta de directivas': { label: 'Sin directivas',  color: 'text-gray-400',    dot: 'bg-gray-500',    bg: 'bg-gray-500/10',    border: 'border-l-gray-500' },
-  'suspendido por falta de pago':       { label: 'Sin pago',        color: 'text-red-300',     dot: 'bg-red-400',     bg: 'bg-red-400/10',     border: 'border-l-red-500' },
+const ESTADO_META: Record<string, {
+  label: string; color: string; dot: string; bg: string; border: string;
+  rowBorder: string; rowHover: string;
+}> = {
+  activos: {
+    label: 'Activo', color: 'text-emerald-300', dot: 'bg-emerald-400',
+    bg: 'bg-emerald-400/10', border: 'border-l-emerald-500',
+    rowBorder: 'border-l-2 border-l-emerald-500/60', rowHover: 'hover:bg-emerald-500/[0.03]',
+  },
+  federales: {
+    label: 'Federal', color: 'text-blue-300', dot: 'bg-blue-400',
+    bg: 'bg-blue-400/10', border: 'border-l-blue-500',
+    rowBorder: 'border-l-2 border-l-blue-500/60', rowHover: 'hover:bg-blue-500/[0.03]',
+  },
+  'esperando sentencias': {
+    label: 'En espera', color: 'text-amber-300', dot: 'bg-amber-400',
+    bg: 'bg-amber-400/10', border: 'border-l-amber-500',
+    rowBorder: 'border-l-2 border-l-amber-500/60', rowHover: 'hover:bg-amber-500/[0.03]',
+  },
+  'complicacion judicial/analisis': {
+    label: 'En análisis', color: 'text-orange-300', dot: 'bg-orange-400',
+    bg: 'bg-orange-400/10', border: 'border-l-orange-500',
+    rowBorder: 'border-l-2 border-l-orange-500/60', rowHover: 'hover:bg-orange-500/[0.03]',
+  },
+  'suspendido por falta de directivas': {
+    label: 'Sin directivas', color: 'text-gray-400', dot: 'bg-gray-500',
+    bg: 'bg-gray-500/10', border: 'border-l-gray-500',
+    rowBorder: 'border-l-2 border-l-gray-500/40', rowHover: 'hover:bg-gray-500/[0.03]',
+  },
+  'suspendido por falta de pago': {
+    label: 'Sin pago', color: 'text-red-300', dot: 'bg-red-400',
+    bg: 'bg-red-400/10', border: 'border-l-red-500',
+    rowBorder: 'border-l-2 border-l-red-500/60', rowHover: 'hover:bg-red-500/[0.03]',
+  },
 };
-const FALLBACK_META = { label: 'Sin estado', color: 'text-gray-400', dot: 'bg-gray-600', bg: 'bg-white/5', border: 'border-l-white/10' };
+const FALLBACK_META = {
+  label: 'Sin estado', color: 'text-gray-500', dot: 'bg-gray-600',
+  bg: 'bg-white/5', border: 'border-l-white/10',
+  rowBorder: 'border-l-2 border-l-white/10', rowHover: 'hover:bg-white/[0.03]',
+};
 const getEstado = (e: string | null) => ESTADO_META[(e ?? '').toLowerCase()] ?? FALLBACK_META;
 
-const ABOGADO_COLORS: Record<string, string> = {
-  'RODRIGO':    'from-violet-600 to-violet-800',
-  'NOELIA':     'from-pink-600 to-pink-800',
-  'ALEJANDRO':  'from-blue-600 to-blue-800',
-  'MARIANELA':  'from-teal-600 to-teal-800',
-  'FABRICIO':   'from-amber-600 to-amber-800',
+const ABOGADO_COLORS: Record<string, { from: string; shadow: string }> = {
+  RODRIGO:   { from: 'from-violet-500 to-purple-700',   shadow: 'shadow-violet-500/40' },
+  NOELIA:    { from: 'from-pink-500 to-rose-700',        shadow: 'shadow-pink-500/40' },
+  ALEJANDRO: { from: 'from-blue-500 to-indigo-700',      shadow: 'shadow-blue-500/40' },
+  MARIANELA: { from: 'from-teal-500 to-emerald-700',     shadow: 'shadow-teal-500/40' },
+  FABRICIO:  { from: 'from-amber-500 to-orange-700',     shadow: 'shadow-amber-500/40' },
 };
-function getAbogadoColor(a: string | null) {
-  if (!a) return 'from-gray-600 to-gray-800';
+function getAbogadoStyle(a: string | null) {
+  if (!a) return { from: 'from-gray-600 to-gray-800', shadow: 'shadow-none' };
   for (const [k, v] of Object.entries(ABOGADO_COLORS)) {
     if (a.toUpperCase().includes(k)) return v;
   }
-  return 'from-gray-600 to-gray-800';
+  return { from: 'from-gray-600 to-gray-800', shadow: 'shadow-none' };
 }
 function abogadoInitials(s: string | null) {
   if (!s) return '?';
@@ -50,22 +81,25 @@ function formatDate(d: string | null) {
   const months = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
   return `${parseInt(day)} ${months[parseInt(m)-1]} ${y}`;
 }
-function isOverdue(d: string | null) {
-  if (!d) return false;
-  return new Date(d) < new Date();
+function isOverdue(d: string | null) { return !!d && new Date(d) < new Date(); }
+function daysUntil(d: string | null) {
+  if (!d) return null;
+  return Math.ceil((new Date(d).getTime() - Date.now()) / 86400000);
 }
 
-// ─── CSV parser RFC 4180 ──────────────────────────────────────────────────────
+// ─── CSV RFC 4180 ─────────────────────────────────────────────────────────────
 function parseCSV(text: string): Record<string, string>[] {
+  // Strip BOM
+  const raw = text.replace(/^\uFEFF/, '');
   const lines: string[] = [];
   let cur = '', inQ = false;
-  for (let i = 0; i < text.length; i++) {
-    const ch = text[i];
+  for (let i = 0; i < raw.length; i++) {
+    const ch = raw[i];
     if (ch === '"') {
-      if (inQ && text[i + 1] === '"') { cur += '"'; i++; }
+      if (inQ && raw[i + 1] === '"') { cur += '"'; i++; }
       else inQ = !inQ;
     } else if ((ch === '\n' || ch === '\r') && !inQ) {
-      if (ch === '\r' && text[i + 1] === '\n') i++;
+      if (ch === '\r' && raw[i + 1] === '\n') i++;
       lines.push(cur); cur = '';
     } else cur += ch;
   }
@@ -86,7 +120,7 @@ function parseCSV(text: string): Record<string, string>[] {
     return vals;
   };
 
-  const headers = parseFields(lines[0]).map(h => h.trim());
+  const headers = parseFields(lines[0]).map(h => h.trim().replace(/^\uFEFF/, ''));
   const rows: Record<string, string>[] = [];
   for (let i = 1; i < lines.length; i++) {
     const line = lines[i].trim();
@@ -99,30 +133,65 @@ function parseCSV(text: string): Record<string, string>[] {
   return rows;
 }
 
-// ─── Notion helpers ───────────────────────────────────────────────────────────
+// ─── Case-insensitive row accessor ───────────────────────────────────────────
+// Returns a function get(...candidates) that finds the first matching key
+// case-insensitively, stripping accents and extra spaces.
+function makeAccessor(raw: Record<string, string>) {
+  const norm: Record<string, string> = {};
+  for (const [k, v] of Object.entries(raw)) {
+    const nk = k.trim().toLowerCase()
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, ''); // strip accents
+    norm[nk] = v;
+  }
+  return function get(...candidates: string[]): string {
+    for (const c of candidates) {
+      const nk = c.trim().toLowerCase()
+        .normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+      const val = norm[nk];
+      if (val !== undefined && val !== '') return val.trim();
+    }
+    return '';
+  };
+}
+
+// ─── Notion normalizers ───────────────────────────────────────────────────────
 const MESES: Record<string, string> = {
-  enero:'01',febrero:'02',marzo:'03',abril:'04',mayo:'05',junio:'06',
-  julio:'07',agosto:'08',septiembre:'09',octubre:'10',noviembre:'11',diciembre:'12',
+  enero:'01', febrero:'02', marzo:'03', abril:'04', mayo:'05', junio:'06',
+  julio:'07', agosto:'08', septiembre:'09', octubre:'10', noviembre:'11', diciembre:'12',
 };
 function parseNotionDate(v: string): string | null {
   if (!v?.trim()) return null;
   const slash = v.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
   if (slash) return `${slash[3]}-${slash[2].padStart(2,'0')}-${slash[1].padStart(2,'0')}`;
   const sp = v.match(/(\d{1,2})\s+de\s+([a-záéíóú]+)\s+de\s+(\d{4})/i);
-  if (sp) { const m = MESES[sp[2].toLowerCase()]; if (m) return `${sp[3]}-${m}-${sp[1].padStart(2,'0')}`; }
+  if (sp) {
+    const m = MESES[sp[2].toLowerCase()];
+    if (m) return `${sp[3]}-${m}-${sp[1].padStart(2,'0')}`;
+  }
+  // ISO date (already correct)
+  if (/^\d{4}-\d{2}-\d{2}$/.test(v)) return v;
   return null;
 }
-function parseNotionBool(v: string) { return ['yes','sí','si'].includes((v ?? '').trim().toLowerCase()); }
-function normEstado(v: string) {
-  const s = (v ?? '').toLowerCase().trim();
+function parseNotionBool(v: string) {
+  return ['yes','sí','si','true','1','✓'].includes((v ?? '').trim().toLowerCase());
+}
+function normEstado(v: string): string {
+  const s = (v ?? '').toLowerCase().trim()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  if (!s) return 'activos';
+  // Exact match first
+  const exact = Object.keys(ESTADO_META).find(k => k === s.normalize());
+  if (exact) return exact;
+  // Fuzzy
   if (s.includes('federal')) return 'federales';
   if (s.includes('espera') || s.includes('sentencia')) return 'esperando sentencias';
-  if (s.includes('complic') || s.includes('analisis') || s.includes('análisis')) return 'complicacion judicial/analisis';
+  if (s.includes('complic') || s.includes('analisis')) return 'complicacion judicial/analisis';
   if (s.includes('directiva')) return 'suspendido por falta de directivas';
   if (s.includes('pago')) return 'suspendido por falta de pago';
+  if (s.includes('activ')) return 'activos';
   return 'activos';
 }
-function normTipo(v: string) {
+function normTipo(v: string): string | null {
   const s = (v ?? '').toLowerCase().trim();
   if (!s) return null;
   for (const t of TIPOS_CASO) { if (s.includes(t.toLowerCase())) return t; }
@@ -130,8 +199,11 @@ function normTipo(v: string) {
   if (s.includes('laboral') || s.includes('despido')) return 'laboral';
   if (s.includes('ejecutivo')) return 'ejecutivo';
   if (s.includes('familia') || s.includes('alimento')) return 'familia';
-  if (s.includes('previsional')) return 'previsional';
-  return s.slice(0, 40);
+  if (s.includes('previsional') || s.includes('anses')) return 'previsional';
+  if (s.includes('prescripci')) return 'prescripciones';
+  if (s.includes('real') || s.includes('escritura')) return 'reales';
+  if (s.includes('civil')) return 'civil';
+  return s.slice(0, 40) || null;
 }
 
 // ─── CaseDetailModal ───────────────────────────────────────────────────────────
@@ -145,8 +217,10 @@ function CaseDetailModal({ caso: initial, onClose, onSaved }: {
   const [editMode, setEditMode] = useState(!initial);
   const isNew = !initial;
   const meta = getEstado(editing.estado ?? null);
+  const abStyle = getAbogadoStyle(editing.abogado ?? null);
 
-  const set = (key: keyof CasoGeneral, val: unknown) => setEditing(p => ({ ...p, [key]: val }));
+  const set = (key: keyof CasoGeneral, val: unknown) =>
+    setEditing(p => ({ ...p, [key]: val }));
 
   async function handleSave() {
     if (!editing.titulo?.trim()) { showToast('El título es obligatorio', 'error'); return; }
@@ -154,7 +228,7 @@ function CaseDetailModal({ caso: initial, onClose, onSaved }: {
     const r = await saveCaso(editing as Partial<CasoGeneral>, initial?.id);
     setSaving(false);
     if (r.ok) { showToast(isNew ? 'Caso creado' : 'Guardado', 'success'); onSaved(); onClose(); }
-    else showToast(r.error || 'Error al guardar', 'error');
+    else showToast(r.error || 'Error', 'error');
   }
 
   const inp = 'bg-[#1a1a20] border border-white/10 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-violet-500/60 w-full';
@@ -163,15 +237,20 @@ function CaseDetailModal({ caso: initial, onClose, onSaved }: {
   return (
     <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
       <div className="modal-content sm:max-w-2xl sm:rounded-2xl">
-        {/* Header */}
         <div className={`flex items-start justify-between px-6 pt-6 pb-4 border-b border-white/[0.06] border-l-4 ${meta.border} rounded-tl-2xl`}>
           <div className="flex-1 pr-4 min-w-0">
-            <div className="flex flex-wrap items-center gap-2 mb-1.5">
-              <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold ${meta.bg} ${meta.color}`}>
-                <span className={`w-1.5 h-1.5 rounded-full ${meta.dot}`}/>{meta.label}
+            <div className="flex flex-wrap items-center gap-2 mb-2">
+              <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold ${meta.bg} ${meta.color} ring-1 ring-current/20`}>
+                <span className={`w-1.5 h-1.5 rounded-full animate-pulse ${meta.dot}`}/>{meta.label}
               </span>
-              {editing.prioridad && <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-400/10 text-amber-300 text-[10px] font-semibold"><Star className="w-3 h-3 fill-amber-400"/>Alta prioridad</span>}
-              {editing.estadisticas_estado === 'atrasado' && <span className="px-2 py-0.5 rounded-full bg-red-500/15 text-red-300 text-[10px] font-semibold">Atrasado</span>}
+              {editing.prioridad && (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-400/15 text-amber-300 text-[10px] font-bold ring-1 ring-amber-400/30">
+                  <Star className="w-3 h-3 fill-amber-400"/>Alta prioridad
+                </span>
+              )}
+              {editing.estadisticas_estado === 'atrasado' && (
+                <span className="px-2 py-0.5 rounded-full bg-red-500/15 text-red-300 text-[10px] font-bold ring-1 ring-red-500/30">Atrasado</span>
+              )}
             </div>
             <h2 className="text-base font-bold text-white leading-tight">{isNew ? (editing.titulo || 'Nuevo caso') : editing.titulo}</h2>
             {editing.expediente && <p className="text-xs text-gray-500 font-mono mt-0.5">{editing.expediente}</p>}
@@ -179,11 +258,11 @@ function CaseDetailModal({ caso: initial, onClose, onSaved }: {
           <div className="flex items-center gap-2 shrink-0">
             {!isNew && (
               <button onClick={() => setEditMode(m => !m)}
-                className={`px-3 py-1.5 rounded-xl text-xs font-medium transition-colors ${editMode ? 'bg-violet-500/20 text-violet-300' : 'bg-white/5 text-gray-400 hover:text-white'}`}>
+                className={`px-3 py-1.5 rounded-xl text-xs font-medium transition-colors ${editMode ? 'bg-violet-500/20 text-violet-300 ring-1 ring-violet-500/30' : 'bg-white/5 text-gray-400 hover:text-white'}`}>
                 {editMode ? 'Ver' : 'Editar'}
               </button>
             )}
-            <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-xl bg-white/5 hover:bg-white/10 text-gray-400 hover:text-white transition-colors">
+            <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-xl bg-white/5 hover:bg-red-500/20 hover:text-red-300 text-gray-400 transition-colors">
               <X className="w-4 h-4"/>
             </button>
           </div>
@@ -194,7 +273,7 @@ function CaseDetailModal({ caso: initial, onClose, onSaved }: {
             <>
               <div>
                 <label className="text-[10px] text-gray-500 uppercase tracking-widest block mb-1">Título *</label>
-                <input className={inp} value={editing.titulo ?? ''} onChange={e => set('titulo', e.target.value)} placeholder="Ej: FLORES ALMAZAN JOSE LUIS"/>
+                <input className={inp} value={editing.titulo ?? ''} onChange={e => set('titulo', e.target.value)} placeholder="Nombre del caso"/>
               </div>
               <div className="grid grid-cols-2 gap-3">
                 {([
@@ -210,12 +289,15 @@ function CaseDetailModal({ caso: initial, onClose, onSaved }: {
                   <div key={key as string}>
                     <label className="text-[10px] text-gray-500 uppercase tracking-widest block mb-1">{label}</label>
                     {type === 'select' ? (
-                      <select className={sel} value={(editing as Record<string, unknown>)[key as string] as string ?? ''} onChange={e => set(key, e.target.value || null)}>
+                      <select className={sel} value={(editing as Record<string, unknown>)[key as string] as string ?? ''}
+                        onChange={e => set(key, e.target.value || null)}>
                         <option value="">—</option>
                         {opts.map(o => <option key={o} value={o}>{o}</option>)}
                       </select>
                     ) : (
-                      <input type={type} className={inp} value={(editing as Record<string, unknown>)[key as string] as string ?? ''} onChange={e => set(key, e.target.value || null)}/>
+                      <input type={type} className={inp}
+                        value={(editing as Record<string, unknown>)[key as string] as string ?? ''}
+                        onChange={e => set(key, e.target.value || null)}/>
                     )}
                   </div>
                 ))}
@@ -229,7 +311,7 @@ function CaseDetailModal({ caso: initial, onClose, onSaved }: {
                 <input className={inp} value={editing.url_drive ?? ''} onChange={e => set('url_drive', e.target.value || null)} placeholder="https://drive.google.com/..."/>
               </div>
               <div>
-                <label className="text-[10px] text-gray-500 uppercase tracking-widest block mb-1">Notas / Actualización</label>
+                <label className="text-[10px] text-gray-500 uppercase tracking-widest block mb-1">Notas</label>
                 <textarea className={`${inp} resize-none`} rows={3} value={editing.actualizacion ?? ''} onChange={e => set('actualizacion', e.target.value || null)}/>
               </div>
               <div className="flex gap-6">
@@ -246,13 +328,13 @@ function CaseDetailModal({ caso: initial, onClose, onSaved }: {
           ) : (
             <div className="space-y-4">
               {editing.abogado && (
-                <div className="flex items-center gap-3 p-3 rounded-2xl bg-white/[0.025] border border-white/[0.05]">
-                  <div className={`w-10 h-10 rounded-2xl bg-gradient-to-br ${getAbogadoColor(editing.abogado)} flex items-center justify-center text-sm font-bold text-white shadow-lg`}>
+                <div className="flex items-center gap-3 p-4 rounded-2xl bg-white/[0.03] border border-white/[0.06]">
+                  <div className={`w-12 h-12 rounded-2xl bg-gradient-to-br ${abStyle.from} flex items-center justify-center text-base font-bold text-white shadow-lg ${abStyle.shadow}`}>
                     {abogadoInitials(editing.abogado)}
                   </div>
                   <div>
-                    <p className="text-sm font-semibold text-white">{editing.abogado}</p>
-                    {editing.personeria && <p className="text-xs text-gray-500">{editing.personeria}</p>}
+                    <p className="text-sm font-bold text-white">{editing.abogado}</p>
+                    {editing.personeria && <p className="text-xs text-gray-500 mt-0.5">{editing.personeria}</p>}
                   </div>
                 </div>
               )}
@@ -264,23 +346,26 @@ function CaseDetailModal({ caso: initial, onClose, onSaved }: {
                   { label: 'Estadísticas', val: editing.estadisticas_estado },
                   { label: 'Próx. audiencia', val: formatDate(editing.audiencias ?? null) },
                   { label: 'Vencimiento', val: formatDate(editing.vencimiento ?? null) },
-                ] as { label: string; val: string | null | undefined; mono?: boolean }[]).filter(item => item.val).map(item => (
-                  <div key={item.label} className="bg-white/[0.025] rounded-2xl p-3 border border-white/[0.05]">
-                    <p className="text-[10px] text-gray-500 uppercase tracking-widest mb-1">{item.label}</p>
-                    <p className={`text-sm text-white font-medium capitalize ${item.mono ? 'font-mono' : ''}`}>{item.val}</p>
-                  </div>
-                ))}
+                ] as { label: string; val: string | null | undefined; mono?: boolean }[])
+                  .filter(i => i.val)
+                  .map(item => (
+                    <div key={item.label} className="bg-white/[0.025] rounded-2xl p-3 border border-white/[0.05]">
+                      <p className="text-[10px] text-gray-500 uppercase tracking-widest mb-1">{item.label}</p>
+                      <p className={`text-sm text-white font-semibold capitalize ${item.mono ? 'font-mono' : ''}`}>{item.val}</p>
+                    </div>
+                  ))}
               </div>
               {editing.radicado && (
                 <div className="bg-white/[0.025] rounded-2xl p-3 border border-white/[0.05]">
-                  <p className="text-[10px] text-gray-500 uppercase tracking-widest mb-1 flex items-center gap-1"><Gavel className="w-3 h-3"/>Tribunal / Radicado</p>
+                  <p className="text-[10px] text-gray-500 uppercase tracking-widest mb-1 flex items-center gap-1"><Gavel className="w-3 h-3"/>Tribunal</p>
                   <p className="text-sm text-white">{editing.radicado}</p>
                 </div>
               )}
               {editing.url_drive && (
                 <a href={editing.url_drive} target="_blank" rel="noopener noreferrer"
-                  className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-blue-500/10 border border-blue-500/20 text-blue-300 text-sm hover:bg-blue-500/20 transition-colors">
-                  <ExternalLink className="w-4 h-4 shrink-0"/>Abrir carpeta en Drive
+                  className="flex items-center gap-2 px-4 py-3 rounded-xl bg-blue-500/10 border border-blue-500/20 text-blue-300 text-sm hover:bg-blue-500/20 transition-colors group">
+                  <ExternalLink className="w-4 h-4 shrink-0 group-hover:scale-110 transition-transform"/>
+                  Abrir carpeta en Drive
                 </a>
               )}
               {editing.actualizacion && (
@@ -289,7 +374,7 @@ function CaseDetailModal({ caso: initial, onClose, onSaved }: {
                   <p className="text-sm text-gray-300 whitespace-pre-wrap leading-relaxed">{editing.actualizacion}</p>
                 </div>
               )}
-              {!editing.abogado && !editing.expediente && !editing.radicado && !editing.tipo_caso && !editing.actualizacion && !editing.url_drive && (
+              {!editing.abogado && !editing.expediente && !editing.radicado && !editing.tipo_caso && !editing.actualizacion && !editing.url_drive && !isNew && (
                 <div className="text-center py-6 text-gray-600">
                   <p className="text-sm">Sin datos adicionales.</p>
                   <button onClick={() => setEditMode(true)} className="mt-2 text-violet-400 hover:text-violet-300 text-xs underline">Completar ficha</button>
@@ -314,6 +399,7 @@ function CaseDetailModal({ caso: initial, onClose, onSaved }: {
 
 // ─── NotionImportModal ─────────────────────────────────────────────────────────
 interface ImportRow { titulo: string; ok: boolean; error?: string }
+interface PreviewRow { titulo: string; estado: string; abogado: string; expediente: string; tipo: string }
 
 function NotionImportModal({ onClose, onImported, totalExistentes }: {
   onClose: () => void; onImported: () => void; totalExistentes: number;
@@ -325,6 +411,42 @@ function NotionImportModal({ onClose, onImported, totalExistentes }: {
   const [progress, setProgress] = useState({ done: 0, total: 0 });
   const [skipArchived, setSkipArchived] = useState(true);
   const [borrarPrimero, setBorrarPrimero] = useState(totalExistentes > 0);
+  const [preview, setPreview] = useState<PreviewRow[] | null>(null);
+  const [detectedHeaders, setDetectedHeaders] = useState<string[]>([]);
+  const [previewTotal, setPreviewTotal] = useState(0);
+
+  async function handleFileChange(f: File | undefined) {
+    if (!f) return;
+    setFile(f);
+    setResults([]);
+    setPreview(null);
+    // Parse and show preview
+    try {
+      let rows: Record<string, string>[] = [];
+      if (f.name.endsWith('.xlsx') || f.name.endsWith('.xls')) {
+        const XLSX = await import('xlsx');
+        const wb = XLSX.read(await f.arrayBuffer(), { type: 'array' });
+        rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: '' }) as Record<string, string>[];
+      } else {
+        rows = parseCSV(await f.text());
+      }
+      if (!rows.length) return;
+      setDetectedHeaders(Object.keys(rows[0]));
+      const allRows = rows.filter(r => { const g = makeAccessor(r); return g('nombre','titulo','title','name').length > 0; });
+      const filtered = skipArchived ? allRows.filter(r => { const g = makeAccessor(r); return !parseNotionBool(g('archivar','archivado')); }) : allRows;
+      setPreviewTotal(filtered.length);
+      setPreview(filtered.slice(0, 5).map(r => {
+        const get = makeAccessor(r);
+        return {
+          titulo: get('nombre','titulo','title','name'),
+          estado: normEstado(get('estado','status','state')),
+          abogado: get('sistema','abogado','abogado/a','lawyer','captado por'),
+          expediente: get('expediente','exp','expediente n','numero expediente'),
+          tipo: normTipo(get('tipo de caso','tipo_caso','tipo','type','category')) ?? '',
+        };
+      }));
+    } catch { /* ignore preview errors */ }
+  }
 
   async function handleImport() {
     if (!file) return;
@@ -334,19 +456,19 @@ function NotionImportModal({ onClose, onImported, totalExistentes }: {
       if (file.name.endsWith('.xlsx') || file.name.endsWith('.xls')) {
         const XLSX = await import('xlsx');
         const wb = XLSX.read(await file.arrayBuffer(), { type: 'array' });
-        const ws = wb.Sheets[wb.SheetNames[0]];
-        rows = XLSX.utils.sheet_to_json(ws, { defval: '' }) as Record<string, string>[];
+        rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: '' }) as Record<string, string>[];
       } else {
         rows = parseCSV(await file.text());
       }
 
-      rows = rows.filter(r => (r['NOMBRE'] || r['titulo'] || r['Title'] || '').trim());
-      if (skipArchived) rows = rows.filter(r => !parseNotionBool(r['Archivar'] || r['archivado'] || ''));
+      // Filter empty titles using case-insensitive accessor
+      rows = rows.filter(r => { const get = makeAccessor(r); return get('nombre','titulo','title','name').length > 0; });
+      if (skipArchived) rows = rows.filter(r => { const get = makeAccessor(r); return !parseNotionBool(get('archivar','archivado')); });
 
       setProgress({ done: 0, total: rows.length });
       if (!rows.length) { showToast('No hay filas para importar', 'error'); setImporting(false); return; }
 
-      // Borrar todos primero si se indicó
+      // Borrar existentes
       if (borrarPrimero) {
         await supabase.from('casos_generales').delete().neq('id', '00000000-0000-0000-0000-000000000000');
       }
@@ -354,23 +476,27 @@ function NotionImportModal({ onClose, onImported, totalExistentes }: {
       const { data: ud } = await supabase.auth.getUser();
       const userId = ud?.user?.id ?? null;
 
-      const batch = rows.map(r => ({
-        titulo: (r['NOMBRE'] || r['titulo'] || r['Title'] || '').trim(),
-        expediente: (r['Expediente'] || r['expediente'] || '').trim() || null,
-        estado: normEstado(r['Estado'] || r['estado'] || ''),
-        tipo_caso: normTipo(r['tipo de caso'] || r['tipo_caso'] || r['Tipo'] || ''),
-        abogado: (r['SISTEMA'] || r['abogado'] || r['Abogado'] || '').trim() || null,
-        personeria: (r['PERSONERIA'] || r['Personería'] || r['personeria'] || '').trim() || null,
-        radicado: (r['Radicado'] || r['radicado'] || '').trim() || null,
-        url_drive: (r['URL del DRIVE'] || r['url_drive'] || '').trim() || null,
-        actualizacion: (r['actualizacion'] || r['Actualización'] || '').trim() || null,
-        audiencias: parseNotionDate(r['Audiencias'] || r['audiencias'] || ''),
-        vencimiento: parseNotionDate(r['vencimiento'] || r['Vencimiento'] || ''),
-        prioridad: parseNotionBool(r['Prioridad'] || r['prioridad'] || ''),
-        archivado: parseNotionBool(r['Archivar'] || r['archivado'] || ''),
-        estadisticas_estado: (r['Estadisticas (NO TOCAR)'] || r['estadisticas_estado'] || 'al día').trim().toLowerCase() || 'al día',
-        created_by: userId,
-      }));
+      // Map using case-insensitive accessor — key fix!
+      const batch = rows.map(r => {
+        const get = makeAccessor(r);
+        return {
+          titulo:              get('nombre', 'titulo', 'title', 'name'),
+          expediente:          get('expediente', 'exp', 'numero expediente') || null,
+          estado:              normEstado(get('estado', 'status', 'state')),
+          tipo_caso:           normTipo(get('tipo de caso', 'tipo_caso', 'tipo', 'type', 'category')),
+          abogado:             get('sistema', 'abogado', 'abogado/a', 'lawyer', 'captado por') || null,
+          personeria:          get('personeria', 'personería', 'personeria') || null,
+          radicado:            get('radicado', 'tribunal', 'juzgado') || null,
+          url_drive:           get('url del drive', 'drive', 'url_drive', 'link drive') || null,
+          actualizacion:       get('actualizacion', 'actualización', 'notas', 'notes', 'observaciones') || null,
+          audiencias:          parseNotionDate(get('audiencias', 'audiencia', 'proxima audiencia')),
+          vencimiento:         parseNotionDate(get('vencimiento', 'vence', 'fecha vencimiento')),
+          prioridad:           parseNotionBool(get('prioridad', 'priority', 'urgente')),
+          archivado:           parseNotionBool(get('archivar', 'archivado', 'archived')),
+          estadisticas_estado: get('estadisticas (no tocar)', 'estadisticas_estado', 'estadisticas') || 'al día',
+          created_by:          userId,
+        };
+      });
 
       const CHUNK = 50;
       let ok = 0, fail = 0;
@@ -397,35 +523,34 @@ function NotionImportModal({ onClose, onImported, totalExistentes }: {
 
   return (
     <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
-      <div className="modal-content sm:max-w-lg">
+      <div className="modal-content sm:max-w-2xl">
         <div className="flex items-center justify-between px-5 pt-5 pb-4 border-b border-white/[0.06]">
-          <h2 className="text-base font-bold text-white flex items-center gap-2"><Upload className="w-4 h-4 text-violet-400"/>Importar desde Notion / Excel</h2>
-          <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-xl bg-white/5 hover:bg-white/10 text-gray-400 hover:text-white transition-colors"><X className="w-4 h-4"/></button>
+          <h2 className="text-base font-bold text-white flex items-center gap-2">
+            <Upload className="w-4 h-4 text-violet-400"/>Importar desde Notion / Excel
+          </h2>
+          <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-xl bg-white/5 hover:bg-red-500/20 hover:text-red-300 text-gray-400 transition-colors">
+            <X className="w-4 h-4"/>
+          </button>
         </div>
         <div className="p-5 space-y-4">
-          {/* Alerta si hay datos existentes */}
+          {/* Alerta existentes */}
           {totalExistentes > 0 && (
             <div className="rounded-2xl border border-amber-500/20 bg-amber-500/5 p-4">
               <div className="flex items-start gap-2">
                 <AlertTriangle className="w-4 h-4 text-amber-400 mt-0.5 shrink-0"/>
                 <div>
                   <p className="text-sm font-semibold text-amber-200">Hay {totalExistentes} registros existentes</p>
-                  <p className="text-xs text-amber-200/60 mt-0.5">Los registros anteriores pueden estar vacíos (importados con formato incorrecto).</p>
+                  <p className="text-xs text-amber-200/60 mt-0.5">Los registros pueden estar incompletos por el parser anterior.</p>
                 </div>
               </div>
               <label className="flex items-center gap-2 mt-3 cursor-pointer select-none">
                 <div onClick={() => setBorrarPrimero(!borrarPrimero)} className={`w-9 h-5 rounded-full relative transition-colors ${borrarPrimero ? 'bg-amber-500' : 'bg-white/10'}`}>
                   <span className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-transform ${borrarPrimero ? 'translate-x-4' : ''}`}/>
                 </div>
-                <span className="text-sm text-amber-200 font-medium">Borrar todos los registros antes de importar</span>
+                <span className="text-sm text-amber-200 font-medium">Borrar todos antes de importar (recomendado)</span>
               </label>
             </div>
           )}
-
-          <div className="rounded-2xl border border-blue-500/20 bg-blue-500/5 p-3 text-xs text-blue-200/70">
-            <p className="font-semibold text-blue-200 mb-1">Columnas del CSV de Notion:</p>
-            <p className="font-mono text-violet-300 text-[10px] leading-relaxed">NOMBRE · Estado · SISTEMA · PERSONERIA · Expediente · Radicado · tipo de caso · Audiencias · vencimiento · Prioridad · Archivar · URL del DRIVE · Estadisticas (NO TOCAR)</p>
-          </div>
 
           <label className="flex items-center gap-2 cursor-pointer select-none">
             <div onClick={() => setSkipArchived(!skipArchived)} className={`w-9 h-5 rounded-full relative transition-colors ${skipArchived ? 'bg-violet-500' : 'bg-white/10'}`}>
@@ -434,28 +559,93 @@ function NotionImportModal({ onClose, onImported, totalExistentes }: {
             <span className="text-sm text-gray-300">Omitir archivados (Archivar = Yes)</span>
           </label>
 
-          <label className="cursor-pointer">
-            <div className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-dashed border-violet-500/40 bg-violet-500/5 text-violet-200 hover:bg-violet-500/10 text-sm transition-colors">
-              <Upload className="w-4 h-4 shrink-0"/>
-              <span className="truncate">{file ? file.name : 'Elegir archivo CSV / XLSX'}</span>
+          {/* File picker */}
+          <label className="cursor-pointer block">
+            <div className="flex items-center gap-3 px-4 py-3 rounded-xl border border-dashed border-violet-500/40 bg-violet-500/5 hover:bg-violet-500/10 transition-colors">
+              <Upload className="w-5 h-5 text-violet-400 shrink-0"/>
+              <div>
+                <p className="text-sm text-violet-200 font-medium">{file ? file.name : 'Elegir archivo CSV / XLSX de Notion'}</p>
+                <p className="text-[10px] text-gray-500 mt-0.5">NOMBRE · Estado · SISTEMA · PERSONERIA · Expediente · Radicado · tipo de caso · Audiencias · vencimiento · Prioridad · Archivar · URL del DRIVE</p>
+              </div>
             </div>
-            <input type="file" accept=".csv,.xlsx,.xls" className="hidden" onChange={e => { setFile(e.target.files?.[0] || null); setResults([]); }}/>
+            <input type="file" accept=".csv,.xlsx,.xls" className="hidden"
+              onChange={e => handleFileChange(e.target.files?.[0])}/>
           </label>
 
-          {file && !importing && !results.length && (
-            <button onClick={handleImport} className="btn-primary text-sm w-full">
-              {borrarPrimero ? `Borrar ${totalExistentes} registros e importar` : `Importar${skipArchived ? ' activos' : ' todos'}`}
-            </button>
+          {/* Preview */}
+          {preview && !importing && !results.length && (
+            <div className="space-y-3">
+              {/* Headers detectados */}
+              <div className="rounded-xl bg-white/[0.025] border border-white/[0.06] p-3">
+                <p className="text-[10px] text-gray-500 uppercase tracking-widest mb-2 flex items-center gap-1"><Eye className="w-3 h-3"/>Columnas detectadas ({detectedHeaders.length})</p>
+                <div className="flex flex-wrap gap-1">
+                  {detectedHeaders.map(h => {
+                    const key = Object.keys({
+                      nombre:'NOMBRE', estado:'Estado', sistema:'SISTEMA', personeria:'PERSONERIA',
+                      expediente:'Expediente', radicado:'Radicado', 'tipo de caso':'tipo de caso',
+                      audiencias:'Audiencias', vencimiento:'vencimiento', prioridad:'Prioridad',
+                      archivar:'Archivar', 'url del drive':'URL del DRIVE',
+                    }).find(k => h.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').includes(k));
+                    return (
+                      <span key={h} className={`px-2 py-0.5 rounded-full text-[10px] font-medium ${key ? 'bg-emerald-500/10 text-emerald-300 border border-emerald-500/20' : 'bg-white/5 text-gray-500 border border-white/10'}`}>
+                        {h}{key ? ' ✓' : ''}
+                      </span>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Preview rows */}
+              <div>
+                <p className="text-[10px] text-gray-500 uppercase tracking-widest mb-2">Vista previa — {previewTotal} filas para importar</p>
+                <div className="rounded-xl border border-white/[0.06] overflow-hidden text-xs">
+                  <table className="w-full">
+                    <thead className="bg-white/[0.04]"><tr>
+                      {['Nombre','Estado','Abogado','Expediente','Tipo'].map(h => (
+                        <th key={h} className="px-3 py-2 text-left text-[10px] text-gray-500 font-semibold uppercase">{h}</th>
+                      ))}
+                    </tr></thead>
+                    <tbody>
+                      {preview.map((p, i) => {
+                        const m = getEstado(p.estado);
+                        return (
+                          <tr key={i} className="border-t border-white/5">
+                            <td className="px-3 py-2 text-white font-medium truncate max-w-[180px]">{p.titulo || <span className="text-red-400">vacío!</span>}</td>
+                            <td className="px-3 py-2 whitespace-nowrap">
+                              <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] font-bold ${m.bg} ${m.color}`}>
+                                <span className={`w-1 h-1 rounded-full ${m.dot}`}/>{m.label}
+                              </span>
+                            </td>
+                            <td className="px-3 py-2 text-gray-300 truncate max-w-[120px]">{p.abogado || <span className="text-gray-600">—</span>}</td>
+                            <td className="px-3 py-2 text-gray-400 font-mono truncate max-w-[100px]">{p.expediente || <span className="text-gray-600">—</span>}</td>
+                            <td className="px-3 py-2 text-gray-500 capitalize">{p.tipo || '—'}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+                {previewTotal > 5 && <p className="text-[10px] text-gray-600 mt-1.5 text-center">... y {previewTotal - 5} más</p>}
+              </div>
+              <button onClick={handleImport} className="btn-primary text-sm w-full">
+                {borrarPrimero ? `🗑 Borrar ${totalExistentes} registros e importar ${previewTotal}` : `Importar ${previewTotal} casos`}
+              </button>
+            </div>
           )}
+
           {importing && (
             <div className="space-y-2">
-              <div className="flex items-center gap-2 text-violet-300 text-sm"><Loader2 className="w-4 h-4 animate-spin"/>Procesando {progress.done}/{progress.total}…</div>
+              <div className="flex items-center gap-2 text-violet-300 text-sm">
+                <Loader2 className="w-4 h-4 animate-spin"/>Procesando {progress.done}/{progress.total}…
+              </div>
               <div className="h-1.5 bg-white/5 rounded-full overflow-hidden">
-                <div className="h-full bg-violet-500 rounded-full transition-all" style={{ width: `${progress.total ? (progress.done/progress.total)*100 : 0}%` }}/>
+                <div className="h-full bg-gradient-to-r from-violet-500 to-indigo-500 rounded-full transition-all"
+                  style={{ width: `${progress.total ? (progress.done/progress.total)*100 : 0}%` }}/>
               </div>
             </div>
           )}
-          {results.length > 0 && (
+
+          {results.length > 0 && !importing && (
             <div className="space-y-3">
               <div className="flex gap-4 text-sm">
                 <span className="flex items-center gap-1 text-emerald-300"><CheckCircle2 className="w-4 h-4"/>{results.filter(r => r.ok).length} importados</span>
@@ -464,7 +654,7 @@ function NotionImportModal({ onClose, onImported, totalExistentes }: {
               {results.find(r => !r.ok)?.error && (
                 <div className="rounded-xl bg-red-500/10 border border-red-500/20 p-3 text-xs text-red-300">{results.find(r => !r.ok)?.error}</div>
               )}
-              <button onClick={onClose} className="btn-secondary text-sm">Cerrar</button>
+              <button onClick={onClose} className="btn-secondary text-sm w-full">Cerrar</button>
             </div>
           )}
         </div>
@@ -473,7 +663,7 @@ function NotionImportModal({ onClose, onImported, totalExistentes }: {
   );
 }
 
-// ─── Tabla view ──────────────────────────────────────────────────────────────
+// ─── Tabla ────────────────────────────────────────────────────────────────────
 function CasosTabla({ casos, onSelect, onDelete, deletingId }: {
   casos: CasoGeneral[]; onSelect: (c: CasoGeneral) => void;
   onDelete: (id: string) => void; deletingId: string | null;
@@ -490,76 +680,102 @@ function CasosTabla({ casos, onSelect, onDelete, deletingId }: {
       <table className="w-full text-sm border-separate border-spacing-0">
         <thead>
           <tr>
-            {['Cliente / Tipo', 'Estado', 'Abogado', 'Expediente', 'Tribunal', 'Fechas', ''].map(h => (
-              <th key={h} className="sticky top-14 z-20 bg-[#0d0d10]/95 backdrop-blur-md border-b border-white/[0.06] px-4 py-3 text-left text-[10px] font-semibold text-gray-500 uppercase tracking-widest whitespace-nowrap">
+            {['','Cliente / Tipo', 'Estado', 'Abogado', 'Expediente', 'Tribunal', 'Fechas', ''].map((h, i) => (
+              <th key={i} className="sticky top-14 z-20 bg-[#0d0d10]/95 backdrop-blur-md border-b border-white/[0.06] px-3 py-3 text-left text-[10px] font-semibold text-gray-500 uppercase tracking-widest whitespace-nowrap first:w-1 last:w-20">
                 {h}
               </th>
             ))}
           </tr>
         </thead>
         <tbody>
+          {casos.length === 0 && (
+            <tr><td colSpan={8} className="text-center py-16 text-gray-600 text-sm">Sin resultados</td></tr>
+          )}
           {casos.map((c, i) => {
             const meta = getEstado(c.estado);
+            const abStyle = getAbogadoStyle(c.abogado);
+            const aud = daysUntil(c.audiencias);
+            const venc = daysUntil(c.vencimiento);
             return (
               <tr key={c.id} onClick={() => onSelect(c)}
-                className="table-row animate-fade-in group"
-                style={{ animationDelay: `${Math.min(i, 20) * 15}ms` }}>
-                {/* Título */}
-                <td className="px-4 py-2.5">
-                  <div className="flex items-start gap-1.5">
+                className={`table-row group animate-fade-in ${meta.rowHover} border-b border-white/[0.04]`}
+                style={{ animationDelay: `${Math.min(i, 30) * 12}ms` }}>
+                {/* Color indicator */}
+                <td className="pl-0 pr-0 py-0 w-0.5">
+                  <div className={`h-full w-0.5 ${meta.dot} opacity-70`}/>
+                </td>
+                {/* Nombre */}
+                <td className="px-4 py-3">
+                  <div className="flex items-start gap-2 min-w-0">
                     {c.prioridad && <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400 shrink-0 mt-0.5"/>}
                     <div className="min-w-0">
-                      <p className="font-medium text-white text-[13px] leading-tight line-clamp-1">{c.titulo}</p>
+                      <p className="font-semibold text-white text-[13px] leading-tight">{c.titulo}</p>
                       {c.tipo_caso && <span className="text-[10px] text-gray-500 capitalize">{c.tipo_caso}</span>}
+                      {c.personeria && <span className="ml-1.5 text-[10px] text-violet-400">{c.personeria}</span>}
                     </div>
                   </div>
                 </td>
                 {/* Estado */}
-                <td className="px-4 py-2.5 whitespace-nowrap">
-                  <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-semibold ${meta.bg} ${meta.color}`}>
-                    <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${meta.dot}`}/>{meta.label}
+                <td className="px-3 py-3 whitespace-nowrap">
+                  <span className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-full text-[10px] font-bold ring-1 ring-current/20 ${meta.bg} ${meta.color}`}>
+                    <span className={`w-1.5 h-1.5 rounded-full ${meta.dot} ${c.estadisticas_estado === 'atrasado' ? 'animate-pulse' : ''}`}/>
+                    {meta.label}
                   </span>
                   {c.estadisticas_estado === 'atrasado' && (
-                    <span className="ml-1 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] bg-red-500/15 text-red-400">Atrasado</span>
+                    <div className="mt-1 text-[9px] text-red-400 font-semibold">⚠ Atrasado</div>
                   )}
                 </td>
                 {/* Abogado */}
-                <td className="px-4 py-2.5 whitespace-nowrap">
+                <td className="px-3 py-3 whitespace-nowrap">
                   {c.abogado ? (
                     <div className="flex items-center gap-2">
-                      <div className={`w-6 h-6 rounded-full bg-gradient-to-br ${getAbogadoColor(c.abogado)} flex items-center justify-center text-[9px] font-bold text-white shrink-0`}>
+                      <div className={`w-7 h-7 rounded-xl bg-gradient-to-br ${abStyle.from} flex items-center justify-center text-[10px] font-bold text-white shadow-md ${abStyle.shadow} shrink-0`}>
                         {abogadoInitials(c.abogado)}
                       </div>
-                      <span className="text-xs text-gray-300">{c.abogado}</span>
+                      <span className="text-xs text-gray-300 hidden xl:block">{c.abogado}</span>
                     </div>
                   ) : <span className="text-xs text-gray-600">—</span>}
                 </td>
                 {/* Expediente */}
-                <td className="px-4 py-2.5">
+                <td className="px-3 py-3">
                   <span className="text-xs text-gray-400 font-mono">{c.expediente || '—'}</span>
                 </td>
                 {/* Radicado */}
-                <td className="px-4 py-2.5 max-w-[200px]">
-                  <span className="text-xs text-gray-500 truncate block" title={c.radicado ?? ''}>{c.radicado || '—'}</span>
+                <td className="px-3 py-3 max-w-[160px]">
+                  <span className="text-[11px] text-gray-500 truncate block" title={c.radicado ?? ''}>{c.radicado || '—'}</span>
                 </td>
                 {/* Fechas */}
-                <td className="px-4 py-2.5 whitespace-nowrap">
-                  <div className="flex flex-col gap-0.5">
-                    {c.audiencias && <span className={`text-[10px] flex items-center gap-1 ${isOverdue(c.audiencias) ? 'text-red-400' : 'text-blue-400'}`}><Calendar className="w-3 h-3 shrink-0"/>{formatDate(c.audiencias)}</span>}
-                    {c.vencimiento && <span className={`text-[10px] flex items-center gap-1 ${isOverdue(c.vencimiento) ? 'text-red-400' : 'text-amber-400'}`}><Clock className="w-3 h-3 shrink-0"/>{formatDate(c.vencimiento)}</span>}
-                    {!c.audiencias && !c.vencimiento && <span className="text-[10px] text-gray-600">—</span>}
+                <td className="px-3 py-3 whitespace-nowrap">
+                  <div className="flex flex-col gap-1">
+                    {c.audiencias && (
+                      <span className={`text-[10px] flex items-center gap-1 font-medium ${aud !== null && aud < 0 ? 'text-red-400' : aud !== null && aud <= 7 ? 'text-orange-400' : 'text-blue-400'}`}>
+                        <Calendar className="w-3 h-3 shrink-0"/>
+                        {formatDate(c.audiencias)}{aud !== null && aud >= 0 && aud <= 30 ? ` (${aud}d)` : ''}
+                      </span>
+                    )}
+                    {c.vencimiento && (
+                      <span className={`text-[10px] flex items-center gap-1 font-medium ${venc !== null && venc < 0 ? 'text-red-400' : venc !== null && venc <= 15 ? 'text-amber-400' : 'text-gray-500'}`}>
+                        <Clock className="w-3 h-3 shrink-0"/>
+                        {formatDate(c.vencimiento)}{venc !== null && venc >= 0 && venc <= 30 ? ` (${venc}d)` : ''}
+                      </span>
+                    )}
+                    {!c.audiencias && !c.vencimiento && <span className="text-[10px] text-gray-700">—</span>}
                   </div>
                 </td>
-                {/* Actions */}
-                <td className="px-3 py-2.5 text-right" onClick={e => e.stopPropagation()}>
-                  <div className="flex items-center gap-1 justify-end">
-                    <button onClick={e => { e.stopPropagation(); onSelect(c); }} className="p-1.5 rounded-lg text-gray-600 hover:text-violet-400 hover:bg-violet-500/10 transition-colors opacity-0 group-hover:opacity-100">
+                {/* Acciones */}
+                <td className="px-3 py-3" onClick={e => e.stopPropagation()}>
+                  <div className="flex items-center gap-1 justify-end opacity-0 group-hover:opacity-100 transition-opacity">
+                    {c.url_drive && (
+                      <a href={c.url_drive} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()}
+                        className="p-1.5 rounded-lg text-gray-600 hover:text-blue-400 hover:bg-blue-400/10 transition-colors">
+                        <ExternalLink className="w-3.5 h-3.5"/>
+                      </a>
+                    )}
+                    <button onClick={() => onSelect(c)} className="p-1.5 rounded-lg text-gray-600 hover:text-violet-400 hover:bg-violet-500/10 transition-colors">
                       <ChevronRight className="w-3.5 h-3.5"/>
                     </button>
-                    <button
-                      onClick={e => askDel(e, c.id)}
-                      disabled={deletingId === c.id}
-                      className={`p-1.5 rounded-lg transition-colors opacity-0 group-hover:opacity-100 ${confirmDel === c.id ? 'bg-red-500/20 text-red-300 opacity-100' : 'text-gray-600 hover:text-red-400 hover:bg-red-500/10'}`}>
+                    <button onClick={e => askDel(e, c.id)} disabled={deletingId === c.id}
+                      className={`p-1.5 rounded-lg transition-colors ${confirmDel === c.id ? 'bg-red-500/20 text-red-300' : 'text-gray-600 hover:text-red-400 hover:bg-red-500/10'}`}>
                       {deletingId === c.id ? <Loader2 className="w-3.5 h-3.5 animate-spin"/> : <Trash2 className="w-3.5 h-3.5"/>}
                     </button>
                   </div>
@@ -584,12 +800,14 @@ const KANBAN_COLS = [
 ];
 
 function KCard({ caso, onSelect, askDel, confirmDel }: {
-  caso: CasoGeneral; onSelect: (c: CasoGeneral) => void; askDel: (id: string) => void; confirmDel: string | null;
+  caso: CasoGeneral; onSelect: (c: CasoGeneral) => void;
+  askDel: (id: string) => void; confirmDel: string | null;
 }) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: caso.id });
+  const abStyle = getAbogadoStyle(caso.abogado);
   return (
     <div ref={setNodeRef}
-      style={{ transform: CSS.Translate.toString(transform), opacity: isDragging ? 0.2 : 1, touchAction: 'none' }}
+      style={{ transform: CSS.Translate.toString(transform), opacity: isDragging ? 0.15 : 1, touchAction: 'none' }}
       {...attributes} {...listeners}
       className="relative group rounded-xl bg-white/[0.03] border border-white/[0.07] hover:bg-white/[0.06] hover:border-white/10 transition-all cursor-grab active:cursor-grabbing select-none">
       <button onPointerDown={e => e.stopPropagation()} onClick={e => { e.stopPropagation(); askDel(caso.id); }}
@@ -605,16 +823,18 @@ function KCard({ caso, onSelect, askDel, confirmDel }: {
         {caso.tipo_caso && <span className="inline-block mt-1.5 px-1.5 py-0.5 rounded-full bg-white/5 text-[10px] text-gray-400 capitalize">{caso.tipo_caso}</span>}
         {caso.abogado && (
           <div className="flex items-center gap-1.5 mt-1.5">
-            <div className={`w-4 h-4 rounded-full bg-gradient-to-br ${getAbogadoColor(caso.abogado)} flex items-center justify-center text-[8px] font-bold text-white shrink-0`}>
+            <div className={`w-5 h-5 rounded-lg bg-gradient-to-br ${abStyle.from} flex items-center justify-center text-[8px] font-bold text-white shrink-0 shadow ${abStyle.shadow}`}>
               {abogadoInitials(caso.abogado)}
             </div>
             <span className="text-[10px] text-gray-500 truncate">{caso.abogado}</span>
           </div>
         )}
-        <div className="flex flex-wrap gap-1.5 mt-1.5">
-          {caso.audiencias && <span className={`text-[10px] flex items-center gap-0.5 ${isOverdue(caso.audiencias) ? 'text-red-400' : 'text-blue-400'}`}><Calendar className="w-2.5 h-2.5"/>{formatDate(caso.audiencias)}</span>}
-          {caso.vencimiento && <span className={`text-[10px] flex items-center gap-0.5 ${isOverdue(caso.vencimiento) ? 'text-red-400' : 'text-amber-400'}`}><Clock className="w-2.5 h-2.5"/>{formatDate(caso.vencimiento)}</span>}
-        </div>
+        {(caso.audiencias || caso.vencimiento) && (
+          <div className="flex flex-wrap gap-1.5 mt-1.5">
+            {caso.audiencias && <span className={`text-[10px] flex items-center gap-0.5 ${isOverdue(caso.audiencias) ? 'text-red-400' : 'text-blue-400'}`}><Calendar className="w-2.5 h-2.5"/>{formatDate(caso.audiencias)}</span>}
+            {caso.vencimiento && <span className={`text-[10px] flex items-center gap-0.5 ${isOverdue(caso.vencimiento) ? 'text-red-400' : 'text-amber-400'}`}><Clock className="w-2.5 h-2.5"/>{formatDate(caso.vencimiento)}</span>}
+          </div>
+        )}
       </button>
     </div>
   );
@@ -623,13 +843,13 @@ function KCard({ caso, onSelect, askDel, confirmDel }: {
 function KCol({ col, count, isOver, children }: { col: typeof KANBAN_COLS[0]; count: number; isOver: boolean; children: React.ReactNode }) {
   const { setNodeRef } = useDroppable({ id: col.key });
   return (
-    <div ref={setNodeRef} className={`glass-card p-0 overflow-hidden border-t-2 ${col.borderTop} transition-all min-w-0 ${isOver ? 'ring-2 ring-white/20 scale-[1.005]' : ''}`}>
+    <div ref={setNodeRef} className={`glass-card p-0 overflow-hidden border-t-2 ${col.borderTop} transition-all min-w-0 ${isOver ? 'ring-2 ring-white/20 scale-[1.01]' : ''}`}>
       <div className="px-3 py-2.5 flex items-center justify-between border-b border-white/[0.06]">
         <div className="flex items-center gap-2 min-w-0">
           <div className={`w-2 h-2 rounded-full shrink-0 ${col.dot}`}/>
           <h3 className="text-xs font-semibold text-white truncate">{col.label}</h3>
         </div>
-        <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-semibold shrink-0 ml-1 ${col.badge}`}>{count}</span>
+        <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-bold shrink-0 ml-1 ${col.badge}`}>{count}</span>
       </div>
       <div className="p-2 space-y-2 min-h-[80px] max-h-[65vh] overflow-y-auto">{children}</div>
     </div>
@@ -672,7 +892,7 @@ function CasosKanban({ casos, onSelect, onDelete, saveCaso }: {
       showToast('No se pudo mover', 'error');
       setItems(prev => prev.map(c => c.id === active.id ? { ...c, estado: card.estado } : c));
     } else {
-      showToast(`→ ${KANBAN_COLS.find(c => c.key === newEstado)?.label ?? newEstado}`, 'success');
+      showToast(`Movido a ${KANBAN_COLS.find(c => c.key === newEstado)?.label ?? newEstado}`, 'success');
     }
   }
 
@@ -694,8 +914,9 @@ function CasosKanban({ casos, onSelect, onDelete, saveCaso }: {
       </div>
       <DragOverlay dropAnimation={null}>
         {activeCaso && (
-          <div className="p-3 rounded-xl shadow-2xl w-48 select-none rotate-2" style={{ background: '#1a1a2e', border: '1px solid rgba(139,92,246,0.5)' }}>
-            <p className="text-[11px] font-semibold text-white line-clamp-2">{activeCaso.titulo}</p>
+          <div className="p-3 rounded-xl w-48 select-none rotate-2 shadow-2xl"
+            style={{ background: 'linear-gradient(135deg,#1a1a30,#0d0d20)', border: '1px solid rgba(139,92,246,0.5)' }}>
+            <p className="text-[11px] font-bold text-white line-clamp-2">{activeCaso.titulo}</p>
           </div>
         )}
       </DragOverlay>
@@ -717,8 +938,9 @@ export default function CasosGenerales() {
   const [bulkLoading, setBulkLoading] = useState(false);
   const [filterOpen, setFilterOpen] = useState(false);
 
-  const filtered = useMemo(() => casos.filter(c => {
-    if (c.archivado) return false;
+  const activos = casos.filter(c => !c.archivado);
+
+  const filtered = useMemo(() => activos.filter(c => {
     if (filtroEstado && (c.estado ?? '').toLowerCase() !== filtroEstado) return false;
     if (filtroAbogado && !(c.abogado ?? '').toUpperCase().includes(filtroAbogado.toUpperCase())) return false;
     if (search) {
@@ -726,49 +948,44 @@ export default function CasosGenerales() {
       return [c.titulo, c.expediente, c.radicado, c.abogado, c.tipo_caso].some(v => v?.toLowerCase().includes(q));
     }
     return true;
-  }), [casos, search, filtroEstado, filtroAbogado]);
+  }), [activos, search, filtroEstado, filtroAbogado]);
 
-  const stats = useMemo(() => {
-    const a = casos.filter(c => !c.archivado);
-    return {
-      total: a.length,
-      activos: a.filter(c => c.estado === 'activos').length,
-      federales: a.filter(c => c.estado === 'federales').length,
-      atrasados: a.filter(c => c.estadisticas_estado === 'atrasado').length,
-      prioridad: a.filter(c => c.prioridad).length,
-    };
-  }, [casos]);
+  const stats = useMemo(() => ({
+    total: activos.length,
+    activos: activos.filter(c => c.estado === 'activos').length,
+    federales: activos.filter(c => c.estado === 'federales').length,
+    atrasados: activos.filter(c => c.estadisticas_estado === 'atrasado').length,
+    prioridad: activos.filter(c => c.prioridad).length,
+  }), [activos]);
 
-  // Pills de estado
   const estadoPills = [
-    { key: '', label: `Todos (${casos.filter(c=>!c.archivado).length})` },
-    ...Object.entries(ESTADO_META).map(([key, m]) => ({
-      key, label: `${m.label} (${casos.filter(c => c.estado === key && !c.archivado).length})`,
-    })).filter(p => casos.some(c => c.estado === p.key)),
+    { key: '', label: `Todos (${activos.length})` },
+    ...Object.entries(ESTADO_META)
+      .filter(([key]) => activos.some(c => c.estado === key))
+      .map(([key, m]) => ({ key, label: `${m.label} (${activos.filter(c => c.estado === key).length})` })),
   ];
 
   async function handleDelete(id: string) {
     setDeletingId(id);
     const ok = await deleteCaso(id);
     setDeletingId(null);
-    if (ok) showToast('Caso eliminado', 'success');
-    else showToast('No se pudo eliminar', 'error');
+    showToast(ok ? 'Caso eliminado' : 'No se pudo eliminar', ok ? 'success' : 'error');
   }
   async function handleDeleteAll() {
     const n = filtered.length; if (!n) return;
-    if (!window.confirm(`¿Eliminás los ${n} casos del listado actual?`)) return;
-    if (window.prompt(`Confirmá escribiendo: BORRAR ${n}`) !== `BORRAR ${n}`) { showToast('Cancelado', 'info'); return; }
+    if (!window.confirm(`¿Eliminás los ${n} casos del listado?`)) return;
+    if (window.prompt(`Escribí: BORRAR ${n}`) !== `BORRAR ${n}`) { showToast('Cancelado', 'info'); return; }
     setBulkLoading(true);
     const r = await deleteMany(filtered.map(c => c.id));
     setBulkLoading(false); refetch();
-    showToast(`${r.ok} eliminado(s)${r.fail ? `, ${r.fail} con error` : ''}`, r.fail ? 'error' : 'success');
+    showToast(`${r.ok} eliminado(s)${r.fail ? `, ${r.fail} errores` : ''}`, r.fail ? 'error' : 'success');
   }
 
-  const sel = 'bg-[#141418] border border-white/10 rounded-xl px-3 py-1.5 text-sm text-white focus:outline-none focus:border-violet-500/50 [&>option]:bg-[#141418] [&>option]:text-white';
+  const sel = 'bg-[#141418] border border-white/10 rounded-xl px-3 py-1.5 text-sm text-white focus:outline-none focus:border-violet-500/50 [&>option]:bg-[#141418]';
 
   if (loading) return (
     <div className="flex h-64 items-center justify-center">
-      <div className="w-8 h-8 border-2 border-white/30 border-t-transparent rounded-full animate-spin"/>
+      <div className="w-8 h-8 border-2 border-violet-500/40 border-t-violet-500 rounded-full animate-spin"/>
     </div>
   );
 
@@ -778,12 +995,12 @@ export default function CasosGenerales() {
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold text-white flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-violet-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-violet-500/20">
-              <Scale className="w-4.5 h-4.5 text-white"/>
+            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-violet-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-violet-500/30">
+              <Scale className="w-5 h-5 text-white"/>
             </div>
             Casos Generales
           </h1>
-          <p className="text-sm text-gray-500 mt-0.5 ml-12">{filtered.length} caso{filtered.length !== 1 ? 's' : ''} · solo activos</p>
+          <p className="text-sm text-gray-500 mt-0.5 ml-12">{filtered.length} caso{filtered.length !== 1 ? 's' : ''} · solo activos no archivados</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <button onClick={refetch} className="btn-secondary p-2.5" title="Actualizar"><RefreshCw className="w-4 h-4"/></button>
@@ -797,7 +1014,7 @@ export default function CasosGenerales() {
         </div>
       </div>
 
-      {/* Stats chips */}
+      {/* Stats */}
       <div className="flex flex-wrap gap-2">
         {[
           { label: 'Total',     val: stats.total,     color: 'text-white',       bg: 'bg-white/5 border-white/10' },
@@ -807,7 +1024,7 @@ export default function CasosGenerales() {
           { label: 'Prioridad', val: stats.prioridad, color: 'text-amber-300',   bg: 'bg-amber-500/5 border-amber-500/20' },
         ].map(s => (
           <div key={s.label} className={`flex items-center gap-2 px-3 py-1.5 rounded-xl border ${s.bg}`}>
-            <span className={`text-lg font-bold ${s.color}`}>{s.val}</span>
+            <span className={`text-xl font-bold tabular-nums ${s.color}`}>{s.val}</span>
             <span className="text-[10px] text-gray-500">{s.label}</span>
           </div>
         ))}
@@ -817,32 +1034,37 @@ export default function CasosGenerales() {
       <div className="flex flex-col sm:flex-row gap-2">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500"/>
-          <input type="text" placeholder="Buscar por título, expediente, tribunal…" value={search}
-            onChange={e => setSearch(e.target.value)}
-            className="input-dark pl-10 text-sm"/>
+          <input type="text" placeholder="Buscar por título, expediente, tribunal, abogado…" value={search}
+            onChange={e => setSearch(e.target.value)} className="input-dark pl-10 text-sm"/>
         </div>
-        <div className="flex gap-2 flex-wrap">
+        <div className="flex gap-2">
           <button onClick={() => setFilterOpen(!filterOpen)}
-            className={`flex items-center gap-2 text-sm px-3 py-2 rounded-xl border transition-colors ${filterOpen || filtroEstado || filtroAbogado ? 'border-violet-500/40 bg-violet-500/10 text-violet-300' : 'border-white/10 bg-white/5 text-gray-400 hover:text-white'}`}>
+            className={`flex items-center gap-2 text-sm px-3 py-2 rounded-xl border transition-colors ${filterOpen || filtroAbogado ? 'border-violet-500/40 bg-violet-500/10 text-violet-300' : 'border-white/10 bg-white/5 text-gray-400 hover:text-white'}`}>
             <Filter className="w-4 h-4"/>Filtros
-            {(filtroEstado || filtroAbogado) && <span className="rounded-full bg-violet-500 text-white text-[10px] px-1.5">{[filtroEstado,filtroAbogado].filter(Boolean).length}</span>}
+            {filtroAbogado && <span className="rounded-full bg-violet-500 text-white text-[10px] px-1.5">1</span>}
           </button>
           <div className="flex bg-white/5 rounded-xl p-0.5 border border-white/10">
-            <button onClick={() => setView('tabla')} className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-all flex items-center gap-1.5 ${view === 'tabla' ? 'bg-white/10 text-white' : 'text-gray-500 hover:text-white'}`}><Table2 className="w-3.5 h-3.5"/>Tabla</button>
-            <button onClick={() => setView('kanban')} className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-all flex items-center gap-1.5 ${view === 'kanban' ? 'bg-white/10 text-white' : 'text-gray-500 hover:text-white'}`}><Columns3 className="w-3.5 h-3.5"/>Pipeline</button>
+            <button onClick={() => setView('tabla')} className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-all flex items-center gap-1.5 ${view === 'tabla' ? 'bg-white/10 text-white' : 'text-gray-500 hover:text-white'}`}>
+              <Table2 className="w-3.5 h-3.5"/>Tabla
+            </button>
+            <button onClick={() => setView('kanban')} className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-all flex items-center gap-1.5 ${view === 'kanban' ? 'bg-white/10 text-white' : 'text-gray-500 hover:text-white'}`}>
+              <Columns3 className="w-3.5 h-3.5"/>Pipeline
+            </button>
           </div>
         </div>
       </div>
 
-      {/* Estado pills (multi-filter bar — like Previsional) */}
+      {/* Estado pills */}
       <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
         {estadoPills.map(p => {
           const meta = p.key ? getEstado(p.key) : null;
           const active = filtroEstado === p.key;
           return (
             <button key={p.key} onClick={() => setFiltroEstado(p.key)}
-              className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-all whitespace-nowrap flex items-center gap-1.5
-                ${active ? (meta ? `${meta.bg} ${meta.color} border-current/30` : 'bg-white/10 text-white border-white/20') : 'bg-white/5 text-gray-500 border-white/5 hover:text-white'}`}>
+              className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition-all whitespace-nowrap flex items-center gap-1.5
+                ${active
+                  ? meta ? `${meta.bg} ${meta.color} border-current/30 ring-1 ring-current/20` : 'bg-white/10 text-white border-white/20'
+                  : 'bg-white/5 text-gray-500 border-white/5 hover:text-white'}`}>
               {meta && <span className={`w-2 h-2 rounded-full ${meta.dot}`}/>}
               {p.label}
             </button>
@@ -850,7 +1072,7 @@ export default function CasosGenerales() {
         })}
       </div>
 
-      {/* Filter panel */}
+      {/* Abogado filter */}
       {filterOpen && (
         <div className="flex flex-wrap gap-3 p-4 rounded-2xl border border-white/[0.06] bg-white/[0.02]">
           <div className="flex flex-col gap-1 min-w-[180px]">
@@ -860,9 +1082,8 @@ export default function CasosGenerales() {
               {ABOGADOS.map(o => <option key={o} value={o}>{o}</option>)}
             </select>
           </div>
-          {(filtroEstado || filtroAbogado) && (
-            <button onClick={() => { setFiltroEstado(''); setFiltroAbogado(''); }}
-              className="self-end text-xs text-gray-500 hover:text-white flex items-center gap-1">
+          {filtroAbogado && (
+            <button onClick={() => setFiltroAbogado('')} className="self-end text-xs text-gray-500 hover:text-white flex items-center gap-1">
               <X className="w-3 h-3"/>Limpiar
             </button>
           )}
@@ -871,9 +1092,9 @@ export default function CasosGenerales() {
 
       {/* Content */}
       {filtered.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-24 text-gray-500">
+        <div className="flex flex-col items-center justify-center py-24 text-gray-600">
           <Scale className="w-14 h-14 mb-4 opacity-10"/>
-          <p className="text-lg font-medium">Sin casos</p>
+          <p className="text-lg font-semibold text-gray-500">Sin casos</p>
           <p className="text-sm mt-1">Importá desde Notion o creá el primero</p>
           <div className="flex gap-2 mt-5">
             <button onClick={() => setImportOpen(true)} className="btn-secondary text-sm flex items-center gap-2"><Upload className="w-4 h-4"/>Importar</button>
@@ -894,7 +1115,9 @@ export default function CasosGenerales() {
           onSaved={refetch}
         />
       )}
-      {importOpen && <NotionImportModal onClose={() => setImportOpen(false)} onImported={refetch} totalExistentes={casos.length}/>}
+      {importOpen && (
+        <NotionImportModal onClose={() => setImportOpen(false)} onImported={refetch} totalExistentes={casos.length}/>
+      )}
     </div>
   );
 }
