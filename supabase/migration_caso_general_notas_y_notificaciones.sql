@@ -185,6 +185,9 @@ CREATE TRIGGER trg_notify_tarea_vista
   FOR EACH ROW EXECUTE FUNCTION public.notify_tarea_vista();
 
 -- ─── 5. VISTAS CON JOIN A PERFILES (avatar + nombre) ────────────────────────
+DROP VIEW IF EXISTS public.caso_general_notas_completo CASCADE;
+DROP VIEW IF EXISTS public.tareas_completas_v2 CASCADE;
+
 CREATE OR REPLACE VIEW public.caso_general_notas_completo AS
 SELECT
   n.id,
