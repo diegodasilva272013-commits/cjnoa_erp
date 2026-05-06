@@ -13,6 +13,7 @@ import { CSS } from '@dnd-kit/utilities';
 import { useCasosGenerales, CasoGeneral, TIPOS_CASO, ABOGADOS } from '../hooks/useCasosGenerales';
 import { useToast } from '../context/ToastContext';
 import { supabase } from '../lib/supabase';
+import NotasFeedPanel from '../components/cases/NotasFeedPanel';
 
 // ─── Estado constants (same pattern as PIPELINE_COLORS in previsional) ─────────
 const ESTADOS_ORDERED = [
@@ -474,8 +475,13 @@ function CaseDetailModal({ caso: initial, onClose, onSaved }: {
               )}
               {editing.actualizacion && (
                 <div className="bg-white/[0.025] rounded-xl p-3 border border-white/[0.05]">
-                  <p className="text-[10px] text-gray-500 uppercase tracking-widest mb-1">Notas</p>
+                  <p className="text-[10px] text-gray-500 uppercase tracking-widest mb-1">Histórico (importado)</p>
                   <p className="text-sm text-gray-300 whitespace-pre-wrap leading-relaxed">{editing.actualizacion}</p>
+                </div>
+              )}
+              {!isNew && editing.id && (
+                <div className="pt-3 border-t border-white/[0.06]">
+                  <NotasFeedPanel casoId={editing.id} />
                 </div>
               )}
             </div>

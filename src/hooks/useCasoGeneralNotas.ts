@@ -1,0 +1,157 @@
+import { useEffect, useState, useCallback } from 'react';
+import { supabase } from '../lib/supabase';
+
+export interface CasoGeneralNota {
+  id: string;
+  caso_id: string;
+  contenido: string;
+  tarea_id: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+  editado: boolean;
+  autor_nombre: string | null;
+  autor_avatar: string | null;
+  // tarea (si hay)
+  tarea_titulo: string | null;
+  tarea_estado: string | null;
+  tarea_fecha_limite: string | null;
+  tarea_responsable_id: string | null;
+  tarea_visto: boolean | null;
+  tarea_visto_at: string | null;
+  tarea_responsable_nombre: string | null;
+  tarea_responsable_avatar: string | null;
+}
+
+export type EstadoTareaFlujo =
+  | 'activa' | 'aceptada' | 'pendiente' | 'en_proceso' | 'finalizada';
+
+export const ESTADOS_TAREA_FLUJO: EstadoTareaFlujo[] = [
+  'activa', 'aceptada', 'pendiente', 'en_proceso', 'finalizada'
+];
+
+export const ESTADO_TAREA_LABEL: Record<string, string> = {
+  activa: 'Activa', aceptada: 'Aceptada', pendiente: 'Pendiente',
+  en_proceso: 'En proceso', finalizada: 'Finalizada',
+  en_curso: 'En curso', completada: 'Completada',
+};
+export const ESTADO_TAREA_COLOR: Record<string, string> = {
+  activa:     'bg-blue-500/10 text-blue-300 border-blue-500/30',
+  aceptada:   'bg-cyan-500/10 text-cyan-300 border-cyan-500/30',
+  pendiente:  'bg-amber-500/10 text-amber-300 border-amber-500/30',
+  en_proceso: 'bg-violet-500/10 text-violet-300 border-violet-500/30',
+  finalizada: 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30',
+  en_curso:   'bg-violet-500/10 text-violet-300 border-violet-500/30',
+  completada: 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30',
+};
+
+export function useCasoGeneralNotas(casoId: string | null) {
+  const [notas, setNotas] = useState<CasoGeneralNota[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  const fetchNotas = useCallback(async () => {
+    if (!casoId) { setNotas([]); return; }
+    setLoading(true);
+    const { data, error } = await supabase
+      .from('caso_general_notas_completo')
+      .select('*')
+      .eq('caso_id', casoId)
+      .order('created_at', { ascending: false });
+    if (!error && data) setNotas(data as CasoGeneralNota[]);
+    setLoading(false);
+  }, [casoId]);
+
+  useEffect(() => { fetchNotas(); }, [fetchNotas]);
+
+  // realtime: nueva nota o tarea asociada cambió
+  useEffect(() => {
+    if (!casoId) return;
+    const ch = supabase
+      .channel(`caso-gen-notas-${casoId}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'caso_general_notas', filter: `caso_id=eq.${casoId}` },
+        () => fetchNotas())
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'tareas' },
+        () => fetchNotas())
+      .subscribe();
+    return () => { supabase.removeChannel(ch); };
+  }, [casoId, fetchNotas]);
+
+  async function agregarNota(contenido: string, userId: string): Promise<boolean> {
+    if (!casoId || !contenido.trim()) return false;
+    const { error } = await supabase.from('caso_general_notas')
+      .insert({ caso_id: casoId, contenido: contenido.trim(), created_by: userId });
+    if (error) { console.error(error); return false; }
+    await fetchNotas();
+    return true;
+  }
+
+  async function agregarNotaConTarea(params: {
+    contenido: string;
+    userId: string;
+    tareaTitulo: string;
+    responsableId: string;
+    fechaLimite: string | null;
+    descripcion?: string;
+  }): Promise<boolean> {
+    if (!casoId) return false;
+    // 1) crear tarea (los triggers se encargan de notificar)
+    const { data: tareaIns, error: errTarea } = await supabase
+      .from('tareas')
+      .insert({
+        titulo: params.tareaTitulo.trim() || params.contenido.slice(0, 80),
+        descripcion: params.descripcion?.trim() || params.contenido.trim(),
+        responsable_id: params.responsableId,
+        fecha_limite: params.fechaLimite,
+        estado: 'activa',
+        caso_general_id: casoId,
+        created_by: params.userId,
+        updated_by: params.userId,
+      })
+      .select('id')
+      .single();
+    if (errTarea || !tareaIns) { console.error(errTarea); return false; }
+    // 2) crear nota apuntando a la tarea
+    const { error: errNota } = await supabase.from('caso_general_notas')
+      .insert({
+        caso_id: casoId,
+        contenido: params.contenido.trim(),
+        tarea_id: tareaIns.id,
+        created_by: params.userId,
+      });
+    if (errNota) { console.error(errNota); return false; }
+    await fetchNotas();
+    return true;
+  }
+
+  async function eliminarNota(id: string): Promise<boolean> {
+    const { error } = await supabase.from('caso_general_notas').delete().eq('id', id);
+    if (error) { console.error(error); return false; }
+    await fetchNotas();
+    return true;
+  }
+
+  async function marcarTareaVista(tareaId: string): Promise<boolean> {
+    const { error } = await supabase
+      .from('tareas')
+      .update({ visto_por_asignado: true })
+      .eq('id', tareaId);
+    if (error) { console.error(error); return false; }
+    await fetchNotas();
+    return true;
+  }
+
+  async function cambiarEstadoTarea(tareaId: string, estado: EstadoTareaFlujo, userId: string): Promise<boolean> {
+    const updates: Record<string, unknown> = { estado, updated_by: userId };
+    if (estado === 'finalizada') updates.fecha_completada = new Date().toISOString();
+    const { error } = await supabase.from('tareas').update(updates).eq('id', tareaId);
+    if (error) { console.error(error); return false; }
+    await fetchNotas();
+    return true;
+  }
+
+  return {
+    notas, loading, refetch: fetchNotas,
+    agregarNota, agregarNotaConTarea, eliminarNota,
+    marcarTareaVista, cambiarEstadoTarea,
+  };
+}

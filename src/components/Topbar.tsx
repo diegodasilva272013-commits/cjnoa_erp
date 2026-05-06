@@ -6,6 +6,7 @@ import { supabase } from '../lib/supabase';
 import { useAvatarUrl } from '../hooks/useAvatarUrl';
 import { ROLES, Rol } from '../types/database';
 import NotificationBell from './NotificationBell';
+import NotificacionesBellApp from './NotificacionesBellApp';
 
 interface TopbarProps {
   onMenuClick: () => void;
@@ -71,6 +72,7 @@ export default function Topbar({ onMenuClick }: TopbarProps) {
             <span className="hidden sm:inline ml-2">Buscar...</span>
             <kbd className="hidden sm:inline ml-1 rounded border border-white/10 bg-white/5 px-1 py-0.5 text-[10px]">{searchShortcut.label}</kbd>
           </button>
+          <NotificacionesBellApp />
           <NotificationBell />
           <div className="flex items-center gap-2 sm:gap-3 px-2 sm:px-4 py-1.5 sm:py-2 rounded-xl bg-white/[0.03] border border-white/[0.06]">
             <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={handleAvatarUpload} />
