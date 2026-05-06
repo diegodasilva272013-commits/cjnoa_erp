@@ -111,8 +111,8 @@ export function useCasoGeneralNotas(casoId: string | null) {
     descripcion?: string;
     prioridad?: 'alta' | 'media' | 'sin_prioridad';
     cargoHora?: string;
-  }): Promise<boolean> {
-    if (!casoId) return false;
+  }): Promise<{ ok: boolean; error?: string }> {
+    if (!casoId) return { ok: false, error: 'casoId vacío' };
     // 1) crear tarea (los triggers se encargan de notificar)
     const { data: tareaIns, error: errTarea } = await supabase
       .from('tareas')
@@ -130,7 +130,10 @@ export function useCasoGeneralNotas(casoId: string | null) {
       })
       .select('id')
       .single();
-    if (errTarea || !tareaIns) { console.error(errTarea); return false; }
+    if (errTarea || !tareaIns) {
+      console.error('[tareas insert]', errTarea);
+      return { ok: false, error: errTarea?.message || 'No se pudo crear la tarea' };
+    }
     // 2) crear nota apuntando a la tarea
     const { error: errNota } = await supabase.from('caso_general_notas')
       .insert({
@@ -139,9 +142,12 @@ export function useCasoGeneralNotas(casoId: string | null) {
         tarea_id: tareaIns.id,
         created_by: params.userId,
       });
-    if (errNota) { console.error(errNota); return false; }
+    if (errNota) {
+      console.error('[nota insert]', errNota);
+      return { ok: false, error: errNota.message || 'No se pudo crear la nota' };
+    }
     await fetchNotas();
-    return true;
+    return { ok: true };
   }
 
   async function eliminarNota(id: string): Promise<boolean> {

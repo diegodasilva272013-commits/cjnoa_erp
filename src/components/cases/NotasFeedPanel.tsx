@@ -172,12 +172,13 @@ export default function NotasFeedPanel({ casoId }: { casoId: string }) {
     if (!user?.id || !contenido.trim()) return;
     setEnviando(true);
     let ok = false;
+    let errMsg: string | undefined;
     if (conTarea) {
       if (!responsableId) {
         showToast('Elegí a quién asignar la tarea', 'error');
         setEnviando(false); return;
       }
-      ok = await agregarNotaConTarea({
+      const res = await agregarNotaConTarea({
         contenido,
         userId: user.id,
         tareaTitulo: tareaTitulo || contenido.slice(0, 80),
@@ -187,6 +188,7 @@ export default function NotasFeedPanel({ casoId }: { casoId: string }) {
         prioridad,
         cargoHora: cargoHora || undefined,
       });
+      ok = res.ok; errMsg = res.error;
     } else {
       ok = await agregarNota(contenido, user.id);
     }
@@ -196,7 +198,7 @@ export default function NotasFeedPanel({ casoId }: { casoId: string }) {
       setPrioridad('sin_prioridad'); setConTarea(false);
       showToast(conTarea ? 'Nota + tarea creadas' : 'Nota agregada', 'success');
     } else {
-      showToast('Error al guardar', 'error');
+      showToast(errMsg || 'Error al guardar', 'error');
     }
     setEnviando(false);
   }
@@ -320,6 +322,14 @@ export default function NotasFeedPanel({ casoId }: { casoId: string }) {
                 <AlertCircle className="w-3 h-3" /> Elegí un responsable para crear la tarea
               </p>
             )}
+            <button
+              onClick={handleEnviar}
+              disabled={!contenido.trim() || !responsableId || enviando}
+              className="w-full mt-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-violet-500/15 hover:bg-violet-500/25 border border-violet-500/40 text-violet-200 text-xs font-semibold disabled:opacity-40 disabled:cursor-not-allowed transition"
+            >
+              <ListTodo className="w-3.5 h-3.5" />
+              {enviando ? 'Asignando…' : 'Asignar tarea y publicar nota'}
+            </button>
           </div>
         )}
       </div>
