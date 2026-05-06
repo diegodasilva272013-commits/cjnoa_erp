@@ -129,8 +129,17 @@ export default function ControlTareas() {
     const previsionalIdsYaSincronizados = new Set(
       (data || []).map((t: any) => t.previsional_id).filter(Boolean)
     );
+    // Dedupe extra por título (por si PostgREST cacheó la vista sin la columna previsional_id)
+    const titulosYaPresentes = new Set(
+      (data || []).map((t: any) => (t.titulo || '').trim().toLowerCase())
+    );
     const previsionalesMapped: ControlTarea[] = prevsRaw
-      .filter(p => !previsionalIdsYaSincronizados.has(p.id))
+      .filter(p => {
+        if (previsionalIdsYaSincronizados.has(p.id)) return false;
+        const tituloEsperado = `[previsional] ${(p.titulo || '').trim().toLowerCase()}`;
+        if (titulosYaPresentes.has(tituloEsperado)) return false;
+        return true;
+      })
       .map(p => {
         const { et, dr } = computeEstadoTiempo(p.estado, p.fecha_limite);
         const clienteNombre = (p as any).clientes_prev?.apellido_nombre || null;
