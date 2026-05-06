@@ -7,7 +7,7 @@
 -- 1) Diagnóstico previo (opcional)
 SELECT COUNT(*) AS huerfanos_autogenerados
 FROM public.ingresos
-WHERE es_manual = false
+WHERE COALESCE(es_manual, false) = false
   AND caso_id IS NULL;
 
 SELECT COUNT(*) AS apuntan_a_caso_inexistente
@@ -16,8 +16,9 @@ WHERE i.caso_id IS NOT NULL
   AND NOT EXISTS (SELECT 1 FROM public.casos c WHERE c.id = i.caso_id);
 
 -- 2) Borrar ingresos auto-generados sin caso (huérfanos por SET NULL previo)
+--    Incluye los que tienen es_manual NULL.
 DELETE FROM public.ingresos
-WHERE es_manual = false
+WHERE COALESCE(es_manual, false) = false
   AND caso_id IS NULL;
 
 -- 3) Borrar ingresos cuyo caso ya no existe (defensa por si la FK estaba rota)
@@ -66,5 +67,5 @@ END $$;
 -- 5) Verificación final
 SELECT COUNT(*) AS quedan_huerfanos
 FROM public.ingresos
-WHERE es_manual = false
+WHERE COALESCE(es_manual, false) = false
   AND caso_id IS NULL;

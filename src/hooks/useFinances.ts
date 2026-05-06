@@ -74,11 +74,12 @@ export function useIngresos() {
   const cleanupOrphans = useCallback(async () => {
     // Borra ingresos auto-generados cuyo caso ya no existe (caso_id NULL).
     // No toca ingresos manuales (es_manual=true) ni los que tienen caso vivo.
+    // Incluye filas con es_manual NULL (legacy) usando filtro OR.
     try {
       await supabase
         .from('ingresos')
         .delete()
-        .eq('es_manual', false)
+        .or('es_manual.is.null,es_manual.eq.false')
         .is('caso_id', null);
     } catch {
       // silencioso: si falla por RLS u otro motivo, no rompemos la carga

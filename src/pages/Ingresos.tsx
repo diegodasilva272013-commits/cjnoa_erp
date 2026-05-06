@@ -131,22 +131,28 @@ export default function Ingresos() {
       return { ok: true, message: `Ingreso eliminado y ${label}` };
     };
 
+    // Trata "tuple to be updated was already modified" como éxito parcial:
+    // significa que un trigger ya tocó la fila origen, así que pasamos a verificar el ingreso.
+    const isTupleConflict = (err: any) =>
+      typeof err?.message === 'string' &&
+      /tuple to be updated was already modified/i.test(err.message);
+
     try {
       // 0) Notas con referencia (cuotas legacy / pago único caso_completo)
       const ref = parseIncomeReference(ingreso.notas).reference;
       if (ref?.type === 'cuota') {
         const { data: upd, error } = await supabase
           .from('cuotas').update({ estado: 'Pendiente', fecha_pago: null }).eq('id', ref.id).select('id');
-        if (error) return finish(false, `No se pudo desmarcar la cuota: ${error.message}`);
-        if (!upd || upd.length === 0) return finish(false, 'Sin permiso para desmarcar la cuota (RLS)');
+        if (error && !isTupleConflict(error)) return finish(false, `No se pudo desmarcar la cuota: ${error.message}`);
+        if (!error && (!upd || upd.length === 0)) return finish(false, 'Sin permiso para desmarcar la cuota (RLS)');
         const r = await ensureGone('cuota desmarcada');
         return finish(r.ok, r.message);
       }
       if (ref?.type === 'pago_unico') {
         const { data: upd, error } = await supabase
           .from('casos_completos').update({ pago_unico_pagado: false }).eq('id', ref.caseId).select('id');
-        if (error) return finish(false, `No se pudo desmarcar el pago único: ${error.message}`);
-        if (!upd || upd.length === 0) return finish(false, 'Sin permiso para desmarcar el pago único (RLS)');
+        if (error && !isTupleConflict(error)) return finish(false, `No se pudo desmarcar el pago único: ${error.message}`);
+        if (!error && (!upd || upd.length === 0)) return finish(false, 'Sin permiso para desmarcar el pago único (RLS)');
         const r = await ensureGone('pago único desmarcado');
         return finish(r.ok, r.message);
       }
@@ -157,8 +163,8 @@ export default function Ingresos() {
       if (caRes) {
         const { data: upd, error } = await supabase
           .from('consultas_agendadas').update({ reserva_pagada: false }).eq('id', caRes.id).select('id');
-        if (error) return finish(false, `No se pudo: ${error.message}`);
-        if (!upd || upd.length === 0) return finish(false, 'Sin permiso para desmarcar la consulta (RLS)');
+        if (error && !isTupleConflict(error)) return finish(false, `No se pudo: ${error.message}`);
+        if (!error && (!upd || upd.length === 0)) return finish(false, 'Sin permiso para desmarcar la consulta (RLS)');
         const r = await ensureGone('reserva desmarcada');
         return finish(r.ok, r.message);
       }
@@ -169,8 +175,8 @@ export default function Ingresos() {
       if (cpRes) {
         const { data: upd, error } = await supabase
           .from('casos_pagos').update({ reserva_pagada: false }).eq('id', cpRes.id).select('id');
-        if (error) return finish(false, `No se pudo: ${error.message}`);
-        if (!upd || upd.length === 0) return finish(false, 'Sin permiso para desmarcar la reserva (RLS)');
+        if (error && !isTupleConflict(error)) return finish(false, `No se pudo: ${error.message}`);
+        if (!error && (!upd || upd.length === 0)) return finish(false, 'Sin permiso para desmarcar la reserva (RLS)');
         const r = await ensureGone('reserva desmarcada');
         return finish(r.ok, r.message);
       }
@@ -181,8 +187,8 @@ export default function Ingresos() {
       if (cpSal) {
         const { data: upd, error } = await supabase
           .from('casos_pagos').update({ saldo_pagado: false }).eq('id', cpSal.id).select('id');
-        if (error) return finish(false, `No se pudo: ${error.message}`);
-        if (!upd || upd.length === 0) return finish(false, 'Sin permiso para desmarcar el saldo (RLS)');
+        if (error && !isTupleConflict(error)) return finish(false, `No se pudo: ${error.message}`);
+        if (!error && (!upd || upd.length === 0)) return finish(false, 'Sin permiso para desmarcar el saldo (RLS)');
         const r = await ensureGone('saldo desmarcado');
         return finish(r.ok, r.message);
       }
@@ -193,8 +199,8 @@ export default function Ingresos() {
       if (cpCuota) {
         const { data: upd, error } = await supabase
           .from('casos_pagos_cuotas').update({ estado: 'Pendiente', fecha_pago: null }).eq('id', cpCuota.id).select('id');
-        if (error) return finish(false, `No se pudo: ${error.message}`);
-        if (!upd || upd.length === 0) return finish(false, 'Sin permiso para desmarcar la cuota (RLS)');
+        if (error && !isTupleConflict(error)) return finish(false, `No se pudo: ${error.message}`);
+        if (!error && (!upd || upd.length === 0)) return finish(false, 'Sin permiso para desmarcar la cuota (RLS)');
         const r = await ensureGone('cuota desmarcada');
         return finish(r.ok, r.message);
       }
