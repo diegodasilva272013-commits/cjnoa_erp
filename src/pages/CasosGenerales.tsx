@@ -253,6 +253,46 @@ function normTipo(v: string): string | null {
   return s.slice(0, 40) || null;
 }
 
+// ─── Notion Markdown helpers (notas exportadas) ──────────────────────────────
+function normTitle(s: string): string {
+  return (s ?? '')
+    .toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^\w\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+function extractMdBody(md: string): { title: string; body: string } {
+  const lines = md.split(/\r?\n/);
+  let i = 0;
+  let title = '';
+  if (lines[i]?.startsWith('# ')) { title = lines[i].slice(2).trim(); i++; }
+  // skip blank lines + key:value property block
+  while (i < lines.length) {
+    const ln = lines[i];
+    if (!ln.trim()) { i++; continue; }
+    if (/^[A-Za-zÁÉÍÓÚáéíóúÑñ][\w \(\)/áéíóúÁÉÍÓÚñÑ]*:\s/.test(ln)) { i++; continue; }
+    break;
+  }
+  return { title, body: lines.slice(i).join('\n').trim() };
+}
+function lookupMdBody(map: Map<string, string>, titulo: string): string {
+  if (!map.size || !titulo) return '';
+  const key = normTitle(titulo);
+  if (map.has(key)) return map.get(key) || '';
+  // prefix fallback (titles truncated by Notion)
+  if (key.length >= 20) {
+    for (const [k, v] of map.entries()) {
+      if (k.startsWith(key) || key.startsWith(k)) return v;
+    }
+    const frag = key.slice(0, 30);
+    for (const [k, v] of map.entries()) {
+      if (k.includes(frag)) return v;
+    }
+  }
+  return '';
+}
+
 // ─── SortHeader (same as FichasList) ─────────────────────────────────────────
 type SortKey = 'titulo' | 'estado' | 'abogado' | 'audiencias' | 'vencimiento' | 'tipo_caso';
 function SortHeader({ k, label, className='', sortKey, sortDir, onClick }: {
@@ -491,6 +531,10 @@ function NotionImportModal({ onClose, onImported, totalExistentes }: {
   const [detectedHeaders, setDetectedHeaders] = useState<string[]>([]);
   const [previewTotal, setPreviewTotal] = useState(0);
   const [fieldMapping, setFieldMapping] = useState<FieldMapping[]>([]);
+  // Notas .md de Notion: title (normalizado) → body
+  const [mdMap, setMdMap] = useState<Map<string, string>>(new Map());
+  const [mdLoading, setMdLoading] = useState(false);
+  const [mdFileName, setMdFileName] = useState<string>('');
 
   const ALL_EXPECTED = [...COL_TITULO,...COL_ESTADO,...COL_ABOGADO,...COL_PERSONERIA,...COL_EXPEDIENTE,...COL_RADICADO,...COL_TIPO,...COL_AUDIENCIAS,...COL_VENCIMIENTO,...COL_URL_DRIVE,...COL_ACTUALIZACION,...COL_PRIORIDAD,...COL_ARCHIVAR];
 
@@ -550,7 +594,65 @@ function NotionImportModal({ onClose, onImported, totalExistentes }: {
     } catch { /* ignore */ }
   }
 
-  async function handleImport() {
+  async function handleMdFiles(files: FileList | null) {
+    if (!files || !files.length) return;
+    setMdLoading(true);
+    try {
+      const map = new Map<string, string>();
+      const arr = Array.from(files);
+      // detect single zip
+      const zips = arr.filter(f => f.name.toLowerCase().endsWith('.zip'));
+      const mds  = arr.filter(f => f.name.toLowerCase().endsWith('.md'));
+
+      const ingest = (rawTitle: string, content: string) => {
+        const { title: h1Title, body } = extractMdBody(content);
+        // prefer H1 title if present, else derive from filename
+        const titleForKey = h1Title || rawTitle.replace(/\s+[a-f0-9]{20,}$/, '').replace(/\.md$/i, '');
+        if (!body) return;
+        map.set(normTitle(titleForKey), body);
+      };
+
+      if (zips.length) {
+        const JSZipMod = (await import('jszip')).default;
+        for (const z of zips) {
+          const zip = await JSZipMod.loadAsync(await z.arrayBuffer());
+          const entries = Object.values(zip.files).filter(e => !e.dir && e.name.toLowerCase().endsWith('.md'));
+          // Notion sometimes nests another zip inside
+          const innerZips = Object.values(zip.files).filter(e => !e.dir && e.name.toLowerCase().endsWith('.zip'));
+          for (const e of entries) {
+            const txt = await e.async('string');
+            const base = e.name.split('/').pop() || e.name;
+            ingest(base, txt);
+          }
+          for (const iz of innerZips) {
+            try {
+              const inner = await JSZipMod.loadAsync(await iz.async('arraybuffer'));
+              const innerMds = Object.values(inner.files).filter(x => !x.dir && x.name.toLowerCase().endsWith('.md'));
+              for (const e of innerMds) {
+                const txt = await e.async('string');
+                const base = e.name.split('/').pop() || e.name;
+                ingest(base, txt);
+              }
+            } catch { /* not a zip, skip */ }
+          }
+        }
+      }
+
+      for (const f of mds) {
+        const txt = await f.text();
+        ingest(f.name, txt);
+      }
+
+      setMdMap(map);
+      const fname = arr.length === 1 ? arr[0].name : `${arr.length} archivos`;
+      setMdFileName(fname);
+      showToast(`${map.size} nota(s) cargada(s) desde ${fname}`, map.size ? 'success' : 'error');
+    } catch (e: unknown) {
+      showToast(`Error leyendo notas: ${(e as Error)?.message ?? e}`, 'error');
+    } finally {
+      setMdLoading(false);
+    }
+  }
     if (!file) return;
     setImporting(true); setResults([]);
     try {
@@ -585,7 +687,13 @@ function NotionImportModal({ onClose, onImported, totalExistentes }: {
           personeria:          g(...COL_PERSONERIA) || null,
           radicado:            g(...COL_RADICADO) || null,
           url_drive:           g(...COL_URL_DRIVE) || null,
-          actualizacion:       g(...COL_ACTUALIZACION) || null,
+          actualizacion:       (() => {
+            const csvNotes = g(...COL_ACTUALIZACION) || '';
+            const titulo = g(...COL_TITULO);
+            const body = lookupMdBody(mdMap, titulo);
+            const merged = [csvNotes, body].filter(Boolean).join('\n\n---\n\n').trim();
+            return merged || null;
+          })(),
           audiencias:          parseNotionDate(g(...COL_AUDIENCIAS)),
           vencimiento:         parseNotionDate(g(...COL_VENCIMIENTO)),
           prioridad:           parseNotionBool(g(...COL_PRIORIDAD)),
@@ -674,6 +782,34 @@ function NotionImportModal({ onClose, onImported, totalExistentes }: {
             </div>
             <input type="file" accept=".csv,.xlsx,.xls" className="hidden"
               onChange={e => handleFileChange(e.target.files?.[0])}/>
+          </label>
+
+          {/* Notas .md de Notion (opcional) */}
+          <label className="cursor-pointer block">
+            <div className="flex items-center gap-3 px-4 py-3 rounded-xl border border-dashed border-cyan-500/30 bg-cyan-500/5 hover:bg-cyan-500/10 transition-colors">
+              {mdLoading
+                ? <Loader2 className="w-5 h-5 text-cyan-400 shrink-0 animate-spin"/>
+                : <Upload className="w-5 h-5 text-cyan-400 shrink-0"/>}
+              <div className="min-w-0 flex-1">
+                <p className="text-sm text-cyan-200 font-medium truncate">
+                  {mdMap.size
+                    ? `✓ ${mdMap.size} nota(s) cargada(s) — ${mdFileName}`
+                    : 'Notas (opcional): subí el .zip de Notion o varios .md'}
+                </p>
+                <p className="text-[10px] text-gray-500 mt-0.5">
+                  El cuerpo de cada página se mergea al campo "Notas" del caso por título
+                </p>
+              </div>
+              {mdMap.size > 0 && (
+                <button type="button"
+                  onClick={(ev) => { ev.preventDefault(); ev.stopPropagation(); setMdMap(new Map()); setMdFileName(''); }}
+                  className="text-[10px] text-gray-500 hover:text-red-300 px-2 py-1 rounded-lg hover:bg-red-500/10 shrink-0">
+                  limpiar
+                </button>
+              )}
+            </div>
+            <input type="file" accept=".md,.zip" multiple className="hidden"
+              onChange={e => handleMdFiles(e.target.files)}/>
           </label>
 
           {file && !file.name.toLowerCase().includes('_all') && file.name.toLowerCase().endsWith('.csv') && (
