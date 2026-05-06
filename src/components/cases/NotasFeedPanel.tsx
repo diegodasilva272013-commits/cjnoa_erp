@@ -227,6 +227,14 @@ export default function NotasFeedPanel({ casoId }: { casoId: string }) {
       setAudGuardando(false);
       return;
     }
+    // Sincronizar con Google Calendar (fire-and-forget)
+    if (data?.id) {
+      void fetch('/api/google/sync-audiencia', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ audiencia_id: data.id }),
+      }).catch(() => {});
+    }
     // Crear nota de seguimiento referenciando la audiencia
     const fechaLegible = new Date(audFecha).toLocaleString('es-AR', {
       day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit',

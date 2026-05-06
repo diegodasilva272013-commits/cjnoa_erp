@@ -23,6 +23,7 @@ const Perfil = lazy(() => import('./pages/Perfil'));
 const Timeline = lazy(() => import('./pages/Timeline'));
 const Tareas = lazy(() => import('./pages/Tareas'));
 const Audiencias = lazy(() => import('./pages/Audiencias'));
+const Calendario = lazy(() => import('./pages/Calendario'));
 const Honorarios = lazy(() => import('./pages/Honorarios'));
 const CargosHora = lazy(() => import('./pages/CargosHora'));
 const ControlTareas = lazy(() => import('./pages/ControlTareas'));
@@ -79,6 +80,7 @@ export default function App() {
           <Route path="/casos-pagos" element={<CasosPagos />} />
           <Route path="/tareas" element={<Tareas />} />
           <Route path="/audiencias" element={<Audiencias />} />
+          <Route path="/calendario" element={<Calendario />} />
           <Route path="/cargos-hora" element={<CargosHora />} />
           <Route path="/control-tareas" element={<ControlTareas />} />
           <Route path="/honorarios" element={<ProtectedRoute modulo="honorarios"><Honorarios /></ProtectedRoute>} />

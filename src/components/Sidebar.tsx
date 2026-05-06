@@ -125,6 +125,12 @@ export default function Sidebar({ open, onClose }: SidebarProps) {
             Audiencias
           </NavLink>
 
+          {/* Calendario unificado con Google Calendar */}
+          <NavLink to="/calendario" onClick={onClose} className={({ isActive }) => linkClass(isActive)}>
+            <Calendar className="w-5 h-5" />
+            Calendario
+          </NavLink>
+
           {/* Cargos de Hora - visible para todos */}
           <NavLink to="/cargos-hora" onClick={onClose} className={({ isActive }) => linkClass(isActive)}>
             <Clock className="w-5 h-5" />

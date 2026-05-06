@@ -47,7 +47,9 @@ export default function AgendarAudienciaModal({ casoGeneralId, casoTitulo, onClo
       notas: (notaPrefix + (notas || '')).trim() || null,
       created_by: user.id,
     };
-    let { error } = await supabase.from('audiencias_general').insert(payloadFull);
+    let insertedId: string | null = null;
+    let { data: insData, error } = await supabase.from('audiencias_general').insert(payloadFull).select('id').maybeSingle();
+    if (insData?.id) insertedId = insData.id;
 
     // Fallback si la migration aun no se aplico (columna caso_general_id no existe)
     if (error && /caso_general_id/i.test(error.message)) {
@@ -55,8 +57,9 @@ export default function AgendarAudienciaModal({ casoGeneralId, casoTitulo, onClo
       delete fallback.caso_general_id;
       // metemos referencia al caso en notas
       fallback.notas = `[CasoGeneralID:${casoGeneralId}] ${fallback.notas || ''}`.trim();
-      const r2 = await supabase.from('audiencias_general').insert(fallback);
+      const r2 = await supabase.from('audiencias_general').insert(fallback).select('id').maybeSingle();
       error = r2.error;
+      if (r2.data?.id) insertedId = r2.data.id;
       if (!error) {
         showToast('Audiencia creada (corre la migracion para vinculo formal con caso general)', 'success');
       }
@@ -85,6 +88,15 @@ export default function AgendarAudienciaModal({ casoGeneralId, casoTitulo, onClo
         created_by: user.id,
       });
     } catch { /* noop si no existe la tabla aun */ }
+
+    // Sincronizar con Google Calendar (fire-and-forget)
+    if (insertedId) {
+      void fetch('/api/google/sync-audiencia', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ audiencia_id: insertedId }),
+      }).catch(() => {});
+    }
 
     showToast('Audiencia agendada y agregada al seguimiento', 'success');
     setGuardando(false);
