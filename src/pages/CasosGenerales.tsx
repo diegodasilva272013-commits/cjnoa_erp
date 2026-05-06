@@ -648,17 +648,37 @@ function NotionImportModal({ onClose, onImported, totalExistentes }: {
             <span className="text-sm text-gray-300">Omitir archivados (Archivar = Yes)</span>
           </label>
 
+          <div className="rounded-2xl border border-blue-500/20 bg-blue-500/5 p-3">
+            <p className="text-xs text-blue-200 font-semibold mb-1">⚠ Importante para CSV de Notion</p>
+            <p className="text-[11px] text-blue-200/70 leading-relaxed">
+              Notion exporta <span className="font-mono bg-white/5 px-1 rounded">2 archivos</span>:
+              <br/>• <span className="font-mono bg-white/5 px-1 rounded">nombre.csv</span> (chico) → <span className="text-red-300">sólo títulos, NO USAR</span>
+              <br/>• <span className="font-mono bg-white/5 px-1 rounded">nombre_all.csv</span> (grande) → <span className="text-emerald-300">TODOS los datos ✓ usar este</span>
+            </p>
+          </div>
+
           <label className="cursor-pointer block">
             <div className="flex items-center gap-3 px-4 py-3 rounded-xl border border-dashed border-violet-500/40 bg-violet-500/5 hover:bg-violet-500/10 transition-colors">
               <Upload className="w-5 h-5 text-violet-400 shrink-0"/>
-              <div>
-                <p className="text-sm text-violet-200 font-medium">{file ? file.name : 'Elegir archivo CSV / XLSX de Notion'}</p>
+              <div className="min-w-0">
+                <p className="text-sm text-violet-200 font-medium truncate">{file ? file.name : 'Elegir archivo _all.csv (o XLSX)'}</p>
                 <p className="text-[10px] text-gray-500 mt-0.5">NOMBRE · Estado · SISTEMA · Expediente · Radicado · tipo de caso · Audiencias · Vencimiento · URL del DRIVE</p>
               </div>
             </div>
             <input type="file" accept=".csv,.xlsx,.xls" className="hidden"
               onChange={e => handleFileChange(e.target.files?.[0])}/>
           </label>
+
+          {file && !file.name.toLowerCase().includes('_all') && file.name.toLowerCase().endsWith('.csv') && (
+            <div className="rounded-xl bg-red-500/10 border border-red-500/30 p-3">
+              <p className="text-xs text-red-300 font-semibold flex items-center gap-1">
+                <AlertCircle className="w-3.5 h-3.5"/> Cuidado: este archivo NO incluye "_all" en el nombre
+              </p>
+              <p className="text-[11px] text-red-200/70 mt-1">
+                Probablemente sea el CSV chico de Notion que sólo trae el título. Buscá en tu carpeta de descargas el archivo con <span className="font-mono">_all.csv</span> al final.
+              </p>
+            </div>
+          )}
 
           {/* Preview */}
           {preview && !importing && !results.length && (
