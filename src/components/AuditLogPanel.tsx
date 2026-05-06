@@ -72,7 +72,12 @@ export default function AuditLogPanel() {
           <Loader2 className="w-5 h-5 text-amber-400 animate-spin" />
         </div>
       ) : error ? (
-        <p className="text-xs text-red-400 py-3">⚠ {error}. ¿Aplicaste <code>migration_audit_permisos.sql</code>?</p>
+        <div className="text-xs py-3 space-y-1">
+          <p className="text-amber-400">⚠ Auditoría de permisos no disponible.</p>
+          <p className="text-gray-500">
+            Falta aplicar la migración <code className="bg-white/5 px-1 rounded">supabase/migration_audit_permisos.sql</code> en Supabase. (Esto no afecta el alta del usuario.)
+          </p>
+        </div>
       ) : entries.length === 0 ? (
         <p className="text-center text-gray-500 py-6 text-sm">Sin cambios registrados.</p>
       ) : (
