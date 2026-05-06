@@ -673,15 +673,31 @@ function TareaModal({ tarea, casos, casosGenerales, perfiles, onClose, onSave }:
     });
   };
 
+  const casoSeleccionado = useMemo(() => {
+    if (form.caso_general_id) {
+      const c = casosGenerales.find((x: any) => x.id === form.caso_general_id);
+      return c ? { tipo: 'general' as const, data: c } : null;
+    }
+    if (form.caso_id) {
+      const c = casos.find((x: any) => x.id === form.caso_id);
+      return c ? { tipo: 'legal' as const, data: c } : null;
+    }
+    return null;
+  }, [form.caso_id, form.caso_general_id, casos, casosGenerales]);
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4 overflow-y-auto">
-      <form onSubmit={submit} className="glass-card w-full max-w-2xl my-8 p-6 space-y-4">
-        <div className="flex items-center justify-between">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+      <form onSubmit={submit} className="glass-card w-full max-w-2xl flex flex-col max-h-[90vh]">
+        {/* Header sticky */}
+        <div className="flex items-center justify-between px-6 py-4 border-b border-white/[0.06] flex-shrink-0">
           <h2 className="text-lg font-bold text-white flex items-center gap-2">
             {tarea ? <><Edit2 className="w-4 h-4" /> Editar tarea</> : <><Plus className="w-4 h-4" /> Nueva tarea</>}
           </h2>
-          <button type="button" onClick={onClose} className="text-gray-500 hover:text-white"><X className="w-5 h-5" /></button>
+          <button type="button" onClick={onClose} className="text-gray-500 hover:text-white p-1.5 rounded-lg hover:bg-white/5"><X className="w-5 h-5" /></button>
         </div>
+
+        {/* Body scrollable */}
+        <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
 
         <div>
           <label className="text-[10px] text-gray-500 uppercase tracking-wider">Título *</label>
@@ -716,6 +732,9 @@ function TareaModal({ tarea, casos, casosGenerales, perfiles, onClose, onSave }:
             </select>
           </div>
         </div>
+
+        {/* Panel con TODA la info del caso seleccionado */}
+        {casoSeleccionado && <CasoInlineInfo tipo={casoSeleccionado.tipo} caso={casoSeleccionado.data} />}
 
         <div>
           <label className="text-[10px] text-gray-500 uppercase tracking-wider">Descripción</label>
@@ -782,14 +801,75 @@ function TareaModal({ tarea, casos, casosGenerales, perfiles, onClose, onSave }:
             )}
           </div>
         </div>
+        </div>{/* /body */}
 
-        <div className="flex justify-end gap-2 pt-2">
+        {/* Footer sticky */}
+        <div className="flex justify-end gap-2 px-6 py-3 border-t border-white/[0.06] flex-shrink-0 bg-black/20">
           <button type="button" onClick={onClose} className="btn-secondary text-xs px-4 py-2">Cancelar</button>
           <button type="submit" className="btn-primary text-xs px-4 py-2 flex items-center gap-1.5">
             <FileDown className="w-3.5 h-3.5" /> Guardar
           </button>
         </div>
       </form>
+    </div>
+  );
+}
+
+// ============================================
+// CasoInlineInfo — panel resumen del caso dentro del modal
+// ============================================
+function CasoInlineInfo({ tipo, caso }: { tipo: 'general' | 'legal'; caso: any }) {
+  const palette = tipo === 'general'
+    ? { bg: 'bg-violet-500/[0.08]', border: 'border-violet-500/30', text: 'text-violet-200', label: 'text-violet-400', icon: Briefcase, tag: 'Caso general' }
+    : { bg: 'bg-emerald-500/[0.08]', border: 'border-emerald-500/30', text: 'text-emerald-200', label: 'text-emerald-400', icon: FileText, tag: 'Caso legal' };
+  const Icon = palette.icon;
+  const fmt = (d: string | null | undefined) => d ? new Date(d).toLocaleDateString('es-AR', { day: '2-digit', month: 'short', year: 'numeric' }) : null;
+
+  const fields = tipo === 'general'
+    ? [
+        { label: 'Estado', val: caso.estado },
+        { label: 'Tipo', val: caso.tipo_caso },
+        { label: 'Abogado', val: caso.abogado },
+        { label: 'Personería', val: caso.personeria },
+        { label: 'Próx. audiencia', val: fmt(caso.audiencias) },
+        { label: 'Vencimiento', val: fmt(caso.vencimiento) },
+        { label: 'Estadísticas', val: caso.estadisticas_estado },
+        { label: 'Radicado', val: caso.radicado },
+      ]
+    : [
+        { label: 'Cliente', val: caso.nombre_apellido },
+        { label: 'Expediente', val: caso.expediente, mono: true },
+        { label: 'Tipo', val: caso.tipo_caso },
+        { label: 'Estado', val: caso.estado },
+        { label: 'Juzgado', val: caso.juzgado },
+        { label: 'Carátula', val: caso.caratula },
+      ];
+  const visibles = fields.filter(f => f.val);
+
+  return (
+    <div className={`rounded-2xl border ${palette.border} ${palette.bg} p-3 space-y-2`}>
+      <div className="flex items-center gap-2">
+        <Icon className={`w-4 h-4 ${palette.label}`} />
+        <span className={`text-[10px] uppercase tracking-widest font-semibold ${palette.label}`}>{palette.tag}</span>
+        <span className={`text-sm font-bold ${palette.text} truncate`}>{tipo === 'general' ? caso.titulo : caso.nombre_apellido}</span>
+        {caso.expediente && <span className={`text-[10px] font-mono ${palette.label} ml-auto`}>{caso.expediente}</span>}
+      </div>
+      {visibles.length > 0 && (
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
+          {visibles.map(f => (
+            <div key={f.label} className="bg-black/20 rounded-lg px-2 py-1.5 border border-white/[0.04]">
+              <p className="text-[9px] text-gray-500 uppercase tracking-wider">{f.label}</p>
+              <p className={`text-xs text-white truncate ${(f as any).mono ? 'font-mono' : ''}`}>{f.val}</p>
+            </div>
+          ))}
+        </div>
+      )}
+      {tipo === 'general' && caso.url_drive && (
+        <a href={caso.url_drive} target="_blank" rel="noopener noreferrer"
+          className="inline-flex items-center gap-1.5 text-[11px] text-violet-300 hover:text-violet-200">
+          <ExternalLink className="w-3 h-3" /> Abrir en Drive
+        </a>
+      )}
     </div>
   );
 }
