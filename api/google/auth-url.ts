@@ -10,7 +10,19 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const proto = (req.headers['x-forwarded-proto'] as string) || 'https';
     const redirectUri = process.env.GOOGLE_REDIRECT_URI || (host ? `${proto}://${host}/api/google/callback` : '');
     if (!clientId || !redirectUri) {
-      return res.status(500).json({ error: 'Faltan id_cliente_calendar (GOOGLE_CLIENT_ID) o redirect_uri' });
+      // Diagnostico: lista nombres de env vars que matchean (sin exponer valores)
+      const envKeys = Object.keys(process.env).filter(k =>
+        /google|calendar|cliente|secret/i.test(k)
+      );
+      return res.status(500).json({
+        error: 'Faltan id_cliente_calendar / secret_calendar / redirect_uri',
+        diagnostico: {
+          tiene_clientId: !!clientId,
+          tiene_redirectUri: !!redirectUri,
+          host,
+          env_vars_relacionadas_detectadas: envKeys,
+        },
+      });
     }
 
     const scope = [
