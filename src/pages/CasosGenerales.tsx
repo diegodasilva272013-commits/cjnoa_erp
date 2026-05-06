@@ -1031,17 +1031,17 @@ function CasosTabla({ casos, onSelect, onDelete, deletingId }: {
             const venc = daysUntil(c.vencimiento);
             return (
               <tr key={c.id} onClick={() => onSelect(c)}
-                className="table-row animate-slide-up"
+                className="table-row animate-slide-up align-top"
                 style={{ animationDelay: `${Math.min(i, 40) * 20}ms` }}>
 
                 {/* Caso / Expediente */}
-                <td className="px-4 py-3">
+                <td className="px-4 py-3 max-w-[320px]">
                   <div className="flex items-start gap-1.5">
                     {c.prioridad && <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400 shrink-0 mt-0.5"/>}
                     <div className="min-w-0">
-                      <p className="font-medium text-white leading-snug">{c.titulo}</p>
+                      <p className="font-medium text-white leading-snug truncate" title={c.titulo}>{c.titulo}</p>
                       {c.expediente && (
-                        <p className="text-xs text-gray-500 font-mono mt-0.5">{c.expediente}</p>
+                        <p className="text-xs text-gray-500 font-mono mt-0.5 truncate" title={c.expediente}>{c.expediente}</p>
                       )}
                     </div>
                   </div>
@@ -1049,25 +1049,29 @@ function CasosTabla({ casos, onSelect, onDelete, deletingId }: {
 
                 {/* Estado badge — identical to Pipeline badge in FichasList */}
                 <td className="px-4 py-3 whitespace-nowrap">
-                  <span className={`badge border ${eColor(c.estado)}`}>
-                    {eLabel(c.estado)}
-                  </span>
-                  {c.estadisticas_estado === 'atrasado' && (
-                    <p className="text-[10px] text-red-400 mt-1">⚠ Atrasado</p>
-                  )}
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <span className={`badge border ${eColor(c.estado)}`}>
+                      {eLabel(c.estado)}
+                    </span>
+                    {c.estadisticas_estado === 'atrasado' && (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded border border-red-500/30 bg-red-500/10 text-red-300 font-medium">
+                        ⚠ Atrasado
+                      </span>
+                    )}
+                  </div>
                 </td>
 
                 {/* Abogado */}
-                <td className="px-4 py-3">
+                <td className="px-4 py-3 max-w-[180px]">
                   {c.abogado
-                    ? <p className="text-sm text-gray-300">{c.abogado}</p>
+                    ? <p className="text-sm text-gray-300 truncate" title={c.abogado}>{c.abogado}</p>
                     : <span className="text-gray-600 text-xs">—</span>}
-                  {c.personeria && <p className="text-[10px] text-gray-600 mt-0.5">{c.personeria}</p>}
+                  {c.personeria && <p className="text-[10px] text-gray-600 mt-0.5 truncate" title={c.personeria}>{c.personeria}</p>}
                 </td>
 
                 {/* Tipo */}
-                <td className="px-4 py-3 hidden lg:table-cell">
-                  <span className="text-xs text-gray-400 capitalize">{c.tipo_caso || '—'}</span>
+                <td className="px-4 py-3 hidden lg:table-cell max-w-[140px]">
+                  <span className="text-xs text-gray-400 capitalize line-clamp-1" title={c.tipo_caso ?? ''}>{c.tipo_caso || '—'}</span>
                 </td>
 
                 {/* Tribunal */}
