@@ -43,8 +43,9 @@ function MiembroAvatar({ path, fallback, isActivo }: { path: string | null | und
 }
 
 export default function Equipo() {
-  const { user } = useAuth();
+  const { user, perfil } = useAuth();
   const { isAdmin } = usePermisos();
+  const canAccessEquipo = isAdmin || perfil?.rol === 'socio' || perfil?.permisos?.equipo === true;
   const { showToast } = useToast();
   const [miembros, setMiembros] = useState<(Perfil & { email?: string })[]>([]);
   const [loading, setLoading] = useState(true);
@@ -102,13 +103,13 @@ export default function Equipo() {
     }
   }
 
-  if (!isAdmin) {
+  if (!canAccessEquipo) {
     return (
       <div className="flex items-center justify-center h-64">
         <div className="text-center space-y-3">
           <Shield className="w-12 h-12 text-gray-600 mx-auto" />
           <p className="text-gray-400 text-lg font-medium">Acceso restringido</p>
-          <p className="text-gray-600 text-sm">Solo los administradores pueden gestionar el equipo</p>
+          <p className="text-gray-600 text-sm">Necesitás permiso de "Equipo" para gestionar usuarios.</p>
         </div>
       </div>
     );
