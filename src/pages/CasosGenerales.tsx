@@ -348,7 +348,7 @@ function CaseDetailModal({ caso: initial, onClose, onSaved }: {
     <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
       <div className="modal-content sm:max-w-2xl sm:rounded-2xl">
         {/* Header */}
-        <div className="px-6 pt-5 pb-4 border-b border-white/[0.06]">
+        <div className="sticky top-0 z-10 px-6 pt-5 pb-4 border-b border-white/[0.06] bg-gradient-to-br from-[#141418]/95 to-[#111115]/95 backdrop-blur-md rounded-t-2xl">
           {/* Fila 1: badges + cerrar */}
           <div className="flex items-start justify-between gap-3 mb-2">
             <div className="flex flex-wrap items-center gap-2 min-w-0">
