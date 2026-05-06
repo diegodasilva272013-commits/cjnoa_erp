@@ -19,8 +19,8 @@ import {
 } from '../types/database';
 
 const ESTADO_COLORS: Record<EstadoTareaGeneral, string> = {
-  // Verde flúor (lime) para tareas en curso → llaman la atención
-  en_curso: 'bg-lime-400/20 text-lime-300 border-lime-400/50 shadow-[0_0_12px_rgba(163,230,53,0.25)]',
+  // Verde flúor sólido para tareas en curso (alta visibilidad)
+  en_curso: 'bg-lime-400 text-black border-lime-300 shadow-[0_0_14px_rgba(190,242,100,0.6)] font-bold',
   // Esmeralda para completadas
   completada: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/40',
 };
