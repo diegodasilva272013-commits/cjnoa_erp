@@ -26,6 +26,7 @@ export interface CasoGeneral {
 export const ESTADOS_CASO_GENERAL = [
   'activos',
   'federales',
+  'esperando audiencia',
   'esperando sentencias',
   'complicacion judicial/analisis',
   'suspendido por falta de directivas',

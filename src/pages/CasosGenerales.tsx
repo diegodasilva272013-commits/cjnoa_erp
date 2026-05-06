@@ -18,6 +18,7 @@ import { supabase } from '../lib/supabase';
 const ESTADOS_ORDERED = [
   'activos',
   'federales',
+  'esperando audiencia',
   'esperando sentencias',
   'complicacion judicial/analisis',
   'suspendido por falta de directivas',
@@ -28,7 +29,8 @@ type EstadoCaso = typeof ESTADOS_ORDERED[number];
 const ESTADO_LABELS: Record<string, string> = {
   'activos':                             'Activo',
   'federales':                           'Federal',
-  'esperando sentencias':                'En espera',
+  'esperando audiencia':                 'Esperando audiencia',
+  'esperando sentencias':                'Esperando sentencia',
   'complicacion judicial/analisis':      'En análisis',
   'suspendido por falta de directivas':  'Sin directivas',
   'suspendido por falta de pago':        'Sin pago',
@@ -38,6 +40,7 @@ const ESTADO_LABELS: Record<string, string> = {
 const ESTADO_COLORS: Record<string, string> = {
   'activos':                             'bg-emerald-500/10 text-emerald-400 border-emerald-500/20',
   'federales':                           'bg-blue-500/10 text-blue-400 border-blue-500/20',
+  'esperando audiencia':                 'bg-cyan-500/10 text-cyan-400 border-cyan-500/20',
   'esperando sentencias':                'bg-amber-500/10 text-amber-400 border-amber-500/20',
   'complicacion judicial/analisis':      'bg-orange-500/10 text-orange-400 border-orange-500/20',
   'suspendido por falta de directivas':  'bg-gray-500/10 text-gray-400 border-gray-500/20',
@@ -47,6 +50,7 @@ const ESTADO_COLORS: Record<string, string> = {
 const ESTADO_DOT: Record<string, string> = {
   'activos':                             'bg-emerald-500',
   'federales':                           'bg-blue-500',
+  'esperando audiencia':                 'bg-cyan-500',
   'esperando sentencias':                'bg-amber-500',
   'complicacion judicial/analisis':      'bg-orange-500',
   'suspendido por falta de directivas':  'bg-gray-500',
@@ -56,6 +60,7 @@ const ESTADO_DOT: Record<string, string> = {
 const KANBAN_BORDER: Record<string, string> = {
   'activos':                             'border-t-emerald-500',
   'federales':                           'border-t-blue-500',
+  'esperando audiencia':                 'border-t-cyan-500',
   'esperando sentencias':                'border-t-amber-500',
   'complicacion judicial/analisis':      'border-t-orange-500',
   'suspendido por falta de directivas':  'border-t-gray-500',
@@ -65,6 +70,7 @@ const KANBAN_BORDER: Record<string, string> = {
 const KANBAN_BADGE: Record<string, string> = {
   'activos':                             'bg-emerald-500/10 text-emerald-400',
   'federales':                           'bg-blue-500/10 text-blue-400',
+  'esperando audiencia':                 'bg-cyan-500/10 text-cyan-400',
   'esperando sentencias':                'bg-amber-500/10 text-amber-400',
   'complicacion judicial/analisis':      'bg-orange-500/10 text-orange-400',
   'suspendido por falta de directivas':  'bg-gray-500/10 text-gray-400',
@@ -223,6 +229,7 @@ function normEstado(v: string): string {
   if (withS) return withS;
   // 3. fuzzy keyword matching
   if (s.includes('federal')) return 'federales';
+  if (s.includes('audiencia')) return 'esperando audiencia';
   if (s.includes('espera') || s.includes('sentencia')) return 'esperando sentencias';
   if (s.includes('complic') || s.includes('judicial') || s.includes('analisis')) return 'complicacion judicial/analisis';
   if (s.includes('directiva') || (s.includes('suspendido') && !s.includes('pago'))) return 'suspendido por falta de directivas';

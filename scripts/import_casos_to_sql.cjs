@@ -57,7 +57,7 @@ function parseDate(v) {
 }
 function parseBool(v) { return ['yes','sí','si','true','1','✓'].includes((v ?? '').trim().toLowerCase()); }
 
-const ESTADOS = ['activos','federales','esperando sentencias','complicacion judicial/analisis','suspendido por falta de directivas','suspendido por falta de pago'];
+const ESTADOS = ['activos','federales','esperando audiencia','esperando sentencias','complicacion judicial/analisis','suspendido por falta de directivas','suspendido por falta de pago'];
 function normEstado(v) {
   const raw = (v ?? '').trim();
   if (!raw) return 'activos';
@@ -65,6 +65,7 @@ function normEstado(v) {
   const exact = ESTADOS.find(k => k.normalize('NFD').replace(/[\u0300-\u036f]/g,'') === s);
   if (exact) return exact;
   if (s.includes('federal')) return 'federales';
+  if (s.includes('audiencia')) return 'esperando audiencia';
   if (s.includes('espera') || s.includes('sentencia')) return 'esperando sentencias';
   if (s.includes('complic') || s.includes('judicial') || s.includes('analisis')) return 'complicacion judicial/analisis';
   if (s.includes('directiva')) return 'suspendido por falta de directivas';
