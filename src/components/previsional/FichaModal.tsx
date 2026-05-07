@@ -6,7 +6,7 @@ import {
 } from 'lucide-react';
 import Modal from '../Modal';
 import { supabase } from '../../lib/supabase';
-import { ClientePrevisional, calcularMoratoria, SexoCliente, PipelinePrevisional, PIPELINE_LABELS, SubEstadoPrevisional, getCostoMensual27705, setCostoMensual27705, COSTO_MENSUAL_27705_DEFAULT } from '../../types/previsional';
+import { ClientePrevisional, calcularMoratoria, SexoCliente, PipelinePrevisional, PIPELINE_LABELS, SubEstadoPrevisional, getCostoMensual27705, setCostoMensual27705, COSTO_MENSUAL_27705_DEFAULT, loadCostoMensual27705FromDB, saveCostoMensual27705ToDB } from '../../types/previsional';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
 import { SOCIOS } from '../../types/database';
@@ -28,6 +28,13 @@ export default function FichaModal({ open, onClose, cliente, onSave }: Props) {
   const [section, setSection] = useState<'datos' | 'moratorias' | 'seguimiento' | 'cobro'>('datos');
   const [costoCuota, setCostoCuota] = useState<number>(getCostoMensual27705());
   const [costoEditando, setCostoEditando] = useState(false);
+
+  // Sincroniza el costo con la DB para que persista entre dispositivos/navegadores
+  useEffect(() => {
+    let cancel = false;
+    loadCostoMensual27705FromDB().then(v => { if (!cancel) setCostoCuota(v); });
+    return () => { cancel = true; };
+  }, []);
 
   // ── Speech-to-Text para campos de seguimiento ──
   const [sttField, setSttField] = useState<string | null>(null); // campo activo
@@ -156,7 +163,16 @@ export default function FichaModal({ open, onClose, cliente, onSave }: Props) {
     const file = e.target.files?.[0];
     if (!file || !cliente?.id) return;
     setSubiendo(true);
-    const path = 'previsional/' + cliente.id + '/' + crypto.randomUUID() + '-' + file.name;
+    // Supabase Storage rechaza claves con caracteres no-ASCII (Ñ, acentos),
+    // espacios al final y otros símbolos. Sanitizamos preservando legibilidad.
+    const safeName = file.name
+      .normalize('NFKD')
+      .replace(/[\u0300-\u036f]/g, '')   // strip acentos
+      .replace(/[^a-zA-Z0-9._-]+/g, '_') // resto -> _
+      .replace(/_+/g, '_')
+      .replace(/^[._-]+|[._-]+$/g, '')
+      .slice(0, 120) || 'archivo';
+    const path = 'previsional/' + cliente.id + '/' + crypto.randomUUID() + '-' + safeName;
     const { error } = await supabase.storage.from('documentos').upload(path, file);
     if (error) { showToast('Error al subir: ' + error.message, 'error'); }
     else { await loadArchivos(cliente.id); }
@@ -696,8 +712,8 @@ export default function FichaModal({ open, onClose, cliente, onSave }: Props) {
                           autoFocus
                           value={costoCuota}
                           onChange={e => setCostoCuota(parseFloat(e.target.value) || 0)}
-                          onBlur={() => { setCostoMensual27705(costoCuota); setCostoEditando(false); }}
-                          onKeyDown={e => { if (e.key === 'Enter') { setCostoMensual27705(costoCuota); setCostoEditando(false); } }}
+                          onBlur={() => { saveCostoMensual27705ToDB(costoCuota); setCostoEditando(false); }}
+                          onKeyDown={e => { if (e.key === 'Enter') { saveCostoMensual27705ToDB(costoCuota); setCostoEditando(false); } }}
                           className="input-dark text-xl font-bold text-emerald-400 w-40"
                         />
                         <span className="text-xs text-gray-500">/ mes</span>
@@ -719,7 +735,7 @@ export default function FichaModal({ open, onClose, cliente, onSave }: Props) {
                   {costoCuota !== COSTO_MENSUAL_27705_DEFAULT && (
                     <button
                       type="button"
-                      onClick={() => { setCostoMensual27705(COSTO_MENSUAL_27705_DEFAULT); setCostoCuota(COSTO_MENSUAL_27705_DEFAULT); }}
+                      onClick={() => { saveCostoMensual27705ToDB(COSTO_MENSUAL_27705_DEFAULT); setCostoCuota(COSTO_MENSUAL_27705_DEFAULT); }}
                       className="text-[10px] text-gray-500 hover:text-white px-2 py-1 rounded border border-white/10"
                     >
                       Restaurar

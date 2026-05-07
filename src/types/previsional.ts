@@ -244,6 +244,38 @@ export function setCostoMensual27705(value: number): void {
   }
 }
 
+// Carga el costo desde DB (configuracion_estudio.costo_mensual_27705) y lo
+// cachea en localStorage para que getCostoMensual27705() (sync) lo use.
+// Llamar en el arranque/al abrir módulos previsional.
+export async function loadCostoMensual27705FromDB(): Promise<number> {
+  try {
+    const { supabase } = await import('../lib/supabase');
+    const { data } = await supabase
+      .from('configuracion_estudio')
+      .select('costo_mensual_27705')
+      .limit(1)
+      .single();
+    const v = data?.costo_mensual_27705 != null ? Number(data.costo_mensual_27705) : NaN;
+    if (Number.isFinite(v) && v > 0) {
+      setCostoMensual27705(v);
+      return v;
+    }
+  } catch { /* noop */ }
+  return getCostoMensual27705();
+}
+
+// Guarda el costo en DB y en localStorage.
+export async function saveCostoMensual27705ToDB(value: number): Promise<void> {
+  setCostoMensual27705(value);
+  try {
+    const { supabase } = await import('../lib/supabase');
+    await supabase
+      .from('configuracion_estudio')
+      .update({ costo_mensual_27705: value })
+      .not('id', 'is', null);
+  } catch { /* noop */ }
+}
+
 // Compat: mantener constante para imports existentes (lee el valor configurado)
 export const COSTO_MENSUAL_27705 = COSTO_MENSUAL_27705_DEFAULT;
 
