@@ -217,11 +217,13 @@ export default function Chat() {
     if (error) { setDebug('ERROR rpc: ' + (error.message || JSON.stringify(error))); return; }
     if (!data) { setDebug('rpc devolvio null/undefined'); return; }
     setShowNewModal(false);
+    setDebug('3) recargando lista antes de activar...');
+    try { await cargarConversaciones(); }
+    catch (ex: any) { setDebug('lista fallo: ' + (ex?.message || JSON.stringify(ex))); }
     setActivaId(String(data));
     setShowMobileList(false);
-    setDebug('3) activaId seteado=' + data + ' — recargando lista...');
-    try { await cargarConversaciones(); setDebug('4) lista recargada OK'); }
-    catch (ex: any) { setDebug('lista fallo: ' + (ex?.message || JSON.stringify(ex))); }
+    setDebug('4) chat abierto id=' + data);
+    setTimeout(() => setDebug(''), 4000);
   }
 
   return (
@@ -385,7 +387,14 @@ function ChatThread({ user, perfil, conv, participantes, mensajes, mensajesAgrup
     if (el) el.scrollTop = el.scrollHeight;
   }, [mensajes.length]);
 
-  if (!conv) return null;
+  // Si todavía no cargó la conv en el array (puede pasar al recien crear), mostrar loading
+  if (!conv) {
+    return (
+      <div className="flex-1 flex items-center justify-center text-gray-500 text-sm">
+        Abriendo conversación...
+      </div>
+    );
+  }
 
   // ----- enviar texto -----
   async function enviarTexto() {
