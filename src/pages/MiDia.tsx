@@ -131,7 +131,9 @@ export default function MiDia() {
         t.estado !== 'completada' && (
           t.fecha_orden === hoyKey ||
           (t.fecha_limite && t.fecha_limite <= hoyKey) ||
-          t.estado_dia === 'en_progreso'
+          t.estado_dia === 'en_progreso' ||
+          // pendientes asignadas sin fecha planificada: aparecen en "Hoy"
+          (!t.fecha_orden && !t.fecha_limite)
         )
       );
     } else if (filtroDia === 'atrasadas') {
