@@ -48,7 +48,9 @@ export default function AgendamientoConsultas() {
     if (target) { setEditing(target); setModalOpen(true); }
   }, [items, searchParams]);
 
-  const canAccessAgendamiento = perfil?.rol === 'empleado' || perfil?.rol === 'socio' || perfil?.rol === 'admin' || perfil?.rol === 'abogado' || (perfil?.permisos?.agenda === true);
+  const canAccessAgendamiento = perfil?.permisos?.agendamiento !== false && (
+    perfil?.rol === 'empleado' || perfil?.rol === 'socio' || perfil?.rol === 'admin' || perfil?.rol === 'abogado' || perfil?.rol === 'procurador' || (perfil?.permisos?.agendamiento === true) || (perfil?.permisos?.agenda === true)
+  );
 
   async function load() {
     setLoading(true);
