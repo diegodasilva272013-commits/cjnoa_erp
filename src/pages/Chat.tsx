@@ -79,6 +79,7 @@ export default function Chat() {
   const [busqueda, setBusqueda] = useState('');
   const [showNewModal, setShowNewModal] = useState(false);
   const [showMobileList, setShowMobileList] = useState(true);
+  const [debug, setDebug] = useState<string>('');
 
   const conversacionActiva = conversaciones.find(c => c.id === activaId) || null;
 
@@ -201,25 +202,37 @@ export default function Chat() {
 
   // Crear nueva conversación 1-a-1
   async function abrirChatCon(otroId: string) {
+    setDebug('1) click target=' + otroId);
     console.log('[chat] abrirChatCon target=', otroId);
-    const { data, error } = await supabase.rpc('get_or_create_dm', { target_user: otroId });
-    console.log('[chat] rpc result data=', data, 'error=', error);
-    if (error) {
-      alert('Error al crear chat:\n' + error.message + '\n\nDetalle: ' + JSON.stringify(error));
+    let data: any = null; let error: any = null;
+    try {
+      const r = await supabase.rpc('get_or_create_dm', { target_user: otroId });
+      data = r.data; error = r.error;
+    } catch (ex: any) {
+      setDebug('EXCEPCION rpc: ' + (ex?.message || JSON.stringify(ex)));
       return;
     }
-    if (!data) {
-      alert('La función devolvió null. Revisá que migration_chat.sql se haya ejecutado y que la tabla chat_conversaciones exista.');
-      return;
-    }
+    setDebug('2) rpc data=' + JSON.stringify(data) + ' err=' + JSON.stringify(error));
+    console.log('[chat] rpc result', { data, error });
+    if (error) { setDebug('ERROR rpc: ' + (error.message || JSON.stringify(error))); return; }
+    if (!data) { setDebug('rpc devolvio null/undefined'); return; }
     setShowNewModal(false);
-    await cargarConversaciones();
-    setActivaId(data as string);
+    setActivaId(String(data));
     setShowMobileList(false);
+    setDebug('3) activaId seteado=' + data + ' — recargando lista...');
+    try { await cargarConversaciones(); setDebug('4) lista recargada OK'); }
+    catch (ex: any) { setDebug('lista fallo: ' + (ex?.message || JSON.stringify(ex))); }
   }
 
   return (
-    <div className="h-[calc(100vh-4rem)] -m-4 lg:-m-6 flex bg-[#0a0a0a]">
+    <div className="h-[calc(100vh-4rem)] -m-4 lg:-m-6 flex bg-[#0a0a0a] relative">
+      {/* DEBUG banner — build v2 */}
+      {debug && (
+        <div className="absolute top-2 left-1/2 -translate-x-1/2 z-[60] max-w-[90%] px-4 py-2 rounded-lg bg-yellow-500 text-black text-xs font-mono shadow-2xl border border-yellow-700">
+          <span className="font-bold mr-2">[DEBUG v2]</span>{debug}
+          <button onClick={() => setDebug('')} className="ml-3 underline">ocultar</button>
+        </div>
+      )}
       {/* SIDEBAR DE CONVERSACIONES */}
       <aside className={`${showMobileList || !activaId ? 'flex' : 'hidden'} md:flex flex-col w-full md:w-80 lg:w-96 border-r border-white/10 bg-[#0c0c0e]`}>
         <div className="p-3 border-b border-white/10 flex items-center gap-2">
