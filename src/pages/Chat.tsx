@@ -122,7 +122,12 @@ export default function Chat() {
       if (!nombre && c.tipo === 'directo' && otros.length > 0) nombre = otros[0].nombre;
       return { ...c, otros, nombre };
     });
-    setConversaciones(enriched);
+    // merge: mantener conversaciones locales (recien creadas) que no vinieron del server
+    setConversaciones(prev => {
+      const ids = new Set(enriched.map(c => c.id));
+      const locales = prev.filter(c => !ids.has(c.id));
+      return [...enriched, ...locales];
+    });
     // contar no leídos
     if (enriched.length > 0) {
       const counts = await Promise.all(enriched.map(async c => {
@@ -242,8 +247,6 @@ export default function Chat() {
     setShowMobileList(false);
     setDebug('2) chat abierto ✅');
     setTimeout(() => setDebug(''), 2500);
-    // recargar lista en background (no bloquea)
-    cargarConversaciones().catch(()=>{});
   }
 
   return (
