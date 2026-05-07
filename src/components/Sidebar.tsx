@@ -20,6 +20,7 @@ import {
   Clock,
   CalendarClock,
   Scale,
+  Target,
 } from 'lucide-react';
 import { usePermisos } from '../hooks/usePermisos';
 import { useAuth } from '../context/AuthContext';
@@ -117,6 +118,12 @@ export default function Sidebar({ open, onClose }: SidebarProps) {
           <NavLink to="/tareas" onClick={onClose} className={({ isActive }) => linkClass(isActive)}>
             <ListTodo className="w-5 h-5" />
             Tareas
+          </NavLink>
+
+          {/* Mi Día — panel personal de cada empleado/procurador */}
+          <NavLink to="/mi-dia" onClick={onClose} className={({ isActive }) => linkClass(isActive)}>
+            <Target className="w-5 h-5" />
+            Mi Día
           </NavLink>
 
           {/* Audiencias (spec seccion 6) - visible para todos */}
