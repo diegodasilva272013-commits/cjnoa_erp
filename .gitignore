@@ -6,3 +6,5 @@ test-results/
 playwright-report/
 playwright-login-state.png
 preview-login-ok.png
+.vercel
+.env*.local

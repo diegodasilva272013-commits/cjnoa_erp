@@ -407,6 +407,9 @@ function ChatThread({ user, perfil, conv, participantes, mensajes, mensajesAgrup
     if (el) el.scrollTop = el.scrollHeight;
   }, [mensajes.length]);
 
+  // gifs cuando se abre el panel — declarado arriba del early return para mantener orden de hooks
+  useEffect(() => { if (showGif) buscarGifs(''); }, [showGif]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Si todavía no cargó la conv en el array (puede pasar al recien crear), mostrar loading
   if (!conv) {
     return (
@@ -515,7 +518,6 @@ function ChatThread({ user, perfil, conv, participantes, mensajes, mensajesAgrup
       preview: g.images?.fixed_height_small?.url || g.images?.fixed_height?.url,
     })));
   }
-  useEffect(() => { if (showGif) buscarGifs(''); }, [showGif]);
 
   async function enviarGif(url: string) {
     setShowGif(false);
