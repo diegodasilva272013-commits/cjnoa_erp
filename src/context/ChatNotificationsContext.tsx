@@ -97,10 +97,66 @@ export function ChatNotificationsProvider({ children }: { children: ReactNode })
     if (!user) return;
     refreshUnread();
 
+    // Polling cada 15s — fallback si realtime no entrega
+    const poll = setInterval(() => { refreshUnread(); }, 15000);
+    // Refrescar al volver el foco
+    const onFocus = () => refreshUnread();
+    window.addEventListener('focus', onFocus);
+
+    const lastSeenRef = { current: new Date().toISOString() };
+
+    async function checkNew() {
+      // Buscar mensajes nuevos para mí desde lastSeen
+      const { data: parts } = await supabase
+        .from('chat_participantes').select('conversacion_id').eq('usuario_id', user!.id);
+      const convIds = (parts || []).map((p: any) => p.conversacion_id);
+      if (convIds.length === 0) return;
+      const { data: msgs } = await supabase
+        .from('chat_mensajes')
+        .select('id, conversacion_id, emisor_id, tipo, contenido, created_at')
+        .in('conversacion_id', convIds)
+        .neq('emisor_id', user!.id)
+        .gt('created_at', lastSeenRef.current)
+        .order('created_at', { ascending: true })
+        .limit(20);
+      if (!msgs || msgs.length === 0) return;
+      lastSeenRef.current = msgs[msgs.length - 1].created_at;
+      for (const m of msgs as any[]) {
+        if (activeConvRef.current === m.conversacion_id) {
+          await supabase.from('chat_lecturas').upsert({
+            conversacion_id: m.conversacion_id, usuario_id: user!.id, ultimo_leido: new Date().toISOString(),
+          });
+          continue;
+        }
+        setUnreadByConv(prev => ({ ...prev, [m.conversacion_id]: (prev[m.conversacion_id] || 0) + 1 }));
+        const { data: pf } = await supabase
+          .from('perfiles').select('nombre').eq('id', m.emisor_id).maybeSingle();
+        const nombre = pf?.nombre || 'Alguien';
+        const preview = m.tipo === 'texto' ? (m.contenido || '').slice(0, 80)
+          : m.tipo === 'audio' ? '🎤 Nota de voz'
+          : m.tipo === 'imagen' ? '📷 Imagen'
+          : m.tipo === 'gif' ? '🎬 GIF'
+          : m.tipo === 'archivo' ? '📎 Archivo'
+          : 'Nuevo mensaje';
+        playDing();
+        showToast(`💬 ${nombre}: ${preview}`, 'info');
+        try {
+          if ('Notification' in window && Notification.permission === 'granted') {
+            new Notification(`Mensaje de ${nombre}`, { body: preview, icon: '/Logo NOA.jpeg', tag: m.conversacion_id });
+          }
+        } catch { /* ignore */ }
+      }
+    }
+    // Polling de mensajes nuevos cada 5s — fallback robusto
+    const msgPoll = setInterval(checkNew, 5000);
+
     const ch = supabase.channel('chat-notif-' + user.id)
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'chat_mensajes' }, async (payload) => {
         const m = payload.new as any;
         if (!m || m.emisor_id === user.id) return;
+        // Evitar duplicado con polling
+        if (m.created_at <= lastSeenRef.current) return;
+        lastSeenRef.current = m.created_at;
         // Verificar que el usuario actual es participante
         const { data: parts } = await supabase
           .from('chat_participantes').select('usuario_id')
@@ -108,7 +164,6 @@ export function ChatNotificationsProvider({ children }: { children: ReactNode })
         const ids = (parts || []).map((p: any) => p.usuario_id);
         if (!ids.includes(user.id)) return;
 
-        // Si está mirando esa conv, marcar como leído (no notificar)
         if (activeConvRef.current === m.conversacion_id) {
           await supabase.from('chat_lecturas').upsert({
             conversacion_id: m.conversacion_id, usuario_id: user.id, ultimo_leido: new Date().toISOString(),
@@ -116,10 +171,8 @@ export function ChatNotificationsProvider({ children }: { children: ReactNode })
           return;
         }
 
-        // Sumar a no leídos
         setUnreadByConv(prev => ({ ...prev, [m.conversacion_id]: (prev[m.conversacion_id] || 0) + 1 }));
 
-        // Buscar nombre del emisor
         const { data: pf } = await supabase
           .from('perfiles').select('nombre').eq('id', m.emisor_id).maybeSingle();
         const nombre = pf?.nombre || 'Alguien';
@@ -133,7 +186,6 @@ export function ChatNotificationsProvider({ children }: { children: ReactNode })
         playDing();
         showToast(`💬 ${nombre}: ${preview}`, 'info');
 
-        // Notificación nativa del navegador si está permitida
         try {
           if ('Notification' in window && Notification.permission === 'granted') {
             new Notification(`Mensaje de ${nombre}`, { body: preview, icon: '/Logo NOA.jpeg', tag: m.conversacion_id });
@@ -149,7 +201,12 @@ export function ChatNotificationsProvider({ children }: { children: ReactNode })
       }
     } catch { /* ignore */ }
 
-    return () => { supabase.removeChannel(ch); };
+    return () => {
+      supabase.removeChannel(ch);
+      clearInterval(poll);
+      clearInterval(msgPoll);
+      window.removeEventListener('focus', onFocus);
+    };
   }, [user, refreshUnread, showToast]);
 
   const unreadTotal = Object.values(unreadByConv).reduce((a, b) => a + b, 0);

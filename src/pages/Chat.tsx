@@ -151,6 +151,15 @@ export default function Chat() {
   }
   useEffect(() => { cargarConversaciones(); }, [user]);
 
+  // Polling fallback: refrescar lista de conversaciones cada 10s y al volver el foco
+  useEffect(() => {
+    if (!user) return;
+    const it = setInterval(() => { cargarConversaciones(); }, 10000);
+    const onFocus = () => cargarConversaciones();
+    window.addEventListener('focus', onFocus);
+    return () => { clearInterval(it); window.removeEventListener('focus', onFocus); };
+  }, [user]);
+
   // Cargar mensajes de la conversación activa
   async function cargarMensajes(convId: string) {
     const { data } = await supabase.from('chat_mensajes')
@@ -166,6 +175,13 @@ export default function Chat() {
     }
   }
   useEffect(() => { if (activaId) { cargarMensajes(activaId); markRead(activaId); } }, [activaId]);
+
+  // Polling de mensajes de la conv activa cada 4s — fallback robusto si realtime falla
+  useEffect(() => {
+    if (!activaId) return;
+    const it = setInterval(() => { cargarMensajes(activaId); }, 4000);
+    return () => clearInterval(it);
+  }, [activaId]);
 
   // Realtime: nuevos mensajes
   useEffect(() => {
