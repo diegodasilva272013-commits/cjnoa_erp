@@ -201,8 +201,17 @@ export default function Chat() {
 
   // Crear nueva conversación 1-a-1
   async function abrirChatCon(otroId: string) {
+    console.log('[chat] abrirChatCon target=', otroId);
     const { data, error } = await supabase.rpc('get_or_create_dm', { target_user: otroId });
-    if (error) { alert('Error: ' + error.message); return; }
+    console.log('[chat] rpc result data=', data, 'error=', error);
+    if (error) {
+      alert('Error al crear chat:\n' + error.message + '\n\nDetalle: ' + JSON.stringify(error));
+      return;
+    }
+    if (!data) {
+      alert('La función devolvió null. Revisá que migration_chat.sql se haya ejecutado y que la tabla chat_conversaciones exista.');
+      return;
+    }
     setShowNewModal(false);
     await cargarConversaciones();
     setActivaId(data as string);
