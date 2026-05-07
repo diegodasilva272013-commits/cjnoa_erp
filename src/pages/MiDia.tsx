@@ -76,6 +76,19 @@ export default function MiDia() {
   const [showStats, setShowStats] = useState(true);
   const dragId = useRef<string | null>(null);
 
+  // Admin/socio pueden ver el día de otros usuarios
+  const esAdmin = perfil?.rol === 'admin' || perfil?.rol === 'socio';
+  const [viewUserId, setViewUserId] = useState<string>('');
+  const [perfilesList, setPerfilesList] = useState<{id:string; nombre:string; rol?:string}[]>([]);
+  const targetUserId = viewUserId || user?.id || '';
+
+  useEffect(() => {
+    if (!esAdmin) return;
+    supabase.from('perfiles').select('id, nombre, rol').order('nombre').then(({ data }) => {
+      setPerfilesList((data || []) as any);
+    });
+  }, [esAdmin]);
+
   // Re-render cada segundo si hay tareas en curso (para cronómetros vivos)
   useEffect(() => {
     const hayActiva = tareas.some(t => t.estado_dia === 'en_progreso' && t.started_at);
@@ -85,23 +98,33 @@ export default function MiDia() {
   }, [tareas]);
 
   async function cargar() {
-    if (!user) return;
+    if (!targetUserId) return;
     setLoading(true);
-    const { data } = await supabase
-      .from('tareas_completas')
+    // Intentar primero v2 (tiene todas las columnas nuevas), fallback a la vista vieja
+    let resp = await supabase
+      .from('tareas_completas_v2')
       .select('*')
-      .eq('responsable_id', user.id)
+      .eq('responsable_id', targetUserId)
       .eq('archivada', false)
       .order('orden_dia', { ascending: true, nullsFirst: false })
       .order('prioridad', { ascending: true })
       .order('fecha_limite', { ascending: true, nullsFirst: false });
-    setTareas((data || []) as Tarea[]);
+    if (resp.error) {
+      resp = await supabase
+        .from('tareas_completas')
+        .select('*')
+        .eq('responsable_id', targetUserId)
+        .eq('archivada', false)
+        .order('prioridad', { ascending: true })
+        .order('fecha_limite', { ascending: true, nullsFirst: false });
+    }
+    setTareas((resp.data || []) as Tarea[]);
     // historial de hoy
     const hoyKey = fmtKey(new Date());
     const { data: hist } = await supabase
       .from('historial_tareas')
       .select('*')
-      .eq('responsable_id', user.id)
+      .eq('responsable_id', targetUserId)
       .gte('fecha_cierre', hoyKey + 'T00:00:00')
       .order('fecha_cierre', { ascending: false })
       .limit(30);
@@ -109,18 +132,18 @@ export default function MiDia() {
     setLoading(false);
   }
 
-  useEffect(() => { cargar(); }, [user]);
+  useEffect(() => { cargar(); }, [targetUserId]);
 
   // Realtime: si admin asigna una nueva tarea, aparece sola
   useEffect(() => {
-    if (!user) return;
-    const ch = supabase.channel('mi_dia_' + user.id)
+    if (!targetUserId) return;
+    const ch = supabase.channel('mi_dia_' + targetUserId)
       .on('postgres_changes',
-        { event: '*', schema: 'public', table: 'tareas', filter: `responsable_id=eq.${user.id}` },
+        { event: '*', schema: 'public', table: 'tareas', filter: `responsable_id=eq.${targetUserId}` },
         () => cargar())
       .subscribe();
     return () => { supabase.removeChannel(ch); };
-  }, [user]);
+  }, [targetUserId]);
 
   const hoyKey = fmtKey(new Date());
 
@@ -286,10 +309,23 @@ export default function MiDia() {
             <Target className="w-6 h-6 text-emerald-400" /> Mi Día
           </h1>
           <p className="text-sm text-gray-500">
-            {perfil?.nombre || ''} · Tus tareas asignadas para gestionar y completar.
+            {(viewUserId && perfilesList.find(p => p.id === viewUserId)?.nombre) || perfil?.nombre || ''} · Tareas asignadas para gestionar y completar.
           </p>
         </div>
         <div className="flex items-center gap-2">
+          {esAdmin && (
+            <select
+              value={viewUserId}
+              onChange={(e) => setViewUserId(e.target.value)}
+              className="px-3 py-2 text-xs rounded-lg bg-white/5 hover:bg-white/10 text-white border border-white/10"
+              title="Ver Mi Día de otro usuario"
+            >
+              <option value="">Mi día (yo)</option>
+              {perfilesList.filter(p => p.id !== user?.id).map(p => (
+                <option key={p.id} value={p.id}>{p.nombre}{p.rol ? ` (${p.rol})` : ''}</option>
+              ))}
+            </select>
+          )}
           <button onClick={cargar}
             className="px-3 py-2 text-xs rounded-lg bg-white/5 hover:bg-white/10 text-white border border-white/10 flex items-center gap-2">
             <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} /> Actualizar
