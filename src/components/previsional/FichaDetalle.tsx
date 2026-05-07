@@ -8,6 +8,7 @@ import {
   ClientePrevisional, SexoCliente, TareaPrevisional, Audiencia,
   PIPELINE_LABELS, PIPELINE_COLORS, calcularSemaforo, SEMAFORO_COLORS,
   PRIORIDAD_LABELS, ESTADO_TAREA_LABELS, formatFechaLocal, calcularMoratoria,
+  getMoratoriaOverrides,
 } from '../../types/previsional';
 import { useAportesLaborales, useHistorialAvances, useTareasPrevisional, useAudiencias } from '../../hooks/usePrevisional';
 import { useDocumentos, uploadDocumento, deleteDocumento, downloadDocumento } from '../../hooks/useDocumentos';
@@ -33,7 +34,17 @@ function CalculadoraTab({ cliente, aportes }: { cliente: ClientePrevisional; apo
     aportes.reduce((sum, a) => sum + (a.total_meses || 0), 0),
   [aportes]);
 
-  const totalMoratoria = (cliente.meses_moratoria_24476 || 0) + (cliente.meses_moratoria_27705 || 0);
+  // Recalcular moratoria con los overrides editables del cliente, en lugar de
+  // usar los valores fijos guardados en DB (que pueden estar desactualizados).
+  const moratoriaCalc = useMemo(() => {
+    if (!cliente.fecha_nacimiento || !cliente.sexo) return null;
+    const ovr = getMoratoriaOverrides(cliente.id);
+    return calcularMoratoria(cliente.fecha_nacimiento, cliente.sexo as SexoCliente, ovr);
+  }, [cliente.id, cliente.fecha_nacimiento, cliente.sexo]);
+
+  const meses24476 = moratoriaCalc?.meses24476 ?? (cliente.meses_moratoria_24476 || 0);
+  const meses27705 = moratoriaCalc?.meses27705 ?? (cliente.meses_moratoria_27705 || 0);
+  const totalMoratoria = meses24476 + meses27705;
   const totalConsolidado = totalMesesLaborados + totalMoratoria;
   const mesesNecesarios = 360;
   const mesesFaltantes = Math.max(0, mesesNecesarios - totalConsolidado);
@@ -95,7 +106,7 @@ function CalculadoraTab({ cliente, aportes }: { cliente: ClientePrevisional; apo
         <div className="glass-card p-4">
           <p className="text-[10px] text-gray-500 uppercase mb-1">Moratoria total</p>
           <p className="text-2xl font-bold text-blue-400">{totalMoratoria}</p>
-          <p className="text-[10px] text-gray-600">24476: {cliente.meses_moratoria_24476 || 0} · 27705: {cliente.meses_moratoria_27705 || 0}</p>
+          <p className="text-[10px] text-gray-600">24476: {meses24476} · 27705: {meses27705}</p>
         </div>
         <div className="glass-card p-4">
           <p className="text-[10px] text-gray-500 uppercase mb-1">Edad actual</p>
@@ -427,7 +438,7 @@ export default function FichaDetalle({ cliente, onBack, onEdit, onDelete }: Prop
           hijos={cliente.hijos}
           sexo={cliente.sexo as SexoCliente}
           meses24476={cliente.fecha_nacimiento && cliente.sexo
-            ? calcularMoratoria(cliente.fecha_nacimiento, cliente.sexo as SexoCliente).meses24476
+            ? calcularMoratoria(cliente.fecha_nacimiento, cliente.sexo as SexoCliente, getMoratoriaOverrides(cliente.id)).meses24476
             : 0}
           onAdd={addAporte}
           onRemove={removeAporte}

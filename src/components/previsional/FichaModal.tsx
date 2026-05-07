@@ -314,6 +314,10 @@ export default function FichaModal({ open, onClose, cliente, onSave }: Props) {
       sub_estado: form.sub_estado as SubEstadoPrevisional || null,
       fecha_nacimiento: safeDate(form.fecha_nacimiento),
       fecha_ultimo_contacto: safeDate(form.fecha_ultimo_contacto),
+      // Persistir los meses calculados (con overrides) para que se vean en
+      // la conclusión / calculadora aunque la ficha esté cerrada.
+      meses_moratoria_24476: moratoria?.meses24476 ?? form.meses_moratoria_24476,
+      meses_moratoria_27705: moratoria?.meses27705 ?? form.meses_moratoria_27705,
       updated_by: user?.id,
       ...(cliente ? {} : { created_by: user?.id }),
     };
