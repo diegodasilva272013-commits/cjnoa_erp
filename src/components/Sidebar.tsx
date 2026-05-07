@@ -96,73 +96,89 @@ export default function Sidebar({ open, onClose }: SidebarProps) {
           )}
 
           {/* CASOS GENERALES */}
-          <NavLink to="/casos-generales" onClick={onClose} className={({ isActive }) => linkClass(isActive || location.pathname === '/casos' || location.pathname === '/casos-trabajo')}>
-            <Scale className="w-5 h-5" />
-            Casos Generales
-          </NavLink>
+          {permisos.casos_generales && (
+            <NavLink to="/casos-generales" onClick={onClose} className={({ isActive }) => linkClass(isActive || location.pathname === '/casos' || location.pathname === '/casos-trabajo')}>
+              <Scale className="w-5 h-5" />
+              Casos Generales
+            </NavLink>
+          )}
 
-          {/* AGENDAMIENTO: visible para empleados, socios y admin */}
-          {(perfil?.rol === 'empleado' || perfil?.rol === 'socio' || perfil?.rol === 'admin') && (
+          {/* AGENDAMIENTO */}
+          {permisos.agendamiento && (
             <NavLink to="/agendamiento-consultas" onClick={onClose} className={({ isActive }) => linkClass(isActive)}>
               <CalendarClock className="w-5 h-5" />
               Agendamiento
             </NavLink>
           )}
 
-          {/* CASOS - PAGOS: visible para socios y admin */}
-          {(perfil?.rol === 'socio' || perfil?.rol === 'admin') && (
+          {/* CASOS - PAGOS */}
+          {permisos.casos_pagos && (
             <NavLink to="/casos-pagos" onClick={onClose} className={({ isActive }) => linkClass(isActive)}>
               <DollarSign className="w-5 h-5" />
               Casos - Pagos
             </NavLink>
           )}
 
-          {/* Tareas (spec seccion 5) - visible para todos */}
-          <NavLink to="/tareas" onClick={onClose} className={({ isActive }) => linkClass(isActive)}>
-            <ListTodo className="w-5 h-5" />
-            Tareas
-          </NavLink>
+          {/* Tareas */}
+          {permisos.tareas && (
+            <NavLink to="/tareas" onClick={onClose} className={({ isActive }) => linkClass(isActive)}>
+              <ListTodo className="w-5 h-5" />
+              Tareas
+            </NavLink>
+          )}
 
-          {/* Mi Día — panel personal de cada empleado/procurador */}
-          <NavLink to="/mi-dia" onClick={onClose} className={({ isActive }) => linkClass(isActive)}>
-            <Target className="w-5 h-5" />
-            Mi Día
-          </NavLink>
+          {/* Mi Día */}
+          {permisos.mi_dia && (
+            <NavLink to="/mi-dia" onClick={onClose} className={({ isActive }) => linkClass(isActive)}>
+              <Target className="w-5 h-5" />
+              Mi Día
+            </NavLink>
+          )}
 
           {/* Chat interno */}
-          <NavLink to="/chat" onClick={onClose} className={({ isActive }) => linkClass(isActive)}>
-            <MessageCircle className="w-5 h-5" />
-            <span className="flex-1">Chat</span>
-            {unreadTotal > 0 && (
-              <span className="ml-auto inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full bg-emerald-500 text-black text-[10px] font-bold animate-pulse">
-                {unreadTotal > 99 ? '99+' : unreadTotal}
-              </span>
-            )}
-          </NavLink>
+          {permisos.chat && (
+            <NavLink to="/chat" onClick={onClose} className={({ isActive }) => linkClass(isActive)}>
+              <MessageCircle className="w-5 h-5" />
+              <span className="flex-1">Chat</span>
+              {unreadTotal > 0 && (
+                <span className="ml-auto inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full bg-emerald-500 text-black text-[10px] font-bold animate-pulse">
+                  {unreadTotal > 99 ? '99+' : unreadTotal}
+                </span>
+              )}
+            </NavLink>
+          )}
 
-          {/* Audiencias (spec seccion 6) - visible para todos */}
-          <NavLink to="/audiencias" onClick={onClose} className={({ isActive }) => linkClass(isActive)}>
-            <Gavel className="w-5 h-5" />
-            Audiencias
-          </NavLink>
+          {/* Audiencias */}
+          {permisos.audiencias && (
+            <NavLink to="/audiencias" onClick={onClose} className={({ isActive }) => linkClass(isActive)}>
+              <Gavel className="w-5 h-5" />
+              Audiencias
+            </NavLink>
+          )}
 
-          {/* Calendario unificado con Google Calendar */}
-          <NavLink to="/calendario" onClick={onClose} className={({ isActive }) => linkClass(isActive)}>
-            <Calendar className="w-5 h-5" />
-            Calendario
-          </NavLink>
+          {/* Calendario */}
+          {permisos.calendario && (
+            <NavLink to="/calendario" onClick={onClose} className={({ isActive }) => linkClass(isActive)}>
+              <Calendar className="w-5 h-5" />
+              Calendario
+            </NavLink>
+          )}
 
-          {/* Cargos de Hora - visible para todos */}
-          <NavLink to="/cargos-hora" onClick={onClose} className={({ isActive }) => linkClass(isActive)}>
-            <Clock className="w-5 h-5" />
-            Cargos de Hora
-          </NavLink>
+          {/* Cargos de Hora */}
+          {permisos.cargos_hora && (
+            <NavLink to="/cargos-hora" onClick={onClose} className={({ isActive }) => linkClass(isActive)}>
+              <Clock className="w-5 h-5" />
+              Cargos de Hora
+            </NavLink>
+          )}
 
-          {/* Control de Tareas — visible para todos */}
-          <NavLink to="/control-tareas" onClick={onClose} className={({ isActive }) => linkClass(isActive)}>
-            <Activity className="w-5 h-5" />
-            Control de Tareas
-          </NavLink>
+          {/* Control de Tareas */}
+          {permisos.control_tareas && (
+            <NavLink to="/control-tareas" onClick={onClose} className={({ isActive }) => linkClass(isActive)}>
+              <Activity className="w-5 h-5" />
+              Control de Tareas
+            </NavLink>
+          )}
 
           {/* Finanzas - visible para admin y socio */}
           {permisos.finanzas && (
@@ -229,10 +245,12 @@ export default function Sidebar({ open, onClose }: SidebarProps) {
           )}
 
           {/* Timeline */}
-          <NavLink to="/timeline" onClick={onClose} className={({ isActive }) => linkClass(isActive)}>
-            <Activity className="w-5 h-5" />
-            Timeline
-          </NavLink>
+          {permisos.timeline && (
+            <NavLink to="/timeline" onClick={onClose} className={({ isActive }) => linkClass(isActive)}>
+              <Activity className="w-5 h-5" />
+              Timeline
+            </NavLink>
+          )}
         </nav>
 
         {/* Footer */}

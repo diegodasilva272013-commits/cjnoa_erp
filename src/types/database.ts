@@ -11,6 +11,18 @@ export interface PermisosUsuario {
   honorarios: boolean;
   /** Ver montos de honorarios en la ficha de caso. Spec: Procurador NO ve honorarios. */
   ver_honorarios: boolean;
+  // Modulos nuevos (gating de menu)
+  casos_generales: boolean;
+  agendamiento: boolean;
+  casos_pagos: boolean;
+  tareas: boolean;
+  mi_dia: boolean;
+  chat: boolean;
+  audiencias: boolean;
+  calendario: boolean;
+  cargos_hora: boolean;
+  control_tareas: boolean;
+  timeline: boolean;
 }
 
 export interface Perfil {
@@ -32,20 +44,31 @@ export const ROLES: { value: Rol; label: string; description: string }[] = [
 ];
 
 export const PERMISOS_DEFAULT: Record<Rol, PermisosUsuario> = {
-  admin:     { dashboard: true,  casos: true, finanzas: true,  equipo: true,  agenda: true, previsional: true,  honorarios: true,  ver_honorarios: true  },
-  socio:     { dashboard: true,  casos: true, finanzas: true,  equipo: false, agenda: true, previsional: true,  honorarios: true,  ver_honorarios: true  },
-  abogado:   { dashboard: true,  casos: true, finanzas: true,  equipo: false, agenda: true, previsional: true,  honorarios: true,  ver_honorarios: true  },
-  empleado:  { dashboard: true,  casos: true, finanzas: true,  equipo: false, agenda: true, previsional: true,  honorarios: true,  ver_honorarios: true  },
-  procurador:{ dashboard: false, casos: true, finanzas: false, equipo: false, agenda: true, previsional: true,  honorarios: false, ver_honorarios: false },
+  admin:     { dashboard: true,  casos: true, finanzas: true,  equipo: true,  agenda: true, previsional: true,  honorarios: true,  ver_honorarios: true,  casos_generales: true, agendamiento: true,  casos_pagos: true,  tareas: true, mi_dia: true, chat: true, audiencias: true, calendario: true, cargos_hora: true, control_tareas: true, timeline: true },
+  socio:     { dashboard: true,  casos: true, finanzas: true,  equipo: false, agenda: true, previsional: true,  honorarios: true,  ver_honorarios: true,  casos_generales: true, agendamiento: true,  casos_pagos: true,  tareas: true, mi_dia: true, chat: true, audiencias: true, calendario: true, cargos_hora: true, control_tareas: true, timeline: true },
+  abogado:   { dashboard: true,  casos: true, finanzas: true,  equipo: false, agenda: true, previsional: true,  honorarios: true,  ver_honorarios: true,  casos_generales: true, agendamiento: false, casos_pagos: false, tareas: true, mi_dia: true, chat: true, audiencias: true, calendario: true, cargos_hora: true, control_tareas: true, timeline: true },
+  empleado:  { dashboard: true,  casos: true, finanzas: true,  equipo: false, agenda: true, previsional: true,  honorarios: true,  ver_honorarios: true,  casos_generales: true, agendamiento: true,  casos_pagos: false, tareas: true, mi_dia: true, chat: true, audiencias: true, calendario: true, cargos_hora: true, control_tareas: true, timeline: true },
+  procurador:{ dashboard: false, casos: true, finanzas: false, equipo: false, agenda: true, previsional: true,  honorarios: false, ver_honorarios: false, casos_generales: true, agendamiento: false, casos_pagos: false, tareas: true, mi_dia: true, chat: true, audiencias: true, calendario: true, cargos_hora: true, control_tareas: true, timeline: true },
 };
 
 export const MODULOS: { key: keyof PermisosUsuario; label: string; description: string }[] = [
   { key: 'dashboard', label: 'Panel de Control', description: 'Métricas, alertas y resumen financiero' },
   { key: 'casos', label: 'Casos', description: 'Gestión de clientes y casos' },
+  { key: 'casos_generales', label: 'Casos Generales', description: 'Listado general de casos' },
+  { key: 'casos_pagos', label: 'Casos - Pagos', description: 'Gestión de pagos y cobros de casos' },
+  { key: 'agendamiento', label: 'Agendamiento', description: 'Consultas previas con reserva' },
+  { key: 'audiencias', label: 'Audiencias', description: 'Listado y seguimiento de audiencias' },
+  { key: 'calendario', label: 'Calendario', description: 'Vista mensual unificada + Google Calendar' },
+  { key: 'tareas', label: 'Tareas', description: 'Tablero general de tareas del estudio' },
+  { key: 'mi_dia', label: 'Mi Día', description: 'Panel personal con tareas del día' },
+  { key: 'control_tareas', label: 'Control de Tareas', description: 'Supervisión y seguimiento de tareas' },
+  { key: 'cargos_hora', label: 'Cargos de Hora', description: 'Registro de horas trabajadas' },
+  { key: 'chat', label: 'Chat', description: 'Mensajería interna del estudio' },
   { key: 'finanzas', label: 'Finanzas', description: 'Ingresos, egresos y flujo de caja' },
   { key: 'equipo', label: 'Equipo', description: 'ABM de colaboradores y permisos' },
-  { key: 'agenda', label: 'Agenda', description: 'Recordatorios, notas de voz y calendario' },
+  { key: 'agenda', label: 'Agenda', description: 'Recordatorios y notas de voz' },
   { key: 'previsional', label: 'Previsional', description: 'Fichas, seguimiento y tareas previsionales' },
+  { key: 'timeline', label: 'Timeline', description: 'Línea de tiempo de actividad' },
   { key: 'honorarios', label: 'Honorarios y Cobros', description: 'Modulo de honorarios (oculto a procurador)' },
   { key: 'ver_honorarios', label: 'Ver Honorarios', description: 'Permite ver montos de honorarios en casos' },
 ];
