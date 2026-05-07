@@ -81,6 +81,7 @@ export default function Chat() {
   const [showMobileList, setShowMobileList] = useState(true);
   const [debug, setDebug] = useState<string>('');
 
+  // Conversación activa: buscar primero en la lista, si no está buscar por ID en cualquier parte (recien creada)
   const conversacionActiva = conversaciones.find(c => c.id === activaId) || null;
 
   // Cargar perfiles
@@ -202,28 +203,47 @@ export default function Chat() {
 
   // Crear nueva conversación 1-a-1
   async function abrirChatCon(otroId: string) {
-    setDebug('1) click target=' + otroId);
-    console.log('[chat] abrirChatCon target=', otroId);
+    setDebug('1) creando chat con ' + otroId);
+    const otroPerfil = perfiles.find(p => p.id === otroId) || null;
     let data: any = null; let error: any = null;
     try {
       const r = await supabase.rpc('get_or_create_dm', { target_user: otroId });
       data = r.data; error = r.error;
     } catch (ex: any) {
-      setDebug('EXCEPCION rpc: ' + (ex?.message || JSON.stringify(ex)));
+      setDebug('EXCEPCION rpc: ' + (ex?.message || String(ex)));
       return;
     }
-    setDebug('2) rpc data=' + JSON.stringify(data) + ' err=' + JSON.stringify(error));
-    console.log('[chat] rpc result', { data, error });
     if (error) { setDebug('ERROR rpc: ' + (error.message || JSON.stringify(error))); return; }
-    if (!data) { setDebug('rpc devolvio null/undefined'); return; }
+    if (!data) { setDebug('rpc devolvio null'); return; }
+    const convId = String(data);
     setShowNewModal(false);
-    setDebug('3) recargando lista antes de activar...');
-    try { await cargarConversaciones(); }
-    catch (ex: any) { setDebug('lista fallo: ' + (ex?.message || JSON.stringify(ex))); }
-    setActivaId(String(data));
+
+    // Insertar la conv directamente en el state — no esperamos a recargar
+    setConversaciones(prev => {
+      if (prev.find(c => c.id === convId)) return prev;
+      const nuevaConv: Conversacion = {
+        id: convId,
+        tipo: 'directo',
+        nombre: otroPerfil?.nombre || 'Chat',
+        avatar_url: null,
+        updated_at: new Date().toISOString(),
+        ultimo_mensaje: null,
+        ultimo_tipo: null,
+        ultimo_at: null,
+        otros: otroPerfil ? [otroPerfil] : [],
+        no_leidos: 0,
+      };
+      return [nuevaConv, ...prev];
+    });
+    if (otroPerfil && user) {
+      setParticipantes(prev => ({ ...prev, [convId]: [otroPerfil, { id: user.id, nombre: (perfil as any)?.nombre || 'Yo', rol: (perfil as any)?.rol || 'usuario', avatar_url: (perfil as any)?.avatar_url || null }] }));
+    }
+    setActivaId(convId);
     setShowMobileList(false);
-    setDebug('4) chat abierto id=' + data);
-    setTimeout(() => setDebug(''), 4000);
+    setDebug('2) chat abierto ✅');
+    setTimeout(() => setDebug(''), 2500);
+    // recargar lista en background (no bloquea)
+    cargarConversaciones().catch(()=>{});
   }
 
   return (
