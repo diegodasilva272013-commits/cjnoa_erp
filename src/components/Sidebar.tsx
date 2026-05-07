@@ -21,6 +21,7 @@ import {
   CalendarClock,
   Scale,
   Target,
+  MessageCircle,
 } from 'lucide-react';
 import { usePermisos } from '../hooks/usePermisos';
 import { useAuth } from '../context/AuthContext';
@@ -124,6 +125,12 @@ export default function Sidebar({ open, onClose }: SidebarProps) {
           <NavLink to="/mi-dia" onClick={onClose} className={({ isActive }) => linkClass(isActive)}>
             <Target className="w-5 h-5" />
             Mi Día
+          </NavLink>
+
+          {/* Chat interno */}
+          <NavLink to="/chat" onClick={onClose} className={({ isActive }) => linkClass(isActive)}>
+            <MessageCircle className="w-5 h-5" />
+            Chat
           </NavLink>
 
           {/* Audiencias (spec seccion 6) - visible para todos */}
