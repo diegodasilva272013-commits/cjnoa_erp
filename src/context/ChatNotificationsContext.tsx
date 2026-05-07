@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState, Re
 import { supabase } from '../lib/supabase';
 import { useAuth } from './AuthContext';
 import { useToast } from './ToastContext';
+import { registrarServiceWorker, suscribirPush } from '../lib/pushNotifications';
 
 interface ChatNotificationsContextType {
   unreadTotal: number;
@@ -194,12 +195,18 @@ export function ChatNotificationsProvider({ children }: { children: ReactNode })
       })
       .subscribe();
 
-    // Pedir permiso de notificación una vez
-    try {
-      if ('Notification' in window && Notification.permission === 'default') {
-        Notification.requestPermission().catch(() => {});
-      }
-    } catch { /* ignore */ }
+    // Pedir permiso de notificación + registrar push
+    (async () => {
+      try {
+        await registrarServiceWorker();
+        if ('Notification' in window && Notification.permission === 'default') {
+          await Notification.requestPermission();
+        }
+        if ('Notification' in window && Notification.permission === 'granted') {
+          await suscribirPush(user.id);
+        }
+      } catch { /* ignore */ }
+    })();
 
     return () => {
       supabase.removeChannel(ch);

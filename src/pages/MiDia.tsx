@@ -78,9 +78,11 @@ export default function MiDia() {
 
   // Admin/socio pueden ver el día de otros usuarios
   const esAdmin = perfil?.rol === 'admin' || perfil?.rol === 'socio';
-  const [viewUserId, setViewUserId] = useState<string>('');
+  // 'TODOS' = ver tareas de todos los usuarios (solo admin/socio); '' = mi propio usuario; uuid = usuario específico
+  const [viewUserId, setViewUserId] = useState<string>(esAdmin ? 'TODOS' : '');
   const [perfilesList, setPerfilesList] = useState<{id:string; nombre:string; rol?:string}[]>([]);
-  const targetUserId = viewUserId || user?.id || '';
+  const targetUserId = viewUserId === 'TODOS' ? 'TODOS' : (viewUserId || user?.id || '');
+  const verTodos = targetUserId === 'TODOS';
 
   useEffect(() => {
     if (!esAdmin) return;
@@ -101,33 +103,36 @@ export default function MiDia() {
     if (!targetUserId) return;
     setLoading(true);
     // Intentar primero v2 (tiene todas las columnas nuevas), fallback a la vista vieja
-    let resp = await supabase
+    let q = supabase
       .from('tareas_completas_v2')
       .select('*')
-      .eq('responsable_id', targetUserId)
-      .eq('archivada', false)
+      .eq('archivada', false);
+    if (!verTodos) q = q.eq('responsable_id', targetUserId);
+    let resp = await q
       .order('orden_dia', { ascending: true, nullsFirst: false })
       .order('prioridad', { ascending: true })
       .order('fecha_limite', { ascending: true, nullsFirst: false });
     if (resp.error) {
-      resp = await supabase
+      let q2 = supabase
         .from('tareas_completas')
         .select('*')
-        .eq('responsable_id', targetUserId)
-        .eq('archivada', false)
+        .eq('archivada', false);
+      if (!verTodos) q2 = q2.eq('responsable_id', targetUserId);
+      resp = await q2
         .order('prioridad', { ascending: true })
         .order('fecha_limite', { ascending: true, nullsFirst: false });
     }
     setTareas((resp.data || []) as Tarea[]);
     // historial de hoy
     const hoyKey = fmtKey(new Date());
-    const { data: hist } = await supabase
+    let qh = supabase
       .from('historial_tareas')
       .select('*')
-      .eq('responsable_id', targetUserId)
-      .gte('fecha_cierre', hoyKey + 'T00:00:00')
+      .gte('fecha_cierre', hoyKey + 'T00:00:00');
+    if (!verTodos) qh = qh.eq('responsable_id', targetUserId);
+    const { data: hist } = await qh
       .order('fecha_cierre', { ascending: false })
-      .limit(30);
+      .limit(50);
     setHistorial(hist || []);
     setLoading(false);
   }
@@ -137,9 +142,10 @@ export default function MiDia() {
   // Realtime: si admin asigna una nueva tarea, aparece sola
   useEffect(() => {
     if (!targetUserId) return;
+    const filter = verTodos ? undefined : `responsable_id=eq.${targetUserId}`;
     const ch = supabase.channel('mi_dia_' + targetUserId)
       .on('postgres_changes',
-        { event: '*', schema: 'public', table: 'tareas', filter: `responsable_id=eq.${targetUserId}` },
+        { event: '*', schema: 'public', table: 'tareas', ...(filter ? { filter } : {}) } as any,
         () => cargar())
       .subscribe();
     return () => { supabase.removeChannel(ch); };
@@ -321,6 +327,7 @@ export default function MiDia() {
               title="Ver Mi Día de otro usuario"
             >
               <option value="">Mi día (yo)</option>
+              <option value="TODOS">👥 Todos los usuarios</option>
               {perfilesList.filter(p => p.id !== user?.id).map(p => (
                 <option key={p.id} value={p.id}>{p.nombre}{p.rol ? ` (${p.rol})` : ''}</option>
               ))}
@@ -464,6 +471,11 @@ export default function MiDia() {
                 {(t.cliente_nombre || t.expediente) && (
                   <div className="text-[11px] text-gray-400 truncate">
                     {t.cliente_nombre}{t.expediente ? ` · ${t.expediente}` : ''}
+                  </div>
+                )}
+                {verTodos && (t as any).responsable_nombre && (
+                  <div className="text-[11px] text-emerald-300 truncate flex items-center gap-1">
+                    👤 {(t as any).responsable_nombre}
                   </div>
                 )}
                 {t.descripcion && (
