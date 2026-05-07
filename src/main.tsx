@@ -6,6 +6,7 @@ import ErrorBoundary from './components/ErrorBoundary'
 import { AuthProvider } from './context/AuthContext'
 import { ToastProvider } from './context/ToastContext'
 import { ReminderProvider } from './context/ReminderContext'
+import { ChatNotificationsProvider } from './context/ChatNotificationsContext'
 import { rearmChunkRecovery, tryRecoverChunkError } from './lib/chunkRecovery'
 import './index.css'
 
@@ -22,7 +23,9 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
         <AuthProvider>
           <ToastProvider>
             <ReminderProvider>
-              <App />
+              <ChatNotificationsProvider>
+                <App />
+              </ChatNotificationsProvider>
             </ReminderProvider>
           </ToastProvider>
         </AuthProvider>

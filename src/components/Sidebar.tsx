@@ -26,6 +26,7 @@ import {
 import { usePermisos } from '../hooks/usePermisos';
 import { useAuth } from '../context/AuthContext';
 import { useAvatarUrl } from '../hooks/useAvatarUrl';
+import { useChatNotifications } from '../context/ChatNotificationsContext';
 
 interface SidebarProps {
   open: boolean;
@@ -38,6 +39,7 @@ export default function Sidebar({ open, onClose }: SidebarProps) {
   const { permisos } = usePermisos();
   const { perfil } = useAuth();
   const avatarUrl = useAvatarUrl(perfil?.avatar_url);
+  const { unreadTotal } = useChatNotifications();
 
   const linkClass = (isActive: boolean) =>
     `flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-medium transition-all duration-200 group ${
@@ -130,7 +132,12 @@ export default function Sidebar({ open, onClose }: SidebarProps) {
           {/* Chat interno */}
           <NavLink to="/chat" onClick={onClose} className={({ isActive }) => linkClass(isActive)}>
             <MessageCircle className="w-5 h-5" />
-            Chat
+            <span className="flex-1">Chat</span>
+            {unreadTotal > 0 && (
+              <span className="ml-auto inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full bg-emerald-500 text-black text-[10px] font-bold animate-pulse">
+                {unreadTotal > 99 ? '99+' : unreadTotal}
+              </span>
+            )}
           </NavLink>
 
           {/* Audiencias (spec seccion 6) - visible para todos */}

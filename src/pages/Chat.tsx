@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
+import { useChatNotifications } from '../context/ChatNotificationsContext';
 import {
   Send, Paperclip, Smile, Mic, MicOff, Image as ImageIcon, Search, Plus, X,
   CheckCheck, MessageCircle, Users, FileText, Download, Pause, Play, ArrowLeft, Sparkles
@@ -71,6 +72,7 @@ function bytes(n: number | null) {
 // ============================================================
 export default function Chat() {
   const { user, perfil } = useAuth();
+  const { setActiveConv, markRead, refreshUnread } = useChatNotifications();
   const [perfiles, setPerfiles] = useState<Perfil[]>([]);
   const [conversaciones, setConversaciones] = useState<Conversacion[]>([]);
   const [participantes, setParticipantes] = useState<Record<string, Perfil[]>>({});
@@ -79,7 +81,9 @@ export default function Chat() {
   const [busqueda, setBusqueda] = useState('');
   const [showNewModal, setShowNewModal] = useState(false);
   const [showMobileList, setShowMobileList] = useState(true);
-  const [debug, setDebug] = useState<string>('');
+
+  // Notificar al provider qué conv está abierta (para no notificar mensajes propios)
+  useEffect(() => { setActiveConv(activaId); return () => setActiveConv(null); }, [activaId, setActiveConv]);
 
   // Conversación activa: buscar primero en la lista, si no está buscar por ID en cualquier parte (recien creada)
   const conversacionActiva = conversaciones.find(c => c.id === activaId) || null;
@@ -161,7 +165,7 @@ export default function Chat() {
       setConversaciones(prev => prev.map(c => c.id === convId ? { ...c, no_leidos: 0 } : c));
     }
   }
-  useEffect(() => { if (activaId) cargarMensajes(activaId); }, [activaId]);
+  useEffect(() => { if (activaId) { cargarMensajes(activaId); markRead(activaId); } }, [activaId]);
 
   // Realtime: nuevos mensajes
   useEffect(() => {
@@ -208,18 +212,9 @@ export default function Chat() {
 
   // Crear nueva conversación 1-a-1
   async function abrirChatCon(otroId: string) {
-    setDebug('1) creando chat con ' + otroId);
     const otroPerfil = perfiles.find(p => p.id === otroId) || null;
-    let data: any = null; let error: any = null;
-    try {
-      const r = await supabase.rpc('get_or_create_dm', { target_user: otroId });
-      data = r.data; error = r.error;
-    } catch (ex: any) {
-      setDebug('EXCEPCION rpc: ' + (ex?.message || String(ex)));
-      return;
-    }
-    if (error) { setDebug('ERROR rpc: ' + (error.message || JSON.stringify(error))); return; }
-    if (!data) { setDebug('rpc devolvio null'); return; }
+    const { data, error } = await supabase.rpc('get_or_create_dm', { target_user: otroId });
+    if (error || !data) { console.error('get_or_create_dm error', error); return; }
     const convId = String(data);
     setShowNewModal(false);
 
@@ -245,19 +240,11 @@ export default function Chat() {
     }
     setActivaId(convId);
     setShowMobileList(false);
-    setDebug('2) chat abierto ✅');
-    setTimeout(() => setDebug(''), 2500);
+    markRead(convId);
   }
 
   return (
     <div className="h-[calc(100vh-4rem)] -m-4 lg:-m-6 flex bg-[#0a0a0a] relative">
-      {/* DEBUG banner — build v2 */}
-      {debug && (
-        <div className="absolute top-2 left-1/2 -translate-x-1/2 z-[60] max-w-[90%] px-4 py-2 rounded-lg bg-yellow-500 text-black text-xs font-mono shadow-2xl border border-yellow-700">
-          <span className="font-bold mr-2">[DEBUG v2]</span>{debug}
-          <button onClick={() => setDebug('')} className="ml-3 underline">ocultar</button>
-        </div>
-      )}
       {/* SIDEBAR DE CONVERSACIONES */}
       <aside className={`${showMobileList || !activaId ? 'flex' : 'hidden'} md:flex flex-col w-full md:w-80 lg:w-96 border-r border-white/10 bg-[#0c0c0e]`}>
         <div className="p-3 border-b border-white/10 flex items-center gap-2">
