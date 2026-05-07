@@ -161,8 +161,9 @@ export default function MiDia() {
           t.fecha_orden === hoyKey ||
           (t.fecha_limite && t.fecha_limite <= hoyKey) ||
           t.estado_dia === 'en_progreso' ||
-          // pendientes asignadas sin fecha planificada: aparecen en "Hoy"
-          (!t.fecha_orden && !t.fecha_limite)
+          // Cualquier tarea aún no organizada en el día (sin fecha_orden)
+          // aparece en "Hoy" hasta que el usuario la planifique.
+          !t.fecha_orden
         )
       );
     } else if (filtroDia === 'atrasadas') {
