@@ -1,9 +1,14 @@
 import { useEffect, useMemo, useState, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
+import { useToast } from '../context/ToastContext';
+import Modal from '../components/Modal';
+import {
+  PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RTooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid,
+} from 'recharts';
 import {
   ListTodo, Play, Pause, CheckCircle2, Clock, AlertTriangle, GripVertical,
-  RefreshCw, BarChart3, ChevronUp, ChevronDown, Calendar as CalendarIcon, Target, TrendingUp, Timer
+  RefreshCw, BarChart3, ChevronUp, ChevronDown, Calendar as CalendarIcon, Target, TrendingUp, Timer, X
 } from 'lucide-react';
 
 type Tarea = {
@@ -26,6 +31,7 @@ type Tarea = {
   archivada: boolean;
   observaciones_demora: string | null;
   culminacion: string | null;
+  previsional_id?: string | null;
 };
 
 function fmtKey(d: Date) {
@@ -67,6 +73,7 @@ function EstadoDiaBadge({ e }: { e: string | null }) {
 
 export default function MiDia() {
   const { user, perfil } = useAuth();
+  const { showToast } = useToast();
   const [tareas, setTareas] = useState<Tarea[]>([]);
   const [loading, setLoading] = useState(true);
   const [filtroDia, setFiltroDia] = useState<'hoy' | 'todas' | 'atrasadas' | 'completadas'>('hoy');
@@ -74,6 +81,11 @@ export default function MiDia() {
   const [tick, setTick] = useState(0); // forzar re-render para cronómetros
   const [historial, setHistorial] = useState<any[]>([]);
   const [showStats, setShowStats] = useState(true);
+  const [showCharts, setShowCharts] = useState(true);
+  const [completarTarea, setCompletarTarea] = useState<Tarea | null>(null);
+  const [completarTexto, setCompletarTexto] = useState('');
+  const [estimadoTarea, setEstimadoTarea] = useState<Tarea | null>(null);
+  const [estimadoMin, setEstimadoMin] = useState('30');
   const dragId = useRef<string | null>(null);
 
   // Admin/socio pueden ver el día de otros usuarios
@@ -217,51 +229,111 @@ export default function MiDia() {
     };
   }, [tareas, hoyKey, tick]);
 
+  const chartEstado = useMemo(() => {
+    const pendientes = tareas.filter(t => t.estado !== 'completada' && (t.estado_dia ?? 'pendiente') === 'pendiente').length;
+    const enProgreso = tareas.filter(t => t.estado_dia === 'en_progreso').length;
+    const pausadas = tareas.filter(t => t.estado_dia === 'pausada').length;
+    const completadas = tareas.filter(t => t.estado === 'completada').length;
+    const arr = [
+      { name: 'Pendientes', value: pendientes, color: '#9ca3af' },
+      { name: 'En curso',   value: enProgreso, color: '#3b82f6' },
+      { name: 'Pausadas',   value: pausadas,   color: '#f59e0b' },
+      { name: 'Completadas',value: completadas,color: '#10b981' },
+    ];
+    return arr.filter(x => x.value > 0);
+  }, [tareas, tick]);
+
+  const chartTiempo = useMemo(() => {
+    return tareas
+      .filter(t => (t.tiempo_estimado_min || 0) > 0 || (t.tiempo_real_min || 0) > 0)
+      .slice(0, 6)
+      .map(t => {
+        let real = t.tiempo_real_min || 0;
+        if (t.estado_dia === 'en_progreso' && t.started_at) {
+          real += Math.floor((Date.now() - new Date(t.started_at).getTime()) / 60000);
+        }
+        return {
+          name: t.titulo.length > 18 ? t.titulo.slice(0, 18) + '…' : t.titulo,
+          estimado: t.tiempo_estimado_min || 0,
+          real,
+        };
+      });
+  }, [tareas, tick]);
+
   // ----- Acciones sobre tarea -----
   async function iniciar(t: Tarea) {
     // pausar otras en curso primero
     const otras = tareas.filter(x => x.estado_dia === 'en_progreso' && x.id !== t.id);
     for (const o of otras) await pausar(o, true);
-    await supabase.from('tareas').update({
+    const { error } = await supabase.from('tareas').update({
       estado_dia: 'en_progreso',
       started_at: new Date().toISOString(),
       fecha_orden: t.fecha_orden || hoyKey,
     }).eq('id', t.id);
+    if (error) { showToast('No se pudo iniciar: ' + error.message, 'error'); return; }
+    showToast('Cronómetro iniciado', 'success');
     cargar();
   }
 
   async function pausar(t: Tarea, silent = false) {
     if (!t.started_at) return;
     const minTranscurridos = Math.floor((Date.now() - new Date(t.started_at).getTime()) / 60000);
-    await supabase.from('tareas').update({
+    const { error } = await supabase.from('tareas').update({
       estado_dia: 'pausada',
       started_at: null,
       tiempo_real_min: (t.tiempo_real_min || 0) + minTranscurridos,
     }).eq('id', t.id);
+    if (error && !silent) { showToast('No se pudo pausar: ' + error.message, 'error'); return; }
     if (!silent) cargar();
   }
 
-  async function completar(t: Tarea) {
+  function abrirCompletar(t: Tarea) {
+    setCompletarTarea(t);
+    setCompletarTexto(t.culminacion || '');
+  }
+
+  async function confirmarCompletar() {
+    if (!completarTarea) return;
+    const t = completarTarea;
     let totalMin = t.tiempo_real_min || 0;
     if (t.estado_dia === 'en_progreso' && t.started_at) {
       totalMin += Math.floor((Date.now() - new Date(t.started_at).getTime()) / 60000);
     }
-    const culm = prompt('¿Cómo culminó la tarea? (resumen breve, opcional)') || t.culminacion || '';
-    await supabase.from('tareas').update({
+    const { error } = await supabase.from('tareas').update({
       estado: 'completada',
       estado_dia: 'completada',
       tiempo_real_min: totalMin,
       started_at: null,
-      culminacion: culm,
+      culminacion: completarTexto,
     }).eq('id', t.id);
+    if (error) { showToast('No se pudo completar: ' + error.message, 'error'); return; }
+
+    // Reverse-sync: si proviene de tareas_previsional, marcar también esa fila
+    if (t.previsional_id) {
+      await supabase.from('tareas_previsional').update({
+        estado: 'completada',
+        fecha_completada: new Date().toISOString(),
+      }).eq('id', t.previsional_id);
+    }
+
+    showToast('Tarea completada ✔', 'success');
+    setCompletarTarea(null);
+    setCompletarTexto('');
     cargar();
   }
 
-  async function setEstimado(t: Tarea) {
-    const v = prompt('Tiempo estimado en minutos:', String(t.tiempo_estimado_min || 30));
-    if (!v) return;
-    const n = parseInt(v); if (isNaN(n) || n <= 0) return;
-    await supabase.from('tareas').update({ tiempo_estimado_min: n }).eq('id', t.id);
+  function abrirEstimado(t: Tarea) {
+    setEstimadoTarea(t);
+    setEstimadoMin(String(t.tiempo_estimado_min || 30));
+  }
+
+  async function confirmarEstimado() {
+    if (!estimadoTarea) return;
+    const n = parseInt(estimadoMin);
+    if (isNaN(n) || n <= 0) { showToast('Ingresá un número válido', 'error'); return; }
+    const { error } = await supabase.from('tareas').update({ tiempo_estimado_min: n }).eq('id', estimadoTarea.id);
+    if (error) { showToast('Error: ' + error.message, 'error'); return; }
+    setEstimadoTarea(null);
     cargar();
   }
 
@@ -342,6 +414,10 @@ export default function MiDia() {
             className="px-3 py-2 text-xs rounded-lg bg-white/5 hover:bg-white/10 text-white border border-white/10 flex items-center gap-2">
             <BarChart3 className="w-3.5 h-3.5" /> {showStats ? 'Ocultar' : 'Mostrar'} stats
           </button>
+          <button onClick={() => setShowCharts(!showCharts)}
+            className="px-3 py-2 text-xs rounded-lg bg-white/5 hover:bg-white/10 text-white border border-white/10 flex items-center gap-2">
+            <TrendingUp className="w-3.5 h-3.5" /> {showCharts ? 'Ocultar' : 'Mostrar'} gráficos
+          </button>
         </div>
       </header>
 
@@ -379,6 +455,59 @@ export default function MiDia() {
                 <span className="text-red-300"> · +{fmtDuracion(stats.minExcedidos)} de exceso</span>
               )}
             </div>
+          </div>
+        </div>
+      )}
+
+      {showCharts && tareas.length > 0 && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+          <div className="rounded-xl border border-white/10 bg-[#0c0c0e] p-4">
+            <div className="text-xs text-gray-400 uppercase tracking-wider mb-3 flex items-center gap-1.5">
+              <BarChart3 className="w-3.5 h-3.5" /> Distribución por estado
+            </div>
+            <ResponsiveContainer width="100%" height={180}>
+              <PieChart>
+                <Pie
+                  data={chartEstado}
+                  dataKey="value"
+                  nameKey="name"
+                  cx="50%"
+                  cy="50%"
+                  outerRadius={70}
+                  innerRadius={40}
+                  paddingAngle={2}
+                  label={(e: any) => `${e.value}`}
+                >
+                  {chartEstado.map((e, i) => (
+                    <Cell key={i} fill={e.color} />
+                  ))}
+                </Pie>
+                <RTooltip contentStyle={{ background: '#0c0c0e', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8 }} />
+              </PieChart>
+            </ResponsiveContainer>
+            <div className="flex flex-wrap gap-3 justify-center text-[11px] text-gray-300 mt-1">
+              {chartEstado.map(e => (
+                <span key={e.name} className="flex items-center gap-1.5">
+                  <span className="w-2.5 h-2.5 rounded-sm" style={{ background: e.color }} /> {e.name} ({e.value})
+                </span>
+              ))}
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-white/10 bg-[#0c0c0e] p-4">
+            <div className="text-xs text-gray-400 uppercase tracking-wider mb-3 flex items-center gap-1.5">
+              <TrendingUp className="w-3.5 h-3.5" /> Tiempo trabajado vs estimado (min)
+            </div>
+            <ResponsiveContainer width="100%" height={180}>
+              <BarChart data={chartTiempo} layout="vertical" margin={{ left: 0, right: 8, top: 4, bottom: 0 }}>
+                <CartesianGrid stroke="rgba(255,255,255,0.05)" horizontal={false} />
+                <XAxis type="number" stroke="#6b7280" tick={{ fontSize: 10 }} />
+                <YAxis type="category" dataKey="name" stroke="#9ca3af" tick={{ fontSize: 10 }} width={110} />
+                <RTooltip contentStyle={{ background: '#0c0c0e', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, fontSize: 11 }} />
+                <Bar dataKey="estimado" fill="#6366f1" name="Estimado" radius={[0, 4, 4, 0]} />
+                <Bar dataKey="real" fill="#10b981" name="Real" radius={[0, 4, 4, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
           </div>
         </div>
       )}
@@ -495,7 +624,7 @@ export default function MiDia() {
                     <Clock className="w-3 h-3" />
                     Trabajado: <strong className="text-white">{fmtDuracion(live)}</strong>
                   </span>
-                  <button onClick={() => setEstimado(t)} className="flex items-center gap-1 hover:text-white">
+                  <button onClick={() => abrirEstimado(t)} className="flex items-center gap-1 hover:text-white">
                     <Target className="w-3 h-3" />
                     Estimado: {t.tiempo_estimado_min ? fmtDuracion(t.tiempo_estimado_min) : 'definir'}
                   </button>
@@ -530,7 +659,7 @@ export default function MiDia() {
                       <Pause className="w-3 h-3" /> Pausar
                     </button>
                   )}
-                  <button onClick={() => completar(t)}
+                  <button onClick={() => abrirCompletar(t)}
                     className="px-3 py-1.5 text-xs rounded-md bg-emerald-500 hover:bg-emerald-400 text-black font-medium flex items-center gap-1.5">
                     <CheckCircle2 className="w-3 h-3" /> Listo
                   </button>
@@ -562,6 +691,78 @@ export default function MiDia() {
           </div>
         </details>
       )}
+      {/* Modal: Completar tarea */}
+      <Modal open={!!completarTarea} onClose={() => setCompletarTarea(null)} title="Completar tarea" maxWidth="max-w-lg">
+        {completarTarea && (
+          <div className="space-y-4">
+            <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-3">
+              <div className="text-xs text-emerald-300 uppercase tracking-wider mb-1">Tarea</div>
+              <div className="text-sm font-semibold text-white">{completarTarea.titulo}</div>
+              {completarTarea.cliente_nombre && (
+                <div className="text-[11px] text-gray-400 mt-1">{completarTarea.cliente_nombre}</div>
+              )}
+              <div className="flex items-center gap-3 text-[11px] text-gray-400 mt-2">
+                <span className="flex items-center gap-1"><Clock className="w-3 h-3" /> Trabajado: {fmtDuracion(tiempoRealLive(completarTarea))}</span>
+                {completarTarea.tiempo_estimado_min ? (
+                  <span className="flex items-center gap-1"><Target className="w-3 h-3" /> Estimado: {fmtDuracion(completarTarea.tiempo_estimado_min)}</span>
+                ) : null}
+              </div>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-400 mb-1.5">¿Cómo culminó? (opcional)</label>
+              <textarea
+                value={completarTexto}
+                onChange={e => setCompletarTexto(e.target.value)}
+                rows={4}
+                placeholder="Resumen breve del resultado, observaciones, próximos pasos…"
+                className="input-dark w-full resize-none"
+                autoFocus
+              />
+            </div>
+            <div className="flex justify-end gap-2 pt-2">
+              <button onClick={() => setCompletarTarea(null)}
+                className="px-4 py-2 text-xs rounded-lg bg-white/5 hover:bg-white/10 text-gray-300 border border-white/10">
+                Cancelar
+              </button>
+              <button onClick={confirmarCompletar}
+                className="px-4 py-2 text-xs rounded-lg bg-emerald-500 hover:bg-emerald-400 text-black font-semibold flex items-center gap-1.5">
+                <CheckCircle2 className="w-3.5 h-3.5" /> Marcar como completada
+              </button>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      {/* Modal: Tiempo estimado */}
+      <Modal open={!!estimadoTarea} onClose={() => setEstimadoTarea(null)} title="Tiempo estimado" maxWidth="max-w-sm">
+        {estimadoTarea && (
+          <div className="space-y-4">
+            <div className="text-sm text-gray-300">{estimadoTarea.titulo}</div>
+            <div>
+              <label className="block text-xs font-medium text-gray-400 mb-1.5">Minutos estimados</label>
+              <input
+                type="number"
+                min="1"
+                value={estimadoMin}
+                onChange={e => setEstimadoMin(e.target.value)}
+                className="input-dark w-full"
+                autoFocus
+                onKeyDown={e => { if (e.key === 'Enter') confirmarEstimado(); }}
+              />
+            </div>
+            <div className="flex justify-end gap-2 pt-2">
+              <button onClick={() => setEstimadoTarea(null)}
+                className="px-4 py-2 text-xs rounded-lg bg-white/5 hover:bg-white/10 text-gray-300 border border-white/10">
+                Cancelar
+              </button>
+              <button onClick={confirmarEstimado}
+                className="px-4 py-2 text-xs rounded-lg bg-emerald-500 hover:bg-emerald-400 text-black font-semibold">
+                Guardar
+              </button>
+            </div>
+          </div>
+        )}
+      </Modal>
     </div>
   );
 }
