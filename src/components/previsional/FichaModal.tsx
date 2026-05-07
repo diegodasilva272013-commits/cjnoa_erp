@@ -6,7 +6,7 @@ import {
 } from 'lucide-react';
 import Modal from '../Modal';
 import { supabase } from '../../lib/supabase';
-import { ClientePrevisional, calcularMoratoria, SexoCliente, PipelinePrevisional, PIPELINE_LABELS, SubEstadoPrevisional, getCostoMensual27705, setCostoMensual27705, COSTO_MENSUAL_27705_DEFAULT, loadCostoMensual27705FromDB, saveCostoMensual27705ToDB } from '../../types/previsional';
+import { ClientePrevisional, calcularMoratoria, SexoCliente, PipelinePrevisional, PIPELINE_LABELS, SubEstadoPrevisional, getCostoMensual27705, setCostoMensual27705, COSTO_MENSUAL_27705_DEFAULT, loadCostoMensual27705FromDB, saveCostoMensual27705ToDB, getMoratoriaOverrides, setMoratoriaOverrides } from '../../types/previsional';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
 import { SOCIOS } from '../../types/database';
@@ -28,6 +28,8 @@ export default function FichaModal({ open, onClose, cliente, onSave }: Props) {
   const [section, setSection] = useState<'datos' | 'moratorias' | 'seguimiento' | 'cobro'>('datos');
   const [costoCuota, setCostoCuota] = useState<number>(getCostoMensual27705());
   const [costoEditando, setCostoEditando] = useState(false);
+  const [hasta24476, setHasta24476] = useState<string>('1993-09-30');
+  const [hasta27705, setHasta27705] = useState<string>('2012-03-31');
 
   // Sincroniza el costo con la DB para que persista entre dispositivos/navegadores
   useEffect(() => {
@@ -35,6 +37,18 @@ export default function FichaModal({ open, onClose, cliente, onSave }: Props) {
     loadCostoMensual27705FromDB().then(v => { if (!cancel) setCostoCuota(v); });
     return () => { cancel = true; };
   }, []);
+
+  // Cargar overrides de moratoria del cliente actual
+  useEffect(() => {
+    if (cliente?.id) {
+      const ovr = getMoratoriaOverrides(cliente.id);
+      setHasta24476(ovr.hasta24476 || '1993-09-30');
+      setHasta27705(ovr.hasta27705 || '2012-03-31');
+    } else {
+      setHasta24476('1993-09-30');
+      setHasta27705('2012-03-31');
+    }
+  }, [cliente?.id]);
 
   // ── Speech-to-Text para campos de seguimiento ──
   const [sttField, setSttField] = useState<string | null>(null); // campo activo
@@ -277,8 +291,17 @@ export default function FichaModal({ open, onClose, cliente, onSave }: Props) {
 
   // Cálculos de moratoria en vivo
   const moratoria = form.fecha_nacimiento && form.sexo
-    ? calcularMoratoria(form.fecha_nacimiento, form.sexo as SexoCliente)
+    ? calcularMoratoria(form.fecha_nacimiento, form.sexo as SexoCliente, { hasta24476, hasta27705 })
     : null;
+
+  // Persistir overrides cuando cambian
+  useEffect(() => {
+    if (!cliente?.id) return;
+    setMoratoriaOverrides(cliente.id, {
+      hasta24476: hasta24476 !== '1993-09-30' ? hasta24476 : null,
+      hasta27705: hasta27705 !== '2012-03-31' ? hasta27705 : null,
+    });
+  }, [cliente?.id, hasta24476, hasta27705]);
 
   const handleSave = async () => {
     if (!form.apellido_nombre.trim()) return;
@@ -649,9 +672,25 @@ export default function FichaModal({ open, onClose, cliente, onSave }: Props) {
                   <div className="w-10 h-10 rounded-xl bg-blue-500/10 flex items-center justify-center">
                     <FileText className="w-5 h-5 text-blue-400" />
                   </div>
-                  <div>
+                  <div className="flex-1">
                     <h4 className="text-sm font-semibold text-white">Moratoria Ley 24.476</h4>
-                    <p className="text-[10px] text-gray-500">Desde los 18 años hasta 09/1993</p>
+                    <p className="text-[10px] text-gray-500">Desde los 18 años hasta la fecha indicada</p>
+                  </div>
+                  <div className="flex flex-col items-end gap-1">
+                    <label className="text-[10px] text-gray-500 uppercase tracking-wider">Fecha límite</label>
+                    <input
+                      type="date"
+                      value={hasta24476}
+                      onChange={e => setHasta24476(e.target.value || '1993-09-30')}
+                      className="input-dark text-xs py-1 px-2"
+                      title="Editar fecha límite de la Ley 24.476 para este cliente"
+                    />
+                    {hasta24476 !== '1993-09-30' && (
+                      <button type="button" onClick={() => setHasta24476('1993-09-30')}
+                        className="text-[10px] text-gray-500 hover:text-blue-300 underline">
+                        Restaurar default (09/1993)
+                      </button>
+                    )}
                   </div>
                 </div>
                 <div className="grid grid-cols-3 gap-3">
@@ -676,9 +715,25 @@ export default function FichaModal({ open, onClose, cliente, onSave }: Props) {
                   <div className="w-10 h-10 rounded-xl bg-purple-500/10 flex items-center justify-center">
                     <FileText className="w-5 h-5 text-purple-400" />
                   </div>
-                  <div>
+                  <div className="flex-1">
                     <h4 className="text-sm font-semibold text-white">Moratoria Ley 27.705</h4>
-                    <p className="text-[10px] text-gray-500">Desde los 18 años hasta 03/2012</p>
+                    <p className="text-[10px] text-gray-500">Desde los 18 años hasta la fecha indicada</p>
+                  </div>
+                  <div className="flex flex-col items-end gap-1">
+                    <label className="text-[10px] text-gray-500 uppercase tracking-wider">Fecha límite</label>
+                    <input
+                      type="date"
+                      value={hasta27705}
+                      onChange={e => setHasta27705(e.target.value || '2012-03-31')}
+                      className="input-dark text-xs py-1 px-2"
+                      title="Editar fecha límite de la Ley 27.705 para este cliente"
+                    />
+                    {hasta27705 !== '2012-03-31' && (
+                      <button type="button" onClick={() => setHasta27705('2012-03-31')}
+                        className="text-[10px] text-gray-500 hover:text-purple-300 underline">
+                        Restaurar default (03/2012)
+                      </button>
+                    )}
                   </div>
                 </div>
                 <div className="grid grid-cols-3 gap-3">

@@ -276,6 +276,36 @@ export async function saveCostoMensual27705ToDB(value: number): Promise<void> {
   } catch { /* noop */ }
 }
 
+// ── Overrides de fechas-límite de moratoria por cliente ──
+// Permite ajustar manualmente el corte de cada ley para clientes especiales
+// (ej: pre-1993, casos de excepción). Se persisten en localStorage para
+// no requerir migración de DB.
+export interface MoratoriaOverrides {
+  hasta24476?: string | null; // YYYY-MM-DD
+  hasta27705?: string | null; // YYYY-MM-DD
+}
+const MOR_OVR_KEY = (clienteId: string) => `previsional.cliente.${clienteId}.moratoria_overrides`;
+
+export function getMoratoriaOverrides(clienteId: string): MoratoriaOverrides {
+  if (typeof window === 'undefined') return {};
+  try {
+    const raw = window.localStorage.getItem(MOR_OVR_KEY(clienteId));
+    return raw ? JSON.parse(raw) : {};
+  } catch { return {}; }
+}
+
+export function setMoratoriaOverrides(clienteId: string, ovr: MoratoriaOverrides): void {
+  if (typeof window === 'undefined') return;
+  const clean: MoratoriaOverrides = {};
+  if (ovr.hasta24476) clean.hasta24476 = ovr.hasta24476;
+  if (ovr.hasta27705) clean.hasta27705 = ovr.hasta27705;
+  if (Object.keys(clean).length === 0) {
+    window.localStorage.removeItem(MOR_OVR_KEY(clienteId));
+  } else {
+    window.localStorage.setItem(MOR_OVR_KEY(clienteId), JSON.stringify(clean));
+  }
+}
+
 // Compat: mantener constante para imports existentes (lee el valor configurado)
 export const COSTO_MENSUAL_27705 = COSTO_MENSUAL_27705_DEFAULT;
 
@@ -289,7 +319,11 @@ export function formatFechaLocal(iso: string | null | undefined): string {
 }
 
 // ── Funciones de cálculo ──
-export function calcularMoratoria(fechaNacimiento: string, sexo: SexoCliente): CalculoMoratoria {
+export function calcularMoratoria(
+  fechaNacimiento: string,
+  sexo: SexoCliente,
+  overrides?: { hasta24476?: string | null; hasta27705?: string | null }
+): CalculoMoratoria {
   // Parsear como fecha LOCAL para evitar el desfase de zona horaria
   // (new Date("YYYY-MM-DD") interpreta como UTC y en AR resta 1 día).
   const isoMatch = fechaNacimiento.match(/^(\d{4})-(\d{2})-(\d{2})/);
@@ -307,8 +341,16 @@ export function calcularMoratoria(fechaNacimiento: string, sexo: SexoCliente): C
   const desde18 = new Date(nacimiento);
   desde18.setFullYear(desde18.getFullYear() + 18);
 
-  // 24.476: desde 18 años hasta 30/09/1993
-  const limite24476 = new Date(1993, 8, 30); // Sep 30, 1993
+  // Helper: parsea YYYY-MM-DD a Date local; devuelve null si inválido
+  const parseLocal = (s?: string | null): Date | null => {
+    if (!s) return null;
+    const m2 = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (!m2) return null;
+    return new Date(parseInt(m2[1], 10), parseInt(m2[2], 10) - 1, parseInt(m2[3], 10));
+  };
+
+  // 24.476: desde 18 años hasta override (default 30/09/1993)
+  const limite24476 = parseLocal(overrides?.hasta24476) || new Date(1993, 8, 30);
   let meses24476 = 0;
   if (desde18 < limite24476) {
     const diff = (limite24476.getFullYear() - desde18.getFullYear()) * 12 +
@@ -316,8 +358,8 @@ export function calcularMoratoria(fechaNacimiento: string, sexo: SexoCliente): C
     meses24476 = Math.max(0, diff);
   }
 
-  // 27.705: desde 18 años hasta 31/03/2012
-  const limite27705 = new Date(2012, 2, 31); // Mar 31, 2012
+  // 27.705: desde 18 años hasta override (default 31/03/2012)
+  const limite27705 = parseLocal(overrides?.hasta27705) || new Date(2012, 2, 31);
   let meses27705 = 0;
   if (desde18 < limite27705) {
     const diff = (limite27705.getFullYear() - desde18.getFullYear()) * 12 +
