@@ -6,7 +6,7 @@ import { ChevronLeft, ChevronRight, RefreshCw, Link as LinkIcon, Unlink, Externa
 
 type EventoCal = {
   id: string;
-  source: 'audiencia_general' | 'consulta' | 'audiencia_legal' | 'gcal';
+  source: 'audiencia_general' | 'consulta' | 'audiencia_legal' | 'gcal' | 'interno';
   fecha: Date;
   titulo: string;
   subtitulo?: string;
@@ -45,6 +45,9 @@ export default function Calendario() {
   const [diaSeleccionado, setDiaSeleccionado] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
+  const [busquedaGlobal, setBusquedaGlobal] = useState('');
+  const [resultadosBusqueda, setResultadosBusqueda] = useState<Array<{ id: string; titulo: string; subtitulo: string; fecha: Date; source: string }>>([]);
+  const [buscando, setBuscando] = useState(false);
   const [nuevoEvento, setNuevoEvento] = useState<null | {
     fecha: string; hora: string; duracion: number;
     titulo: string; descripcion: string; ubicacion: string;
@@ -91,7 +94,6 @@ export default function Calendario() {
 
   async function guardarNuevoEvento() {
     if (!nuevoEvento || !user) return;
-    if (!conectado) { setMsg('Primero conectá Google Calendar.'); return; }
     if (!nuevoEvento.titulo.trim()) { setMsg('Poné un título al evento.'); return; }
     setNuevoEvento({ ...nuevoEvento, guardando: true });
     try {
@@ -100,25 +102,57 @@ export default function Calendario() {
         : `${nuevoEvento.fecha}T${nuevoEvento.hora}:00`;
       const startDate = new Date(startISO);
       const endDate = new Date(startDate.getTime() + Math.max(15, nuevoEvento.duracion) * 60_000);
-      const r = await fetch('/api/google/create-event', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+
+      // 1) Siempre se guarda en el sistema interno.
+      const { data: insertado, error: errInterno } = await supabase
+        .from('eventos_internos')
+        .insert({
           user_id: user.id,
-          summary: nuevoEvento.titulo,
-          description: nuevoEvento.descripcion,
-          location: nuevoEvento.ubicacion,
-          start: startDate.toISOString(),
-          end: endDate.toISOString(),
-          allDay: nuevoEvento.todoElDia,
-        }),
-      });
-      const j = await r.json();
-      if (!j.ok) {
-        setMsg('❌ No se pudo crear: ' + (j.error || 'error'));
+          titulo: nuevoEvento.titulo,
+          descripcion: nuevoEvento.descripcion || null,
+          ubicacion: nuevoEvento.ubicacion || null,
+          fecha_inicio: startDate.toISOString(),
+          fecha_fin: endDate.toISOString(),
+          todo_el_dia: nuevoEvento.todoElDia,
+        })
+        .select('id')
+        .single();
+
+      if (errInterno) {
+        setMsg('❌ No se pudo guardar: ' + errInterno.message);
         setNuevoEvento({ ...nuevoEvento, guardando: false });
         return;
       }
-      setMsg('✅ Evento creado en Google Calendar.');
+
+      // 2) Si Google Calendar está conectado, además se sincroniza.
+      let msgFinal = '✅ Evento agendado en el sistema.';
+      if (conectado) {
+        try {
+          const r = await fetch('/api/google/create-event', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              user_id: user.id,
+              summary: nuevoEvento.titulo,
+              description: nuevoEvento.descripcion,
+              location: nuevoEvento.ubicacion,
+              start: startDate.toISOString(),
+              end: endDate.toISOString(),
+              allDay: nuevoEvento.todoElDia,
+            }),
+          });
+          const j = await r.json();
+          if (j.ok && j.event_id && insertado?.id) {
+            await supabase.from('eventos_internos').update({ google_event_id: j.event_id }).eq('id', insertado.id);
+            msgFinal = '✅ Evento agendado y sincronizado con Google Calendar.';
+          } else if (!j.ok) {
+            msgFinal = '✅ Evento agendado en el sistema (no se pudo sync a Google: ' + (j.error || 'error') + ').';
+          }
+        } catch (e: any) {
+          msgFinal = '✅ Evento agendado en el sistema (no se pudo sync a Google: ' + (e?.message || 'error') + ').';
+        }
+      }
+
+      setMsg(msgFinal);
       setNuevoEvento(null);
       // refrescar la grilla forzando un re-fetch (cambia un dummy en cursor)
       setCursor(new Date(cursor));
@@ -352,7 +386,11 @@ export default function Calendario() {
         ? fetch(`/api/google/list-events?user_id=${encodeURIComponent(user.id)}&timeMin=${encodeURIComponent(startISO)}&timeMax=${encodeURIComponent(endISO)}`)
             .then(r => r.json()).catch(() => ({ events: [] }))
         : Promise.resolve({ events: [] as any[] }),
-    ]).then(([ag, cs, al, gc]) => {
+      // Eventos internos del sistema (no requieren Google)
+      supabase.from('eventos_internos')
+        .select('*')
+        .gte('fecha_inicio', startISO).lte('fecha_inicio', endISO),
+    ]).then(([ag, cs, al, gc, ei]) => {
       if (!alive) return;
       const out: EventoCal[] = [];
       (ag.data || []).forEach((r: any) => {
@@ -398,6 +436,10 @@ export default function Calendario() {
           .map((r: any) => r.google_event_id)
           .filter(Boolean)
       );
+      // Tambien excluir los google_event_id de eventos internos sincronizados
+      ((ei as any)?.data || []).forEach((r: any) => {
+        if (r.google_event_id) idsLocales.add(r.google_event_id);
+      });
       ((gc as any).events || []).forEach((e: any) => {
         if (!e.start) return;
         if (idsLocales.has(e.id)) return;
@@ -410,6 +452,19 @@ export default function Calendario() {
           color: 'border-emerald-400/40',
           bg: 'bg-emerald-500/15 text-emerald-200',
           raw: e,
+        });
+      });
+      // Eventos internos del sistema
+      ((ei as any)?.data || []).forEach((r: any) => {
+        out.push({
+          id: 'ei-' + r.id,
+          source: 'interno',
+          fecha: new Date(r.fecha_inicio),
+          titulo: r.titulo || '(sin título)',
+          subtitulo: r.ubicacion || r.descripcion || '',
+          color: 'border-pink-400/40',
+          bg: 'bg-pink-500/15 text-pink-200',
+          raw: r,
         });
       });
       setEventos(out.sort((a,b) => a.fecha.getTime() - b.fecha.getTime()));
@@ -445,6 +500,77 @@ export default function Calendario() {
     await supabase.from('google_oauth_tokens').delete().eq('user_id', user.id);
     setConectado(null);
     setMsg('Google Calendar desconectado.');
+  }
+
+  async function buscarGlobal() {
+    const q = busquedaGlobal.trim();
+    if (q.length < 2) { setResultadosBusqueda([]); return; }
+    setBuscando(true);
+    try {
+      const [cs, ag, al, ei] = await Promise.all([
+        supabase.from('consultas_agendadas')
+          .select('id, cliente_nombre, detalle_consulta, fecha_consulta, hora_consulta')
+          .ilike('cliente_nombre', `%${q}%`)
+          .order('fecha_consulta', { ascending: false })
+          .limit(15),
+        supabase.from('audiencias_general_completas')
+          .select('id, tipo, caso_general_titulo, cliente_nombre, juzgado, fecha')
+          .or(`cliente_nombre.ilike.%${q}%,caso_general_titulo.ilike.%${q}%,juzgado.ilike.%${q}%`)
+          .order('fecha', { ascending: false })
+          .limit(15),
+        supabase.from('audiencias')
+          .select('id, titulo, juzgado, descripcion, fecha')
+          .or(`titulo.ilike.%${q}%,juzgado.ilike.%${q}%,descripcion.ilike.%${q}%`)
+          .order('fecha', { ascending: false })
+          .limit(15),
+        supabase.from('eventos_internos')
+          .select('id, titulo, ubicacion, descripcion, fecha_inicio')
+          .or(`titulo.ilike.%${q}%,ubicacion.ilike.%${q}%,descripcion.ilike.%${q}%`)
+          .order('fecha_inicio', { ascending: false })
+          .limit(15),
+      ]);
+      const out: Array<{ id: string; titulo: string; subtitulo: string; fecha: Date; source: string }> = [];
+      (cs.data || []).forEach((r: any) => out.push({
+        id: 'cs-' + r.id,
+        titulo: `Consulta ${r.cliente_nombre || ''}`,
+        subtitulo: r.detalle_consulta || '',
+        fecha: new Date(`${r.fecha_consulta}T${(r.hora_consulta || '10:00')}:00`),
+        source: 'consulta',
+      }));
+      (ag.data || []).forEach((r: any) => out.push({
+        id: 'ag-' + r.id,
+        titulo: `Audiencia${r.tipo ? ' ' + r.tipo : ''}`,
+        subtitulo: r.caso_general_titulo || r.cliente_nombre || r.juzgado || '',
+        fecha: new Date(r.fecha),
+        source: 'audiencia_general',
+      }));
+      (al.data || []).forEach((r: any) => out.push({
+        id: 'al-' + r.id,
+        titulo: r.titulo || 'Audiencia',
+        subtitulo: r.juzgado || r.descripcion || '',
+        fecha: new Date(r.fecha),
+        source: 'audiencia_legal',
+      }));
+      (ei.data || []).forEach((r: any) => out.push({
+        id: 'ei-' + r.id,
+        titulo: r.titulo || '(sin título)',
+        subtitulo: r.ubicacion || r.descripcion || '',
+        fecha: new Date(r.fecha_inicio),
+        source: 'interno',
+      }));
+      out.sort((a, b) => b.fecha.getTime() - a.fecha.getTime());
+      setResultadosBusqueda(out);
+    } finally {
+      setBuscando(false);
+    }
+  }
+
+  function irAEvento(fecha: Date) {
+    const k = fmtKey(fecha);
+    setCursor(new Date(fecha.getFullYear(), fecha.getMonth(), 1));
+    setDiaSeleccionado(k);
+    setResultadosBusqueda([]);
+    setBusquedaGlobal('');
   }
 
   async function sincronizarMes() {
@@ -537,7 +663,65 @@ export default function Calendario() {
         <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-orange-500/60" /> Audiencias generales</span>
         <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-violet-500/60" /> Consultas</span>
         <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-sky-500/60" /> Audiencias (casos legales)</span>
+        <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-pink-500/60" /> Eventos del sistema</span>
         <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-emerald-500/60" /> Google Calendar</span>
+      </div>
+
+      {/* Búsqueda global de eventos (salta al mes correcto) */}
+      <div className="rounded-xl border border-white/10 bg-[#0c0c0e] p-3 space-y-2">
+        <div className="flex items-center gap-2">
+          <input
+            type="text"
+            value={busquedaGlobal}
+            onChange={(e) => setBusquedaGlobal(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') buscarGlobal(); }}
+            placeholder="Buscar consulta, audiencia o evento por nombre (ej: corsanigo)..."
+            className="flex-1 bg-white/5 border border-white/10 rounded-md px-3 py-1.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-white/30"
+          />
+          <button
+            onClick={buscarGlobal}
+            disabled={buscando || busquedaGlobal.trim().length < 2}
+            className="px-3 py-1.5 text-xs rounded-md bg-white/10 hover:bg-white/20 text-white border border-white/10 disabled:opacity-50"
+          >
+            {buscando ? 'Buscando…' : 'Buscar'}
+          </button>
+          {resultadosBusqueda.length > 0 && (
+            <button
+              onClick={() => { setResultadosBusqueda([]); setBusquedaGlobal(''); }}
+              className="px-2 py-1.5 text-xs rounded-md text-gray-400 hover:text-white"
+            >
+              Limpiar
+            </button>
+          )}
+        </div>
+        {resultadosBusqueda.length > 0 && (
+          <ul className="divide-y divide-white/[0.05] max-h-64 overflow-y-auto">
+            {resultadosBusqueda.map((r) => (
+              <li key={r.id}>
+                <button
+                  onClick={() => irAEvento(r.fecha)}
+                  className="w-full text-left px-2 py-2 hover:bg-white/[0.04] rounded-md flex items-center gap-3"
+                >
+                  <span className={`w-2 h-2 rounded-full ${
+                    r.source === 'consulta' ? 'bg-violet-400' :
+                    r.source === 'audiencia_general' ? 'bg-orange-400' :
+                    r.source === 'audiencia_legal' ? 'bg-sky-400' :
+                    'bg-pink-400'
+                  }`} />
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm text-white truncate">{r.titulo}</div>
+                    {r.subtitulo && <div className="text-[11px] text-gray-500 truncate">{r.subtitulo}</div>}
+                  </div>
+                  <div className="text-[11px] text-gray-400 whitespace-nowrap">
+                    {r.fecha.toLocaleDateString('es-AR', { day: '2-digit', month: 'short', year: 'numeric' })}
+                    {' '}
+                    {r.fecha.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}
+                  </div>
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
 
       <div className="grid grid-cols-7 gap-px bg-white/5 border border-white/10 rounded-xl overflow-hidden text-[11px]">
@@ -585,7 +769,7 @@ export default function Calendario() {
               <button
                 onClick={() => abrirNuevoEvento(diaSeleccionado)}
                 className="text-xs px-2.5 py-1.5 rounded-md bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-200 border border-emerald-500/30 flex items-center gap-1"
-                title={conectado ? 'Crear evento en Google Calendar' : 'Conectá Google Calendar primero'}
+                title={conectado ? 'Crear evento (sistema + Google Calendar)' : 'Crear evento en el sistema (sin Google Calendar)'}
               >
                 <Plus className="w-3.5 h-3.5" /> Nuevo evento
               </button>
@@ -602,6 +786,7 @@ export default function Calendario() {
                     {e.source === 'audiencia_general' && <Briefcase className="w-4 h-4 mt-0.5 text-orange-300" />}
                     {e.source === 'consulta' && <CalendarClock className="w-4 h-4 mt-0.5 text-violet-300" />}
                     {e.source === 'audiencia_legal' && <Gavel className="w-4 h-4 mt-0.5 text-sky-300" />}
+                    {e.source === 'interno' && <CalendarClock className="w-4 h-4 mt-0.5 text-pink-300" />}
                     <div className="flex-1 min-w-0">
                       <div className="text-sm text-white font-medium">{e.titulo}</div>
                       {e.subtitulo && <div className="text-xs text-gray-400 truncate">{e.subtitulo}</div>}
@@ -637,6 +822,21 @@ export default function Calendario() {
                       >
                         <ExternalLink className="w-3 h-3" />
                       </a>
+                    )}
+                    {e.source === 'interno' && (
+                      <button
+                        onClick={async () => {
+                          if (!confirm('¿Eliminar este evento del sistema?')) return;
+                          const { error } = await supabase.from('eventos_internos').delete().eq('id', e.raw.id);
+                          if (error) { setMsg('❌ ' + error.message); return; }
+                          setMsg('🗑️ Evento eliminado.');
+                          setCursor(new Date(cursor));
+                        }}
+                        className="text-xs px-2 py-1 rounded-md bg-white/5 hover:bg-red-500/10 text-gray-400 hover:text-red-300 border border-white/10 flex items-center gap-1"
+                        title="Eliminar evento"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                      </button>
                     )}
                   </div>
                 </li>
