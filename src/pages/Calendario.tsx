@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
-import { ChevronLeft, ChevronRight, RefreshCw, Link as LinkIcon, Unlink, ExternalLink, Gavel, CalendarClock, Briefcase, Plus, X, Image as ImageIcon, Sparkles, Trash2 } from 'lucide-react';
+import { ChevronLeft, ChevronRight, RefreshCw, Link as LinkIcon, Unlink, ExternalLink, Gavel, CalendarClock, Briefcase, Plus, X, Image as ImageIcon, Sparkles, Trash2, Mic, MicOff } from 'lucide-react';
 
 type EventoCal = {
   id: string;
@@ -65,6 +65,17 @@ export default function Calendario() {
     log: string;
   }>(null);
 
+  // Dictado por voz
+  const [voiceModal, setVoiceModal] = useState<null | {
+    fase: 'idle' | 'grabando' | 'procesando' | 'listo' | 'error';
+    segundos: number;
+    transcripcion: string;
+    log: string;
+  }>(null);
+  const mediaRecRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const grabTimerRef = useRef<any>(null);
+
   function abrirNuevoEvento(fechaKey: string) {
     setNuevoEvento({
       fecha: fechaKey,
@@ -120,6 +131,86 @@ export default function Calendario() {
   // ----- IA: subir fotos -> extraer turnos -> crear en Google -----
   function abrirSubirFotos() {
     setIaModal({ fase: 'subir', archivos: [], turnos: [], log: '' });
+  }
+
+  // ----- Dictado por voz -----
+  async function iniciarGrabacion() {
+    setVoiceModal({ fase: 'idle', segundos: 0, transcripcion: '', log: '' });
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      audioChunksRef.current = [];
+      const mime = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : 'audio/webm';
+      const rec = new MediaRecorder(stream, { mimeType: mime });
+      rec.ondataavailable = (e) => { if (e.data.size > 0) audioChunksRef.current.push(e.data); };
+      rec.onstop = async () => {
+        stream.getTracks().forEach(t => t.stop());
+        if (grabTimerRef.current) { clearInterval(grabTimerRef.current); grabTimerRef.current = null; }
+        const blob = new Blob(audioChunksRef.current, { type: mime });
+        await procesarAudio(blob, mime);
+      };
+      rec.start();
+      mediaRecRef.current = rec;
+      let secs = 0;
+      grabTimerRef.current = setInterval(() => {
+        secs += 1;
+        setVoiceModal(v => v ? { ...v, segundos: secs } : v);
+        if (secs >= 60) detenerGrabacion();
+      }, 1000);
+      setVoiceModal({ fase: 'grabando', segundos: 0, transcripcion: '', log: 'Hablando… (máx 60s)' });
+    } catch (e: any) {
+      setVoiceModal({ fase: 'error', segundos: 0, transcripcion: '', log: 'No se pudo acceder al micrófono: ' + (e?.message || 'permiso denegado') });
+    }
+  }
+
+  function detenerGrabacion() {
+    const rec = mediaRecRef.current;
+    if (rec && rec.state !== 'inactive') {
+      rec.stop();
+      setVoiceModal(v => v ? { ...v, fase: 'procesando', log: 'Transcribiendo y entendiendo lo que dijiste…' } : v);
+    }
+  }
+
+  async function procesarAudio(blob: Blob, mime: string) {
+    try {
+      const buf = await blob.arrayBuffer();
+      // a base64
+      const bytes = new Uint8Array(buf);
+      let bin = '';
+      for (let i = 0; i < bytes.byteLength; i++) bin += String.fromCharCode(bytes[i]);
+      const b64 = btoa(bin);
+      const r = await fetch('/api/google/voice-event', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ audio_base64: b64, mime, fechaHoy: new Date().toISOString().slice(0,10) }),
+      });
+      const j = await r.json();
+      if (!r.ok || !j.evento) {
+        setVoiceModal(v => v ? { ...v, fase: 'error', log: '❌ ' + (j.error || 'no se entendió la frase'), transcripcion: j.transcripcion || '' } : v);
+        return;
+      }
+      setVoiceModal(v => v ? { ...v, fase: 'listo', transcripcion: j.transcripcion, log: '' } : v);
+      // Prellenar nuevoEvento con los datos extraídos
+      const ev = j.evento;
+      setNuevoEvento({
+        fecha: ev.fecha || new Date().toISOString().slice(0,10),
+        hora: ev.hora || '10:00',
+        duracion: parseInt(ev.duracion_min) || 60,
+        titulo: ev.titulo || j.transcripcion || '',
+        descripcion: ev.descripcion || '',
+        ubicacion: ev.ubicacion || '',
+        todoElDia: !!ev.todoElDia,
+        guardando: false,
+      });
+    } catch (e: any) {
+      setVoiceModal(v => v ? { ...v, fase: 'error', log: '❌ ' + (e?.message || 'error') } : v);
+    }
+  }
+
+  function cerrarVoz() {
+    if (mediaRecRef.current && mediaRecRef.current.state !== 'inactive') {
+      try { mediaRecRef.current.stop(); } catch {}
+    }
+    if (grabTimerRef.current) { clearInterval(grabTimerRef.current); grabTimerRef.current = null; }
+    setVoiceModal(null);
   }
 
   async function onSelectFiles(files: FileList | null) {
@@ -386,6 +477,11 @@ export default function Calendario() {
           <p className="text-sm text-gray-500">Audiencias, consultas y eventos en una sola vista.</p>
         </div>
         <div className="flex flex-wrap gap-2">
+          <button onClick={iniciarGrabacion}
+            className="px-3 py-2 text-xs rounded-lg bg-rose-500/15 hover:bg-rose-500/25 text-rose-200 border border-rose-500/30 flex items-center gap-2"
+            title="Dictar evento por voz">
+            <Mic className="w-3.5 h-3.5" /> Dictar evento
+          </button>
           <button onClick={abrirSubirFotos}
             className="px-3 py-2 text-xs rounded-lg bg-fuchsia-500/15 hover:bg-fuchsia-500/25 text-fuchsia-200 border border-fuchsia-500/30 flex items-center gap-2"
             title="Subir fotos de turnos y agendar automáticamente con IA">
@@ -551,6 +647,82 @@ export default function Calendario() {
       )}
 
       {loading && <div className="text-xs text-gray-500">Cargando eventos…</div>}
+
+      {/* Modal Dictado por voz */}
+      {voiceModal && (
+        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => voiceModal.fase !== 'procesando' && cerrarVoz()}>
+          <div className="w-full max-w-md rounded-2xl bg-[#0c0c0e] border border-white/10 p-6 space-y-4 text-center" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between">
+              <h3 className="text-white font-semibold flex items-center gap-2">
+                <Mic className="w-4 h-4 text-rose-300" /> Dictar evento
+              </h3>
+              <button onClick={cerrarVoz} disabled={voiceModal.fase === 'procesando'}
+                className="text-gray-400 hover:text-white"><X className="w-4 h-4" /></button>
+            </div>
+
+            {voiceModal.fase === 'idle' && (
+              <div className="py-6 space-y-3">
+                <p className="text-sm text-gray-300">Tocá el micrófono y decí algo como:</p>
+                <p className="text-xs text-gray-500 italic">"Reunión con cliente Pérez mañana a las 10 en la oficina"</p>
+                <button onClick={iniciarGrabacion}
+                  className="mx-auto w-20 h-20 rounded-full bg-rose-500 hover:bg-rose-400 text-white flex items-center justify-center shadow-lg shadow-rose-500/30">
+                  <Mic className="w-8 h-8" />
+                </button>
+              </div>
+            )}
+
+            {voiceModal.fase === 'grabando' && (
+              <div className="py-6 space-y-3">
+                <div className="mx-auto w-24 h-24 rounded-full bg-rose-500 text-white flex items-center justify-center animate-pulse shadow-lg shadow-rose-500/40">
+                  <Mic className="w-10 h-10" />
+                </div>
+                <div className="text-2xl font-mono text-white">
+                  {String(Math.floor(voiceModal.segundos / 60)).padStart(2,'0')}:{String(voiceModal.segundos % 60).padStart(2,'0')}
+                </div>
+                <p className="text-xs text-gray-400">{voiceModal.log}</p>
+                <button onClick={detenerGrabacion}
+                  className="px-4 py-2 text-sm rounded-lg bg-white text-black font-medium flex items-center gap-2 mx-auto">
+                  <MicOff className="w-4 h-4" /> Detener y procesar
+                </button>
+              </div>
+            )}
+
+            {voiceModal.fase === 'procesando' && (
+              <div className="py-10 flex flex-col items-center gap-3 text-gray-300">
+                <RefreshCw className="w-8 h-8 animate-spin text-rose-400" />
+                <div className="text-sm">{voiceModal.log}</div>
+              </div>
+            )}
+
+            {voiceModal.fase === 'listo' && (
+              <div className="py-4 space-y-3">
+                <div className="text-emerald-300 text-sm">✅ Entendido</div>
+                <div className="text-xs text-gray-300 italic bg-white/5 rounded-md p-3 border border-white/10">
+                  "{voiceModal.transcripcion}"
+                </div>
+                <p className="text-xs text-gray-400">Revisá los datos en el formulario y guardalo en Google Calendar.</p>
+                <button onClick={cerrarVoz}
+                  className="px-4 py-2 text-sm rounded-lg bg-emerald-500 text-black font-medium">
+                  Ver evento
+                </button>
+              </div>
+            )}
+
+            {voiceModal.fase === 'error' && (
+              <div className="py-6 space-y-3">
+                <div className="text-red-300 text-sm">{voiceModal.log}</div>
+                {voiceModal.transcripcion && (
+                  <div className="text-xs text-gray-400 italic">Escuchamos: "{voiceModal.transcripcion}"</div>
+                )}
+                <button onClick={iniciarGrabacion}
+                  className="px-4 py-2 text-sm rounded-lg bg-rose-500 hover:bg-rose-400 text-white font-medium">
+                  Probar otra vez
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Modal Nuevo evento */}
       {nuevoEvento && (
