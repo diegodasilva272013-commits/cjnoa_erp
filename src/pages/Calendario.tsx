@@ -878,11 +878,6 @@ export default function Calendario() {
                             consulta: 'consultas_agendadas',
                           };
                           const tabla = tablas[e.source];
-                          // Para consultas: limpiar referencias antes de borrar
-                          if (e.source === 'consulta') {
-                            await supabase.from('consultas_agendadas')
-                              .update({ ingreso_reserva_id: null }).eq('id', e.raw.id);
-                          }
                           const { error } = await supabase.from(tabla).delete().eq('id', e.raw.id);
                           if (error) {
                             const msgErr = `❌ No se pudo eliminar: ${error.message}\n\n${
