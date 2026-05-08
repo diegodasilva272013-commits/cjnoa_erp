@@ -21,6 +21,9 @@ create policy cm_select on public.cierres_mes_finanzas for select using (auth.ui
 drop policy if exists cm_insert on public.cierres_mes_finanzas;
 create policy cm_insert on public.cierres_mes_finanzas for insert with check (auth.uid() is not null);
 
+drop policy if exists cm_update on public.cierres_mes_finanzas;
+create policy cm_update on public.cierres_mes_finanzas for update using (auth.uid() is not null) with check (auth.uid() is not null);
+
 drop policy if exists cm_delete on public.cierres_mes_finanzas;
 create policy cm_delete on public.cierres_mes_finanzas for delete using (auth.uid() is not null);
 
