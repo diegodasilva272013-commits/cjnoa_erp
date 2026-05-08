@@ -185,9 +185,9 @@ export default function Ingresos() {
 
       {/* Métricas */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-        <MetricCard label="Total filtrado" value={formatMoney(totales.total)} highlight />
+        <MetricCard label="Total filtrado" value={formatMoney(totales.total)} tone="emerald" highlight />
         {SOCIOS_FINANZAS.map(s => (
-          <MetricCard key={s} label={s} value={formatMoney(totales.porSocio[s] || 0)} />
+          <MetricCard key={s} label={s} value={formatMoney(totales.porSocio[s] || 0)} tone={SOCIO_TONE[s]} />
         ))}
       </div>
 
@@ -348,14 +348,34 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
-function MetricCard({ label, value, highlight }: { label: string; value: string; highlight?: boolean }) {
+function MetricCard({ label, value, highlight, tone = 'zinc' }: { label: string; value: string; highlight?: boolean; tone?: Tone }) {
+  const t = TONES[tone];
   return (
-    <div className={`rounded-xl border p-4 ${highlight ? 'bg-emerald-500/10 border-emerald-500/30' : 'bg-white/[0.02] border-white/10'}`}>
-      <div className="text-xs text-zinc-400">{label}</div>
-      <div className={`text-lg font-semibold mt-1 ${highlight ? 'text-emerald-300' : 'text-white'}`}>{value}</div>
+    <div
+      className={`group relative rounded-xl border p-4 overflow-hidden cursor-default transition-all duration-300 ease-out hover:-translate-y-1 hover:scale-[1.02] hover:shadow-lg ${t.bg} ${t.border} ${t.shadow} ${highlight ? 'ring-1 ring-inset ' + t.ring : ''}`}
+    >
+      <div className={`absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-300 bg-gradient-to-br ${t.gradient} pointer-events-none`} />
+      <div className={`absolute -top-8 -right-8 w-24 h-24 rounded-full blur-2xl opacity-20 group-hover:opacity-40 transition-opacity duration-300 ${t.glow}`} />
+      <div className="relative">
+        <div className={`text-xs ${t.label}`}>{label}</div>
+        <div className={`text-lg font-semibold mt-1 transition-transform duration-300 group-hover:scale-105 origin-left ${t.value}`}>{value}</div>
+      </div>
     </div>
   );
 }
+
+type Tone = 'emerald' | 'sky' | 'violet' | 'amber' | 'rose' | 'zinc';
+
+const TONES: Record<Tone, { bg: string; border: string; ring: string; gradient: string; glow: string; label: string; value: string; shadow: string }> = {
+  emerald: { bg: 'bg-emerald-500/10', border: 'border-emerald-500/30', ring: 'ring-emerald-400/40', gradient: 'from-emerald-500/20 to-transparent', glow: 'bg-emerald-400', label: 'text-emerald-300/80', value: 'text-emerald-200', shadow: 'hover:shadow-emerald-500/20' },
+  sky:     { bg: 'bg-sky-500/10',     border: 'border-sky-500/30',     ring: 'ring-sky-400/40',     gradient: 'from-sky-500/20 to-transparent',     glow: 'bg-sky-400',     label: 'text-sky-300/80',     value: 'text-sky-100',     shadow: 'hover:shadow-sky-500/20' },
+  violet:  { bg: 'bg-violet-500/10',  border: 'border-violet-500/30',  ring: 'ring-violet-400/40',  gradient: 'from-violet-500/20 to-transparent',  glow: 'bg-violet-400',  label: 'text-violet-300/80',  value: 'text-violet-100',  shadow: 'hover:shadow-violet-500/20' },
+  amber:   { bg: 'bg-amber-500/10',   border: 'border-amber-500/30',   ring: 'ring-amber-400/40',   gradient: 'from-amber-500/20 to-transparent',   glow: 'bg-amber-400',   label: 'text-amber-300/80',   value: 'text-amber-100',   shadow: 'hover:shadow-amber-500/20' },
+  rose:    { bg: 'bg-rose-500/10',    border: 'border-rose-500/30',    ring: 'ring-rose-400/40',    gradient: 'from-rose-500/20 to-transparent',    glow: 'bg-rose-400',    label: 'text-rose-300/80',    value: 'text-rose-100',    shadow: 'hover:shadow-rose-500/20' },
+  zinc:    { bg: 'bg-white/[0.02]',   border: 'border-white/10',       ring: 'ring-white/20',       gradient: 'from-white/10 to-transparent',       glow: 'bg-white',       label: 'text-zinc-400',       value: 'text-white',       shadow: 'hover:shadow-white/10' },
+};
+
+const SOCIO_TONE: Record<SocioFinanzas, Tone> = { Rodri: 'sky', Noe: 'violet', Ale: 'amber', Fabri: 'rose' };
 
 function SelectFilter({ label, value, onChange, options }: { label: string; value: string; onChange: (v: string) => void; options: readonly string[] }) {
   return (
