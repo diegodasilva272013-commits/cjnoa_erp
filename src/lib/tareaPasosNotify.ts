@@ -157,75 +157,41 @@ async function generarReporteIaYNota(
     nombres = Object.fromEntries((perfiles || []).map((p: any) => [p.id, p.nombre]));
   }
 
-  // Calcular duración
-  const tiemposCompletado = pasos
+  // Helper formato corto
+  const fmtMin = (m: number) => {
+    if (m < 1) return '<1 min';
+    if (m < 60) return `${m} min`;
+    if (m < 1440) return `${Math.floor(m / 60)}h ${m % 60}min`;
+    return `${Math.floor(m / 1440)}d ${Math.floor((m % 1440) / 60)}h`;
+  };
+
+  // Duración total = max(completado_at) - min(completado_at)
+  const tiempos = pasos
     .map(p => p.completado_at ? new Date(p.completado_at).getTime() : null)
     .filter((x): x is number => x != null);
-  let durTxt = '—';
-  let durMin = 0;
-  if (tiemposCompletado.length > 0) {
-    const min = Math.min(...tiemposCompletado);
-    const max = Math.max(...tiemposCompletado);
-    durMin = Math.max(0, Math.floor((max - min) / 60000));
-    if (durMin < 60) durTxt = `${durMin} min`;
-    else if (durMin < 60 * 24) durTxt = `${Math.floor(durMin / 60)}h ${durMin % 60}min`;
-    else durTxt = `${Math.floor(durMin / 1440)}d ${Math.floor((durMin % 1440) / 60)}h`;
+  let durTotal = 0;
+  if (tiempos.length > 0) {
+    durTotal = Math.max(0, Math.floor((Math.max(...tiempos) - Math.min(...tiempos)) / 60000));
   }
 
-  const pasosTxt = pasos
-    .map(p => `• Paso ${p.orden}: ${p.descripcion || '(sin descripción)'}\n   ✓ Hecho por ${nombres[p.completado_por] || '—'}` +
-      (p.completado_at ? ` el ${new Date(p.completado_at).toLocaleString('es-AR', { dateStyle: 'short', timeStyle: 'short' })}` : ''))
-    .join('\n');
-
-  // Llamar IA (best-effort)
-  let bloqueIa = '';
-  try {
-    const resp = await fetch('/api/copiloto', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        tipo: 'reporte_tarea_finalizada',
-        datos: {
-          titulo: tarea?.titulo || tareaTitulo,
-          descripcion: tarea?.descripcion || '',
-          caso_titulo: caso?.titulo || caso?.cliente_nombre || '',
-          duracion_min: durMin,
-          total_pasos: pasos.length,
-          pasos: pasos.map(p => ({
-            orden: p.orden,
-            descripcion: p.descripcion,
-            hecho_por: nombres[p.completado_por] || null,
-            hecho_at: p.completado_at,
-          })),
-        },
-      }),
-    });
-    if (resp.ok) {
-      const j = await resp.json();
-      const lineas: string[] = [];
-      lineas.push('🤖 ANÁLISIS IA');
-      if (j.resumen) lineas.push(`\n📋 Resumen: ${j.resumen}`);
-      if (j.analisis) lineas.push(`\n🔍 Análisis: ${j.analisis}`);
-      if (Array.isArray(j.proximos_pasos) && j.proximos_pasos.length > 0) {
-        lineas.push('\n⚡ Próximos pasos sugeridos:');
-        j.proximos_pasos.forEach((p: string, i: number) => lineas.push(`   ${i + 1}. ${p}`));
-      }
-      if (Array.isArray(j.observaciones) && j.observaciones.length > 0) {
-        lineas.push('\n💡 Observaciones:');
-        j.observaciones.forEach((o: string) => lineas.push(`   • ${o}`));
-      }
-      bloqueIa = lineas.join('\n');
+  // Por paso: tiempo desde el paso anterior (o "—" en el primero)
+  let prev: number | null = null;
+  const lineas = pasos.map(p => {
+    const t = p.completado_at ? new Date(p.completado_at).getTime() : null;
+    let dur = '—';
+    if (t != null && prev != null) {
+      const m = Math.max(0, Math.floor((t - prev) / 60000));
+      dur = fmtMin(m);
     }
-  } catch {
-    // sin IA: la nota se inserta igual con el reporte básico
-  }
+    if (t != null) prev = t;
+    const quien = nombres[p.completado_por] || '—';
+    return `• Paso ${p.orden} (${p.descripcion || 's/d'}) — ${quien}: ${dur}`;
+  });
 
   const contenido =
-    `✅ TAREA FINALIZADA: ${tarea?.titulo || tareaTitulo}\n` +
-    `🕒 Duración total: ${durTxt}\n` +
-    `👥 Pasos: ${pasos.length}\n\n` +
-    `Reporte automático:\n${pasosTxt}` +
-    (bloqueIa ? `\n\n${bloqueIa}` : '');
+    `✅ ${tarea?.titulo || tareaTitulo} — finalizada\n` +
+    `🕒 Total: ${fmtMin(durTotal)}  ·  Pasos: ${pasos.length}\n\n` +
+    lineas.join('\n');
 
   await supabase.from('caso_general_notas').insert({
     caso_id: casoGeneralId,
