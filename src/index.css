@@ -196,7 +196,8 @@
 
   .modal-content {
     @apply glass-card w-full max-h-[85vh] overflow-y-auto 
-           animate-slide-up p-0 rounded-2xl my-auto;
+           animate-slide-up p-0 rounded-2xl my-auto
+           border border-white/20 shadow-2xl shadow-black/60;
   }
 }
 
