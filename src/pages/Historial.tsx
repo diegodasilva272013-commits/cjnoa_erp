@@ -121,7 +121,7 @@ export default function Historial() {
               <AlertTriangle className="w-5 h-5 text-amber-400 flex-shrink-0 mt-0.5" />
               <div className="text-sm text-amber-200">
                 Vas a borrar el snapshot del cierre <strong>{confirmDel.periodo}</strong>. <br />
-                Los ingresos, egresos y cambios siguen existiendo en sus tablas — sólo se elimina el archivo histórico para volver a editarlos y cerrar de nuevo.
+                <strong>OJO:</strong> los datos del periodo ya fueron borrados de las tablas activas al hacer el cierre. Si eliminás este snapshot, perdés esa información para siempre. Sólo hacelo si tenés que rehacer todo el mes desde cero.
               </div>
             </div>
             <div className="flex justify-end gap-2">

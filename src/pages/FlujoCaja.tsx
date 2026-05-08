@@ -196,7 +196,7 @@ export default function FlujoCaja() {
       const ok = window.confirm(`El mes ${periodo} ya estaba cerrado. ¿Sobrescribir el snapshot con los datos actuales?`);
       if (!ok) return;
     } else {
-      const ok = window.confirm(`Cerrar el mes ${periodo}?\n\nSe guardará un snapshot con todos los ingresos, egresos, cambios y totales en el Historial. Los datos NO se borran de las tablas.`);
+      const ok = window.confirm(`Cerrar el mes ${periodo}?\n\n• Se guardará un snapshot completo en Historial.\n• Se BORRARÁN los ingresos, egresos y cambios del periodo de las tablas activas.\n• El próximo mes arranca en 0.\n\nLos datos siguen accesibles desde Historial.`);
       if (!ok) return;
     }
     setCerrando(true);
@@ -270,7 +270,22 @@ export default function FlujoCaja() {
         },
       };
       await cerrarMes(periodo, snapshot);
-      showToast(`Mes ${periodo} cerrado y archivado en Historial`, 'success');
+
+      // Borrar los registros del periodo para arrancar el mes siguiente en 0.
+      // Los datos quedan archivados en el snapshot del cierre.
+      const [delIng, delEg, delMov] = await Promise.all([
+        supabase.from('ingresos_operativos').delete().gte('fecha', inicio).lt('fecha', finExclusivo),
+        supabase.from('egresos_v2').delete().gte('fecha', inicio).lt('fecha', finExclusivo),
+        supabase.from('movimientos_caja').delete().gte('fecha', inicio).lt('fecha', finExclusivo),
+      ]);
+      if (delIng.error || delEg.error || delMov.error) {
+        showToast(`Cierre archivado pero hubo un error al limpiar: ${delIng.error?.message || delEg.error?.message || delMov.error?.message}`, 'error');
+      } else {
+        showToast(`Mes ${periodo} cerrado, archivado y reseteado a 0`, 'success');
+      }
+      // Refrescar datos en pantalla
+      setEgresos([]);
+      setMovimientos([]);
     } catch (err: any) {
       showToast(err?.message || 'Error al cerrar mes', 'error');
     } finally {
