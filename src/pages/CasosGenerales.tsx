@@ -542,6 +542,7 @@ function CaseDetailModal({ caso: initial, onClose, onSaved }: {
                 onToggle={async (val) => {
                   if (!editing.id) return;
                   const nowIso = new Date().toISOString();
+                  // Optimista
                   set('escrito_subido' as keyof CasoGeneral, val as never);
                   if (val) {
                     set('escrito_subido_at' as keyof CasoGeneral, nowIso as never);
@@ -550,27 +551,43 @@ function CaseDetailModal({ caso: initial, onClose, onSaved }: {
                     set('escrito_subido_at' as keyof CasoGeneral, null as never);
                     set('escrito_ultima_verificacion' as keyof CasoGeneral, null as never);
                   }
-                  await supabase.from('casos_generales')
-                    .update(val
-                      ? { escrito_subido: true, escrito_subido_at: nowIso, escrito_ultima_verificacion: nowIso }
-                      : { escrito_subido: false, escrito_subido_at: null, escrito_ultima_verificacion: null }
-                    )
-                    .eq('id', editing.id);
+                  const payload = val
+                    ? { escrito_subido: true, escrito_subido_at: nowIso, escrito_ultima_verificacion: nowIso }
+                    : { escrito_subido: false, escrito_subido_at: null, escrito_ultima_verificacion: null };
+                  const { data: row, error } = await supabase.from('casos_generales')
+                    .update(payload)
+                    .eq('id', editing.id)
+                    .select('escrito_subido, escrito_subido_at, escrito_ultima_verificacion, escrito_url, escrito_subido_por')
+                    .maybeSingle();
+                  if (error) {
+                    showToast('No se pudo guardar: ' + error.message, 'error');
+                    return;
+                  }
+                  if (row) {
+                    // Sincronizar con lo que realmente quedó en la BD (por si hay trigger)
+                    set('escrito_subido' as keyof CasoGeneral, row.escrito_subido as never);
+                    set('escrito_subido_at' as keyof CasoGeneral, row.escrito_subido_at as never);
+                    set('escrito_ultima_verificacion' as keyof CasoGeneral, row.escrito_ultima_verificacion as never);
+                  }
+                  showToast(val ? 'Escrito marcado como subido' : 'Escrito desmarcado', 'success');
                 }}
                 onSetUrl={async (url) => {
                   if (!editing.id) return;
                   set('escrito_url' as keyof CasoGeneral, (url || null) as never);
-                  await supabase.from('casos_generales')
+                  const { error } = await supabase.from('casos_generales')
                     .update({ escrito_url: url || null })
                     .eq('id', editing.id);
+                  if (error) showToast('No se pudo guardar el link: ' + error.message, 'error');
                 }}
                 onVerificar={async () => {
                   if (!editing.id) return;
                   const ts = new Date().toISOString();
                   set('escrito_ultima_verificacion' as keyof CasoGeneral, ts as never);
-                  await supabase.from('casos_generales')
+                  const { error } = await supabase.from('casos_generales')
                     .update({ escrito_ultima_verificacion: ts })
                     .eq('id', editing.id);
+                  if (error) { showToast('No se pudo verificar: ' + error.message, 'error'); return; }
+                  showToast('Verificación registrada (+7 días)', 'success');
                 }}
               />
               {/* Panel de Seguimiento (notas + tareas en tiempo real) */}
