@@ -375,9 +375,12 @@ export default function Calendario() {
       supabase.from('audiencias_general_completas')
         .select('*')
         .gte('fecha', startISO).lte('fecha', endISO),
+      // Cargamos TODAS las consultas (la tabla es chica) para que nunca quede nada
+      // fuera por un filtro de rango/fecha; el render por dia las ubica solo en su celda.
       supabase.from('consultas_agendadas')
         .select('*')
-        .gte('fecha_consulta', startDate).lte('fecha_consulta', endDate),
+        .order('fecha_consulta', { ascending: false })
+        .limit(2000),
       supabase.from('audiencias')
         .select('*')
         .gte('fecha', startISO).lte('fecha', endISO),
@@ -392,6 +395,14 @@ export default function Calendario() {
         .gte('fecha_inicio', startISO).lte('fecha_inicio', endISO),
     ]).then(([ag, cs, al, gc, ei]) => {
       if (!alive) return;
+      // Surface RLS / query errors al usuario para no fallar silencioso
+      const errs: string[] = [];
+      if ((ag as any)?.error) errs.push('Audiencias: ' + (ag as any).error.message);
+      if ((cs as any)?.error) errs.push('Consultas (agendamiento): ' + (cs as any).error.message);
+      if ((al as any)?.error) errs.push('Audiencias casos: ' + (al as any).error.message);
+      if ((ei as any)?.error && !((ei as any).error.message || '').includes('does not exist'))
+        errs.push('Eventos internos: ' + (ei as any).error.message);
+      if (errs.length) setMsg('⚠️ ' + errs.join(' · '));
       const out: EventoCal[] = [];
       (ag.data || []).forEach((r: any) => {
         out.push({
