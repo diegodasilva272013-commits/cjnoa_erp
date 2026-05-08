@@ -39,6 +39,9 @@ export default defineConfig({
         skipWaiting: true,
         clientsClaim: true,
         cleanupOutdatedCaches: true,
+        // El index.html SIEMPRE va a la red (NetworkFirst) para que un deploy nuevo
+        // se vea sin tener que limpiar caché manualmente.
+        navigateFallback: null,
         // Cache app shell and assets
         globPatterns: ['**/*.{js,css,html,ico,png,svg,jpeg,jpg,woff2}'],
         runtimeCaching: [
