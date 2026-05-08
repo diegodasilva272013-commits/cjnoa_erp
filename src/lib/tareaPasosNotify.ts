@@ -44,17 +44,15 @@ export async function notificarSiguientePaso(
           user_id: uid,
           tipo: 'tarea_asignada',
           titulo: '🎉 Tarea finalizada: ' + tareaTitulo,
-          mensaje: `${completadoPorNombre || 'Alguien'} cerró el último paso. Reporte automático cargado en el caso.`,
+          mensaje: `${completadoPorNombre || 'Alguien'} cerró el último paso.`,
           link,
           related_id: tareaId,
           related_user_id: completadoPor,
         }));
         await supabase.from('notificaciones_app').insert(rows);
       }
-      // Reporte IA + nota en seguimiento (best-effort, no bloquea)
-      if (casoGeneral) {
-        generarReporteIaYNota(tareaId, tareaTitulo, casoGeneral, completadoPor).catch(() => { /* silent */ });
-      }
+      // Sin reporte automatico: solo quedan en seguimiento las notas
+      // que cada usuario escribe al marcar su paso (con detalle).
       return;
     }
 
@@ -109,94 +107,4 @@ export async function notificarAsignacionPaso(
   } catch {
     // silent
   }
-}
-
-/**
- * Genera un reporte automático de la tarea finalizada (con análisis IA si
- * está disponible), arma una nota linda y la inserta en el seguimiento del
- * caso para que todos lo vean sin tener que cargarlo a mano.
- */
-async function generarReporteIaYNota(
-  tareaId: string,
-  tareaTitulo: string,
-  casoGeneralId: string,
-  completadoPor: string
-): Promise<void> {
-  // Datos detallados de la tarea + pasos
-  const { data: tarea } = await supabase
-    .from('tareas')
-    .select('titulo, descripcion, caso_general_id')
-    .eq('id', tareaId)
-    .maybeSingle();
-
-  const { data: caso } = await supabase
-    .from('casos_generales')
-    .select('titulo, expediente, cliente_nombre')
-    .eq('id', casoGeneralId)
-    .maybeSingle();
-
-  const { data: pasosFull } = await supabase
-    .from('tarea_pasos')
-    .select('orden, descripcion, completado, completado_at, completado_por, responsable_id')
-    .eq('tarea_id', tareaId)
-    .order('orden', { ascending: true });
-
-  const pasos = (pasosFull || []) as any[];
-  if (pasos.length === 0) return;
-
-  // Resolver nombres
-  const userIds = Array.from(new Set(
-    pasos.flatMap(p => [p.completado_por, p.responsable_id]).filter(Boolean)
-  )) as string[];
-  let nombres: Record<string, string> = {};
-  if (userIds.length > 0) {
-    const { data: perfiles } = await supabase
-      .from('perfiles')
-      .select('id, nombre')
-      .in('id', userIds);
-    nombres = Object.fromEntries((perfiles || []).map((p: any) => [p.id, p.nombre]));
-  }
-
-  // Helper formato corto
-  const fmtMin = (m: number) => {
-    if (m < 1) return '<1 min';
-    if (m < 60) return `${m} min`;
-    if (m < 1440) return `${Math.floor(m / 60)}h ${m % 60}min`;
-    return `${Math.floor(m / 1440)}d ${Math.floor((m % 1440) / 60)}h`;
-  };
-
-  // Duración total = max(completado_at) - min(completado_at)
-  const tiempos = pasos
-    .map(p => p.completado_at ? new Date(p.completado_at).getTime() : null)
-    .filter((x): x is number => x != null);
-  let durTotal = 0;
-  if (tiempos.length > 0) {
-    durTotal = Math.max(0, Math.floor((Math.max(...tiempos) - Math.min(...tiempos)) / 60000));
-  }
-
-  // Por paso: tiempo desde el paso anterior (o "—" en el primero)
-  let prev: number | null = null;
-  const lineas = pasos.map(p => {
-    const t = p.completado_at ? new Date(p.completado_at).getTime() : null;
-    let dur = '—';
-    if (t != null && prev != null) {
-      const m = Math.max(0, Math.floor((t - prev) / 60000));
-      dur = fmtMin(m);
-    }
-    if (t != null) prev = t;
-    const quien = nombres[p.completado_por] || '—';
-    return `• Paso ${p.orden} (${p.descripcion || 's/d'}) — ${quien}: ${dur}`;
-  });
-
-  const contenido =
-    `✅ ${tarea?.titulo || tareaTitulo} — finalizada\n` +
-    `🕒 Total: ${fmtMin(durTotal)}  ·  Pasos: ${pasos.length}\n\n` +
-    lineas.join('\n');
-
-  await supabase.from('caso_general_notas').insert({
-    caso_id: casoGeneralId,
-    contenido,
-    tarea_id: tareaId,
-    created_by: completadoPor,
-  });
 }
