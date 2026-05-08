@@ -81,6 +81,13 @@ export default function Chat() {
   const [busqueda, setBusqueda] = useState('');
   const [showNewModal, setShowNewModal] = useState(false);
   const [showMobileList, setShowMobileList] = useState(true);
+  const [tab, setTab] = useState<'directos' | 'grupos' | 'canales'>('directos');
+  const [showNewChannel, setShowNewChannel] = useState(false);
+  const [showDiscover, setShowDiscover] = useState(false);
+  const [newChName, setNewChName] = useState('');
+  const [newChDesc, setNewChDesc] = useState('');
+  const [newChPrivate, setNewChPrivate] = useState(false);
+  const [canalesPublicos, setCanalesPublicos] = useState<{ id: string; nombre: string; descripcion: string|null; miembros: number }[]>([]);
 
   // Notificar al provider qué conv está abierta (para no notificar mensajes propios)
   useEffect(() => { setActiveConv(activaId); return () => setActiveConv(null); }, [activaId, setActiveConv]);
@@ -204,15 +211,48 @@ export default function Chat() {
     return () => { supabase.removeChannel(ch); };
   }, [user, activaId]);
 
-  // Filtrar conversaciones por búsqueda
+  // Filtrar conversaciones por búsqueda + pestaña
   const convsFiltradas = useMemo(() => {
-    if (!busqueda.trim()) return conversaciones;
+    let arr = conversaciones;
+    if (tab === 'directos') arr = arr.filter(c => c.tipo === 'directo');
+    else if (tab === 'grupos') arr = arr.filter(c => c.tipo === 'grupo');
+    else if (tab === 'canales') arr = arr.filter(c => (c.tipo as string) === 'canal');
+    if (!busqueda.trim()) return arr;
     const q = busqueda.toLowerCase();
-    return conversaciones.filter(c =>
+    return arr.filter(c =>
       (c.nombre || '').toLowerCase().includes(q) ||
       (c.otros || []).some(o => o.nombre.toLowerCase().includes(q))
     );
-  }, [conversaciones, busqueda]);
+  }, [conversaciones, busqueda, tab]);
+
+  async function crearCanal() {
+    if (!newChName.trim()) return;
+    const { data, error } = await supabase.rpc('chat_crear_canal', {
+      p_nombre: newChName.trim(),
+      p_descripcion: newChDesc.trim() || null,
+      p_privado: newChPrivate,
+    });
+    if (error) { console.error('crear canal', error); alert('Error: ' + error.message); return; }
+    setShowNewChannel(false);
+    setNewChName(''); setNewChDesc(''); setNewChPrivate(false);
+    setTab('canales');
+    await cargarConversaciones();
+    if (data) setActivaId(String(data));
+  }
+
+  async function cargarCanalesPublicos() {
+    const { data, error } = await supabase.from('chat_canales_publicos').select('*').order('miembros', { ascending: false });
+    if (!error) setCanalesPublicos((data || []) as any);
+  }
+
+  async function unirseCanal(canalId: string) {
+    const { error } = await supabase.rpc('chat_unirse_canal', { p_canal_id: canalId });
+    if (error) { alert('Error: ' + error.message); return; }
+    setShowDiscover(false);
+    await cargarConversaciones();
+    setTab('canales');
+    setActivaId(canalId);
+  }
 
   // Agrupar mensajes por día
   const mensajesAgrupados = useMemo(() => {
@@ -267,11 +307,43 @@ export default function Chat() {
           <h2 className="text-white font-semibold flex-1 flex items-center gap-2">
             <MessageCircle className="w-5 h-5 text-emerald-400" /> Chat
           </h2>
-          <button onClick={() => setShowNewModal(true)}
-            className="p-2 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border border-emerald-500/30"
-            title="Nuevo chat">
-            <Plus className="w-4 h-4" />
-          </button>
+          {tab === 'canales' ? (
+            <>
+              <button onClick={() => { cargarCanalesPublicos(); setShowDiscover(true); }}
+                className="px-2.5 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-gray-300 border border-white/10 text-xs"
+                title="Descubrir canales">
+                Descubrir
+              </button>
+              <button onClick={() => setShowNewChannel(true)}
+                className="p-2 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border border-emerald-500/30"
+                title="Crear canal">
+                <Plus className="w-4 h-4" />
+              </button>
+            </>
+          ) : (
+            <button onClick={() => setShowNewModal(true)}
+              className="p-2 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border border-emerald-500/30"
+              title="Nuevo chat">
+              <Plus className="w-4 h-4" />
+            </button>
+          )}
+        </div>
+        {/* Tabs */}
+        <div className="px-3 pt-2 flex items-center gap-1 border-b border-white/5">
+          {([
+            { k: 'directos', label: 'Directos' },
+            { k: 'grupos',   label: 'Grupos' },
+            { k: 'canales',  label: '# Canales' },
+          ] as const).map(t => (
+            <button key={t.k} onClick={() => setTab(t.k)}
+              className={`px-3 py-1.5 text-xs rounded-t-md border-b-2 transition ${
+                tab === t.k
+                  ? 'border-emerald-400 text-white'
+                  : 'border-transparent text-gray-400 hover:text-white'
+              }`}>
+              {t.label}
+            </button>
+          ))}
         </div>
         <div className="p-3">
           <div className="relative">
@@ -284,13 +356,19 @@ export default function Chat() {
         <div className="flex-1 overflow-y-auto">
           {convsFiltradas.length === 0 && (
             <div className="text-center text-sm text-gray-500 px-4 py-10">
-              No tenés chats todavía. Tocá <strong className="text-emerald-400">+</strong> para empezar uno.
+              {tab === 'canales'
+                ? <>No estás en ningún canal. Tocá <strong className="text-emerald-400">+</strong> para crear uno o <strong className="text-emerald-400">Descubrir</strong> para unirte.</>
+                : <>No tenés chats todavía. Tocá <strong className="text-emerald-400">+</strong> para empezar uno.</>
+              }
             </div>
           )}
           {convsFiltradas.map(c => (
             <button key={c.id} onClick={() => { setActivaId(c.id); setShowMobileList(false); }}
               className={`w-full text-left px-3 py-3 flex items-center gap-3 hover:bg-white/[0.03] border-b border-white/5 transition ${activaId === c.id ? 'bg-white/[0.05]' : ''}`}>
-              <Avatar p={c.otros?.[0] || null} grupo={c.tipo === 'grupo'} />
+              {(c.tipo as string) === 'canal'
+                ? <div className="w-10 h-10 rounded-lg bg-purple-500/20 border border-purple-500/30 flex items-center justify-center text-purple-300 font-bold">#</div>
+                : <Avatar p={c.otros?.[0] || null} grupo={c.tipo === 'grupo'} />
+              }
               <div className="flex-1 min-w-0">
                 <div className="flex items-center justify-between gap-2">
                   <span className="text-sm font-semibold text-white truncate">{c.nombre || 'Sin nombre'}</span>
@@ -368,11 +446,63 @@ export default function Chat() {
           </div>
         </div>
       )}
+      {/* MODAL: crear canal */}
+      {showNewChannel && (
+        <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4" onClick={() => setShowNewChannel(false)}>
+          <div className="w-full max-w-md rounded-2xl bg-[#0c0c0e] border border-white/10 p-5" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-white font-semibold flex items-center gap-2"><span className="text-purple-300">#</span> Crear canal</h3>
+              <button onClick={() => setShowNewChannel(false)} className="text-gray-400 hover:text-white"><X className="w-4 h-4" /></button>
+            </div>
+            <div className="space-y-3">
+              <input value={newChName} onChange={e => setNewChName(e.target.value)} placeholder="nombre-del-canal"
+                className="w-full px-3 py-2 text-sm bg-white/5 border border-white/10 rounded-lg text-white placeholder:text-gray-500 focus:outline-none focus:border-emerald-500/50" />
+              <textarea value={newChDesc} onChange={e => setNewChDesc(e.target.value)} placeholder="Descripción (opcional)" rows={2}
+                className="w-full px-3 py-2 text-sm bg-white/5 border border-white/10 rounded-lg text-white placeholder:text-gray-500 focus:outline-none focus:border-emerald-500/50 resize-none" />
+              <label className="flex items-center gap-2 text-sm text-gray-300 cursor-pointer">
+                <input type="checkbox" checked={newChPrivate} onChange={e => setNewChPrivate(e.target.checked)} />
+                Canal privado (solo invitados)
+              </label>
+              <button onClick={crearCanal} disabled={!newChName.trim()}
+                className="w-full px-3 py-2 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-black font-semibold disabled:opacity-50 disabled:cursor-not-allowed">
+                Crear canal
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: descubrir canales públicos */}
+      {showDiscover && (
+        <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4" onClick={() => setShowDiscover(false)}>
+          <div className="w-full max-w-md rounded-2xl bg-[#0c0c0e] border border-white/10 p-5" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-white font-semibold flex items-center gap-2"><span className="text-purple-300">#</span> Descubrir canales</h3>
+              <button onClick={() => setShowDiscover(false)} className="text-gray-400 hover:text-white"><X className="w-4 h-4" /></button>
+            </div>
+            <div className="max-h-96 overflow-y-auto space-y-1">
+              {canalesPublicos.length === 0 && <div className="text-sm text-gray-500 text-center py-6">No hay canales públicos.</div>}
+              {canalesPublicos.map(c => (
+                <div key={c.id} className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-white/5">
+                  <div className="w-9 h-9 rounded-lg bg-purple-500/20 border border-purple-500/30 flex items-center justify-center text-purple-300 font-bold">#</div>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm text-white font-medium truncate">{c.nombre}</div>
+                    {c.descripcion && <div className="text-[11px] text-gray-500 truncate">{c.descripcion}</div>}
+                    <div className="text-[10px] text-gray-600">{c.miembros} miembro{c.miembros !== 1 ? 's' : ''}</div>
+                  </div>
+                  <button onClick={() => unirseCanal(c.id)}
+                    className="px-2.5 py-1 rounded-md bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border border-emerald-500/30 text-xs">
+                    Unirme
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
-
-// =============== Avatar ===============
 function Avatar({ p, grupo, size = 40 }: { p: Perfil | null; grupo?: boolean; size?: number }) {
   const cls = `flex-shrink-0 rounded-full flex items-center justify-center font-bold text-white shadow-lg`;
   const bgs = ['bg-emerald-500','bg-blue-500','bg-fuchsia-500','bg-orange-500','bg-rose-500','bg-violet-500','bg-amber-500','bg-cyan-500'];

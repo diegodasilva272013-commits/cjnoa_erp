@@ -10,8 +10,12 @@
 -- ============================================================
 
 -- ------------------------------------------------------------
--- 1) Reescribir RLS de tareas para incluir 'abogado'
+-- 1) Reescribir RLS de tareas: cualquier autenticado activo puede
+--    leer/crear/actualizar/borrar. El control de quién puede hacerlo
+--    está en el frontend (permisos por rol). Esto evita choques con
+--    triggers que escriben en tareas (sync_estado de pasos compartidos).
 -- ------------------------------------------------------------
+drop policy if exists "tareas_all_authenticated" on public.tareas;
 drop policy if exists tareas_select on public.tareas;
 drop policy if exists tareas_insert on public.tareas;
 drop policy if exists tareas_update on public.tareas;
@@ -27,45 +31,23 @@ create policy tareas_select on public.tareas
 create policy tareas_insert on public.tareas
   for insert to authenticated
   with check (
-    exists (
-      select 1 from public.perfiles p
-      where p.id = auth.uid()
-        and coalesce(p.activo,true) = true
-        and coalesce(p.rol,'empleado') in ('admin','socio','abogado','empleado')
-    )
+    exists (select 1 from public.perfiles p
+            where p.id = auth.uid() and coalesce(p.activo,true) = true)
   );
 
 create policy tareas_update on public.tareas
   for update to authenticated
   using (
-    exists (
-      select 1 from public.perfiles p
-      where p.id = auth.uid()
-        and coalesce(p.activo,true) = true
-        and (
-          coalesce(p.rol,'empleado') in ('admin','socio','abogado','empleado')
-          or (coalesce(p.rol,'empleado') = 'procurador'
-              and public.tareas.responsable_id = auth.uid())
-          -- responsable de cualquier paso de esta tarea también puede tocar la tarea madre
-          or exists (
-            select 1 from public.tarea_pasos tp
-            where tp.tarea_id = public.tareas.id
-              and tp.responsable_id = auth.uid()
-          )
-        )
-    )
+    exists (select 1 from public.perfiles p
+            where p.id = auth.uid() and coalesce(p.activo,true) = true)
   )
   with check (true);
 
 create policy tareas_delete on public.tareas
   for delete to authenticated
   using (
-    exists (
-      select 1 from public.perfiles p
-      where p.id = auth.uid()
-        and coalesce(p.activo,true) = true
-        and coalesce(p.rol,'empleado') in ('admin','socio','abogado','empleado')
-    )
+    exists (select 1 from public.perfiles p
+            where p.id = auth.uid() and coalesce(p.activo,true) = true)
   );
 
 -- ------------------------------------------------------------
