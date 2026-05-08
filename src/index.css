@@ -190,19 +190,15 @@
   }
 
   .modal-overlay {
-    @apply fixed inset-0 bg-black/60 backdrop-blur-sm z-50 
-           flex items-center justify-center p-4 animate-fade-in overflow-y-auto;
+    @apply fixed inset-0 bg-black/70 backdrop-blur-sm z-50 
+           flex items-center justify-center p-2 sm:p-4 animate-fade-in overflow-y-auto;
   }
 
   .modal-content {
-    @apply glass-card w-full max-h-[85vh] overflow-y-auto 
+    @apply glass-card w-full max-h-[95vh] overflow-y-auto 
            animate-slide-up p-0 rounded-2xl my-auto;
-    border: 2px solid rgba(255, 255, 255, 0.45) !important;
-    box-shadow:
-      0 0 0 1px rgba(255, 255, 255, 0.15),
-      0 0 40px rgba(139, 92, 246, 0.25),
-      0 25px 60px -10px rgba(0, 0, 0, 0.9),
-      0 0 0 9999px rgba(0, 0, 0, 0.4) !important;
+    border: 2px solid rgba(255, 255, 255, 0.5);
+    box-shadow: 0 25px 60px -10px rgba(0, 0, 0, 0.95);
   }
 }
 
