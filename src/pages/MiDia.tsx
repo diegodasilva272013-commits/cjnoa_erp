@@ -86,6 +86,8 @@ export default function MiDia() {
   const [showCharts, setShowCharts] = useState(true);
   const [completarTarea, setCompletarTarea] = useState<Tarea | null>(null);
   const [completarTexto, setCompletarTexto] = useState('');
+  const [pasoModal, setPasoModal] = useState<{ tareaId: string; pasoId: string; pasoOrden: number; pasoDesc: string; tareaTitulo: string } | null>(null);
+  const [pasoDetalle, setPasoDetalle] = useState('');
   const [estimadoTarea, setEstimadoTarea] = useState<Tarea | null>(null);
   const [estimadoMin, setEstimadoMin] = useState('30');
   const dragId = useRef<string | null>(null);
@@ -372,12 +374,22 @@ export default function MiDia() {
     // pausar otras en curso primero
     const otras = tareas.filter(x => x.estado_dia === 'en_progreso' && x.id !== t.id);
     for (const o of otras) await pausar(o, true);
-    const { error } = await supabase.from('tareas').update({
-      estado_dia: 'en_progreso',
-      started_at: new Date().toISOString(),
-      fecha_orden: t.fecha_orden || hoyKey,
-    }).eq('id', t.id);
-    if (error) { showToast('No se pudo iniciar: ' + error.message, 'error'); return; }
+    const startedAt = new Date().toISOString();
+    const { error } = await supabase.rpc('tarea_set_estado_dia', {
+      p_tarea_id: t.id,
+      p_estado_dia: 'en_progreso',
+      p_started_at: startedAt,
+      p_tiempo_real_min: null,
+    });
+    if (error) {
+      // Fallback a UPDATE directo (responsable principal)
+      const { error: e2 } = await supabase.from('tareas').update({
+        estado_dia: 'en_progreso',
+        started_at: startedAt,
+        fecha_orden: t.fecha_orden || hoyKey,
+      }).eq('id', t.id);
+      if (e2) { showToast('No se pudo iniciar: ' + e2.message, 'error'); return; }
+    }
     showToast('Cronómetro iniciado', 'success');
     cargar();
   }
@@ -385,12 +397,21 @@ export default function MiDia() {
   async function pausar(t: Tarea, silent = false) {
     if (!t.started_at) return;
     const minTranscurridos = Math.floor((Date.now() - new Date(t.started_at).getTime()) / 60000);
-    const { error } = await supabase.from('tareas').update({
-      estado_dia: 'pausada',
-      started_at: null,
-      tiempo_real_min: (t.tiempo_real_min || 0) + minTranscurridos,
-    }).eq('id', t.id);
-    if (error && !silent) { showToast('No se pudo pausar: ' + error.message, 'error'); return; }
+    const totalMin = (t.tiempo_real_min || 0) + minTranscurridos;
+    const { error } = await supabase.rpc('tarea_set_estado_dia', {
+      p_tarea_id: t.id,
+      p_estado_dia: 'pausada',
+      p_started_at: null,
+      p_tiempo_real_min: totalMin,
+    });
+    if (error) {
+      const { error: e2 } = await supabase.from('tareas').update({
+        estado_dia: 'pausada',
+        started_at: null,
+        tiempo_real_min: totalMin,
+      }).eq('id', t.id);
+      if (e2 && !silent) { showToast('No se pudo pausar: ' + e2.message, 'error'); return; }
+    }
     if (!silent) cargar();
   }
 
@@ -399,7 +420,7 @@ export default function MiDia() {
     setCompletarTexto(t.culminacion || '');
   }
 
-  async function completarMiPaso(tareaId: string, pasoId: string, pasoOrden: number, pasoDesc: string) {
+  async function completarMiPaso(tareaId: string, pasoId: string, pasoOrden: number, pasoDesc: string, detalle?: string) {
     if (!user?.id) return;
     const { error } = await supabase.rpc('tarea_paso_set_completado', {
       p_paso_id: pasoId, p_hecho: true,
@@ -413,7 +434,26 @@ export default function MiDia() {
       if (e2) { showToast('Error al guardar el paso: ' + e2.message, 'error'); return; }
     }
     showToast('✓ Paso "' + pasoDesc + '" marcado como hecho', 'success');
-    notificarSiguientePaso(tareaId, pasoOrden, pasoDesc, user.id, perfil?.nombre || 'Alguien');
+
+    // Si hay detalle, guardarlo como nota en el seguimiento del caso (si tiene caso)
+    if (detalle && detalle.trim()) {
+      try {
+        const { data: tareaInfo } = await supabase
+          .from('tareas').select('caso_general_id, titulo')
+          .eq('id', tareaId).maybeSingle();
+        const casoGen = (tareaInfo as any)?.caso_general_id;
+        if (casoGen) {
+          await supabase.from('caso_general_notas').insert({
+            caso_id: casoGen,
+            contenido: `📝 Avance en tarea "${(tareaInfo as any)?.titulo || ''}" — paso ${pasoOrden}: ${pasoDesc}\n\n${detalle.trim()}\n\n— ${perfil?.nombre || 'Usuario'}`,
+            tarea_id: tareaId,
+            created_by: user.id,
+          });
+        }
+      } catch { /* silent */ }
+    }
+
+    notificarSiguientePaso(tareaId, pasoOrden, pasoDesc + (detalle?.trim() ? ` — ${detalle.trim().slice(0,140)}` : ''), user.id, perfil?.nombre || 'Alguien');
     cargar();
   }
 
@@ -802,9 +842,9 @@ export default function MiDia() {
                     </button>
                   )}
                   {pasoLeToca ? (
-                    <button onClick={() => completarMiPaso(t.id, pasoLeToca.paso_id, pasoLeToca.paso_orden, pasoLeToca.paso_descripcion)}
+                    <button onClick={() => { setPasoModal({ tareaId: t.id, pasoId: pasoLeToca.paso_id, pasoOrden: pasoLeToca.paso_orden, pasoDesc: pasoLeToca.paso_descripcion, tareaTitulo: t.titulo }); setPasoDetalle(''); }}
                       className="px-3 py-1.5 text-xs rounded-md bg-amber-500 hover:bg-amber-400 text-black font-bold flex items-center gap-1.5"
-                      title="Marcar tu paso como hecho">
+                      title="Marcar tu paso como hecho con detalle">
                       <CheckCircle2 className="w-3 h-3" /> Mi paso
                     </button>
                   ) : (
@@ -908,6 +948,47 @@ export default function MiDia() {
               <button onClick={confirmarEstimado}
                 className="px-4 py-2 text-xs rounded-lg bg-emerald-500 hover:bg-emerald-400 text-black font-semibold">
                 Guardar
+              </button>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      {/* Modal: Detalle al marcar Mi paso */}
+      <Modal open={!!pasoModal} onClose={() => { setPasoModal(null); setPasoDetalle(''); }} title="Marcar mi paso" maxWidth="max-w-lg">
+        {pasoModal && (
+          <div className="space-y-4">
+            <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 p-3">
+              <div className="text-xs text-amber-300 uppercase tracking-wider mb-1">Tarea</div>
+              <div className="text-sm font-semibold text-white">{pasoModal.tareaTitulo}</div>
+              <div className="text-[11px] text-gray-300 mt-2">
+                <span className="text-amber-300 font-semibold">Paso {pasoModal.pasoOrden}:</span> {pasoModal.pasoDesc}
+              </div>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-400 mb-1.5">Detalles / observaciones (opcional)</label>
+              <textarea
+                value={pasoDetalle}
+                onChange={e => setPasoDetalle(e.target.value)}
+                rows={5}
+                placeholder="¿Qué hiciste? Resultado, observaciones para el próximo responsable…  (se guarda en el seguimiento del caso)"
+                className="input-dark w-full resize-none"
+                autoFocus
+              />
+            </div>
+            <div className="flex justify-end gap-2 pt-2">
+              <button onClick={() => { setPasoModal(null); setPasoDetalle(''); }}
+                className="px-4 py-2 text-xs rounded-lg bg-white/5 hover:bg-white/10 text-gray-300 border border-white/10">
+                Cancelar
+              </button>
+              <button onClick={async () => {
+                const m = pasoModal;
+                const det = pasoDetalle;
+                setPasoModal(null);
+                setPasoDetalle('');
+                await completarMiPaso(m.tareaId, m.pasoId, m.pasoOrden, m.pasoDesc, det);
+              }} className="px-4 py-2 text-xs rounded-lg bg-amber-500 hover:bg-amber-400 text-black font-semibold flex items-center gap-1.5">
+                <CheckCircle2 className="w-3.5 h-3.5" /> Marcar como hecho
               </button>
             </div>
           </div>

@@ -132,6 +132,35 @@ export default function AlarmaTareas() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id]);
 
+  // Polling fallback: cada 10s revisa nuevas no leidas (por si realtime no esta habilitado)
+  useEffect(() => {
+    if (!user?.id) return;
+    let cancelled = false;
+    let lastCheck = new Date().toISOString();
+    const tick = async () => {
+      if (cancelled) return;
+      const desde = lastCheck;
+      lastCheck = new Date().toISOString();
+      const { data } = await supabase
+        .from('notificaciones_app')
+        .select('id, titulo, mensaje, link, related_id, tipo, created_at')
+        .eq('user_id', user.id)
+        .eq('leida', false)
+        .in('tipo', ['tarea_proxima', 'tarea_vencida', 'presentar_escrito', 'verificar_escrito', 'tarea_paso_siguiente', 'tarea_paso_asignado', 'tarea_compartida_completa', 'tarea_asignada'])
+        .gte('created_at', desde)
+        .order('created_at', { ascending: false })
+        .limit(20);
+      if (cancelled || !data) return;
+      data.forEach((n: any) => encolar({
+        id: n.id, titulo: n.titulo, mensaje: n.mensaje, link: n.link,
+        related_id: n.related_id, tipo: n.tipo, created_at: n.created_at,
+      }));
+    };
+    const iv = setInterval(tick, 10000);
+    return () => { cancelled = true; clearInterval(iv); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id]);
+
   function cerrar(id: string) {
     setCola(prev => prev.filter(x => x.id !== id));
     // marcar leida
