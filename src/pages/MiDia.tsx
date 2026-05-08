@@ -75,6 +75,7 @@ export default function MiDia() {
   const { user, perfil } = useAuth();
   const { showToast } = useToast();
   const [tareas, setTareas] = useState<Tarea[]>([]);
+  const [pasosPorTarea, setPasosPorTarea] = useState<Record<string, { paso_id: string; paso_orden: number; paso_descripcion: string; paso_completado: boolean; paso_le_toca_ahora: boolean }[]>>({});
   const [loading, setLoading] = useState(true);
   const [filtroDia, setFiltroDia] = useState<'hoy' | 'todas' | 'atrasadas' | 'completadas'>('hoy');
   const [vencidas, setVencidas] = useState(false);
@@ -134,7 +135,39 @@ export default function MiDia() {
         .order('prioridad', { ascending: true })
         .order('fecha_limite', { ascending: true, nullsFirst: false });
     }
-    setTareas((resp.data || []) as Tarea[]);
+    let baseTareas = (resp.data || []) as Tarea[];
+
+    // Tareas COMPARTIDAS: traigo tareas donde tengo un paso asignado
+    const pasosMap: Record<string, { paso_id: string; paso_orden: number; paso_descripcion: string; paso_completado: boolean; paso_le_toca_ahora: boolean }[]> = {};
+    if (!verTodos) {
+      const { data: pasosData } = await supabase
+        .from('tareas_mi_dia_con_pasos')
+        .select('tarea_id, paso_id, paso_orden, paso_descripcion, paso_completado, paso_le_toca_ahora, es_paso')
+        .eq('user_id', targetUserId)
+        .eq('es_paso', true);
+      const idsExistentes = new Set(baseTareas.map(t => t.id));
+      const tareasFaltantesIds: string[] = [];
+      (pasosData || []).forEach((row: any) => {
+        if (!pasosMap[row.tarea_id]) pasosMap[row.tarea_id] = [];
+        pasosMap[row.tarea_id].push({
+          paso_id: row.paso_id, paso_orden: row.paso_orden,
+          paso_descripcion: row.paso_descripcion, paso_completado: row.paso_completado,
+          paso_le_toca_ahora: !!row.paso_le_toca_ahora,
+        });
+        if (!idsExistentes.has(row.tarea_id) && !tareasFaltantesIds.includes(row.tarea_id)) {
+          tareasFaltantesIds.push(row.tarea_id);
+        }
+      });
+      if (tareasFaltantesIds.length > 0) {
+        let qExtra = await supabase.from('tareas_completas_v2').select('*').in('id', tareasFaltantesIds).eq('archivada', false);
+        if (qExtra.error) {
+          qExtra = await supabase.from('tareas_completas').select('*').in('id', tareasFaltantesIds).eq('archivada', false);
+        }
+        baseTareas = [...baseTareas, ...((qExtra.data || []) as Tarea[])];
+      }
+    }
+    setPasosPorTarea(pasosMap);
+    setTareas(baseTareas);
     // historial de hoy
     const hoyKey = fmtKey(new Date());
     let qh = supabase
@@ -158,6 +191,9 @@ export default function MiDia() {
     const ch = supabase.channel('mi_dia_' + targetUserId)
       .on('postgres_changes',
         { event: '*', schema: 'public', table: 'tareas', ...(filter ? { filter } : {}) } as any,
+        () => cargar())
+      .on('postgres_changes',
+        { event: '*', schema: 'public', table: 'tarea_pasos' } as any,
         () => cargar())
       .subscribe();
     return () => { supabase.removeChannel(ch); };
@@ -552,6 +588,9 @@ export default function MiDia() {
           const enProgreso = t.estado_dia === 'en_progreso';
           const completada = t.estado === 'completada';
           const atrasada = t.fecha_limite && t.fecha_limite < hoyKey && !completada;
+          const misPasos = pasosPorTarea[t.id] || [];
+          const pasoLeToca = misPasos.find(p => p.paso_le_toca_ahora);
+          const esCompartida = misPasos.length > 0;
 
           return (
             <div key={t.id}
@@ -562,6 +601,8 @@ export default function MiDia() {
               className={`group rounded-xl border bg-[#0c0c0e] p-3 flex items-stretch gap-3 transition ${
                 completada
                   ? 'border-emerald-500/30 opacity-60'
+                  : pasoLeToca
+                  ? 'border-amber-400/70 ring-2 ring-amber-400/40 shadow-[0_0_18px_rgba(251,191,36,0.25)]'
                   : enProgreso
                   ? 'border-blue-500/40 ring-2 ring-blue-500/20'
                   : atrasada
@@ -589,9 +630,21 @@ export default function MiDia() {
 
               <div className="flex-1 min-w-0 space-y-1.5">
                 <div className="flex items-start justify-between gap-2">
-                  <h3 className={`font-semibold text-sm ${completada ? 'line-through text-gray-400' : 'text-white'}`}>
-                    {t.titulo}
-                  </h3>
+                  <div className="flex items-center gap-2 flex-wrap min-w-0">
+                    <h3 className={`font-semibold text-sm ${completada ? 'line-through text-gray-400' : 'text-white'}`}>
+                      {t.titulo}
+                    </h3>
+                    {pasoLeToca && (
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-400/20 text-amber-300 border border-amber-400/40 animate-pulse">
+                        🔥 Te toca: {pasoLeToca.paso_descripcion}
+                      </span>
+                    )}
+                    {esCompartida && !pasoLeToca && (
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-purple-500/15 text-purple-300 border border-purple-500/30">
+                        Compartida ({misPasos.filter(p => p.paso_completado).length}/{misPasos.length} mías)
+                      </span>
+                    )}
+                  </div>
                   <div className="flex items-center gap-1.5 flex-shrink-0">
                     <PrioridadBadge p={t.prioridad} />
                     <EstadoDiaBadge e={completada ? 'completada' : t.estado_dia} />
