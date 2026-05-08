@@ -5,6 +5,7 @@ import Topbar from './Topbar';
 import BottomNav from './BottomNav';
 import CommandPalette from './CommandPalette';
 import AlarmaTareas from './AlarmaTareas';
+import AgenteVoz from './AgenteVoz';
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
 
 export default function Layout() {
@@ -16,6 +17,7 @@ export default function Layout() {
       <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
       <CommandPalette />
       <AlarmaTareas />
+      <AgenteVoz />
 
       <div className="lg:pl-[260px] min-h-screen">
         <Topbar onMenuClick={() => setSidebarOpen(true)} />
