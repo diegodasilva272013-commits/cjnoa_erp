@@ -662,22 +662,23 @@ async function ejecutarTool(plan: Plan, userId: string): Promise<{ ok: boolean; 
       case 'registrar_ingreso': {
         const hoy = new Date().toISOString().slice(0, 10);
         const monto = Number(a.monto_total) || 0;
+        const modalidad = a.modalidad || 'Efectivo';
+        const doctor = a.socio_cobro || a.doctor_cobra || null;
         const payload: any = {
           fecha: a.fecha || hoy,
           cliente_nombre: a.cliente_nombre || '',
-          materia: a.materia || null,
+          tipo_cliente: a.tipo_cliente || 'Nuevo',
+          monto,
+          modalidad,
+          doctor_cobra: doctor,
+          receptor_transfer: modalidad === 'Transferencia' ? doctor : null,
+          rama: a.rama || 'Otros',
+          fuente: a.fuente || 'Derivado',
           concepto: a.concepto || 'Honorarios',
-          monto_total: monto,
-          monto_cj_noa: monto,
-          comision_captadora: 0,
-          captadora_nombre: null,
-          socio_cobro: a.socio_cobro || null,
-          modalidad: a.modalidad || 'Efectivo',
           notas: a.notas || null,
-          es_manual: true,
           created_by: userId,
         };
-        const { error } = await supabase.from('ingresos').insert(payload);
+        const { error } = await supabase.from('ingresos_operativos').insert(payload);
         if (error) return { ok: false, mensaje: 'Error al registrar ingreso: ' + error.message };
         return { ok: true, mensaje: `Ingreso de $${monto.toLocaleString('es-AR')} registrado.` };
       }
@@ -686,15 +687,17 @@ async function ejecutarTool(plan: Plan, userId: string): Promise<{ ok: boolean; 
         const monto = Number(a.monto) || 0;
         const payload: any = {
           fecha: a.fecha || hoy,
+          tipo: a.tipo || 'eventual',
           concepto: a.concepto,
-          concepto_detalle: a.concepto_detalle || null,
+          detalle: a.concepto_detalle || a.detalle || null,
           monto,
           modalidad: a.modalidad || 'Efectivo',
-          responsable: a.responsable || null,
-          observaciones: a.observaciones || null,
+          pagador: a.responsable || a.pagador || null,
+          beneficiario: a.beneficiario || null,
+          notas: a.observaciones || a.notas || null,
           created_by: userId,
         };
-        const { error } = await supabase.from('egresos').insert(payload);
+        const { error } = await supabase.from('egresos_v2').insert(payload);
         if (error) return { ok: false, mensaje: 'Error al registrar egreso: ' + error.message };
         return { ok: true, mensaje: `Egreso de $${monto.toLocaleString('es-AR')} registrado.` };
       }

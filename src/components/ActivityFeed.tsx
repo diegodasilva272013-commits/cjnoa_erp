@@ -20,23 +20,23 @@ export default function ActivityFeed() {
   useEffect(() => {
     async function load() {
       const [ingRes, egrRes, casRes] = await Promise.all([
-        supabase.from('ingresos').select('id, cliente_nombre, concepto, monto_cj_noa, created_at, created_by').order('created_at', { ascending: false }).limit(5),
-        supabase.from('egresos').select('id, concepto, monto, created_at, created_by').order('created_at', { ascending: false }).limit(5),
+        supabase.from('ingresos_operativos').select('id, cliente_nombre, concepto, monto, created_at, created_by').order('created_at', { ascending: false }).limit(5),
+        supabase.from('egresos_v2').select('id, concepto, monto, created_at, created_by').order('created_at', { ascending: false }).limit(5),
         supabase.from('casos_completos').select('id, nombre_apellido, materia, created_at').order('created_at', { ascending: false }).limit(5),
       ]);
 
       const items: Activity[] = [];
 
-      (ingRes.data || []).forEach(i => items.push({
+      (ingRes.data || []).forEach((i: any) => items.push({
         id: `i-${i.id}`,
         type: 'ingreso',
         description: `Ingreso registrado: ${i.cliente_nombre || i.concepto}`,
         user: i.created_by || '',
         time: i.created_at,
-        amount: i.monto_cj_noa,
+        amount: i.monto,
       }));
 
-      (egrRes.data || []).forEach(e => items.push({
+      (egrRes.data || []).forEach((e: any) => items.push({
         id: `e-${e.id}`,
         type: 'egreso',
         description: `Egreso registrado: ${e.concepto}`,
@@ -45,7 +45,7 @@ export default function ActivityFeed() {
         amount: e.monto,
       }));
 
-      (casRes.data || []).forEach(c => items.push({
+      (casRes.data || []).forEach((c: any) => items.push({
         id: `c-${c.id}`,
         type: 'caso',
         description: `Nuevo caso: ${c.nombre_apellido} (${c.materia})`,

@@ -393,17 +393,20 @@ function CasoPagoModal({ open, onClose, editing, socios, onSaved }: ModalProps) 
       // Ingreso fallback for único payment
       if (form.modalidad_pago === 'Único' && form.saldo_pagado && parseFloat(form.saldo_monto_real) > 0 && !saved?.ingreso_saldo_id) {
         const monto = parseFloat(form.saldo_monto_real);
-        const { data: ingreso } = await supabase.from('ingresos').insert({
+        const modalidad = form.saldo_modalidad || 'Efectivo';
+        const { data: ingreso } = await supabase.from('ingresos_operativos').insert({
           caso_id: form.caso_id || null,
           fecha: form.fecha_cobro || new Date().toISOString().slice(0, 10),
           cliente_nombre: form.cliente_nombre.trim(),
+          tipo_cliente: 'Nuevo',
+          monto,
+          modalidad,
+          doctor_cobra: form.socio_carga,
+          receptor_transfer: modalidad === 'Transferencia' ? form.socio_carga : null,
+          rama: 'Otros',
+          fuente: 'Derivado',
           concepto: 'Honorarios - ' + form.cliente_nombre.trim(),
-          monto_total: monto,
-          monto_cj_noa: monto,
-          socio_cobro: form.socio_carga,
-          modalidad: form.saldo_modalidad || null,
-          es_manual: false,
-        }).select('id').single();
+        } as any).select('id').single();
         if (ingreso?.id) {
           await supabase.from('casos_pagos').update({ ingreso_saldo_id: ingreso.id }).eq('id', savedId);
         }
@@ -495,17 +498,21 @@ function CasoPagoModal({ open, onClose, editing, socios, onSaved }: ModalProps) 
 
     // Fallback: si trigger no creó el ingreso, crearlo desde el frontend
     if (updated && !updated.ingreso_id && editing) {
-      const { data: ingreso } = await supabase.from('ingresos').insert({
+      const modalidadCuota = payForm.modalidad_pago || 'Efectivo';
+      const doctorCuota = payForm.cobrado_por || editing.socio_carga;
+      const { data: ingreso } = await supabase.from('ingresos_operativos').insert({
         caso_id: editing.caso_id || null,
         fecha: payForm.fecha_pago || new Date().toISOString().slice(0, 10),
         cliente_nombre: editing.cliente_nombre,
+        tipo_cliente: 'Nuevo',
+        monto: Number(cuota.monto),
+        modalidad: modalidadCuota,
+        doctor_cobra: doctorCuota,
+        receptor_transfer: modalidadCuota === 'Transferencia' ? doctorCuota : null,
+        rama: 'Otros',
+        fuente: 'Derivado',
         concepto: `Cuota caso de pago #${cuota.numero} - ${editing.cliente_nombre}`,
-        monto_total: Number(cuota.monto),
-        monto_cj_noa: Number(cuota.monto),
-        socio_cobro: payForm.cobrado_por || editing.socio_carga,
-        modalidad: payForm.modalidad_pago || null,
-        es_manual: false,
-      }).select('id').single();
+      } as any).select('id').single();
       if (ingreso?.id) {
         await supabase.from('casos_pagos_cuotas').update({ ingreso_id: ingreso.id }).eq('id', cuota.id);
       }
