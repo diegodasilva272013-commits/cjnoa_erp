@@ -64,25 +64,46 @@ export default function FlujoCaja() {
     const total = ingresosPeriodo.reduce((s, i) => s + Number(i.monto || 0), 0);
     const porSocio: Record<SocioFinanzas, number> = { Rodri: 0, Noe: 0, Ale: 0, Fabri: 0 };
     const porRama: Record<string, number> = {};
+    const ingEfectivoSocio: Record<SocioFinanzas, number> = { Rodri: 0, Noe: 0, Ale: 0, Fabri: 0 };
+    const ingTransferSocio: Record<SocioFinanzas, number> = { Rodri: 0, Noe: 0, Ale: 0, Fabri: 0 };
     let efectivoIn = 0, transferIn = 0;
     ingresosPeriodo.forEach(i => {
-      porSocio[i.doctor_cobra] = (porSocio[i.doctor_cobra] || 0) + Number(i.monto || 0);
-      porRama[i.rama] = (porRama[i.rama] || 0) + Number(i.monto || 0);
-      if (i.modalidad === 'Efectivo') efectivoIn += Number(i.monto || 0);
-      else if (i.modalidad === 'Transferencia') transferIn += Number(i.monto || 0);
+      const m = Number(i.monto || 0);
+      porSocio[i.doctor_cobra] = (porSocio[i.doctor_cobra] || 0) + m;
+      porRama[i.rama] = (porRama[i.rama] || 0) + m;
+      if (i.modalidad === 'Efectivo') {
+        efectivoIn += m;
+        ingEfectivoSocio[i.doctor_cobra] = (ingEfectivoSocio[i.doctor_cobra] || 0) + m;
+      } else if (i.modalidad === 'Transferencia') {
+        transferIn += m;
+        const dest = (i.receptor_transfer || i.doctor_cobra) as SocioFinanzas;
+        ingTransferSocio[dest] = (ingTransferSocio[dest] || 0) + m;
+      }
     });
     const totalEgresos = egresos.reduce((s, e) => s + Number(e.monto || 0), 0);
     let efectivoOut = 0, transferOut = 0;
     const egresosPorSocio: Record<SocioFinanzas, number> = { Rodri: 0, Noe: 0, Ale: 0, Fabri: 0 };
+    const egTransferSocio: Record<SocioFinanzas, number> = { Rodri: 0, Noe: 0, Ale: 0, Fabri: 0 };
     egresos.forEach(e => {
-      if (e.modalidad === 'Efectivo') efectivoOut += Number(e.monto || 0);
-      else if (e.modalidad === 'Transferencia') transferOut += Number(e.monto || 0);
-      if (e.pagador) egresosPorSocio[e.pagador] = (egresosPorSocio[e.pagador] || 0) + Number(e.monto || 0);
+      const m = Number(e.monto || 0);
+      if (e.modalidad === 'Efectivo') efectivoOut += m;
+      else if (e.modalidad === 'Transferencia') {
+        transferOut += m;
+        if (e.pagador) egTransferSocio[e.pagador] = (egTransferSocio[e.pagador] || 0) + m;
+      }
+      if (e.pagador) egresosPorSocio[e.pagador] = (egresosPorSocio[e.pagador] || 0) + m;
     });
     const neto = total - totalEgresos;
     const cajaEfectivo = efectivoIn - efectivoOut;
     const cajaTransfer = transferIn - transferOut;
-    return { total, porSocio, porRama, totalEgresos, neto, cajaEfectivo, cajaTransfer, egresosPorSocio };
+    const transferSocioNeto: Record<SocioFinanzas, number> = { Rodri: 0, Noe: 0, Ale: 0, Fabri: 0 };
+    SOCIOS_FINANZAS.forEach(s => {
+      transferSocioNeto[s] = (ingTransferSocio[s] || 0) - (egTransferSocio[s] || 0);
+    });
+    return {
+      total, porSocio, porRama, totalEgresos, neto, cajaEfectivo, cajaTransfer, egresosPorSocio,
+      ingEfectivoSocio, ingTransferSocio, egTransferSocio, transferSocioNeto,
+    };
   }, [ingresosPeriodo, egresos]);
 
   const chartItemsIngresos = useMemo(() => ingresosPeriodo.map((i: IngresoOperativo) => ({
@@ -196,19 +217,24 @@ export default function FlujoCaja() {
         <MetricCard label="Caja Transferencia" value={formatMoney(totales.cajaTransfer)} tone="sky" />
       </div>
 
-      {/* Cards por socio (ingresos vs egresos) */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+      {/* Cards por socio (efectivo + transferencia) */}
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
         {SOCIOS_FINANZAS.map(s => {
+          const efe = totales.ingEfectivoSocio[s];
+          const tr = totales.transferSocioNeto[s];
           const ing = totales.porSocio[s];
           const eg = totales.egresosPorSocio[s];
           const neto = ing - eg;
           return (
-            <MetricCard
+            <SocioBreakdownCard
               key={s}
               tone={SOCIO_TONE[s]}
-              label={s}
-              value={formatMoney(neto)}
-              sub={`+${formatMoney(ing)} · -${formatMoney(eg)}`}
+              nombre={s}
+              efectivo={efe}
+              transferencia={tr}
+              netoTotal={neto}
+              ingresoTotal={ing}
+              egresoTotal={eg}
             />
           );
         })}
@@ -355,6 +381,35 @@ function MetricCard({ label, value, sub, highlight, tone = 'zinc' }: { label: st
         <div className={`text-xs ${t.label}`}>{label}</div>
         <div className={`text-lg font-semibold mt-1 transition-transform duration-300 group-hover:scale-105 origin-left ${t.value}`}>{value}</div>
         {sub && <div className="text-[10px] text-zinc-400 mt-1">{sub}</div>}
+      </div>
+    </div>
+  );
+}
+
+function SocioBreakdownCard({ nombre, efectivo, transferencia, netoTotal, ingresoTotal, egresoTotal, tone }: {
+  nombre: string; efectivo: number; transferencia: number; netoTotal: number; ingresoTotal: number; egresoTotal: number; tone: Tone;
+}) {
+  const t = TONES[tone];
+  return (
+    <div className={`group relative rounded-xl border p-4 overflow-hidden transition-all duration-300 ease-out hover:-translate-y-1 hover:scale-[1.02] hover:shadow-lg ${t.bg} ${t.border} ${t.shadow}`}>
+      <div className={`absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-300 bg-gradient-to-br ${t.gradient} pointer-events-none`} />
+      <div className={`absolute -top-8 -right-8 w-28 h-28 rounded-full blur-2xl opacity-20 group-hover:opacity-40 transition-opacity duration-300 ${t.glow}`} />
+      <div className="relative space-y-2">
+        <div className="flex items-center justify-between">
+          <div className={`text-sm font-bold ${t.value}`}>{nombre}</div>
+          <div className={`text-xs ${t.label}`}>{formatMoney(netoTotal)} neto</div>
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          <div className="rounded-lg bg-amber-500/10 border border-amber-500/20 px-2 py-1.5">
+            <div className="text-[10px] uppercase text-amber-300/80">Efectivo</div>
+            <div className="text-sm font-semibold text-amber-100">{formatMoney(efectivo)}</div>
+          </div>
+          <div className="rounded-lg bg-sky-500/10 border border-sky-500/20 px-2 py-1.5">
+            <div className="text-[10px] uppercase text-sky-300/80">Transferencia</div>
+            <div className="text-sm font-semibold text-sky-100">{formatMoney(transferencia)}</div>
+          </div>
+        </div>
+        <div className="text-[10px] text-zinc-400 pt-1 border-t border-white/5">+{formatMoney(ingresoTotal)} · -{formatMoney(egresoTotal)}</div>
       </div>
     </div>
   );
