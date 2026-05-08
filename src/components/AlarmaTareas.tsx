@@ -10,7 +10,7 @@ interface AlarmaTarea {
   mensaje: string | null;
   link: string | null;
   related_id: string | null;
-  tipo: 'tarea_proxima' | 'tarea_vencida' | 'presentar_escrito' | 'verificar_escrito';
+  tipo: 'tarea_proxima' | 'tarea_vencida' | 'presentar_escrito' | 'verificar_escrito' | 'tarea_paso_siguiente' | 'tarea_paso_asignado' | 'tarea_compartida_completa';
   created_at: string;
 }
 
@@ -96,7 +96,7 @@ export default function AlarmaTareas() {
         .from('notificaciones_app')
         .select('id, titulo, mensaje, link, related_id, tipo, created_at, leida')
         .eq('user_id', user.id)
-        .in('tipo', ['tarea_proxima', 'tarea_vencida', 'presentar_escrito', 'verificar_escrito'])
+        .in('tipo', ['tarea_proxima', 'tarea_vencida', 'presentar_escrito', 'verificar_escrito', 'tarea_paso_siguiente', 'tarea_paso_asignado', 'tarea_compartida_completa'])
         .eq('leida', false)
         .gte('created_at', desde.toISOString())
         .order('created_at', { ascending: false })
@@ -120,7 +120,7 @@ export default function AlarmaTareas() {
         { event: 'INSERT', schema: 'public', table: 'notificaciones_app', filter: `user_id=eq.${user.id}` },
         (payload) => {
           const n: any = payload.new;
-          if (n.tipo === 'tarea_proxima' || n.tipo === 'tarea_vencida' || n.tipo === 'presentar_escrito' || n.tipo === 'verificar_escrito') {
+          if (n.tipo === 'tarea_proxima' || n.tipo === 'tarea_vencida' || n.tipo === 'presentar_escrito' || n.tipo === 'verificar_escrito' || n.tipo === 'tarea_paso_siguiente' || n.tipo === 'tarea_paso_asignado' || n.tipo === 'tarea_compartida_completa') {
             encolar({
               id: n.id, titulo: n.titulo, mensaje: n.mensaje, link: n.link,
               related_id: n.related_id, tipo: n.tipo, created_at: n.created_at,
@@ -153,12 +153,18 @@ export default function AlarmaTareas() {
           const esVencida = n.tipo === 'tarea_vencida';
           const esEscrito = n.tipo === 'presentar_escrito';
           const esVerificar = n.tipo === 'verificar_escrito';
+          const esFinalizada = n.tipo === 'tarea_compartida_completa';
+          const esPaso = n.tipo === 'tarea_paso_siguiente' || n.tipo === 'tarea_paso_asignado';
           return (
             <div
               key={n.id}
               role="alertdialog"
               className={`rounded-2xl border-2 shadow-2xl backdrop-blur-md p-4 animate-fade-in ${
-                esVerificar
+                esFinalizada
+                  ? 'bg-emerald-500/20 border-emerald-400/70 shadow-emerald-500/40'
+                  : esPaso
+                  ? 'bg-sky-500/15 border-sky-500/60 shadow-sky-500/30'
+                  : esVerificar
                   ? 'bg-amber-500/15 border-amber-500/60 shadow-amber-500/30'
                   : esEscrito
                   ? 'bg-emerald-500/15 border-emerald-500/60 shadow-emerald-500/30'
@@ -170,15 +176,19 @@ export default function AlarmaTareas() {
             >
               <div className="flex items-start gap-3">
                 <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${
+                  esFinalizada ? 'bg-emerald-500/40 text-emerald-50 text-xl' :
+                  esPaso ? 'bg-sky-500/30 text-sky-100 text-xl' :
                   esVerificar ? 'bg-amber-500/30 text-amber-100' :
                   esEscrito ? 'bg-emerald-500/30 text-emerald-100' :
                   esVencida ? 'bg-red-500/30 text-red-200' : 'bg-orange-500/30 text-orange-200'
                 }`}>
-                  <AlertTriangle className="w-5 h-5" />
+                  {esFinalizada ? <span>🎉</span> : esPaso ? <span>⚡</span> : <AlertTriangle className="w-5 h-5" />}
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-start justify-between gap-2">
                     <h4 className={`text-sm font-bold ${
+                      esFinalizada ? 'text-emerald-50' :
+                      esPaso ? 'text-sky-100' :
                       esVerificar ? 'text-amber-100' :
                       esEscrito ? 'text-emerald-100' : esVencida ? 'text-red-100' : 'text-orange-100'
                     }`}>
@@ -199,7 +209,11 @@ export default function AlarmaTareas() {
                     <button
                       onClick={() => abrir(n)}
                       className={`text-[11px] font-semibold px-3 py-1.5 rounded-lg flex items-center gap-1.5 ${
-                        esVerificar
+                        esFinalizada
+                          ? 'bg-emerald-500 hover:bg-emerald-400 text-white'
+                          : esPaso
+                          ? 'bg-sky-500 hover:bg-sky-400 text-white'
+                          : esVerificar
                           ? 'bg-amber-500 hover:bg-amber-400 text-white'
                           : esEscrito
                           ? 'bg-emerald-500 hover:bg-emerald-400 text-white'
@@ -208,7 +222,7 @@ export default function AlarmaTareas() {
                           : 'bg-orange-500 hover:bg-orange-400 text-white'
                       }`}
                     >
-                      <ExternalLink className="w-3 h-3" /> {esVerificar ? 'Verificar caso' : esEscrito ? 'Presentar escrito' : 'Ver tarea'}
+                      <ExternalLink className="w-3 h-3" /> {esFinalizada ? 'Ver seguimiento' : esPaso ? 'Ir a Mi Día' : esVerificar ? 'Verificar caso' : esEscrito ? 'Presentar escrito' : 'Ver tarea'}
                     </button>
                     <button
                       onClick={() => cerrar(n.id)}
