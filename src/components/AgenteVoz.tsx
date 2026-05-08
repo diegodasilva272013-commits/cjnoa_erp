@@ -321,12 +321,21 @@ function arrayBufferToBase64(buffer: ArrayBuffer): string {
 async function armarContexto(userId: string | undefined, nombre: string, rol: string) {
   const equipoQ = supabase.from('perfiles').select('id, nombre, rol').eq('activo', true).limit(50);
   const casosQ = supabase.from('casos_generales').select('id, titulo, expediente').eq('archivado', false).order('updated_at', { ascending: false }).limit(50);
-  const [eq, cs] = await Promise.all([equipoQ, casosQ]);
+  const previsQ = supabase.from('clientes_previsional').select('id, apellido_nombre, pipeline').order('updated_at', { ascending: false }).limit(30);
+  const tareasQ = supabase.from('tareas')
+    .select('id, titulo, estado, estado_dia, responsable_id')
+    .neq('estado', 'completada')
+    .order('updated_at', { ascending: false })
+    .limit(40);
+  const [eq, cs, pv, tk] = await Promise.all([equipoQ, casosQ, previsQ, tareasQ]);
+  const tareasMias = (tk.data || []).filter((t: any) => !userId || t.responsable_id === userId).slice(0, 30);
   return {
     usuario: { id: userId || '', nombre, rol },
     fecha_actual: new Date().toISOString().slice(0, 10),
     equipo: (eq.data || []) as any[],
     casos_recientes: (cs.data || []) as any[],
+    clientes_previsional_recientes: (pv.data || []) as any[],
+    tareas_recientes: tareasMias,
   };
 }
 
@@ -383,6 +392,130 @@ async function ejecutarTool(plan: Plan, userId: string): Promise<{ ok: boolean; 
       }
       case 'consultar': {
         return { ok: true, mensaje: a.respuesta || 'OK' };
+      }
+      case 'registrar_ingreso': {
+        const hoy = new Date().toISOString().slice(0, 10);
+        const monto = Number(a.monto_total) || 0;
+        const payload: any = {
+          fecha: a.fecha || hoy,
+          cliente_nombre: a.cliente_nombre || '',
+          materia: a.materia || null,
+          concepto: a.concepto || 'Honorarios',
+          monto_total: monto,
+          monto_cj_noa: monto,
+          comision_captadora: 0,
+          captadora_nombre: null,
+          socio_cobro: a.socio_cobro || null,
+          modalidad: a.modalidad || 'Efectivo',
+          notas: a.notas || null,
+          es_manual: true,
+          created_by: userId,
+        };
+        const { error } = await supabase.from('ingresos').insert(payload);
+        if (error) return { ok: false, mensaje: 'Error al registrar ingreso: ' + error.message };
+        return { ok: true, mensaje: `Ingreso de $${monto.toLocaleString('es-AR')} registrado.` };
+      }
+      case 'registrar_egreso': {
+        const hoy = new Date().toISOString().slice(0, 10);
+        const monto = Number(a.monto) || 0;
+        const payload: any = {
+          fecha: a.fecha || hoy,
+          concepto: a.concepto,
+          concepto_detalle: a.concepto_detalle || null,
+          monto,
+          modalidad: a.modalidad || 'Efectivo',
+          responsable: a.responsable || null,
+          observaciones: a.observaciones || null,
+          created_by: userId,
+        };
+        const { error } = await supabase.from('egresos').insert(payload);
+        if (error) return { ok: false, mensaje: 'Error al registrar egreso: ' + error.message };
+        return { ok: true, mensaje: `Egreso de $${monto.toLocaleString('es-AR')} registrado.` };
+      }
+      case 'agregar_avance_previsional': {
+        const { error } = await supabase.from('historial_avances').insert({
+          cliente_prev_id: a.cliente_id,
+          titulo: 'Avance por voz',
+          descripcion: a.descripcion,
+          usuario_id: userId,
+        });
+        if (error) return { ok: false, mensaje: 'Error: ' + error.message };
+        return { ok: true, mensaje: 'Avance agregado a la ficha.' };
+      }
+      case 'cambiar_pipeline_previsional': {
+        const { error } = await supabase.from('clientes_previsional')
+          .update({ pipeline: a.pipeline })
+          .eq('id', a.cliente_id);
+        if (error) return { ok: false, mensaje: 'Error: ' + error.message };
+        return { ok: true, mensaje: `Ficha movida a ${a.pipeline}.` };
+      }
+      case 'iniciar_cronometro_tarea': {
+        const startedAt = new Date().toISOString();
+        const { error } = await supabase.rpc('tarea_set_estado_dia', {
+          p_tarea_id: a.tarea_id,
+          p_estado_dia: 'en_progreso',
+          p_started_at: startedAt,
+          p_tiempo_real_min: null,
+        });
+        if (error) {
+          const { error: e2 } = await supabase.from('tareas').update({
+            estado_dia: 'en_progreso',
+            started_at: startedAt,
+          }).eq('id', a.tarea_id);
+          if (e2) return { ok: false, mensaje: 'No se pudo iniciar: ' + e2.message };
+        }
+        return { ok: true, mensaje: 'Cronómetro iniciado.' };
+      }
+      case 'pausar_cronometro_tarea': {
+        const { data: t } = await supabase.from('tareas')
+          .select('started_at, tiempo_real_min')
+          .eq('id', a.tarea_id).maybeSingle();
+        const startedAt = (t as any)?.started_at;
+        const acumulado = Number((t as any)?.tiempo_real_min || 0);
+        const min = startedAt ? Math.floor((Date.now() - new Date(startedAt).getTime()) / 60000) : 0;
+        const totalMin = acumulado + min;
+        const { error } = await supabase.rpc('tarea_set_estado_dia', {
+          p_tarea_id: a.tarea_id,
+          p_estado_dia: 'pausada',
+          p_started_at: null,
+          p_tiempo_real_min: totalMin,
+        });
+        if (error) {
+          const { error: e2 } = await supabase.from('tareas').update({
+            estado_dia: 'pausada',
+            started_at: null,
+            tiempo_real_min: totalMin,
+          }).eq('id', a.tarea_id);
+          if (e2) return { ok: false, mensaje: 'No se pudo pausar: ' + e2.message };
+        }
+        return { ok: true, mensaje: `Cronómetro pausado (${totalMin} min acumulados).` };
+      }
+      case 'completar_tarea': {
+        const { data: t } = await supabase.from('tareas')
+          .select('started_at, tiempo_real_min')
+          .eq('id', a.tarea_id).maybeSingle();
+        let totalMin = Number((t as any)?.tiempo_real_min || 0);
+        const startedAt = (t as any)?.started_at;
+        if (startedAt) totalMin += Math.floor((Date.now() - new Date(startedAt).getTime()) / 60000);
+        const { error } = await supabase.from('tareas').update({
+          estado: 'completada',
+          estado_dia: 'completada',
+          tiempo_real_min: totalMin,
+          started_at: null,
+          fecha_completada: new Date().toISOString(),
+          culminacion: a.culminacion || null,
+          updated_by: userId,
+        }).eq('id', a.tarea_id);
+        if (error) return { ok: false, mensaje: 'No se pudo completar: ' + error.message };
+        return { ok: true, mensaje: 'Tarea completada.' };
+      }
+      case 'verificar_escrito': {
+        const ts = new Date().toISOString();
+        const { error } = await supabase.from('casos_generales')
+          .update({ escrito_ultima_verificacion: ts })
+          .eq('id', a.caso_id);
+        if (error) return { ok: false, mensaje: 'Error: ' + error.message };
+        return { ok: true, mensaje: 'Escrito verificado.' };
       }
       default:
         return { ok: false, mensaje: `Tool no implementada: ${plan.tool}` };

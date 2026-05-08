@@ -86,6 +86,117 @@ const TOOLS: ToolDef[] = [
     },
     destructiva: false,
   },
+  {
+    name: 'registrar_ingreso',
+    description: 'Registrar un ingreso/cobro. monto_total es el bruto, socio_cobro es quien cobró (Rodrigo/Noelia/Alejandro/Marianela/Fabricio). Si no se aclara modalidad asumir Efectivo.',
+    parameters: {
+      type: 'object',
+      properties: {
+        cliente_nombre: { type: 'string' },
+        concepto: { type: 'string' },
+        monto_total: { type: 'number', description: 'Monto bruto en pesos' },
+        socio_cobro: { type: 'string', description: 'Nombre del socio que cobró' },
+        modalidad: { type: 'string', enum: ['Efectivo', 'Transferencia'] },
+        materia: { type: 'string' },
+        fecha: { type: 'string', description: 'YYYY-MM-DD, default hoy' },
+        notas: { type: 'string' },
+      },
+      required: ['monto_total', 'socio_cobro'],
+    },
+    destructiva: true,
+  },
+  {
+    name: 'registrar_egreso',
+    description: 'Registrar un egreso/gasto. Categorías típicas: Sueldos, Servicios, Gastos Judiciales, Insumos, Otro.',
+    parameters: {
+      type: 'object',
+      properties: {
+        concepto: { type: 'string', description: 'Descripción del gasto' },
+        monto: { type: 'number' },
+        modalidad: { type: 'string', enum: ['Efectivo', 'Transferencia'] },
+        responsable: { type: 'string', description: 'Quién pagó (nombre del socio)' },
+        fecha: { type: 'string', description: 'YYYY-MM-DD, default hoy' },
+        observaciones: { type: 'string' },
+      },
+      required: ['concepto', 'monto'],
+    },
+    destructiva: true,
+  },
+  {
+    name: 'agregar_avance_previsional',
+    description: 'Agregar un avance/historial a una ficha de cliente previsional. cliente_id es UUID de la lista clientes_previsional_recientes del contexto.',
+    parameters: {
+      type: 'object',
+      properties: {
+        cliente_id: { type: 'string', description: 'UUID del cliente previsional' },
+        descripcion: { type: 'string', description: 'Texto del avance' },
+      },
+      required: ['cliente_id', 'descripcion'],
+    },
+    destructiva: true,
+  },
+  {
+    name: 'cambiar_pipeline_previsional',
+    description: 'Mover una ficha previsional a otro pipeline. Pipelines validos: seguimiento, jubi_especiales, ucap, jubi_ordinarias, finalizado, descartado.',
+    parameters: {
+      type: 'object',
+      properties: {
+        cliente_id: { type: 'string' },
+        pipeline: { type: 'string', enum: ['seguimiento','jubi_especiales','ucap','jubi_ordinarias','finalizado','descartado'] },
+      },
+      required: ['cliente_id', 'pipeline'],
+    },
+    destructiva: true,
+  },
+  {
+    name: 'iniciar_cronometro_tarea',
+    description: 'Iniciar el cronómetro de una tarea (estado_dia=en_progreso). El usuario debe ser responsable o tener un paso asignado. Usar el id de la lista de tareas del contexto.',
+    parameters: {
+      type: 'object',
+      properties: {
+        tarea_id: { type: 'string', description: 'UUID de la tarea' },
+      },
+      required: ['tarea_id'],
+    },
+    destructiva: true,
+  },
+  {
+    name: 'pausar_cronometro_tarea',
+    description: 'Pausar el cronómetro de una tarea en curso.',
+    parameters: {
+      type: 'object',
+      properties: {
+        tarea_id: { type: 'string' },
+      },
+      required: ['tarea_id'],
+    },
+    destructiva: true,
+  },
+  {
+    name: 'completar_tarea',
+    description: 'Marcar una tarea como completada. culminacion es opcional (resumen de cómo cerró).',
+    parameters: {
+      type: 'object',
+      properties: {
+        tarea_id: { type: 'string' },
+        culminacion: { type: 'string' },
+      },
+      required: ['tarea_id'],
+    },
+    destructiva: true,
+  },
+  {
+    name: 'verificar_escrito',
+    description: 'Marcar que se verificó el escrito de un caso (reinicia el contador de 7 días).',
+    parameters: {
+      type: 'object',
+      properties: {
+        caso_id: { type: 'string' },
+      },
+      required: ['caso_id'],
+    },
+    destructiva: true,
+  },
 ];
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -104,6 +215,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         equipo: Array<{ id: string; nombre: string; rol: string }>;
         casos_recientes: Array<{ id: string; titulo: string; cliente_nombre?: string; expediente?: string }>;
         clientes_recientes?: Array<{ id: string; nombre: string }>;
+        clientes_previsional_recientes?: Array<{ id: string; apellido_nombre: string; pipeline?: string }>;
+        tareas_recientes?: Array<{ id: string; titulo: string; estado?: string; estado_dia?: string }>;
       };
       transcripcion_directa?: string;
     };
@@ -158,6 +271,8 @@ CONTEXTO ACTUAL:
 - Fecha hoy: ${contexto.fecha_actual}
 - Equipo: ${JSON.stringify(contexto.equipo)}
 - Casos recientes (últimos 50): ${JSON.stringify(contexto.casos_recientes.slice(0, 50))}
+- Clientes previsionales recientes: ${JSON.stringify((contexto.clientes_previsional_recientes || []).slice(0, 30))}
+- Tareas recientes (mías o donde participo): ${JSON.stringify((contexto.tareas_recientes || []).slice(0, 30))}
 
 TOOLS DISPONIBLES (devolvé el plan respetando estos schemas):
 ${TOOLS.map(t => `- ${t.name}: ${t.description}\n  schema: ${JSON.stringify(t.parameters)}`).join('\n')}
