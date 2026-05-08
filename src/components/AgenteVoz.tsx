@@ -1,8 +1,24 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { Mic, Loader2, X, Check, Volume2 } from 'lucide-react';
+import { Mic, Loader2, X, Check, Volume2, Ear, EarOff } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
+
+// Wake-word: el usuario dice "CJ" (CE JOTA) y el agente arranca a escuchar el comando
+const WAKE_PATTERNS = [
+  /\bc\s*j\b/i,
+  /\bce\s*jota\b/i,
+  /\bcejota\b/i,
+  /\bceyota\b/i,
+  /\bsejota\b/i,
+  /\bse\s*jota\b/i,
+  /\bsi\s*jota\b/i,
+];
+function contieneWakeWord(texto: string): boolean {
+  const t = texto.toLowerCase().trim();
+  return WAKE_PATTERNS.some(rx => rx.test(t));
+}
+const WAKE_PREF_KEY = 'noa_wake_word_enabled';
 
 // ============================================================
 // Agente de voz NOA — botón flotante global
@@ -38,6 +54,16 @@ export default function AgenteVoz() {
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<BlobPart[]>([]);
   const streamRef = useRef<MediaStream | null>(null);
+
+  // Wake-word
+  const [wakeOn, setWakeOn] = useState<boolean>(() => {
+    try { return localStorage.getItem(WAKE_PREF_KEY) !== '0'; } catch { return true; }
+  });
+  const [wakeActivo, setWakeActivo] = useState(false);
+  const wakeRecRef = useRef<any>(null);
+  const wakeReiniciarRef = useRef(true);
+  const estadoRef = useRef<Estado>('idle');
+  useEffect(() => { estadoRef.current = estado; }, [estado]);
 
   function hablar(texto: string) {
     try {
@@ -172,30 +198,142 @@ export default function AgenteVoz() {
     return () => window.removeEventListener('keydown', onKey);
   }, [reset]);
 
+  // ── Wake-word: escucha continua en background con Web Speech API ──
+  const onWakeDetectado = useCallback(() => {
+    if (estadoRef.current !== 'idle') return;
+    const nombre = (perfil?.nombre || 'Usuario').split(' ')[0];
+    hablar(`Acá estoy ${nombre}, ¿en qué puedo ayudarte?`);
+    // pequeño delay para que termine de hablar antes de empezar a grabar
+    setTimeout(() => { iniciarGrabacion(); }, 1400);
+  }, [perfil?.nombre]);
+
+  useEffect(() => {
+    if (!user || !wakeOn) {
+      // apagar si estaba prendido
+      wakeReiniciarRef.current = false;
+      try { wakeRecRef.current?.stop?.(); } catch { /* noop */ }
+      wakeRecRef.current = null;
+      setWakeActivo(false);
+      return;
+    }
+    const SR: any = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SR) {
+      // Navegador sin Web Speech API (Firefox, algunos iOS) — silencioso
+      setWakeActivo(false);
+      return;
+    }
+    wakeReiniciarRef.current = true;
+    const rec = new SR();
+    rec.lang = 'es-AR';
+    rec.continuous = true;
+    rec.interimResults = true;
+    rec.maxAlternatives = 3;
+
+    rec.onresult = (ev: any) => {
+      // Sólo nos interesa detectar si en algún resultado (incluso interim) aparece la wake word
+      for (let i = ev.resultIndex; i < ev.results.length; i++) {
+        const r = ev.results[i];
+        for (let j = 0; j < r.length; j++) {
+          const txt = r[j].transcript || '';
+          if (contieneWakeWord(txt)) {
+            // Detener y disparar; onend reinicia
+            try { rec.stop(); } catch { /* noop */ }
+            onWakeDetectado();
+            return;
+          }
+        }
+      }
+    };
+    rec.onerror = (_ev: any) => {
+      // 'not-allowed' / 'service-not-allowed' / 'no-speech' — dejar que onend re-arranque
+    };
+    rec.onend = () => {
+      // Auto-reinicio mientras esté habilitado y el agente no esté grabando/procesando
+      if (!wakeReiniciarRef.current) { setWakeActivo(false); return; }
+      if (estadoRef.current !== 'idle') {
+        // se reanudará cuando vuelva a idle (efecto se vuelve a montar via wakeOn toggling no aplica;
+        // usamos un pequeño timer que reintenta)
+        setTimeout(() => {
+          if (wakeReiniciarRef.current && estadoRef.current === 'idle') {
+            try { rec.start(); setWakeActivo(true); } catch { /* noop */ }
+          }
+        }, 1200);
+        return;
+      }
+      try { rec.start(); setWakeActivo(true); } catch { /* noop */ }
+    };
+
+    wakeRecRef.current = rec;
+    try { rec.start(); setWakeActivo(true); } catch { /* noop */ }
+
+    return () => {
+      wakeReiniciarRef.current = false;
+      try { rec.stop(); } catch { /* noop */ }
+      wakeRecRef.current = null;
+      setWakeActivo(false);
+    };
+  }, [user, wakeOn, onWakeDetectado]);
+
+  // Cuando el agente termina (vuelve a idle), reanudar wake-word si quedó frenado
+  useEffect(() => {
+    if (estado !== 'idle') return;
+    if (!wakeOn || !wakeReiniciarRef.current) return;
+    if (wakeRecRef.current && !wakeActivo) {
+      try { wakeRecRef.current.start(); setWakeActivo(true); } catch { /* noop */ }
+    }
+  }, [estado, wakeOn, wakeActivo]);
+
+  function toggleWake() {
+    setWakeOn(prev => {
+      const next = !prev;
+      try { localStorage.setItem(WAKE_PREF_KEY, next ? '1' : '0'); } catch { /* noop */ }
+      return next;
+    });
+  }
+
   if (!user) return null;
 
   return (
     <>
-      {/* Botón flotante */}
-      <button
-        onClick={() => {
-          if (estado === 'grabando') detenerGrabacion();
-          else if (estado === 'idle') iniciarGrabacion();
-          else setOpen(true);
-        }}
-        title="Asistente de voz NOA (mantené presionado para hablar)"
-        className={`fixed bottom-5 right-5 z-[90] w-14 h-14 rounded-full shadow-xl flex items-center justify-center transition-all border-2 ${
-          estado === 'grabando'
-            ? 'bg-red-500 border-red-300 animate-pulse'
-            : estado === 'procesando' || estado === 'ejecutando'
-            ? 'bg-amber-500 border-amber-300'
-            : 'bg-emerald-500 border-emerald-300 hover:scale-110'
-        }`}
-      >
-        {estado === 'procesando' || estado === 'ejecutando'
-          ? <Loader2 className="w-6 h-6 text-white animate-spin" />
-          : <Mic className="w-6 h-6 text-white" />}
-      </button>
+      {/* Botón flotante CJ */}
+      <div className="fixed bottom-5 right-5 z-[90] flex flex-col items-end gap-2">
+        {/* Toggle wake-word */}
+        <button
+          onClick={toggleWake}
+          title={wakeOn ? (wakeActivo ? 'Escuchando "CJ" — click para apagar' : 'Wake-word ON (sin soporte del navegador)') : 'Activar escucha de "CJ"'}
+          className={`w-9 h-9 rounded-full shadow-lg flex items-center justify-center border transition-all ${
+            wakeOn && wakeActivo
+              ? 'bg-emerald-600/90 border-emerald-300 text-white animate-pulse'
+              : wakeOn
+              ? 'bg-amber-600/80 border-amber-300 text-white'
+              : 'bg-gray-700/80 border-gray-500 text-gray-300 hover:bg-gray-600'
+          }`}
+        >
+          {wakeOn ? <Ear className="w-4 h-4" /> : <EarOff className="w-4 h-4" />}
+        </button>
+
+        {/* Botón principal */}
+        <button
+          onClick={() => {
+            if (estado === 'grabando') detenerGrabacion();
+            else if (estado === 'idle') iniciarGrabacion();
+            else setOpen(true);
+          }}
+          title='Decí "CJ" para activar, o tocá para hablar'
+          className={`w-14 h-14 rounded-full shadow-xl flex items-center justify-center transition-all border-2 relative ${
+            estado === 'grabando'
+              ? 'bg-red-500 border-red-300 animate-pulse'
+              : estado === 'procesando' || estado === 'ejecutando'
+              ? 'bg-amber-500 border-amber-300'
+              : 'bg-emerald-500 border-emerald-300 hover:scale-110'
+          }`}
+        >
+          {estado === 'procesando' || estado === 'ejecutando'
+            ? <Loader2 className="w-6 h-6 text-white animate-spin" />
+            : <Mic className="w-6 h-6 text-white" />}
+          <span className="absolute -top-1 -left-1 text-[9px] font-black bg-black/70 text-emerald-300 px-1.5 py-0.5 rounded-full border border-emerald-500/50">CJ</span>
+        </button>
+      </div>
 
       {/* Panel */}
       {open && (
@@ -284,7 +422,7 @@ export default function AgenteVoz() {
                   <Mic className="w-4 h-4" /> Apretá para hablar
                 </button>
                 <p className="text-[10px] text-gray-500 mt-3">
-                  Ej: "Crear tarea llamar a Pérez para mañana asignada a Karina con prioridad alta"
+                  Decí <span className="text-emerald-300 font-bold">"CJ"</span> en voz alta para activar, o tocá el botón. Ej: "Crear tarea llamar a Pérez para mañana asignada a Karina"
                 </p>
               </div>
             )}
