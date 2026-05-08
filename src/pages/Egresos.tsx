@@ -110,16 +110,23 @@ export default function Egresos() {
   const totales = useMemo(() => {
     const total = filtrados.reduce((s, e) => s + Number(e.monto || 0), 0);
     const porPagador: Record<SocioFinanzas, number> = { Rodri: 0, Noe: 0, Ale: 0, Fabri: 0 };
+    const efectivoSocio: Record<SocioFinanzas, number> = { Rodri: 0, Noe: 0, Ale: 0, Fabri: 0 };
+    const transferSocio: Record<SocioFinanzas, number> = { Rodri: 0, Noe: 0, Ale: 0, Fabri: 0 };
     const porTipo: Record<string, number> = {};
     let efectivo = 0;
     let transferencia = 0;
     filtrados.forEach(e => {
-      if (e.pagador) porPagador[e.pagador] = (porPagador[e.pagador] || 0) + Number(e.monto || 0);
-      porTipo[e.tipo] = (porTipo[e.tipo] || 0) + Number(e.monto || 0);
-      if (e.modalidad === 'Efectivo') efectivo += Number(e.monto || 0);
-      else if (e.modalidad === 'Transferencia') transferencia += Number(e.monto || 0);
+      const m = Number(e.monto || 0);
+      if (e.pagador) {
+        porPagador[e.pagador] = (porPagador[e.pagador] || 0) + m;
+        if (e.modalidad === 'Efectivo') efectivoSocio[e.pagador] = (efectivoSocio[e.pagador] || 0) + m;
+        else if (e.modalidad === 'Transferencia') transferSocio[e.pagador] = (transferSocio[e.pagador] || 0) + m;
+      }
+      porTipo[e.tipo] = (porTipo[e.tipo] || 0) + m;
+      if (e.modalidad === 'Efectivo') efectivo += m;
+      else if (e.modalidad === 'Transferencia') transferencia += m;
     });
-    return { total, porPagador, porTipo, efectivo, transferencia };
+    return { total, porPagador, porTipo, efectivo, transferencia, efectivoSocio, transferSocio };
   }, [filtrados]);
 
   const chartItems = useMemo(() => filtrados.map(e => ({
@@ -240,13 +247,24 @@ export default function Egresos() {
       </header>
 
       {/* Métricas */}
-      <div className="grid grid-cols-2 md:grid-cols-7 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
         <MetricCard label="Total filtrado" value={formatMoney(totales.total)} tone="rose" highlight />
+        <MetricCard label="Pagó Caja CJ (efectivo)" value={formatMoney(totales.efectivo)} tone="amber" />
+        <MetricCard label="Transferencia total" value={formatMoney(totales.transferencia)} tone="sky" />
+      </div>
+
+      {/* Cards por socio con desglose */}
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
         {SOCIOS_FINANZAS.map(s => (
-          <MetricCard key={s} label={`Pagó ${s}`} value={formatMoney(totales.porPagador[s])} tone={SOCIO_TONE[s]} />
+          <SocioBreakdownCard
+            key={s}
+            tone={SOCIO_TONE[s]}
+            nombre={`Pagó ${s}`}
+            efectivo={totales.efectivoSocio[s]}
+            transferencia={totales.transferSocio[s]}
+            total={totales.porPagador[s]}
+          />
         ))}
-        <MetricCard label="Pagó Caja CJ" value={formatMoney(totales.efectivo)} tone="amber" />
-        <MetricCard label="Transferencia" value={formatMoney(totales.transferencia)} tone="sky" />
       </div>
 
       {/* Gráficos */}
@@ -420,6 +438,34 @@ function MetricCard({ label, value, highlight, tone = 'zinc' }: { label: string;
       <div className="relative">
         <div className={`text-xs ${t.label}`}>{label}</div>
         <div className={`text-lg font-semibold mt-1 transition-transform duration-300 group-hover:scale-105 origin-left ${t.value}`}>{value}</div>
+      </div>
+    </div>
+  );
+}
+
+function SocioBreakdownCard({ nombre, efectivo, transferencia, total, tone }: {
+  nombre: string; efectivo: number; transferencia: number; total: number; tone: Tone;
+}) {
+  const t = TONES[tone];
+  return (
+    <div className={`group relative rounded-xl border p-4 overflow-hidden transition-all duration-300 ease-out hover:-translate-y-1 hover:scale-[1.02] hover:shadow-lg ${t.bg} ${t.border} ${t.shadow}`}>
+      <div className={`absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-300 bg-gradient-to-br ${t.gradient} pointer-events-none`} />
+      <div className={`absolute -top-8 -right-8 w-28 h-28 rounded-full blur-2xl opacity-20 group-hover:opacity-40 transition-opacity duration-300 ${t.glow}`} />
+      <div className="relative space-y-2">
+        <div className="flex items-center justify-between">
+          <div className={`text-sm font-bold ${t.value}`}>{nombre}</div>
+          <div className={`text-xs ${t.label}`}>{formatMoney(total)}</div>
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          <div className="rounded-lg bg-amber-500/10 border border-amber-500/20 px-2 py-1.5">
+            <div className="text-[10px] uppercase text-amber-300/80">Efectivo</div>
+            <div className="text-sm font-semibold text-amber-100">{formatMoney(efectivo)}</div>
+          </div>
+          <div className="rounded-lg bg-sky-500/10 border border-sky-500/20 px-2 py-1.5">
+            <div className="text-[10px] uppercase text-sky-300/80">Transferencia</div>
+            <div className="text-sm font-semibold text-sky-100">{formatMoney(transferencia)}</div>
+          </div>
+        </div>
       </div>
     </div>
   );
