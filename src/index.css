@@ -191,13 +191,15 @@
 
   .modal-overlay {
     @apply fixed inset-0 bg-black/70 backdrop-blur-sm z-50 
-           flex items-center justify-center animate-fade-in overflow-y-auto;
-    padding: 80px 12px 24px 12px;
+           flex items-start justify-center animate-fade-in overflow-y-auto;
+    padding: 90px 16px 24px 16px;
   }
 
   .modal-content {
-    @apply glass-card w-full max-h-[calc(100vh-110px)] overflow-y-auto 
-           animate-slide-up p-0 rounded-2xl my-auto;
+    @apply glass-card w-full overflow-y-auto 
+           animate-slide-up p-0 rounded-2xl;
+    max-width: 600px;
+    max-height: calc(100vh - 130px);
     border: 2px solid rgba(255, 255, 255, 0.5);
     box-shadow: 0 25px 60px -10px rgba(0, 0, 0, 0.95);
   }
