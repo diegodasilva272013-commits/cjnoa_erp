@@ -5,11 +5,12 @@ import { useIngresosOperativos } from '../hooks/useIngresosOperativos';
 import {
   SOCIOS_FINANZAS, RAMAS,
   type IngresoOperativo, type SocioFinanzas, type RamaLegal,
-  type RepartoCalculo,
+  type RepartoCalculo, type EgresoV2,
 } from '../types/finanzas';
 import { useToast } from '../context/ToastContext';
 import { formatMoney } from '../lib/financeFormat';
 import Modal from '../components/Modal';
+import FinanceMiniCharts from '../components/finance/FinanceMiniCharts';
 
 const periodoActual = () => new Date().toISOString().slice(0, 7); // YYYY-MM
 
@@ -21,6 +22,20 @@ export default function FlujoCaja() {
   const [calculandoReparto, setCalculandoReparto] = useState(false);
   const [reparto, setReparto] = useState<RepartoCalculo | null>(null);
   const [modalReparto, setModalReparto] = useState(false);
+  const [egresos, setEgresos] = useState<EgresoV2[]>([]);
+
+  // Cargar egresos del periodo
+  useEffect(() => {
+    (async () => {
+      const { data } = await supabase
+        .from('egresos_v2')
+        .select('*')
+        .gte('fecha', `${periodo}-01`)
+        .lte('fecha', `${periodo}-31`)
+        .order('fecha', { ascending: false });
+      setEgresos((data || []) as EgresoV2[]);
+    })();
+  }, [periodo]);
 
   // Cargar meta del periodo
   useEffect(() => {
@@ -43,12 +58,49 @@ export default function FlujoCaja() {
     const total = ingresosPeriodo.reduce((s, i) => s + Number(i.monto || 0), 0);
     const porSocio: Record<SocioFinanzas, number> = { Rodri: 0, Noe: 0, Ale: 0, Fabri: 0 };
     const porRama: Record<string, number> = {};
+    let efectivoIn = 0, transferIn = 0;
     ingresosPeriodo.forEach(i => {
       porSocio[i.doctor_cobra] = (porSocio[i.doctor_cobra] || 0) + Number(i.monto || 0);
       porRama[i.rama] = (porRama[i.rama] || 0) + Number(i.monto || 0);
+      if (i.modalidad === 'Efectivo') efectivoIn += Number(i.monto || 0);
+      else if (i.modalidad === 'Transferencia') transferIn += Number(i.monto || 0);
     });
-    return { total, porSocio, porRama };
-  }, [ingresosPeriodo]);
+    const totalEgresos = egresos.reduce((s, e) => s + Number(e.monto || 0), 0);
+    let efectivoOut = 0, transferOut = 0;
+    const egresosPorSocio: Record<SocioFinanzas, number> = { Rodri: 0, Noe: 0, Ale: 0, Fabri: 0 };
+    egresos.forEach(e => {
+      if (e.modalidad === 'Efectivo') efectivoOut += Number(e.monto || 0);
+      else if (e.modalidad === 'Transferencia') transferOut += Number(e.monto || 0);
+      if (e.pagador) egresosPorSocio[e.pagador] = (egresosPorSocio[e.pagador] || 0) + Number(e.monto || 0);
+    });
+    const neto = total - totalEgresos;
+    const cajaEfectivo = efectivoIn - efectivoOut;
+    const cajaTransfer = transferIn - transferOut;
+    return { total, porSocio, porRama, totalEgresos, neto, cajaEfectivo, cajaTransfer, egresosPorSocio };
+  }, [ingresosPeriodo, egresos]);
+
+  const chartItemsIngresos = useMemo(() => ingresosPeriodo.map((i: IngresoOperativo) => ({
+    fecha: i.fecha,
+    monto: Number(i.monto || 0),
+    categoria: i.doctor_cobra,
+    subcategoria: i.rama,
+  })), [ingresosPeriodo]);
+
+  const chartItemsEgresos = useMemo(() => egresos.map(e => ({
+    fecha: e.fecha,
+    monto: Number(e.monto || 0),
+    categoria: e.modalidad === 'Efectivo' && !e.pagador ? 'Caja CJ' : (e.pagador || 'Sin asignar'),
+    subcategoria: e.tipo,
+  })), [egresos]);
+
+  const chartItemsFlujo = useMemo(() => {
+    const dias = new Map<string, number>();
+    ingresosPeriodo.forEach(i => dias.set(i.fecha, (dias.get(i.fecha) || 0) + Number(i.monto || 0)));
+    egresos.forEach(e => dias.set(e.fecha, (dias.get(e.fecha) || 0) - Number(e.monto || 0)));
+    return Array.from(dias.entries())
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([fecha, monto]) => ({ fecha, monto, categoria: monto >= 0 ? 'Positivo' : 'Negativo', subcategoria: fecha.slice(8) }));
+  }, [ingresosPeriodo, egresos]);
 
   const cumplimiento = meta > 0 ? (totales.total / meta) * 100 : 0;
   const semaforo: 'rojo' | 'amarillo' | 'verde' =
@@ -129,14 +181,67 @@ export default function FlujoCaja() {
         </div>
       </div>
 
-      {/* Cards por socio */}
+      {/* Cards principales */}
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+        <MetricCard label="Ingresos del periodo" value={formatMoney(totales.total)} tone="emerald" highlight />
+        <MetricCard label="Egresos del periodo" value={formatMoney(totales.totalEgresos)} tone="rose" highlight />
+        <MetricCard label="Neto (In - Out)" value={formatMoney(totales.neto)} tone={totales.neto >= 0 ? 'emerald' : 'rose'} highlight />
+        <MetricCard label="Caja Efectivo" value={formatMoney(totales.cajaEfectivo)} tone="amber" />
+        <MetricCard label="Caja Transferencia" value={formatMoney(totales.cajaTransfer)} tone="sky" />
+      </div>
+
+      {/* Cards por socio (ingresos vs egresos) */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        {SOCIOS_FINANZAS.map(s => (
-          <div key={s} className="bg-white/[0.02] border border-white/10 rounded-xl p-4">
-            <div className="text-xs text-zinc-400">{s}</div>
-            <div className="text-xl font-semibold text-white mt-1">{formatMoney(totales.porSocio[s])}</div>
-          </div>
-        ))}
+        {SOCIOS_FINANZAS.map(s => {
+          const ing = totales.porSocio[s];
+          const eg = totales.egresosPorSocio[s];
+          const neto = ing - eg;
+          return (
+            <MetricCard
+              key={s}
+              tone={SOCIO_TONE[s]}
+              label={s}
+              value={formatMoney(neto)}
+              sub={`+${formatMoney(ing)} · -${formatMoney(eg)}`}
+            />
+          );
+        })}
+      </div>
+
+      {/* Gráficos de Ingresos */}
+      <div>
+        <h2 className="text-sm font-semibold text-emerald-300 mb-2 uppercase tracking-wider">Ingresos del periodo</h2>
+        <FinanceMiniCharts
+          items={chartItemsIngresos}
+          pieTitle="Ingresos por doctor"
+          lineTitle="Evolución diaria"
+          barTitle="Top ramas"
+          accent="emerald"
+        />
+      </div>
+
+      {/* Gráficos de Egresos */}
+      <div>
+        <h2 className="text-sm font-semibold text-rose-300 mb-2 uppercase tracking-wider">Egresos del periodo</h2>
+        <FinanceMiniCharts
+          items={chartItemsEgresos}
+          pieTitle="Egresos por pagador"
+          lineTitle="Evolución diaria"
+          barTitle="Top tipos"
+          accent="rose"
+        />
+      </div>
+
+      {/* Flujo neto diario */}
+      <div>
+        <h2 className="text-sm font-semibold text-sky-300 mb-2 uppercase tracking-wider">Flujo neto diario (Ingresos - Egresos)</h2>
+        <FinanceMiniCharts
+          items={chartItemsFlujo}
+          pieTitle="Saldo positivo / negativo"
+          lineTitle="Saldo neto por día"
+          barTitle="Mejores días"
+          accent="sky"
+        />
       </div>
 
       {/* Por rama */}
@@ -215,6 +320,36 @@ function Stat({ label, value, highlight }: { label: string; value: string; highl
     <div className={`rounded-lg p-3 border ${highlight ? 'bg-emerald-500/10 border-emerald-500/30' : 'bg-white/[0.02] border-white/10'}`}>
       <div className="text-[10px] uppercase text-zinc-400">{label}</div>
       <div className={`text-base font-semibold mt-0.5 ${highlight ? 'text-emerald-300' : 'text-white'}`}>{value}</div>
+    </div>
+  );
+}
+
+type Tone = 'emerald' | 'sky' | 'violet' | 'amber' | 'rose' | 'zinc';
+
+const TONES: Record<Tone, { bg: string; border: string; ring: string; gradient: string; glow: string; label: string; value: string; shadow: string }> = {
+  emerald: { bg: 'bg-emerald-500/10', border: 'border-emerald-500/30', ring: 'ring-emerald-400/40', gradient: 'from-emerald-500/20 to-transparent', glow: 'bg-emerald-400', label: 'text-emerald-300/80', value: 'text-emerald-200', shadow: 'hover:shadow-emerald-500/20' },
+  sky:     { bg: 'bg-sky-500/10',     border: 'border-sky-500/30',     ring: 'ring-sky-400/40',     gradient: 'from-sky-500/20 to-transparent',     glow: 'bg-sky-400',     label: 'text-sky-300/80',     value: 'text-sky-100',     shadow: 'hover:shadow-sky-500/20' },
+  violet:  { bg: 'bg-violet-500/10',  border: 'border-violet-500/30',  ring: 'ring-violet-400/40',  gradient: 'from-violet-500/20 to-transparent',  glow: 'bg-violet-400',  label: 'text-violet-300/80',  value: 'text-violet-100',  shadow: 'hover:shadow-violet-500/20' },
+  amber:   { bg: 'bg-amber-500/10',   border: 'border-amber-500/30',   ring: 'ring-amber-400/40',   gradient: 'from-amber-500/20 to-transparent',   glow: 'bg-amber-400',   label: 'text-amber-300/80',   value: 'text-amber-100',   shadow: 'hover:shadow-amber-500/20' },
+  rose:    { bg: 'bg-rose-500/10',    border: 'border-rose-500/30',    ring: 'ring-rose-400/40',    gradient: 'from-rose-500/20 to-transparent',    glow: 'bg-rose-400',    label: 'text-rose-300/80',    value: 'text-rose-100',    shadow: 'hover:shadow-rose-500/20' },
+  zinc:    { bg: 'bg-white/[0.02]',   border: 'border-white/10',       ring: 'ring-white/20',       gradient: 'from-white/10 to-transparent',       glow: 'bg-white',       label: 'text-zinc-400',       value: 'text-white',       shadow: 'hover:shadow-white/10' },
+};
+
+const SOCIO_TONE: Record<SocioFinanzas, Tone> = { Rodri: 'sky', Noe: 'violet', Ale: 'amber', Fabri: 'rose' };
+
+function MetricCard({ label, value, sub, highlight, tone = 'zinc' }: { label: string; value: string; sub?: string; highlight?: boolean; tone?: Tone }) {
+  const t = TONES[tone];
+  return (
+    <div
+      className={`group relative rounded-xl border p-4 overflow-hidden cursor-default transition-all duration-300 ease-out hover:-translate-y-1 hover:scale-[1.02] hover:shadow-lg ${t.bg} ${t.border} ${t.shadow} ${highlight ? 'ring-1 ring-inset ' + t.ring : ''}`}
+    >
+      <div className={`absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-300 bg-gradient-to-br ${t.gradient} pointer-events-none`} />
+      <div className={`absolute -top-8 -right-8 w-24 h-24 rounded-full blur-2xl opacity-20 group-hover:opacity-40 transition-opacity duration-300 ${t.glow}`} />
+      <div className="relative">
+        <div className={`text-xs ${t.label}`}>{label}</div>
+        <div className={`text-lg font-semibold mt-1 transition-transform duration-300 group-hover:scale-105 origin-left ${t.value}`}>{value}</div>
+        {sub && <div className="text-[10px] text-zinc-400 mt-1">{sub}</div>}
+      </div>
     </div>
   );
 }
