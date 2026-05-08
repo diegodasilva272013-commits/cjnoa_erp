@@ -1,9 +1,9 @@
 import { useMemo, useState } from 'react';
-import { ArrowLeftRight, Plus, Banknote, CreditCard } from 'lucide-react';
+import { ArrowLeftRight, Plus, Banknote, CreditCard, Pencil, Trash2 } from 'lucide-react';
 import { useMovimientosCaja } from '../hooks/useMovimientosCaja';
 import {
   SOCIOS_FINANZAS, MODALIDADES,
-  type SocioFinanzas, type ModalidadPago,
+  type SocioFinanzas, type ModalidadPago, type MovimientoCaja,
 } from '../types/finanzas';
 import { useToast } from '../context/ToastContext';
 import { formatMoney } from '../lib/financeFormat';
@@ -42,12 +42,14 @@ const FORM_INICIAL: FormState = {
 };
 
 export default function Cambios() {
-  const { items, loading, crear } = useMovimientosCaja();
+  const { items, loading, crear, actualizar, eliminar } = useMovimientosCaja();
   const { showToast } = useToast();
   const [periodo, setPeriodo] = useState(periodoActual());
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState<FormState>(FORM_INICIAL);
   const [saving, setSaving] = useState(false);
+  const [editId, setEditId] = useState<string | null>(null);
+  const [confirmDel, setConfirmDel] = useState<MovimientoCaja | null>(null);
 
   const itemsPeriodo = useMemo(
     () => items.filter(m => m.fecha.startsWith(periodo)),
@@ -62,7 +64,22 @@ export default function Cambios() {
   const cantPeriodo = itemsPeriodo.length;
 
   function abrirNuevo() {
+    setEditId(null);
     setForm(f => ({ ...FORM_INICIAL, fecha: f.fecha || hoyISO() }));
+    setOpen(true);
+  }
+
+  function abrirEditar(m: MovimientoCaja) {
+    setEditId(m.id);
+    setForm({
+      fecha: m.fecha,
+      socio_origen: m.socio_origen,
+      socio_destino: m.socio_destino,
+      monto: String(m.monto),
+      tipo_origen: m.tipo_origen,
+      tipo_destino: m.tipo_destino,
+      observaciones: m.observaciones || '',
+    });
     setOpen(true);
   }
 
@@ -74,7 +91,7 @@ export default function Cambios() {
     }
     setSaving(true);
     try {
-      await crear({
+      const payload = {
         fecha: form.fecha,
         socio_origen: form.socio_origen,
         socio_destino: form.socio_destino,
@@ -82,14 +99,32 @@ export default function Cambios() {
         tipo_origen: form.tipo_origen,
         tipo_destino: form.tipo_destino,
         observaciones: form.observaciones || null,
-      });
-      showToast('Cambio registrado', 'success');
+      };
+      if (editId) {
+        await actualizar(editId, payload);
+        showToast('Cambio actualizado', 'success');
+      } else {
+        await crear(payload);
+        showToast('Cambio registrado', 'success');
+      }
       setOpen(false);
+      setEditId(null);
       setForm(FORM_INICIAL);
     } catch (err: any) {
-      showToast(err?.message || 'Error al registrar', 'error');
+      showToast(err?.message || 'Error al guardar', 'error');
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function handleEliminar() {
+    if (!confirmDel) return;
+    try {
+      await eliminar(confirmDel.id);
+      showToast('Cambio eliminado', 'success');
+      setConfirmDel(null);
+    } catch (err: any) {
+      showToast(err?.message || 'Error al eliminar', 'error');
     }
   }
 
@@ -164,6 +199,7 @@ export default function Cambios() {
                   <th className="text-left px-4 py-2">Recibe</th>
                   <th className="text-right px-4 py-2">Monto</th>
                   <th className="text-left px-4 py-2">Observaciones</th>
+                  <th className="text-right px-4 py-2 w-24">Acciones</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/5">
@@ -188,6 +224,24 @@ export default function Cambios() {
                     </td>
                     <td className="px-4 py-2 text-right text-white font-medium whitespace-nowrap">{formatMoney(Number(m.monto))}</td>
                     <td className="px-4 py-2 text-zinc-400 text-xs">{m.observaciones || '—'}</td>
+                    <td className="px-4 py-2 text-right">
+                      <div className="flex items-center justify-end gap-1">
+                        <button
+                          onClick={() => abrirEditar(m)}
+                          className="p-1.5 rounded text-zinc-400 hover:text-amber-300 hover:bg-amber-500/10 transition-colors"
+                          title="Editar"
+                        >
+                          <Pencil className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          onClick={() => setConfirmDel(m)}
+                          className="p-1.5 rounded text-zinc-400 hover:text-rose-300 hover:bg-rose-500/10 transition-colors"
+                          title="Eliminar"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -197,7 +251,7 @@ export default function Cambios() {
       </div>
 
       {/* Modal nuevo */}
-      <Modal open={open} onClose={() => setOpen(false)} title="Nuevo cambio de caja">
+      <Modal open={open} onClose={() => { setOpen(false); setEditId(null); }} title={editId ? 'Editar cambio de caja' : 'Nuevo cambio de caja'}>
         <div className="space-y-4">
           <div className="grid grid-cols-2 gap-3">
             <div>
@@ -302,7 +356,7 @@ export default function Cambios() {
           <div className="flex justify-end gap-2 pt-2">
             <button
               type="button"
-              onClick={() => setOpen(false)}
+              onClick={() => { setOpen(false); setEditId(null); }}
               className="px-3 py-2 rounded-lg bg-white/5 hover:bg-white/10 text-sm text-zinc-300"
             >
               Cancelar
@@ -313,10 +367,26 @@ export default function Cambios() {
               onClick={guardar}
               className="px-3 py-2 rounded-lg bg-amber-600 hover:bg-amber-500 text-sm text-white disabled:opacity-40"
             >
-              {saving ? 'Guardando…' : 'Registrar cambio'}
+              {saving ? 'Guardando…' : (editId ? 'Guardar cambios' : 'Registrar cambio')}
             </button>
           </div>
         </div>
+      </Modal>
+
+      {/* Confirmación eliminar */}
+      <Modal open={!!confirmDel} onClose={() => setConfirmDel(null)} title="Eliminar cambio">
+        {confirmDel && (
+          <div className="space-y-4">
+            <div className="p-3 rounded-lg bg-rose-500/10 border border-rose-500/30 text-sm text-rose-200">
+              ¿Eliminar el cambio del <strong>{confirmDel.fecha}</strong> de <strong>{formatMoney(Number(confirmDel.monto))}</strong>?
+              <br /><span className="text-xs opacity-80">{confirmDel.socio_origen} ({confirmDel.tipo_origen}) → {confirmDel.socio_destino} ({confirmDel.tipo_destino})</span>
+            </div>
+            <div className="flex justify-end gap-2">
+              <button onClick={() => setConfirmDel(null)} className="px-3 py-2 rounded-lg bg-white/5 hover:bg-white/10 text-sm text-zinc-300">Cancelar</button>
+              <button onClick={handleEliminar} className="px-3 py-2 rounded-lg bg-rose-600 hover:bg-rose-500 text-sm text-white">Eliminar</button>
+            </div>
+          </div>
+        )}
       </Modal>
     </div>
   );

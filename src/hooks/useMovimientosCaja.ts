@@ -41,5 +41,17 @@ export function useMovimientosCaja() {
     await cargar();
   };
 
-  return { items, loading, error, cargar, crear };
+  const actualizar = async (id: string, payload: Partial<MovimientoCaja>) => {
+    const { error } = await supabase.from('movimientos_caja').update(payload).eq('id', id);
+    if (error) throw error;
+    await cargar();
+  };
+
+  const eliminar = async (id: string) => {
+    const { error } = await supabase.from('movimientos_caja').delete().eq('id', id);
+    if (error) throw error;
+    await cargar();
+  };
+
+  return { items, loading, error, cargar, crear, actualizar, eliminar };
 }
