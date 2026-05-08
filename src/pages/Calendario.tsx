@@ -417,7 +417,13 @@ export default function Calendario() {
         });
       });
       (cs.data || []).forEach((r: any) => {
-        const d = new Date(`${r.fecha_consulta}T${(r.hora_consulta || '10:00')}:00`);
+        // Sanitizar: fecha_consulta puede venir como 'YYYY-MM-DD' o 'YYYY-MM-DDTHH:mm:ss+00:00'
+        const fechaStr = String(r.fecha_consulta || '').slice(0, 10);
+        const horaStr = String(r.hora_consulta || '10:00').slice(0, 5);
+        if (!fechaStr || !/^\d{4}-\d{2}-\d{2}$/.test(fechaStr)) return;
+        const [y, mo, da] = fechaStr.split('-').map(Number);
+        const [hh, mm] = horaStr.split(':').map(Number);
+        const d = new Date(y, mo - 1, da, hh || 10, mm || 0, 0);
         out.push({
           id: 'cs-' + r.id,
           source: 'consulta',
@@ -651,6 +657,14 @@ export default function Calendario() {
       {msg && (
         <div className="px-4 py-2 rounded-lg bg-white/5 text-sm text-white border border-white/10">{msg}</div>
       )}
+
+      <div className="text-[11px] text-gray-500 px-1">
+        Cargados: {eventos.filter(e => e.source === 'consulta').length} consultas ·{' '}
+        {eventos.filter(e => e.source === 'audiencia_general').length} audiencias generales ·{' '}
+        {eventos.filter(e => e.source === 'audiencia_legal').length} audiencias casos ·{' '}
+        {eventos.filter(e => e.source === 'interno').length} eventos internos ·{' '}
+        {eventos.filter(e => e.source === 'gcal').length} de Google
+      </div>
 
       <div className="flex items-center justify-between gap-2">
         <button onClick={() => setCursor(new Date(cursor.getFullYear(), cursor.getMonth()-1, 1))}
