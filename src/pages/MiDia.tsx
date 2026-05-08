@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import Modal from '../components/Modal';
+import { notificarSiguientePaso } from '../lib/tareaPasosNotify';
 import {
   PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RTooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid,
 } from 'recharts';
@@ -398,6 +399,24 @@ export default function MiDia() {
     setCompletarTexto(t.culminacion || '');
   }
 
+  async function completarMiPaso(tareaId: string, pasoId: string, pasoOrden: number, pasoDesc: string) {
+    if (!user?.id) return;
+    const { error } = await supabase.rpc('tarea_paso_set_completado', {
+      p_paso_id: pasoId, p_hecho: true,
+    });
+    if (error) {
+      const { error: e2 } = await supabase.from('tarea_pasos').update({
+        completado: true,
+        completado_at: new Date().toISOString(),
+        completado_por: user.id,
+      }).eq('id', pasoId);
+      if (e2) { showToast('Error al guardar el paso: ' + e2.message, 'error'); return; }
+    }
+    showToast('✓ Paso "' + pasoDesc + '" marcado como hecho', 'success');
+    notificarSiguientePaso(tareaId, pasoOrden, pasoDesc, user.id, perfil?.nombre || 'Alguien');
+    cargar();
+  }
+
   async function confirmarCompletar() {
     if (!completarTarea) return;
     const t = completarTarea;
@@ -699,23 +718,23 @@ export default function MiDia() {
               </div>
 
               <div className="flex-1 min-w-0 space-y-1.5">
-                <div className="flex items-start justify-between gap-2">
+                <div className="flex flex-col gap-1.5 sm:flex-row sm:items-start sm:justify-between">
                   <div className="flex items-center gap-2 flex-wrap min-w-0">
-                    <h3 className={`font-semibold text-sm ${completada ? 'line-through text-gray-400' : 'text-white'}`}>
+                    <h3 className={`font-semibold text-sm break-words ${completada ? 'line-through text-gray-400' : 'text-white'}`}>
                       {t.titulo}
                     </h3>
                     {pasoLeToca && (
-                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-400/20 text-amber-300 border border-amber-400/40 animate-pulse">
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-400/20 text-amber-300 border border-amber-400/40 animate-pulse whitespace-nowrap">
                         🔥 Te toca: {pasoLeToca.paso_descripcion}
                       </span>
                     )}
                     {esCompartida && !pasoLeToca && (
-                      <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-purple-500/15 text-purple-300 border border-purple-500/30">
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-purple-500/15 text-purple-300 border border-purple-500/30 whitespace-nowrap">
                         Compartida ({misPasos.filter(p => p.paso_completado).length}/{misPasos.length} mías)
                       </span>
                     )}
                   </div>
-                  <div className="flex items-center gap-1.5 flex-shrink-0">
+                  <div className="flex items-center gap-1.5 flex-shrink-0 flex-wrap">
                     <PrioridadBadge p={t.prioridad} />
                     <EstadoDiaBadge e={completada ? 'completada' : t.estado_dia} />
                   </div>
@@ -782,10 +801,18 @@ export default function MiDia() {
                       <Pause className="w-3 h-3" /> Pausar
                     </button>
                   )}
-                  <button onClick={() => abrirCompletar(t)}
-                    className="px-3 py-1.5 text-xs rounded-md bg-emerald-500 hover:bg-emerald-400 text-black font-medium flex items-center gap-1.5">
-                    <CheckCircle2 className="w-3 h-3" /> Listo
-                  </button>
+                  {pasoLeToca ? (
+                    <button onClick={() => completarMiPaso(t.id, pasoLeToca.paso_id, pasoLeToca.paso_orden, pasoLeToca.paso_descripcion)}
+                      className="px-3 py-1.5 text-xs rounded-md bg-amber-500 hover:bg-amber-400 text-black font-bold flex items-center gap-1.5"
+                      title="Marcar tu paso como hecho">
+                      <CheckCircle2 className="w-3 h-3" /> Mi paso
+                    </button>
+                  ) : (
+                    <button onClick={() => abrirCompletar(t)}
+                      className="px-3 py-1.5 text-xs rounded-md bg-emerald-500 hover:bg-emerald-400 text-black font-medium flex items-center gap-1.5">
+                      <CheckCircle2 className="w-3 h-3" /> Listo
+                    </button>
+                  )}
                 </div>
               )}
             </div>

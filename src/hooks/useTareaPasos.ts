@@ -94,12 +94,20 @@ export function useTareaPasos(tareaId: string | null | undefined) {
 
   const togglePaso = useCallback(async (paso: TareaPaso, userId: string) => {
     const next = !paso.completado;
-    const { error } = await supabase.from('tarea_pasos').update({
-      completado: next,
-      completado_at: next ? new Date().toISOString() : null,
-      completado_por: next ? userId : null,
-    }).eq('id', paso.id);
-    if (error) { showToast('Error: ' + error.message, 'error'); return; }
+    // Usar RPC SECURITY DEFINER para esquivar el gate de tareas y RLS
+    const { error } = await supabase.rpc('tarea_paso_set_completado', {
+      p_paso_id: paso.id,
+      p_hecho: next,
+    });
+    if (error) {
+      // fallback al update directo (por si no se aplicó v5)
+      const { error: e2 } = await supabase.from('tarea_pasos').update({
+        completado: next,
+        completado_at: next ? new Date().toISOString() : null,
+        completado_por: next ? userId : null,
+      }).eq('id', paso.id);
+      if (e2) { showToast('Error: ' + e2.message, 'error'); return; }
+    }
     showToast(next ? 'Paso completado — se notificó al siguiente' : 'Paso reabierto', 'success');
     if (next) {
       notificarSiguientePaso(

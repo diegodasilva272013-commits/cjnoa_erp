@@ -1492,17 +1492,21 @@ function CompartidasView({ tareas, tareasConPasos, currentUserId, onOpen }: {
 
   const togglePasoQuick = async (paso: TareaPaso) => {
     const next = !paso.completado;
-    const { error } = await supabase.from('tarea_pasos').update({
-      completado: next,
-      completado_at: next ? new Date().toISOString() : null,
-      completado_por: next ? (user?.id || null) : null,
-    }).eq('id', paso.id);
-    if (error) showToast('Error: ' + error.message, 'error');
-    else {
-      showToast(next ? 'Paso completado' : 'Paso reabierto', 'success');
-      if (next && user?.id) {
-        notificarSiguientePaso(paso.tarea_id, paso.orden, paso.descripcion, user.id, perfil?.nombre || 'Alguien');
-      }
+    const { error } = await supabase.rpc('tarea_paso_set_completado', {
+      p_paso_id: paso.id,
+      p_hecho: next,
+    });
+    if (error) {
+      const { error: e2 } = await supabase.from('tarea_pasos').update({
+        completado: next,
+        completado_at: next ? new Date().toISOString() : null,
+        completado_por: next ? (user?.id || null) : null,
+      }).eq('id', paso.id);
+      if (e2) { showToast('Error: ' + e2.message, 'error'); return; }
+    }
+    showToast(next ? 'Paso completado' : 'Paso reabierto', 'success');
+    if (next && user?.id) {
+      notificarSiguientePaso(paso.tarea_id, paso.orden, paso.descripcion, user.id, perfil?.nombre || 'Alguien');
     }
   };
 
