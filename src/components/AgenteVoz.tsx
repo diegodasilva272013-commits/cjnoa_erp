@@ -55,6 +55,19 @@ export default function AgenteVoz() {
   const chunksRef = useRef<BlobPart[]>([]);
   const streamRef = useRef<MediaStream | null>(null);
 
+  // VAD (Voice Activity Detection) para auto-cortar tras 6s de silencio
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
+  const vadRafRef = useRef<number | null>(null);
+  const huboVozRef = useRef(false);
+  const ultimoSonidoRef = useRef<number>(0);
+  const inicioGrabRef = useRef<number>(0);
+  const [nivelAudio, setNivelAudio] = useState(0);
+  const [silencioRestante, setSilencioRestante] = useState(6);
+  const SILENCIO_MS = 6000;
+  const UMBRAL_VOZ = 0.012; // RMS — ajustable
+  const MIN_GRAB_MS = 1500;
+
   // Wake-word
   const [wakeOn, setWakeOn] = useState<boolean>(() => {
     try { return localStorage.getItem(WAKE_PREF_KEY) !== '0'; } catch { return true; }
@@ -88,7 +101,71 @@ export default function AgenteVoz() {
       streamRef.current = null;
     }
     recorderRef.current = null;
+    detenerVAD();
   }, []);
+
+  function detenerVAD() {
+    if (vadRafRef.current != null) {
+      cancelAnimationFrame(vadRafRef.current);
+      vadRafRef.current = null;
+    }
+    try { analyserRef.current?.disconnect(); } catch { /* noop */ }
+    analyserRef.current = null;
+    try { audioCtxRef.current?.close(); } catch { /* noop */ }
+    audioCtxRef.current = null;
+    setNivelAudio(0);
+    setSilencioRestante(6);
+  }
+
+  function iniciarVAD(stream: MediaStream) {
+    try {
+      const Ctx: any = (window as any).AudioContext || (window as any).webkitAudioContext;
+      if (!Ctx) return;
+      const ctx = new Ctx();
+      audioCtxRef.current = ctx;
+      const src = ctx.createMediaStreamSource(stream);
+      const analyser = ctx.createAnalyser();
+      analyser.fftSize = 1024;
+      src.connect(analyser);
+      analyserRef.current = analyser;
+      const buf = new Float32Array(analyser.fftSize);
+      huboVozRef.current = false;
+      ultimoSonidoRef.current = Date.now();
+      inicioGrabRef.current = Date.now();
+
+      const tick = () => {
+        if (!analyserRef.current) return;
+        analyser.getFloatTimeDomainData(buf);
+        // RMS
+        let sum = 0;
+        for (let i = 0; i < buf.length; i++) sum += buf[i] * buf[i];
+        const rms = Math.sqrt(sum / buf.length);
+        setNivelAudio(rms);
+        const ahora = Date.now();
+        if (rms > UMBRAL_VOZ) {
+          huboVozRef.current = true;
+          ultimoSonidoRef.current = ahora;
+        }
+        const silencioMs = ahora - ultimoSonidoRef.current;
+        const grabMs = ahora - inicioGrabRef.current;
+        setSilencioRestante(Math.max(0, Math.ceil((SILENCIO_MS - silencioMs) / 1000)));
+        // Auto-cortar:
+        // - si ya hubo voz y hay 6s de silencio
+        // - o si pasaron 12s sin nada y nunca hubo voz (timeout muerto)
+        if (huboVozRef.current && silencioMs >= SILENCIO_MS && grabMs >= MIN_GRAB_MS) {
+          detenerGrabacion();
+          return;
+        }
+        if (!huboVozRef.current && grabMs >= 12000) {
+          // nadie habló — cancelar limpio
+          try { recorderRef.current?.stop(); } catch { /* noop */ }
+          return;
+        }
+        vadRafRef.current = requestAnimationFrame(tick);
+      };
+      vadRafRef.current = requestAnimationFrame(tick);
+    } catch { /* noop */ }
+  }
 
   async function iniciarGrabacion() {
     setError(''); setResultado(''); setPlan(null); setTranscripcion('');
@@ -109,6 +186,7 @@ export default function AgenteVoz() {
       rec.ondataavailable = (e) => { if (e.data.size > 0) chunksRef.current.push(e.data); };
       rec.onstop = procesarAudio;
       rec.start();
+      iniciarVAD(stream);
       setEstado('grabando');
       setOpen(true);
     } catch (e: any) {
@@ -118,6 +196,7 @@ export default function AgenteVoz() {
   }
 
   function detenerGrabacion() {
+    detenerVAD();
     try { recorderRef.current?.stop(); } catch { /* noop */ }
   }
 
@@ -158,10 +237,23 @@ export default function AgenteVoz() {
       setPlan(p);
 
       if (!p.destructiva) {
-        // consultar: ejecutar / responder directo
-        setResultado(p.respuesta_voz || p.args?.respuesta as string || '');
-        hablar(p.respuesta_voz || (p.args?.respuesta as string) || 'Listo.');
-        setEstado('idle');
+        // Tools de lectura: ejecutar AUTO sin pedir confirmacion y leer el resultado en voz alta
+        if (p.tool === 'consultar') {
+          const txt = p.respuesta_voz || (p.args?.respuesta as string) || 'Listo.';
+          setResultado(txt);
+          hablar(txt);
+          setEstado('idle');
+        } else {
+          // obtener_datos_* / listar_*: ejecutar y leer
+          setEstado('ejecutando');
+          if (p.respuesta_voz) hablar(p.respuesta_voz); // "dale, lo busco"
+          const r = await ejecutarTool(p, user?.id || '');
+          setResultado(r.mensaje);
+          // Esperar a que termine de hablar el "dale" antes de leer la respuesta
+          setTimeout(() => hablar(r.mensaje), p.respuesta_voz ? 1100 : 0);
+          if (!r.ok) showToast(r.mensaje, 'error');
+          setEstado('idle');
+        }
       } else {
         setEstado('esperando_confirmacion');
         hablar(p.explicacion_humana + '. ¿Confirmás?');
@@ -355,10 +447,20 @@ export default function AgenteVoz() {
 
             {estado === 'grabando' && (
               <div className="text-center py-6">
-                <div className="text-red-300 text-sm font-semibold mb-2">🎙️ Grabando...</div>
-                <button onClick={detenerGrabacion}
-                  className="px-4 py-2 bg-red-500 hover:bg-red-400 text-white text-xs font-bold rounded-lg">
-                  Detener y procesar
+                <div className="text-red-300 text-sm font-semibold mb-2">🎙️ Te escucho... habla tranquilo</div>
+                {/* Barra de nivel */}
+                <div className="w-full h-2 bg-white/5 rounded-full overflow-hidden mb-3">
+                  <div className="h-full bg-gradient-to-r from-emerald-400 to-emerald-600 transition-all"
+                    style={{ width: `${Math.min(100, nivelAudio * 1500)}%` }} />
+                </div>
+                <div className="text-[11px] text-gray-400 mb-3">
+                  {huboVozRef.current
+                    ? <>Auto-corta en <span className="text-amber-300 font-bold">{silencioRestante}s</span> de silencio</>
+                    : <>Esperando que hables…</>}
+                </div>
+                <button onClick={() => { reset(); setOpen(false); }}
+                  className="px-3 py-1.5 bg-white/5 hover:bg-white/10 text-gray-300 text-xs rounded-lg border border-white/10">
+                  Cancelar
                 </button>
               </div>
             )}
@@ -654,6 +756,112 @@ async function ejecutarTool(plan: Plan, userId: string): Promise<{ ok: boolean; 
           .eq('id', a.caso_id);
         if (error) return { ok: false, mensaje: 'Error: ' + error.message };
         return { ok: true, mensaje: 'Escrito verificado.' };
+      }
+      case 'obtener_datos_caso': {
+        const { data: caso, error } = await supabase
+          .from('casos_generales')
+          .select('id, titulo, expediente, fuero, juzgado, parte_actora, parte_demandada, estado, escrito_subido, escrito_subido_at, escrito_ultima_verificacion, observaciones')
+          .eq('id', a.caso_id).maybeSingle();
+        if (error || !caso) return { ok: false, mensaje: 'No encontré ese caso.' };
+        const c: any = caso;
+        const { data: notas } = await supabase
+          .from('caso_general_notas')
+          .select('contenido, created_at')
+          .eq('caso_id', a.caso_id)
+          .order('created_at', { ascending: false }).limit(3);
+        const { data: tareas } = await supabase
+          .from('tareas')
+          .select('titulo, estado, fecha_limite')
+          .eq('caso_general_id', a.caso_id)
+          .neq('estado', 'completada').limit(5);
+        const partes: string[] = [];
+        partes.push(`Caso ${c.titulo || 'sin título'}.`);
+        if (c.expediente) partes.push(`Expediente ${c.expediente}.`);
+        if (c.fuero) partes.push(`Fuero ${c.fuero}.`);
+        if (c.juzgado) partes.push(`Juzgado ${c.juzgado}.`);
+        if (c.parte_actora) partes.push(`Actora ${c.parte_actora}.`);
+        if (c.parte_demandada) partes.push(`Demandada ${c.parte_demandada}.`);
+        if (c.escrito_subido) {
+          const f = c.escrito_subido_at ? new Date(c.escrito_subido_at).toLocaleDateString('es-AR') : 's/f';
+          partes.push(`Escrito subido el ${f}.`);
+        } else {
+          partes.push('No tiene escrito subido todavía.');
+        }
+        if (tareas && tareas.length) {
+          partes.push(`Tiene ${tareas.length} tarea${tareas.length === 1 ? '' : 's'} pendiente${tareas.length === 1 ? '' : 's'}: ${tareas.map((t: any) => t.titulo).join(', ')}.`);
+        }
+        if (notas && notas.length) {
+          const u = (notas[0] as any).contenido || '';
+          partes.push(`Última nota: ${u.slice(0, 200)}${u.length > 200 ? '…' : ''}`);
+        }
+        return { ok: true, mensaje: partes.join(' ') };
+      }
+      case 'obtener_datos_ficha_previsional': {
+        const { data: cli, error } = await supabase
+          .from('clientes_previsional')
+          .select('id, apellido_nombre, dni, cuil, edad, telefono, pipeline, observaciones')
+          .eq('id', a.cliente_id).maybeSingle();
+        if (error || !cli) return { ok: false, mensaje: 'No encontré esa ficha.' };
+        const c: any = cli;
+        const { data: hist } = await supabase
+          .from('historial_avances')
+          .select('titulo, descripcion, created_at')
+          .eq('cliente_prev_id', a.cliente_id)
+          .order('created_at', { ascending: false }).limit(3);
+        const partes: string[] = [];
+        partes.push(`Ficha de ${c.apellido_nombre}.`);
+        if (c.dni) partes.push(`DNI ${c.dni}.`);
+        if (c.cuil) partes.push(`CUIL ${c.cuil}.`);
+        if (c.edad) partes.push(`Edad ${c.edad}.`);
+        if (c.telefono) partes.push(`Teléfono ${c.telefono}.`);
+        if (c.pipeline) partes.push(`Está en pipeline ${c.pipeline}.`);
+        if (hist && hist.length) {
+          const u: any = hist[0];
+          partes.push(`Último avance: ${u.descripcion || u.titulo || ''}`);
+        }
+        return { ok: true, mensaje: partes.join(' ') };
+      }
+      case 'obtener_datos_tarea': {
+        const { data: t, error } = await supabase
+          .from('tareas')
+          .select('id, titulo, descripcion, estado, estado_dia, prioridad, fecha_limite, responsable_id, culminacion')
+          .eq('id', a.tarea_id).maybeSingle();
+        if (error || !t) return { ok: false, mensaje: 'No encontré esa tarea.' };
+        const tt: any = t;
+        const { data: pasos } = await supabase
+          .from('tarea_pasos')
+          .select('descripcion, completado, orden')
+          .eq('tarea_id', a.tarea_id)
+          .order('orden', { ascending: true });
+        const partes: string[] = [];
+        partes.push(`Tarea: ${tt.titulo}.`);
+        if (tt.descripcion) partes.push(tt.descripcion + '.');
+        partes.push(`Estado ${tt.estado || 'pendiente'}, prioridad ${tt.prioridad || 'media'}.`);
+        if (tt.fecha_limite) partes.push(`Vence ${new Date(tt.fecha_limite).toLocaleDateString('es-AR')}.`);
+        if (pasos && pasos.length) {
+          const hechos = pasos.filter((p: any) => p.completado).length;
+          partes.push(`${hechos} de ${pasos.length} pasos completados.`);
+        }
+        if (tt.culminacion) partes.push(`Culminación: ${tt.culminacion}`);
+        return { ok: true, mensaje: partes.join(' ') };
+      }
+      case 'listar_tareas_pendientes': {
+        const respId = a.responsable_id || userId;
+        let q = supabase.from('tareas')
+          .select('titulo, prioridad, fecha_limite, estado_dia')
+          .eq('responsable_id', respId)
+          .neq('estado', 'completada')
+          .order('fecha_limite', { ascending: true, nullsFirst: false })
+          .limit(20);
+        if (a.solo_hoy) {
+          const hoy = new Date().toISOString().slice(0, 10);
+          q = q.lte('fecha_limite', hoy);
+        }
+        const { data, error } = await q;
+        if (error) return { ok: false, mensaje: 'Error: ' + error.message };
+        if (!data || !data.length) return { ok: true, mensaje: 'No tenes tareas pendientes.' };
+        const lista = data.slice(0, 10).map((t: any, i: number) => `${i + 1}) ${t.titulo}${t.fecha_limite ? ' (vence ' + new Date(t.fecha_limite).toLocaleDateString('es-AR') + ')' : ''}`).join('. ');
+        return { ok: true, mensaje: `Tenés ${data.length} tarea${data.length === 1 ? '' : 's'} pendiente${data.length === 1 ? '' : 's'}: ${lista}` };
       }
       default:
         return { ok: false, mensaje: `Tool no implementada: ${plan.tool}` };

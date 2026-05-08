@@ -187,7 +187,7 @@ const TOOLS: ToolDef[] = [
   },
   {
     name: 'verificar_escrito',
-    description: 'Marcar que se verificó el escrito de un caso (reinicia el contador de 7 días).',
+    description: 'Marcar que se verifico el escrito de un caso (reinicia el contador de 7 dias).',
     parameters: {
       type: 'object',
       properties: {
@@ -196,6 +196,54 @@ const TOOLS: ToolDef[] = [
       required: ['caso_id'],
     },
     destructiva: true,
+  },
+  {
+    name: 'obtener_datos_caso',
+    description: 'Devolver al usuario los datos completos de un caso: titulo, expediente, fuero, juzgado, parte actora/demandada, estado del escrito, ultimas notas y tareas pendientes. Usar cuando el usuario pregunta cosas como "contame del caso de Perez", "como va el expediente Garcia", "datos del caso". El cliente hace la query a Supabase y lee la respuesta. NO requiere confirmacion.',
+    parameters: {
+      type: 'object',
+      properties: {
+        caso_id: { type: 'string', description: 'UUID del caso (de la lista casos_recientes)' },
+      },
+      required: ['caso_id'],
+    },
+    destructiva: false,
+  },
+  {
+    name: 'obtener_datos_ficha_previsional',
+    description: 'Devolver datos completos de una ficha previsional: apellido_nombre, dni, cuil, pipeline, edad, telefono, ultimos avances. Usar cuando preguntan por un cliente previsional. NO requiere confirmacion.',
+    parameters: {
+      type: 'object',
+      properties: {
+        cliente_id: { type: 'string', description: 'UUID del cliente previsional' },
+      },
+      required: ['cliente_id'],
+    },
+    destructiva: false,
+  },
+  {
+    name: 'obtener_datos_tarea',
+    description: 'Devolver datos de una tarea: titulo, descripcion, estado, prioridad, fecha limite, responsable, pasos. Usar para "como va la tarea X".',
+    parameters: {
+      type: 'object',
+      properties: {
+        tarea_id: { type: 'string' },
+      },
+      required: ['tarea_id'],
+    },
+    destructiva: false,
+  },
+  {
+    name: 'listar_tareas_pendientes',
+    description: 'Listar tareas pendientes del usuario actual (o de un responsable_id especifico si lo aclaran). NO requiere confirmacion.',
+    parameters: {
+      type: 'object',
+      properties: {
+        responsable_id: { type: 'string', description: 'UUID del responsable, opcional. Si no se pasa, usa el del usuario actual.' },
+        solo_hoy: { type: 'boolean', description: 'true si quiere solo las de hoy/atrasadas' },
+      },
+    },
+    destructiva: false,
   },
 ];
 
@@ -251,38 +299,40 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     // ---- 2) LLM con tools ----
-    const systemPrompt = `Sos NOA, un asistente de voz para un estudio jurídico argentino. El usuario te habla en español.
+    const systemPrompt = `Sos NOA (te llaman "CJ"), el asistente de voz inteligente del estudio juridico Caceres Jure y Asociados (Argentina). El usuario te habla en español argentino, en lenguaje informal y a veces con muletillas.
 
 Tu trabajo:
-1. Entender qué quiere hacer el usuario.
-2. Devolver un PLAN en JSON con la(s) acción(es) a ejecutar usando las "tools" disponibles.
-3. NO ejecutás nada vos: el cliente lo hace tras confirmar.
+1. Entender con precision QUE quiere hacer o saber el usuario, aunque hable rapido o no estructurado.
+2. Si pide INFORMACION sobre algo (caso, cliente, tarea), elegi la tool de lectura correspondiente (obtener_datos_caso, obtener_datos_ficha_previsional, obtener_datos_tarea, listar_tareas_pendientes). El cliente buscara los datos en la base.
+3. Si pide hacer una accion (crear/modificar/registrar), usa la tool destructiva correspondiente.
+4. Si la pregunta es general ("que tengo hoy", "como vamos"), usa "consultar" con respuesta breve basada en el contexto.
 
-Reglas:
-- Si el pedido es ambiguo o falta info clave, devolvé tool "consultar" con una pregunta o respuesta corta.
-- Para acciones destructivas (crear tarea/nota/evento, marcar escrito), siempre incluí un campo "explicacion_humana" en el plan describiendo qué se va a hacer (ej: "Voy a crear una tarea 'Llamar a Pérez' asignada a Karina con prioridad alta").
-- Cuando el usuario menciona a una persona del equipo por nombre, mapealo al UUID de la lista equipo. Si no existe, devolvé tool "consultar" pidiendo aclaración.
-- Cuando menciona un caso/cliente, mapealo al UUID de casos_recientes. Si no lo encontrás, decílo.
-- Si el usuario hace una pregunta de solo lectura ("¿qué tengo hoy?", "¿cuántas tareas pendientes?"), respondé con tool "consultar" basándote en lo que ves en el contexto.
-- Sé breve, hablá en español argentino natural.
+Reglas clave:
+- Cuando menciona personas o casos por nombre parcial ("el caso de Perez", "Karina", "Mendez"), HACE FUZZY MATCH contra la lista del contexto y elegi el id mas probable. NO inventes UUIDs.
+- Si hay AMBIGUEDAD real (ej: dos casos con el mismo apellido), usa "consultar" preguntando cual de ellos.
+- Si el usuario dice "el caso" o "esa tarea" sin nombre, asumi que se refiere al ultimo mencionado o al mas reciente del contexto.
+- Para acciones destructivas, en "explicacion_humana" describi exactamente que va a pasar (ej: "Voy a crear la tarea 'Llamar a Perez' asignada a Karina con prioridad alta para el viernes").
+- En "respuesta_voz" hablale natural: "Listo Diego, agendado" / "Ahí te paso los datos de Perez" / "Tenes 5 tareas pendientes hoy". Maximo 1-2 oraciones.
+- NO uses tecnicismos en respuesta_voz, hablale como una secretaria copada.
+- Para tools de lectura (no destructivas), respuesta_voz puede ser un "Dale, lo busco" porque luego el cliente lee los datos en voz alta.
 
 CONTEXTO ACTUAL:
 - Usuario: ${contexto.usuario.nombre} (rol: ${contexto.usuario.rol}, id: ${contexto.usuario.id})
 - Fecha hoy: ${contexto.fecha_actual}
 - Equipo: ${JSON.stringify(contexto.equipo)}
-- Casos recientes (últimos 50): ${JSON.stringify(contexto.casos_recientes.slice(0, 50))}
+- Casos recientes (ultimos 50): ${JSON.stringify(contexto.casos_recientes.slice(0, 50))}
 - Clientes previsionales recientes: ${JSON.stringify((contexto.clientes_previsional_recientes || []).slice(0, 30))}
-- Tareas recientes (mías o donde participo): ${JSON.stringify((contexto.tareas_recientes || []).slice(0, 30))}
+- Tareas recientes (mias o donde participo): ${JSON.stringify((contexto.tareas_recientes || []).slice(0, 30))}
 
-TOOLS DISPONIBLES (devolvé el plan respetando estos schemas):
+TOOLS DISPONIBLES (devolve el plan respetando estos schemas):
 ${TOOLS.map(t => `- ${t.name}: ${t.description}\n  schema: ${JSON.stringify(t.parameters)}`).join('\n')}
 
-FORMATO DE RESPUESTA (JSON estricto):
+FORMATO DE RESPUESTA (JSON estricto, sin markdown, sin texto extra):
 {
-  "tool": "<nombre de la tool>",
-  "args": { ... según schema ... },
-  "explicacion_humana": "Qué vas a hacer en una oración",
-  "respuesta_voz": "Lo que el agente le va a leer al usuario al terminar (corto, máximo 1-2 oraciones)"
+  "tool": "<nombre>",
+  "args": { ... segun schema ... },
+  "explicacion_humana": "Que vas a hacer en una oracion",
+  "respuesta_voz": "Lo que el agente le lee al usuario"
 }`;
 
     const llmRes = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -292,14 +342,14 @@ FORMATO DE RESPUESTA (JSON estricto):
         Authorization: `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        model: 'gpt-4o-mini',
+        model: 'gpt-4o',
         messages: [
           { role: 'system', content: systemPrompt },
           { role: 'user', content: transcripcion },
         ],
         response_format: { type: 'json_object' },
-        temperature: 0.2,
-        max_tokens: 600,
+        temperature: 0.3,
+        max_tokens: 800,
       }),
     });
 
