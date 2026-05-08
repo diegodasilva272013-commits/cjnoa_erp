@@ -27,15 +27,21 @@ export default function FlujoCaja() {
   // Cargar egresos del periodo
   useEffect(() => {
     (async () => {
-      const { data } = await supabase
+      const [y, m] = periodo.split('-').map(Number);
+      const inicio = `${periodo}-01`;
+      const finExclusivo = m === 12
+        ? `${y + 1}-01-01`
+        : `${y}-${String(m + 1).padStart(2, '0')}-01`;
+      const { data, error } = await supabase
         .from('egresos_v2')
         .select('*')
-        .gte('fecha', `${periodo}-01`)
-        .lte('fecha', `${periodo}-31`)
+        .gte('fecha', inicio)
+        .lt('fecha', finExclusivo)
         .order('fecha', { ascending: false });
+      if (error) { showToast('Error al cargar egresos: ' + error.message, 'error'); return; }
       setEgresos((data || []) as EgresoV2[]);
     })();
-  }, [periodo]);
+  }, [periodo, showToast]);
 
   // Cargar meta del periodo
   useEffect(() => {
