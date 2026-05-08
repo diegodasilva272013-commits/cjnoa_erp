@@ -201,16 +201,57 @@ export default function FlujoCaja() {
     }
     setCerrando(true);
     try {
+      // Cargar gastos de fondos del periodo (gastos sobre fondos en custodia)
+      const [y, mm] = periodo.split('-').map(Number);
+      const inicio = `${periodo}-01`;
+      const finExclusivo = mm === 12 ? `${y + 1}-01-01` : `${y}-${String(mm + 1).padStart(2, '0')}-01`;
+      const { data: fondosMov } = await supabase
+        .from('fondos_movimientos')
+        .select('id, fondo_id, fecha, nombre_gasto, monto, observaciones')
+        .gte('fecha', inicio)
+        .lt('fecha', finExclusivo)
+        .order('fecha', { ascending: false });
+
+      // Conteos extra
+      const cantPorConcepto: Record<string, number> = {};
+      const montoPorConcepto: Record<string, number> = {};
+      const cantPorTipoCliente: Record<string, number> = {};
+      const cantPorFuente: Record<string, number> = {};
+      const montoPorFuente: Record<string, number> = {};
+      ingresosPeriodo.forEach(i => {
+        cantPorConcepto[i.concepto] = (cantPorConcepto[i.concepto] || 0) + 1;
+        montoPorConcepto[i.concepto] = (montoPorConcepto[i.concepto] || 0) + Number(i.monto || 0);
+        cantPorTipoCliente[i.tipo_cliente] = (cantPorTipoCliente[i.tipo_cliente] || 0) + 1;
+        cantPorFuente[i.fuente] = (cantPorFuente[i.fuente] || 0) + 1;
+        montoPorFuente[i.fuente] = (montoPorFuente[i.fuente] || 0) + Number(i.monto || 0);
+      });
+      const cantPorTipoEgreso: Record<string, number> = {};
+      const montoPorTipoEgreso: Record<string, number> = {};
+      egresos.forEach(e => {
+        cantPorTipoEgreso[e.tipo] = (cantPorTipoEgreso[e.tipo] || 0) + 1;
+        montoPorTipoEgreso[e.tipo] = (montoPorTipoEgreso[e.tipo] || 0) + Number(e.monto || 0);
+      });
+
       const snapshot = {
+        periodo,
+        meta_recaudacion: meta,
+        cumplimiento_pct: cumplimiento,
+        semaforo,
         ingresos: ingresosPeriodo,
         egresos,
         movimientos,
+        fondos_movimientos: fondosMov || [],
         totales: {
           totalIngresos: totales.total,
           totalEgresos: totales.totalEgresos,
+          totalFondos: (fondosMov || []).reduce((s, f) => s + Number(f.monto || 0), 0),
           neto: totales.neto,
           cajaEfectivo: totales.cajaEfectivo,
           cajaTransfer: totales.cajaTransfer,
+          cantIngresos: ingresosPeriodo.length,
+          cantEgresos: egresos.length,
+          cantCambios: movimientos.length,
+          clientesDistintos: new Set(ingresosPeriodo.map(i => i.cliente_nombre.toLowerCase().trim())).size,
           porSocio: totales.porSocio,
           porRama: totales.porRama,
           ingEfectivoSocio: totales.ingEfectivoSocio,
@@ -221,6 +262,11 @@ export default function FlujoCaja() {
           egresosPorSocio: totales.egresosPorSocio,
           cambiosEfectivoNet: totales.cambiosEfectivoNet,
           cambiosTransferNet: totales.cambiosTransferNet,
+          cantPorConcepto, montoPorConcepto,
+          cantPorTipoCliente,
+          cantPorFuente, montoPorFuente,
+          cantPorTipoEgreso, montoPorTipoEgreso,
+          meta_recaudacion: meta,
         },
       };
       await cerrarMes(periodo, snapshot);

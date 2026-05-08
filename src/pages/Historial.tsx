@@ -151,6 +151,7 @@ function DetalleCierre({ cierre }: { cierre: CierreMes }) {
   const ingresos: any[] = snap.ingresos || [];
   const egresos: any[] = snap.egresos || [];
   const movimientos: any[] = snap.movimientos || [];
+  const fondosMov: any[] = snap.fondos_movimientos || [];
 
   const chartIng = useMemo(() => ingresos.map(i => ({
     fecha: i.fecha, monto: Number(i.monto || 0),
@@ -169,6 +170,28 @@ function DetalleCierre({ cierre }: { cierre: CierreMes }) {
       <div className="flex items-center justify-between text-xs text-zinc-400">
         <span>Periodo <strong className="text-white">{cierre.periodo}</strong></span>
         <span>Cerrado {new Date(cierre.fecha_cierre).toLocaleString('es-AR')}</span>
+      </div>
+
+      {/* Meta y cumplimiento */}
+      {(snap.meta_recaudacion || 0) > 0 && (
+        <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-3 flex items-center justify-between">
+          <div>
+            <div className="text-[10px] uppercase text-emerald-300/80">Meta del periodo</div>
+            <div className="text-sm text-white font-semibold">{formatMoney(snap.meta_recaudacion)}</div>
+          </div>
+          <div className="text-right">
+            <div className="text-2xl font-bold text-emerald-200">{(snap.cumplimiento_pct || 0).toFixed(0)}%</div>
+            <div className="text-[10px] uppercase text-emerald-300/80">cumplimiento</div>
+          </div>
+        </div>
+      )}
+
+      {/* Conteos rapidos */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+        <Stat label={`Ingresos (${t.cantIngresos || 0})`} value={formatMoney(t.totalIngresos || 0)} tone="emerald" />
+        <Stat label={`Egresos (${t.cantEgresos || 0})`} value={formatMoney(t.totalEgresos || 0)} tone="rose" />
+        <Stat label={`Cambios (${t.cantCambios || 0})`} value={`+/- ${formatMoney(Math.abs(t.cambiosEfectivoNet || 0) + Math.abs(t.cambiosTransferNet || 0))}`} tone="amber" />
+        <Stat label={`Clientes distintos`} value={String(t.clientesDistintos || 0)} tone="violet" />
       </div>
 
       {/* Cards principales */}
@@ -223,18 +246,76 @@ function DetalleCierre({ cierre }: { cierre: CierreMes }) {
 
       {/* Tablas resumen */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-        <SimpleTable title={`Ingresos (${ingresos.length})`} rows={ingresos.slice(0, 100).map(i => [
-          i.fecha, i.cliente_nombre, i.doctor_cobra, i.modalidad, formatMoney(Number(i.monto)),
-        ])} headers={['Fecha', 'Cliente', 'Doctor', 'Modal.', 'Monto']} />
-        <SimpleTable title={`Egresos (${egresos.length})`} rows={egresos.slice(0, 100).map(e => [
-          e.fecha, e.concepto, e.pagador || 'Caja CJ', e.modalidad, formatMoney(Number(e.monto)),
-        ])} headers={['Fecha', 'Concepto', 'Pagador', 'Modal.', 'Monto']} />
+        <SimpleTable title={`Ingresos (${ingresos.length})`} rows={ingresos.map(i => [
+          i.fecha, i.cliente_nombre, i.tipo_cliente || '-', i.doctor_cobra,
+          i.modalidad === 'Transferencia' ? `${i.modalidad} → ${i.receptor_transfer || '-'}` : i.modalidad,
+          i.rama, i.fuente, i.concepto, formatMoney(Number(i.monto)), i.observaciones || '—',
+        ])} headers={['Fecha', 'Cliente', 'Tipo', 'Doctor', 'Modalidad', 'Rama', 'Fuente', 'Concepto', 'Monto', 'Obs.']} />
+        <SimpleTable title={`Egresos (${egresos.length})`} rows={egresos.map(e => [
+          e.fecha, e.tipo, e.concepto, e.beneficiario || '—',
+          e.pagador || 'Caja CJ', e.modalidad, formatMoney(Number(e.monto)), e.detalle || '—', e.observaciones || '—',
+        ])} headers={['Fecha', 'Tipo', 'Concepto', 'Beneficiario', 'Pagador', 'Modalidad', 'Monto', 'Detalle', 'Obs.']} />
       </div>
 
       {movimientos.length > 0 && (
         <SimpleTable title={`Cambios de caja (${movimientos.length})`} rows={movimientos.map(m => [
-          m.fecha, m.socio_origen, m.tipo_origen, '→', m.socio_destino, m.tipo_destino, formatMoney(Number(m.monto)),
-        ])} headers={['Fecha', 'Origen', 'Entrega', '', 'Destino', 'Recibe', 'Monto']} />
+          m.fecha, m.socio_origen, m.tipo_origen, '→', m.socio_destino, m.tipo_destino, formatMoney(Number(m.monto)), m.observaciones || '—',
+        ])} headers={['Fecha', 'Origen', 'Entrega', '', 'Destino', 'Recibe', 'Monto', 'Obs.']} />
+      )}
+
+      {/* Por rama */}
+      {t.porRama && Object.keys(t.porRama).length > 0 && (
+        <div className="bg-white/[0.02] border border-white/10 rounded-xl overflow-hidden">
+          <div className="px-3 py-2 border-b border-white/10 text-xs text-zinc-300 font-medium">Ingresos por rama</div>
+          <table className="w-full text-xs">
+            <tbody className="divide-y divide-white/5">
+              {Object.entries(t.porRama).map(([rama, monto]) => {
+                const m = Number(monto || 0);
+                const pct = (t.totalIngresos || 0) > 0 ? (m / t.totalIngresos) * 100 : 0;
+                return (
+                  <tr key={rama}>
+                    <td className="px-3 py-1.5 text-zinc-300">{rama}</td>
+                    <td className="px-3 py-1.5 w-1/2">
+                      <div className="h-1.5 bg-white/5 rounded"><div className="h-1.5 bg-emerald-500/60 rounded" style={{ width: `${pct}%` }} /></div>
+                    </td>
+                    <td className="px-3 py-1.5 text-right text-white font-medium whitespace-nowrap">{formatMoney(m)}</td>
+                    <td className="px-3 py-1.5 text-right text-zinc-400 w-12">{pct.toFixed(0)}%</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* Desgloses adicionales */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
+        {t.cantPorConcepto && Object.keys(t.cantPorConcepto).length > 0 && (
+          <BreakdownBox title="Por concepto (ingresos)" entries={Object.entries(t.cantPorConcepto).map(([k, v]) => ({
+            label: k, count: Number(v), monto: t.montoPorConcepto?.[k] || 0,
+          }))} />
+        )}
+        {t.cantPorFuente && Object.keys(t.cantPorFuente).length > 0 && (
+          <BreakdownBox title="Por fuente" entries={Object.entries(t.cantPorFuente).map(([k, v]) => ({
+            label: k, count: Number(v), monto: t.montoPorFuente?.[k] || 0,
+          }))} />
+        )}
+        {t.cantPorTipoEgreso && Object.keys(t.cantPorTipoEgreso).length > 0 && (
+          <BreakdownBox title="Por tipo (egresos)" entries={Object.entries(t.cantPorTipoEgreso).map(([k, v]) => ({
+            label: k, count: Number(v), monto: t.montoPorTipoEgreso?.[k] || 0,
+          }))} />
+        )}
+        {t.cantPorTipoCliente && Object.keys(t.cantPorTipoCliente).length > 0 && (
+          <BreakdownBox title="Tipo de cliente" entries={Object.entries(t.cantPorTipoCliente).map(([k, v]) => ({
+            label: k, count: Number(v), monto: 0,
+          }))} hideMonto />
+        )}
+      </div>
+
+      {fondosMov.length > 0 && (
+        <SimpleTable title={`Gastos sobre fondos en custodia (${fondosMov.length})`} rows={fondosMov.map(f => [
+          f.fecha, f.nombre_gasto, formatMoney(Number(f.monto)), f.observaciones || '—',
+        ])} headers={['Fecha', 'Concepto', 'Monto', 'Obs.']} />
       )}
     </div>
   );
@@ -252,8 +333,11 @@ function Stat({ label, value, tone }: { label: string; value: string; tone: Tone
 function SimpleTable({ title, headers, rows }: { title: string; headers: string[]; rows: (string | number)[][] }) {
   return (
     <div className="bg-white/[0.02] border border-white/10 rounded-xl overflow-hidden">
-      <div className="px-3 py-2 border-b border-white/10 text-xs text-zinc-300 font-medium">{title}</div>
-      <div className="overflow-auto max-h-80">
+      <div className="px-3 py-2 border-b border-white/10 text-xs text-zinc-300 font-medium flex items-center justify-between">
+        <span>{title}</span>
+        <span className="text-[10px] text-zinc-500">{rows.length} filas</span>
+      </div>
+      <div className="overflow-auto max-h-96">
         <table className="w-full text-xs">
           <thead className="text-[10px] uppercase text-zinc-500 bg-white/[0.02] sticky top-0">
             <tr>{headers.map((h, i) => <th key={i} className="text-left px-2 py-1.5">{h}</th>)}</tr>
@@ -262,12 +346,35 @@ function SimpleTable({ title, headers, rows }: { title: string; headers: string[
             {rows.length === 0 ? (
               <tr><td colSpan={headers.length} className="text-center py-4 text-zinc-500">Sin datos</td></tr>
             ) : rows.map((r, i) => (
-              <tr key={i} className="text-zinc-300">
+              <tr key={i} className="text-zinc-300 hover:bg-white/[0.02]">
                 {r.map((c, j) => <td key={j} className="px-2 py-1 whitespace-nowrap">{c}</td>)}
               </tr>
             ))}
           </tbody>
         </table>
+      </div>
+    </div>
+  );
+}
+
+function BreakdownBox({ title, entries, hideMonto }: { title: string; entries: { label: string; count: number; monto: number }[]; hideMonto?: boolean }) {
+  const total = entries.reduce((s, e) => s + e.count, 0);
+  return (
+    <div className="bg-white/[0.02] border border-white/10 rounded-xl overflow-hidden">
+      <div className="px-3 py-2 border-b border-white/10 text-xs text-zinc-300 font-medium">{title}</div>
+      <div className="divide-y divide-white/5">
+        {entries.map(e => {
+          const pct = total > 0 ? (e.count / total) * 100 : 0;
+          return (
+            <div key={e.label} className="px-3 py-2 flex items-center justify-between text-xs">
+              <span className="text-zinc-300">{e.label}</span>
+              <div className="flex items-center gap-3">
+                <span className="text-zinc-400">{e.count} ({pct.toFixed(0)}%)</span>
+                {!hideMonto && <span className="text-white font-medium">{formatMoney(e.monto)}</span>}
+              </div>
+            </div>
+          );
+        })}
       </div>
     </div>
   );
