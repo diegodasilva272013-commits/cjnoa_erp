@@ -863,6 +863,55 @@ export default function Calendario() {
                         <Trash2 className="w-3 h-3" />
                       </button>
                     )}
+                    {(e.source === 'audiencia_general' || e.source === 'audiencia_legal' || e.source === 'consulta') && (
+                      <button
+                        onClick={async () => {
+                          const labels: Record<string, string> = {
+                            audiencia_general: 'audiencia',
+                            audiencia_legal: 'audiencia del caso',
+                            consulta: 'consulta',
+                          };
+                          if (!confirm(`¿Eliminar esta ${labels[e.source]} del sistema?`)) return;
+                          const tablas: Record<string, string> = {
+                            audiencia_general: 'audiencias_general',
+                            audiencia_legal: 'audiencias',
+                            consulta: 'consultas_agendadas',
+                          };
+                          const tabla = tablas[e.source];
+                          const { error } = await supabase.from(tabla).delete().eq('id', e.raw.id);
+                          if (error) { setMsg('❌ ' + error.message); return; }
+                          setMsg('🗑️ Eliminado.');
+                          setCursor(new Date(cursor));
+                        }}
+                        className="text-xs px-2 py-1 rounded-md bg-white/5 hover:bg-red-500/10 text-gray-400 hover:text-red-300 border border-white/10 flex items-center gap-1"
+                        title="Eliminar"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                      </button>
+                    )}
+                    {e.source === 'gcal' && conectado && user && (
+                      <button
+                        onClick={async () => {
+                          if (!confirm('¿Eliminar este evento de Google Calendar?')) return;
+                          try {
+                            const r = await fetch('/api/google/delete-event', {
+                              method: 'POST', headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({ user_id: user.id, event_id: e.raw.id }),
+                            });
+                            const j = await r.json();
+                            if (!j.ok) { setMsg('❌ ' + (j.error || 'no se pudo eliminar de Google')); return; }
+                            setMsg('🗑️ Eliminado de Google Calendar.');
+                            setCursor(new Date(cursor));
+                          } catch (err: any) {
+                            setMsg('❌ ' + (err?.message || 'error'));
+                          }
+                        }}
+                        className="text-xs px-2 py-1 rounded-md bg-white/5 hover:bg-red-500/10 text-gray-400 hover:text-red-300 border border-white/10 flex items-center gap-1"
+                        title="Eliminar de Google Calendar"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                      </button>
+                    )}
                   </div>
                 </li>
               ))}
