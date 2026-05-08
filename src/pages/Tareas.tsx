@@ -789,6 +789,13 @@ function TareaModal({ tarea, casos, casosGenerales, perfiles, onClose, onSave }:
         {/* Panel con TODA la info del caso seleccionado */}
         {casoSeleccionado && <CasoInlineInfo tipo={casoSeleccionado.tipo} caso={casoSeleccionado.data} />}
 
+        {/* PASOS COMPARTIDOS (arriba para que se vea sin scrollear) */}
+        {form.id ? (
+          <PasosEditor tareaId={form.id} perfiles={perfiles} />
+        ) : (
+          <PasosEditorLocal pasos={pasosLocales} setPasos={setPasosLocales} perfiles={perfiles} />
+        )}
+
         <div>
           <label className="text-[10px] text-gray-500 uppercase tracking-wider">Descripción</label>
           <textarea value={form.descripcion} onChange={e => setForm(s => ({ ...s, descripcion: e.target.value }))}
@@ -905,12 +912,7 @@ function TareaModal({ tarea, casos, casosGenerales, perfiles, onClose, onSave }:
           </div>
         </div>
 
-        {/* PASOS COMPARTIDOS */}
-        {form.id ? (
-          <PasosEditor tareaId={form.id} perfiles={perfiles} />
-        ) : (
-          <PasosEditorLocal pasos={pasosLocales} setPasos={setPasosLocales} perfiles={perfiles} />
-        )}
+        {/* PASOS COMPARTIDOS (movido arriba) */}
         </div>{/* /body */}
 
         {/* Footer sticky */}
