@@ -74,7 +74,7 @@ create or replace view public.tarea_pasos_completos as
 select
   tp.*,
   p_resp.nombre  as responsable_nombre,
-  p_resp.avatar_path as responsable_avatar,
+  p_resp.avatar_url as responsable_avatar,
   p_done.nombre  as completado_por_nombre
 from public.tarea_pasos tp
 left join public.perfiles p_resp on p_resp.id = tp.responsable_id
