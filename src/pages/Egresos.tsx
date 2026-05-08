@@ -1,642 +1,408 @@
-import { useEffect, useMemo, useState } from 'react';
-import { format } from 'date-fns';
-import { es } from 'date-fns/locale';
-import { Download, FileSpreadsheet, Plus, Sigma, Users, FileText, Rows3, Rows4, Trash2 } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
-import { useEgresos, type EgresoFinanciero } from '../hooks/useFinances';
-import { CONCEPTOS_EGRESO, CategoriaEgreso } from '../types/database';
-import { useSocios } from '../hooks/useSocios';
-import Modal from '../components/Modal';
-import FinanceImportModal from '../components/finance/FinanceImportModal';
-import { FinanceBars, FinanceDonut, FinanceLineChart, FinanceVerticalBars } from '../components/finance/FinanceCharts';
+import { useEffect, useMemo, useState, useCallback } from 'react';
+import { Plus, Pencil, Search, Download, Trash2 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
+import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
+import {
+  SOCIOS_FINANZAS, MODALIDADES, TIPOS_EGRESO,
+  SUELDOS_NOMBRES, SERVICIOS_NOMBRES, VENCIMIENTOS_NOMBRES,
+  type EgresoV2, type SocioFinanzas, type ModalidadPago, type TipoEgreso,
+} from '../types/finanzas';
+import Modal from '../components/Modal';
+import { formatMoney } from '../lib/financeFormat';
 import { exportToExcel } from '../lib/exportExcel';
-import { exportToPdf } from '../lib/exportPdf';
-import { buildExpenseOverview, getExpenseCategory } from '../lib/financeAnalytics';
-import { formatMoney, pctChange } from '../lib/financeFormat';
-import { usePerfilMap } from '../hooks/usePerfiles';
-import { resolveOperationalSocio, sameOperationalSocio, sortOperationalSocios } from '../lib/operationalSocios';
+
+const HOY = () => new Date().toISOString().slice(0, 10);
+
+interface FormState {
+  fecha: string;
+  tipo: TipoEgreso;
+  concepto: string;
+  detalle: string;
+  monto: string;
+  modalidad: ModalidadPago;
+  pagador: SocioFinanzas | '';
+  beneficiario: string;
+  observaciones: string;
+}
+
+const FORM_VACIO: FormState = {
+  fecha: HOY(),
+  tipo: 'eventual',
+  concepto: '',
+  detalle: '',
+  monto: '',
+  modalidad: 'Transferencia',
+  pagador: 'Rodri',
+  beneficiario: '',
+  observaciones: '',
+};
+
+function sugerenciasConcepto(tipo: TipoEgreso): string[] {
+  switch (tipo) {
+    case 'sueldo': return SUELDOS_NOMBRES;
+    case 'servicio': return SERVICIOS_NOMBRES;
+    case 'vencimiento': return VENCIMIENTOS_NOMBRES;
+    case 'tarjeta': return [...SOCIOS_FINANZAS];
+    default: return [];
+  }
+}
 
 export default function Egresos() {
-  const { egresos, egresosCombinados, loading, refetch } = useEgresos();
-  const socios = useSocios();
-  const perfilMap = usePerfilMap();
+  const { user } = useAuth();
+  const { showToast } = useToast();
+
+  const [items, setItems] = useState<EgresoV2[]>([]);
+  const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
-  const [importModalOpen, setImportModalOpen] = useState(false);
-  const [editingEgreso, setEditingEgreso] = useState<EgresoFinanciero | null>(null);
-  const [deletingId, setDeletingId] = useState<string | null>(null);
-  const navigate = useNavigate();
-  const { showToast } = useToast();
-
-  function usePersistedFilter(key: string, fallback = '') {
-    const [value, setValue] = useState(() => {
-      try { return sessionStorage.getItem(`egresos_${key}`) || fallback; } catch { return fallback; }
-    });
-    const set = (v: string) => { setValue(v); try { sessionStorage.setItem(`egresos_${key}`, v); } catch {} };
-    return [value, set] as const;
-  }
-
-  const [filtroFechaDesde, setFiltroFechaDesde] = usePersistedFilter('desde');
-  const [filtroFechaHasta, setFiltroFechaHasta] = usePersistedFilter('hasta');
-  const [filtroConcepto, setFiltroConcepto] = usePersistedFilter('concepto');
-  const [filtroResponsable, setFiltroResponsable] = usePersistedFilter('responsable');
-  const [filtroModalidad, setFiltroModalidad] = usePersistedFilter('modalidad');
-  const [page, setPage] = useState(0);
-  const [compact, setCompact] = useState(() => sessionStorage.getItem('egresos_compact') === '1');
-  const pageSize = 50;
-
-  const categoryOptions = useMemo(
-    () => Array.from(new Set(egresosCombinados.map(item => getExpenseCategory(item.concepto)))).sort(),
-    [egresosCombinados],
-  );
-
-  const responsableOptions = useMemo(
-    () => sortOperationalSocios(egresosCombinados.map(item => item.responsable).filter(Boolean) as string[]),
-    [egresosCombinados],
-  );
-
-  const filtered = useMemo(() => egresosCombinados.filter(egreso => {
-    if (filtroFechaDesde && egreso.fecha < filtroFechaDesde) return false;
-    if (filtroFechaHasta && egreso.fecha > filtroFechaHasta) return false;
-    if (filtroConcepto && getExpenseCategory(egreso.concepto) !== filtroConcepto) return false;
-    if (filtroResponsable && !sameOperationalSocio(egreso.responsable, filtroResponsable)) return false;
-    if (filtroModalidad && egreso.modalidad !== filtroModalidad) return false;
-    return true;
-  }), [egresosCombinados, filtroConcepto, filtroFechaDesde, filtroFechaHasta, filtroModalidad, filtroResponsable]);
-
-  // Reset page when filters change
-  useEffect(() => { setPage(0); }, [filtroConcepto, filtroFechaDesde, filtroFechaHasta, filtroModalidad, filtroResponsable]);
-
-  const analytics = useMemo(() => buildExpenseOverview(filtered, 6), [filtered]);
-
-  const changes = useMemo(() => {
-    const s = analytics.monthlySeries;
-    if (s.length < 2) return { total: null, operativo: null, casos: null };
-    const cur = s[s.length - 1];
-    const prev = s[s.length - 2];
-    return {
-      total: pctChange(cur.net, prev.net),
-      operativo: pctChange(cur.income, prev.income),
-      casos: pctChange(cur.expense, prev.expense),
-    };
-  }, [analytics.monthlySeries]);
-
-  function handleRowClick(egreso: EgresoFinanciero) {
-    if (egreso.source === 'operativo') {
-      setEditingEgreso(egreso);
-    } else {
-      // Gasto de caso: navegar directamente al caso
-      if (egreso.caso_id) {
-        navigate(`/casos-trabajo?openId=${egreso.caso_id}`);
-      } else {
-        navigate(`/casos-trabajo?q=${encodeURIComponent(egreso.cliente_nombre || '')}`);
-      }
-    }
-  }
-
-  async function handleDeleteEgreso(id: string) {
-    if (!window.confirm('¿Eliminás este egreso operativo?')) return;
-    setDeletingId(id);
-    const { error } = await supabase.from('egresos').delete().eq('id', id);
-    setDeletingId(null);
-    if (error) { showToast('Error al eliminar el egreso', 'error'); return; }
-    showToast('Egreso eliminado');
-    await refetch();
-  }
-
-  async function handleExportEgresos() {
-    const data = filtered.map(item => ({
-      Fecha: item.fecha,
-      Origen: item.source === 'caso' ? 'Gasto del caso' : 'Operativo',
-      Categoria: getExpenseCategory(item.concepto),
-      Concepto: item.concepto,
-      Detalle: item.concepto_detalle || '',
-      Cliente: item.cliente_nombre || '',
-      Monto: item.monto,
-      Modalidad: item.modalidad || '',
-      Responsable: item.responsable || '',
-      Observaciones: item.observaciones || '',
-    }));
-    await exportToExcel(data, 'Egresos_CJ_NOA', 'Egresos');
-  }
-
-  function handleExportPdf() {
-    exportToPdf({
-      title: 'Reporte de Egresos — CJ NOA',
-      columns: [
-        { key: 'fecha', label: 'Fecha' },
-        { key: 'origen', label: 'Origen' },
-        { key: 'concepto', label: 'Concepto' },
-        { key: 'detalle', label: 'Detalle' },
-        { key: 'monto', label: 'Monto', align: 'right' },
-      ],
-      rows: filtered.map(e => ({
-        fecha: e.fecha,
-        origen: e.source === 'caso' ? 'Caso' : 'Operativo',
-        concepto: e.concepto,
-        detalle: e.concepto_detalle || '',
-        monto: formatMoney(e.monto || 0),
-      })),
-      summary: [
-        { label: 'Total Registros', value: String(filtered.length) },
-        { label: 'Total Egresos', value: formatMoney(analytics.totals.total) },
-      ],
-    });
-  }
-
-  if (loading) {
-    return (
-      <div className="flex h-64 items-center justify-center">
-        <div className="h-8 w-8 animate-spin rounded-full border-2 border-white/30 border-t-transparent" />
-      </div>
-    );
-  }
-
-  return (
-    <div className="space-y-6 animate-fade-in">
-      <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
-        <div>
-          <h1 className="text-xl sm:text-2xl font-bold text-white">Egresos</h1>
-          <p className="mt-1 text-sm text-gray-500 hidden sm:block">Vista consolidada de gastos operativos y gastos de caso dentro del mismo modelo financiero</p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <button onClick={handleExportEgresos} className="btn-secondary flex items-center gap-2 text-sm">
-            <Download className="h-4 w-4" />
-            <span className="hidden sm:inline">Exportar Excel</span>
-          </button>
-          <button onClick={handleExportPdf} className="btn-secondary flex items-center gap-2 text-sm">
-            <FileText className="h-4 w-4" />
-            <span className="hidden sm:inline">Exportar PDF</span>
-          </button>
-          <button onClick={() => setImportModalOpen(true)} className="btn-secondary flex items-center gap-2 text-sm">
-            <FileSpreadsheet className="h-4 w-4" />
-            <span className="hidden sm:inline">Importar Excel</span>
-          </button>
-          <button onClick={() => setModalOpen(true)} className="btn-primary flex items-center gap-2 text-sm">
-            <Plus className="h-4 w-4" />
-            <span className="hidden sm:inline">Nuevo egreso</span>
-          </button>
-        </div>
-      </div>
-
-      <div className="glass-card p-4">
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-5">
-          <div>
-            <label className="text-xs text-gray-500">Desde</label>
-            <input type="date" value={filtroFechaDesde} onChange={e => setFiltroFechaDesde(e.target.value)} className="input-dark mt-1 text-sm py-2" />
-          </div>
-          <div>
-            <label className="text-xs text-gray-500">Hasta</label>
-            <input type="date" value={filtroFechaHasta} onChange={e => setFiltroFechaHasta(e.target.value)} className="input-dark mt-1 text-sm py-2" />
-          </div>
-          <div>
-            <label className="text-xs text-gray-500">Categoria</label>
-            <select value={filtroConcepto} onChange={e => setFiltroConcepto(e.target.value)} className="select-dark mt-1 text-sm py-2">
-              <option value="">Todas</option>
-              {categoryOptions.map(option => <option key={option} value={option}>{option}</option>)}
-            </select>
-          </div>
-          <div>
-            <label className="text-xs text-gray-500">Responsable</label>
-            <select value={filtroResponsable} onChange={e => setFiltroResponsable(e.target.value)} className="select-dark mt-1 text-sm py-2">
-              <option value="">Todos</option>
-              {responsableOptions.map(responsable => <option key={responsable} value={responsable}>{responsable}</option>)}
-            </select>
-          </div>
-          <div>
-            <label className="text-xs text-gray-500">Modalidad</label>
-            <select value={filtroModalidad} onChange={e => setFiltroModalidad(e.target.value)} className="select-dark mt-1 text-sm py-2">
-              <option value="">Todas</option>
-              <option value="Efectivo">Efectivo</option>
-              <option value="Transferencia">Transferencia</option>
-            </select>
-          </div>
-        </div>
-      </div>
-
-      <div className="grid gap-3 sm:gap-4 grid-cols-2 sm:grid-cols-3 md:grid-cols-3 xl:grid-cols-5">
-        <KpiCard label="Total egresos" value={formatMoney(analytics.totals.total)} tone="rose" index={0} change={changes.total} />
-        <KpiCard label="Operativos" value={formatMoney(analytics.totals.operativo)} tone="amber" index={1} change={changes.operativo} />
-        <KpiCard label="Gastos de caso" value={formatMoney(analytics.totals.casos)} tone="sky" index={2} change={changes.casos} />
-        <KpiCard label="Ticket promedio" value={formatMoney(analytics.totals.averageTicket)} tone="cyan" index={3} />
-        <KpiCard label="Mayor egreso" value={formatMoney(analytics.totals.highestExpense)} tone="slate" index={4} />
-      </div>
-
-      {/* Distribucion de egresos por responsable (calculado) */}
-      <div className="glass-card p-5">
-        <div className="flex items-center gap-2 text-sm font-semibold text-white">
-          <Users className="h-4 w-4 text-rose-300" />
-          Egresos por responsable (calculado)
-        </div>
-        <div className="mt-1 text-xs text-gray-500">Calculado desde los egresos operativos y gastos de caso cargados en el sistema.</div>
-        <div className="mt-4 grid gap-3 sm:gap-4 grid-cols-1 sm:grid-cols-2 xl:grid-cols-4">
-          {[...socios, 'CJ NOA'].map((resp, i) => {
-            const respEgresos = filtered.filter(e => sameOperationalSocio(e.responsable, resp));
-            const total = respEgresos.reduce((s, e) => s + Number(e.monto || 0), 0);
-            const operativo = respEgresos.filter(e => e.source === 'operativo').reduce((s, e) => s + Number(e.monto || 0), 0);
-            const caso = respEgresos.filter(e => e.source === 'caso').reduce((s, e) => s + Number(e.monto || 0), 0);
-            const participacion = analytics.totals.total > 0 ? (total / analytics.totals.total * 100).toFixed(1) : '0.0';
-            const categorias = new Set(respEgresos.map(e => getExpenseCategory(e.concepto))).size;
-            if (total === 0 && respEgresos.length === 0) return null;
-            return (
-              <div key={resp} className="rounded-2xl border border-white/8 bg-white/[0.03] p-4 hover-lift animate-slide-up transition-all duration-300 hover:border-white/15" style={{ animationDelay: `${i * 100}ms` }}>
-                <p className="text-sm font-semibold text-white">{resp}</p>
-                <div className="mt-3 space-y-1.5 text-sm text-gray-300">
-                  <div className="flex justify-between"><span>Total</span><span className="font-semibold text-rose-300">{formatMoney(total)}</span></div>
-                  <div className="flex justify-between"><span>Operativos</span><span className="font-semibold text-amber-300">{formatMoney(operativo)}</span></div>
-                  <div className="flex justify-between"><span>Casos</span><span className="font-semibold text-sky-300">{formatMoney(caso)}</span></div>
-                  <div className="flex justify-between"><span>Participacion</span><span className="font-semibold text-white">{participacion}%</span></div>
-                  <div className="flex justify-between"><span>Categorias</span><span className="font-semibold text-gray-400">{categorias}</span></div>
-                  <div className="flex justify-between"><span>Registros</span><span className="font-semibold text-gray-400">{respEgresos.length}</span></div>
-                </div>
-              </div>
-            );
-          })}
-          {(() => {
-            const sinResp = filtered.filter(e => {
-              const resolved = resolveOperationalSocio(e.responsable);
-              return !resolved || ![...socios, 'CJ NOA'].includes(resolved);
-            });
-            const total = sinResp.reduce((s, e) => s + Number(e.monto || 0), 0);
-            if (total === 0) return null;
-            return (
-              <div className="rounded-2xl border border-white/8 bg-white/[0.03] p-4">
-                <p className="text-sm font-semibold text-white">Gastos de caso</p>
-                <div className="mt-3 space-y-1.5 text-sm text-gray-300">
-                  <div className="flex justify-between"><span>Total</span><span className="font-semibold text-rose-300">{formatMoney(total)}</span></div>
-                  <div className="flex justify-between"><span>Registros</span><span className="font-semibold text-gray-400">{sinResp.length}</span></div>
-                </div>
-              </div>
-            );
-          })()}
-        </div>
-      </div>
-
-      <div className="grid gap-4 xl:grid-cols-[1.15fr_0.85fr]">
-        <div className="glass-card p-5">
-          <div className="flex items-center gap-2 text-sm font-semibold text-white">
-            <Sigma className="h-4 w-4 text-amber-300" />
-            Formulas del modelo de egresos
-          </div>
-          <div className="mt-4 grid gap-3 md:grid-cols-3">
-            <FormulaBox title="Total" description="El gasto consolidado suma operativos y gastos imputados a casos." value={`${formatMoney(analytics.totals.operativo)} + ${formatMoney(analytics.totals.casos)}`} />
-            <FormulaBox title="Peso de casos" description="Participacion de gastos judiciales sobre el total del egreso." value={`${analytics.totals.caseShare.toFixed(1)}% del total`} />
-            <FormulaBox title="Registro mas alto" description="Mayor impacto individual encontrado en el periodo filtrado." value={formatMoney(analytics.totals.highestExpense)} />
-          </div>
-        </div>
-
-        <div className="glass-card p-5">
-          <p className="text-sm font-semibold text-white">Resumen ejecutivo</p>
-          <div className="mt-4 space-y-3 text-sm text-gray-300">
-            <InsightRow label="Categoria principal" value={analytics.categoryBreakdown[0]?.label || 'Sin datos'} />
-            <InsightRow label="Responsable principal" value={analytics.responsibleBreakdown[0]?.label || 'Sin asignar'} />
-            <InsightRow label="Participacion gastos caso" value={`${analytics.totals.caseShare.toFixed(1)}%`} />
-            <InsightRow label="Registros consolidados" value={String(analytics.totals.records)} />
-          </div>
-        </div>
-      </div>
-
-      <div className="grid gap-4 xl:grid-cols-2">
-        <FinanceLineChart
-          title="Evolucion de egresos"
-          subtitle="Comparacion entre gastos operativos, gastos de caso y total mensual"
-          series={analytics.monthlySeries}
-          labels={{ income: 'Operativos', expense: 'Casos', net: 'Total' }}
-        />
-        <FinanceDonut title="Origen del egreso" subtitle="Peso relativo entre estructura operativa y casos" data={analytics.sourceBreakdown} />
-      </div>
-
-      <div className="grid gap-4 xl:grid-cols-2">
-        <FinanceVerticalBars title="Categorias de egreso" subtitle="Rubros con mayor impacto en el periodo filtrado" data={analytics.categoryBreakdown} height={220} />
-        <FinanceBars title="Responsables / origen" subtitle="Quien concentra mayor volumen de gasto" data={analytics.responsibleBreakdown} />
-      </div>
-
-      <div className="glass-card overflow-hidden">
-        <div className="flex items-center justify-end px-5 py-2 border-b border-white/[0.04]">
-          <button
-            onClick={() => { const v = !compact; setCompact(v); sessionStorage.setItem('egresos_compact', v ? '1' : '0'); }}
-            className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-gray-300 transition-colors"
-            title={compact ? 'Vista normal' : 'Vista compacta'}
-          >
-            {compact ? <Rows3 className="w-3.5 h-3.5" /> : <Rows4 className="w-3.5 h-3.5" />}
-            {compact ? 'Normal' : 'Compacto'}
-          </button>
-        </div>
-        <div className="overflow-x-auto">
-          <table className={`w-full ${compact ? 'text-xs' : ''}`}>
-            <thead>
-              <tr className="border-b border-white/5">
-                <th className={`${compact ? 'px-3 py-2' : 'px-5 py-3'} text-left text-xs font-medium uppercase text-gray-500`}>Fecha</th>
-                <th className={`${compact ? 'px-3 py-2' : 'px-5 py-3'} text-left text-xs font-medium uppercase text-gray-500`}>Origen</th>
-                <th className={`${compact ? 'px-3 py-2' : 'px-5 py-3'} text-left text-xs font-medium uppercase text-gray-500`}>Concepto</th>
-                <th className={`hidden ${compact ? 'px-3 py-2' : 'px-5 py-3'} text-left text-xs font-medium uppercase text-gray-500 lg:table-cell`}>Cliente / caso</th>
-                <th className={`${compact ? 'px-3 py-2' : 'px-5 py-3'} text-right text-xs font-medium uppercase text-gray-500`}>Monto</th>
-                <th className={`hidden ${compact ? 'px-3 py-2' : 'px-5 py-3'} text-left text-xs font-medium uppercase text-gray-500 md:table-cell`}>Responsable</th>
-                <th className={`hidden ${compact ? 'px-3 py-2' : 'px-5 py-3'} text-left text-xs font-medium uppercase text-gray-500 lg:table-cell`}>Modalidad</th>
-                <th className={`hidden ${compact ? 'px-3 py-2' : 'px-5 py-3'} text-left text-xs font-medium uppercase text-gray-500 md:table-cell`}>Cargado por</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.slice(page * pageSize, (page + 1) * pageSize).map((egreso, i) => {
-                const cp = compact ? 'px-3 py-1.5' : 'px-5 py-3';
-                return (
-                <tr key={egreso.id} className="table-row row-enter cursor-pointer hover:bg-white/[0.04]" style={{ animationDelay: `${Math.min(i, 15) * 30}ms` }} onClick={() => handleRowClick(egreso)}>
-                  <td className={`${cp} text-sm text-gray-300`}>{format(new Date(egreso.fecha), 'dd MMM yyyy', { locale: es })}</td>
-                  <td className={cp}>
-                    <span className={`badge ${egreso.source === 'caso' ? 'badge-blue' : 'badge-red'}`}>
-                      {egreso.source === 'caso' ? 'Caso' : 'Operativo'}
-                    </span>
-                  </td>
-                  <td className={cp}>
-                    <span className="text-sm text-white">{egreso.concepto}</span>
-                    {egreso.concepto_detalle && <span className="block text-xs text-gray-500">{egreso.concepto_detalle}</span>}
-                  </td>
-                  <td className={`hidden ${cp} text-sm text-gray-400 lg:table-cell`}>{egreso.cliente_nombre || '-'}</td>
-                  <td className={`${cp} text-right`}>
-                    <span className="text-sm font-medium text-rose-400">{formatMoney(egreso.monto)}</span>
-                  </td>
-                  <td className={`hidden ${cp} text-sm text-gray-400 md:table-cell`}>{resolveOperationalSocio(egreso.responsable) || 'Caso'}</td>
-                  <td className={`hidden ${cp} lg:table-cell`}>
-                    <span className={`badge ${egreso.modalidad === 'Efectivo' ? 'badge-green' : 'badge-blue'}`}>
-                      {egreso.modalidad || 'Sin definir'}
-                    </span>
-                  </td>
-                  <td className={`hidden ${cp} md:table-cell`}>
-                    <div className="text-xs">
-                      <span className="text-violet-300 font-medium">{egreso.created_by ? perfilMap.get(egreso.created_by) || 'Usuario' : 'Importación'}</span>
-                      <span className="block text-gray-500 mt-0.5">{format(new Date(egreso.created_at), 'dd/MM/yy HH:mm', { locale: es })}</span>
-                    </div>
-                  </td>
-                </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-
-        <div className="border-t border-white/5 bg-white/[0.02] px-4 sm:px-5 py-3 sm:py-4">
-          <div className="flex flex-col sm:flex-row flex-wrap justify-end gap-3 sm:gap-6 text-sm">
-            <div>
-              <span className="text-gray-500">Operativos:</span>{' '}
-              <span className="font-semibold text-amber-300">{formatMoney(analytics.totals.operativo)}</span>
-            </div>
-            <div>
-              <span className="text-gray-500">Gastos caso:</span>{' '}
-              <span className="font-semibold text-sky-300">{formatMoney(analytics.totals.casos)}</span>
-            </div>
-            <div>
-              <span className="text-gray-500">Total:</span>{' '}
-              <span className="font-semibold text-rose-400">{formatMoney(analytics.totals.total)}</span>
-            </div>
-          </div>
-        </div>
-
-        {filtered.length > pageSize && (
-          <div className="border-t border-white/5 bg-white/[0.02] px-5 py-3 flex items-center justify-between">
-            <span className="text-xs text-gray-500">
-              {page * pageSize + 1}–{Math.min((page + 1) * pageSize, filtered.length)} de {filtered.length}
-            </span>
-            <div className="flex gap-2">
-              <button onClick={() => setPage(p => Math.max(0, p - 1))} disabled={page === 0} className="px-3 py-1 text-xs rounded-lg bg-white/5 text-gray-300 hover:bg-white/10 disabled:opacity-30 transition">
-                Anterior
-              </button>
-              <button onClick={() => setPage(p => p + 1)} disabled={(page + 1) * pageSize >= filtered.length} className="px-3 py-1 text-xs rounded-lg bg-white/5 text-gray-300 hover:bg-white/10 disabled:opacity-30 transition">
-                Siguiente
-              </button>
-            </div>
-          </div>
-        )}
-      </div>
-
-      <EgresoModal
-        open={modalOpen || !!editingEgreso}
-        onClose={() => { setModalOpen(false); setEditingEgreso(null); }}
-        onSaved={refetch}
-        editing={editingEgreso}
-        onDelete={async (id) => { await handleDeleteEgreso(id); setEditingEgreso(null); }}
-      />
-      <FinanceImportModal
-        open={importModalOpen}
-        onClose={() => setImportModalOpen(false)}
-        target="egresos"
-        existingEgresos={egresos}
-        onImported={async () => { await refetch(); }}
-      />
-    </div>
-  );
-}
-
-function KpiCard({ label, value, tone, change, index = 0 }: { label: string; value: string; tone: 'rose' | 'amber' | 'sky' | 'cyan' | 'slate'; change?: number | null; index?: number }) {
-  const accents: Record<string, string> = {
-    rose: 'from-rose-400 to-rose-600',
-    amber: 'from-amber-400 to-amber-600',
-    sky: 'from-sky-400 to-sky-600',
-    cyan: 'from-cyan-400 to-cyan-600',
-    slate: 'from-gray-400 to-gray-600',
-  };
-  const valueTones: Record<string, string> = {
-    rose: 'text-rose-300',
-    amber: 'text-amber-300',
-    sky: 'text-sky-300',
-    cyan: 'text-cyan-300',
-    slate: 'text-white',
-  };
-
-  return (
-    <div className="stat-card hover-lift animate-slide-up" style={{ animationDelay: `${index * 80}ms` }}>
-      <div className={`absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r ${accents[tone]}`} />
-      <p className="text-[10px] sm:text-[11px] uppercase tracking-[0.12em] sm:tracking-[0.18em] text-gray-500 font-medium">{label}</p>
-      <p className={`mt-2 sm:mt-3 text-lg sm:text-2xl font-bold count-up ${valueTones[tone]}`}>{value}</p>
-      {change != null && (
-        <p className={`mt-1 sm:mt-1.5 text-[10px] sm:text-[11px] font-medium ${change <= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-          {change <= 0 ? '▼' : '▲'} {Math.abs(change).toFixed(1)}% vs mes ant.
-        </p>
-      )}
-    </div>
-  );
-}
-
-function FormulaBox({ title, description, value }: { title: string; description: string; value: string }) {
-  return (
-    <div className="rounded-2xl border border-white/8 bg-white/[0.03] p-4 hover-lift animate-fade-in transition-all duration-300 hover:border-white/15">
-      <p className="text-sm font-medium text-white">{title}</p>
-      <p className="mt-2 text-xs text-gray-500">{description}</p>
-      <p className="mt-3 text-sm font-semibold text-amber-300 count-up">{value}</p>
-    </div>
-  );
-}
-
-function InsightRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex items-center justify-between rounded-xl bg-white/[0.03] px-3 py-2 hover:bg-white/[0.06] transition-all duration-200 animate-slide-right">
-      <span>{label}</span>
-      <span className="font-semibold text-white">{value}</span>
-    </div>
-  );
-}
-
-function EgresoModal({ open, onClose, onSaved, editing, onDelete }: {
-  open: boolean;
-  onClose: () => void;
-  onSaved: () => void;
-  editing?: EgresoFinanciero | null;
-  onDelete?: (id: string) => void;
-}) {
-  const { showToast } = useToast();
-  const socios = useSocios();
-  const isEditing = !!editing;
-  const [fecha, setFecha] = useState(new Date().toISOString().split('T')[0]);
-  const [categoria, setCategoria] = useState<CategoriaEgreso>('Sueldos');
-  const [subcategoria, setSubcategoria] = useState('');
-  const [conceptoLibre, setConceptoLibre] = useState('');
-  const [casoDesc, setCasoDesc] = useState('');
-  const [monto, setMonto] = useState('');
-  const [modalidad, setModalidad] = useState('Efectivo');
-  const [responsable, setResponsable] = useState(socios[0] || '');
-  const [observaciones, setObservaciones] = useState('');
+  const [editId, setEditId] = useState<string | null>(null);
+  const [form, setForm] = useState<FormState>(FORM_VACIO);
   const [saving, setSaving] = useState(false);
 
+  // Filtros
+  const [busqueda, setBusqueda] = useState('');
+  const [filtroTipo, setFiltroTipo] = useState<TipoEgreso | ''>('');
+  const [filtroPagador, setFiltroPagador] = useState<SocioFinanzas | ''>('');
+  const [filtroModalidad, setFiltroModalidad] = useState<ModalidadPago | ''>('');
+  const [desde, setDesde] = useState('');
+  const [hasta, setHasta] = useState('');
+
+  const cargar = useCallback(async () => {
+    setLoading(true);
+    const { data, error } = await supabase
+      .from('egresos_v2')
+      .select('*')
+      .order('fecha', { ascending: false })
+      .order('created_at', { ascending: false })
+      .limit(2000);
+    if (error) showToast(`Error al cargar egresos: ${error.message}`, 'error');
+    else setItems((data || []) as EgresoV2[]);
+    setLoading(false);
+  }, [showToast]);
+
+  useEffect(() => { cargar(); }, [cargar]);
+
+  // Realtime
   useEffect(() => {
-    if (editing) {
-      setFecha(editing.fecha);
-      setMonto(String(editing.monto || ''));
-      setModalidad(editing.modalidad || 'Efectivo');
-      setResponsable(editing.responsable || socios[0] || '');
-      setObservaciones(editing.observaciones || '');
-      const c = editing.concepto || '';
-      const colonIdx = c.indexOf(':');
-      if (colonIdx > -1) {
-        const cat = c.slice(0, colonIdx).trim();
-        const sub = c.slice(colonIdx + 1).trim();
-        if (cat in CONCEPTOS_EGRESO) { setCategoria(cat as CategoriaEgreso); setSubcategoria(sub); setConceptoLibre(''); }
-        else { setCategoria('Otro'); setSubcategoria(''); setConceptoLibre(c); }
-      } else {
-        const knownCat = Object.keys(CONCEPTOS_EGRESO).find(k => k === c);
-        if (knownCat) { setCategoria(knownCat as CategoriaEgreso); setSubcategoria(''); setConceptoLibre(''); }
-        else { setCategoria('Otro'); setSubcategoria(''); setConceptoLibre(c); }
+    const ch = supabase
+      .channel('egresos_v2_rt')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'egresos_v2' }, () => cargar())
+      .subscribe();
+    return () => { supabase.removeChannel(ch); };
+  }, [cargar]);
+
+  const filtrados = useMemo(() => {
+    return items.filter(e => {
+      if (busqueda) {
+        const q = busqueda.toLowerCase();
+        if (!e.concepto.toLowerCase().includes(q) && !(e.beneficiario || '').toLowerCase().includes(q)) return false;
       }
-      setCasoDesc(editing.concepto_detalle || '');
-    } else {
-      setFecha(new Date().toISOString().split('T')[0]);
-      setCategoria('Sueldos'); setSubcategoria(''); setConceptoLibre(''); setCasoDesc('');
-      setMonto(''); setModalidad('Efectivo'); setObservaciones('');
+      if (filtroTipo && e.tipo !== filtroTipo) return false;
+      if (filtroPagador && e.pagador !== filtroPagador) return false;
+      if (filtroModalidad && e.modalidad !== filtroModalidad) return false;
+      if (desde && e.fecha < desde) return false;
+      if (hasta && e.fecha > hasta) return false;
+      return true;
+    });
+  }, [items, busqueda, filtroTipo, filtroPagador, filtroModalidad, desde, hasta]);
+
+  const totales = useMemo(() => {
+    const total = filtrados.reduce((s, e) => s + Number(e.monto || 0), 0);
+    const porPagador: Record<SocioFinanzas, number> = { Rodri: 0, Noe: 0, Ale: 0, Fabri: 0 };
+    const porTipo: Record<string, number> = {};
+    filtrados.forEach(e => {
+      if (e.pagador) porPagador[e.pagador] = (porPagador[e.pagador] || 0) + Number(e.monto || 0);
+      porTipo[e.tipo] = (porTipo[e.tipo] || 0) + Number(e.monto || 0);
+    });
+    return { total, porPagador, porTipo };
+  }, [filtrados]);
+
+  function abrirNuevo() {
+    setEditId(null);
+    setForm(FORM_VACIO);
+    setModalOpen(true);
+  }
+
+  function abrirEditar(e: EgresoV2) {
+    setEditId(e.id);
+    setForm({
+      fecha: e.fecha,
+      tipo: e.tipo,
+      concepto: e.concepto,
+      detalle: e.detalle || '',
+      monto: String(e.monto),
+      modalidad: e.modalidad,
+      pagador: e.pagador || '',
+      beneficiario: e.beneficiario || '',
+      observaciones: e.observaciones || '',
+    });
+    setModalOpen(true);
+  }
+
+  async function guardar() {
+    if (!form.concepto.trim()) {
+      showToast('Falta el concepto', 'error');
+      return;
     }
-  }, [editing, open]);
-
-  const subcategorias = CONCEPTOS_EGRESO[categoria] || [];
-
-  let conceptoFinal: string = categoria;
-  if (subcategoria) conceptoFinal = `${categoria}: ${subcategoria}`;
-  else if (categoria === 'Otro') conceptoFinal = conceptoLibre || 'Otro';
-
-  async function handleSave() {
+    const monto = Number(form.monto);
+    if (!monto || monto <= 0) {
+      showToast('Monto inválido', 'error');
+      return;
+    }
+    if (!form.pagador) {
+      showToast('Indicá quién paga', 'error');
+      return;
+    }
     setSaving(true);
     try {
       const payload = {
-        fecha,
-        concepto: conceptoFinal,
-        concepto_detalle: categoria === 'Gastos Judiciales' ? casoDesc : (categoria === 'Otro' ? conceptoLibre : null),
-        monto: parseFloat(monto) || 0,
-        modalidad,
-        responsable,
-        observaciones: observaciones || null,
+        fecha: form.fecha,
+        tipo: form.tipo,
+        concepto: form.concepto.trim(),
+        detalle: form.detalle.trim() || null,
+        monto,
+        modalidad: form.modalidad,
+        pagador: form.pagador as SocioFinanzas,
+        beneficiario: form.beneficiario.trim() || null,
+        observaciones: form.observaciones.trim() || null,
+        updated_by: user?.id,
       };
-      if (isEditing && editing) {
-        await supabase.from('egresos').update(payload).eq('id', editing.id);
-        showToast('Egreso actualizado');
+      if (editId) {
+        const { error } = await supabase.from('egresos_v2').update({ ...payload, updated_at: new Date().toISOString() }).eq('id', editId);
+        if (error) throw error;
+        showToast('Egreso actualizado', 'success');
       } else {
-        await supabase.from('egresos').insert(payload);
-        showToast('Egreso registrado');
+        const { error } = await supabase.from('egresos_v2').insert({ ...payload, created_by: user?.id });
+        if (error) throw error;
+        showToast('Egreso registrado', 'success');
       }
-      onSaved();
-      onClose();
-    } catch (error: any) {
-      showToast(error.message || 'Error al guardar egreso', 'error');
+      setModalOpen(false);
+      await cargar();
+    } catch (err: any) {
+      showToast(err?.message || 'Error al guardar', 'error');
     } finally {
       setSaving(false);
     }
   }
 
+  async function eliminar(id: string) {
+    if (!confirm('¿Eliminar este egreso? Se revierte el movimiento de la cuenta del pagador.')) return;
+    const { error } = await supabase.from('egresos_v2').delete().eq('id', id);
+    if (error) showToast(error.message, 'error');
+    else { showToast('Egreso eliminado', 'success'); await cargar(); }
+  }
+
+  function exportar() {
+    const rows = filtrados.map(e => ({
+      Fecha: e.fecha,
+      Tipo: e.tipo,
+      Concepto: e.concepto,
+      Detalle: e.detalle || '',
+      Monto: Number(e.monto),
+      Modalidad: e.modalidad,
+      Pagador: e.pagador || '',
+      Beneficiario: e.beneficiario || '',
+      Observaciones: e.observaciones || '',
+    }));
+    exportToExcel(rows, `egresos-${HOY()}`);
+  }
+
+  const sugerencias = sugerenciasConcepto(form.tipo);
+
   return (
-    <Modal open={open} onClose={onClose} title={isEditing ? 'Editar egreso' : 'Nuevo egreso'} maxWidth="max-w-md">
-      <div className="space-y-4">
+    <div className="space-y-6">
+      <header className="flex items-center justify-between gap-4 flex-wrap">
         <div>
-          <label className="mb-1.5 block text-sm text-gray-400">Fecha</label>
-          <input type="date" value={fecha} onChange={e => setFecha(e.target.value)} className="input-dark" />
+          <h1 className="text-2xl font-bold text-white">Egresos</h1>
+          <p className="text-sm text-zinc-400 mt-1">Sueldos, servicios, vencimientos, tarjetas y eventuales — descuentan de la cuenta del pagador.</p>
         </div>
-        <div>
-          <label className="mb-1.5 block text-sm text-gray-400">Concepto</label>
-          <select value={categoria} onChange={e => { setCategoria(e.target.value as CategoriaEgreso); setSubcategoria(''); }} className="select-dark">
-            {Object.keys(CONCEPTOS_EGRESO).map(item => <option key={item} value={item}>{item}</option>)}
-          </select>
-        </div>
-
-        {subcategorias.length > 0 && (
-          <div>
-            <label className="mb-1.5 block text-sm text-gray-400">Detalle</label>
-            <select value={subcategoria} onChange={e => setSubcategoria(e.target.value)} className="select-dark">
-              <option value="">Seleccionar...</option>
-              {subcategorias.map(item => <option key={item} value={item}>{item}</option>)}
-            </select>
-          </div>
-        )}
-
-        {categoria === 'Gastos Judiciales' && (
-          <div>
-            <label className="mb-1.5 block text-sm text-gray-400">Descripcion del caso</label>
-            <input type="text" value={casoDesc} onChange={e => setCasoDesc(e.target.value)} className="input-dark" placeholder="Referencia del caso" />
-          </div>
-        )}
-
-        {categoria === 'Otro' && (
-          <div>
-            <label className="mb-1.5 block text-sm text-gray-400">Describir concepto</label>
-            <input type="text" value={conceptoLibre} onChange={e => setConceptoLibre(e.target.value)} className="input-dark" placeholder="Concepto del egreso" />
-          </div>
-        )}
-
-        <div>
-          <label className="mb-1.5 block text-sm text-gray-400">Monto</label>
-          <input type="number" value={monto} onChange={e => setMonto(e.target.value)} className="input-dark" min="0" />
-        </div>
-
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className="mb-1.5 block text-sm text-gray-400">Modalidad</label>
-            <select value={modalidad} onChange={e => setModalidad(e.target.value)} className="select-dark">
-              <option value="Efectivo">Efectivo</option>
-              <option value="Transferencia">Transferencia</option>
-            </select>
-          </div>
-          <div>
-            <label className="mb-1.5 block text-sm text-gray-400">Responsable</label>
-            <select value={responsable} onChange={e => setResponsable(e.target.value)} className="select-dark">
-              {[...socios, 'CJ NOA'].map(item => <option key={item} value={item}>{item}</option>)}
-            </select>
-          </div>
-        </div>
-
-        <div>
-          <label className="mb-1.5 block text-sm text-gray-400">Observaciones</label>
-          <input type="text" value={observaciones} onChange={e => setObservaciones(e.target.value)} className="input-dark" />
-        </div>
-
-        <div className="flex gap-3 pt-2">
-          <button onClick={onClose} className="btn-secondary flex-1">Cancelar</button>
-          {isEditing && onDelete && editing && (
-            <button
-              onClick={() => onDelete(editing.id)}
-              className="btn-secondary flex items-center gap-2 text-red-400 border-red-500/30 hover:bg-red-500/10"
-            >
-              <Trash2 className="w-4 h-4" /> Eliminar
-            </button>
-          )}
-          <button onClick={handleSave} disabled={saving} className="btn-primary flex-1">
-            {saving ? 'Guardando...' : isEditing ? 'Guardar cambios' : 'Registrar egreso'}
+        <div className="flex gap-2">
+          <button onClick={exportar} className="px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-sm text-white hover:bg-white/10 flex items-center gap-2">
+            <Download className="w-4 h-4" /> Excel
+          </button>
+          <button onClick={abrirNuevo} className="px-3 py-2 rounded-lg bg-rose-600 hover:bg-rose-500 text-sm text-white flex items-center gap-2">
+            <Plus className="w-4 h-4" /> Nuevo egreso
           </button>
         </div>
+      </header>
+
+      {/* Métricas */}
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+        <MetricCard label="Total filtrado" value={formatMoney(totales.total)} highlight />
+        {SOCIOS_FINANZAS.map(s => (
+          <MetricCard key={s} label={`Pagó ${s}`} value={formatMoney(totales.porPagador[s])} />
+        ))}
       </div>
-    </Modal>
+
+      {/* Filtros */}
+      <div className="bg-white/[0.02] border border-white/10 rounded-xl p-4 space-y-3">
+        <div className="flex items-center gap-2">
+          <Search className="w-4 h-4 text-zinc-400" />
+          <input
+            value={busqueda}
+            onChange={e => setBusqueda(e.target.value)}
+            placeholder="Buscar por concepto o beneficiario…"
+            className="flex-1 bg-transparent outline-none text-sm text-white placeholder:text-zinc-500"
+          />
+        </div>
+        <div className="grid grid-cols-2 md:grid-cols-6 gap-2">
+          <SelectFilter label="Tipo" value={filtroTipo} onChange={v => setFiltroTipo(v as TipoEgreso | '')} options={TIPOS_EGRESO} />
+          <SelectFilter label="Pagador" value={filtroPagador} onChange={v => setFiltroPagador(v as SocioFinanzas | '')} options={SOCIOS_FINANZAS} />
+          <SelectFilter label="Modalidad" value={filtroModalidad} onChange={v => setFiltroModalidad(v as ModalidadPago | '')} options={MODALIDADES} />
+          <DateFilter label="Desde" value={desde} onChange={setDesde} />
+          <DateFilter label="Hasta" value={hasta} onChange={setHasta} />
+        </div>
+      </div>
+
+      {/* Tabla */}
+      <div className="bg-white/[0.02] border border-white/10 rounded-xl overflow-hidden">
+        {loading ? (
+          <div className="p-8 text-center text-sm text-zinc-400">Cargando…</div>
+        ) : filtrados.length === 0 ? (
+          <div className="p-8 text-center text-sm text-zinc-400">No hay egresos para mostrar.</div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-white/[0.03] text-xs uppercase text-zinc-400">
+                <tr>
+                  <th className="px-3 py-2 text-left">Fecha</th>
+                  <th className="px-3 py-2 text-left">Tipo</th>
+                  <th className="px-3 py-2 text-left">Concepto</th>
+                  <th className="px-3 py-2 text-left">Beneficiario</th>
+                  <th className="px-3 py-2 text-right">Monto</th>
+                  <th className="px-3 py-2 text-left">Modalidad</th>
+                  <th className="px-3 py-2 text-left">Pagador</th>
+                  <th className="px-3 py-2"></th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-white/5">
+                {filtrados.map(e => (
+                  <tr key={e.id} className="hover:bg-white/[0.02]">
+                    <td className="px-3 py-2 text-zinc-300 whitespace-nowrap">{e.fecha}</td>
+                    <td className="px-3 py-2 text-zinc-300 capitalize">{e.tipo}</td>
+                    <td className="px-3 py-2 text-white">{e.concepto}</td>
+                    <td className="px-3 py-2 text-zinc-300">{e.beneficiario || '—'}</td>
+                    <td className="px-3 py-2 text-right text-white font-medium">{formatMoney(Number(e.monto))}</td>
+                    <td className="px-3 py-2 text-zinc-300">{e.modalidad}</td>
+                    <td className="px-3 py-2 text-zinc-300">{e.pagador || '—'}</td>
+                    <td className="px-3 py-2 text-right whitespace-nowrap">
+                      <button onClick={() => abrirEditar(e)} className="text-zinc-400 hover:text-white mr-2">
+                        <Pencil className="w-4 h-4" />
+                      </button>
+                      <button onClick={() => eliminar(e.id)} className="text-zinc-400 hover:text-rose-400">
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* Modal */}
+      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title={editId ? 'Editar egreso' : 'Nuevo egreso'}>
+        <div className="space-y-3">
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Fecha">
+              <input type="date" value={form.fecha} onChange={e => setForm({ ...form, fecha: e.target.value })} className={inputCls} />
+            </Field>
+            <Field label="Tipo">
+              <select value={form.tipo} onChange={e => setForm({ ...form, tipo: e.target.value as TipoEgreso, concepto: '' })} className={inputCls}>
+                {TIPOS_EGRESO.map(t => <option key={t} value={t}>{t}</option>)}
+              </select>
+            </Field>
+          </div>
+          <Field label="Concepto">
+            {sugerencias.length > 0 ? (
+              <div className="flex gap-2 flex-wrap">
+                <select value={sugerencias.includes(form.concepto) ? form.concepto : ''} onChange={e => setForm({ ...form, concepto: e.target.value })} className={inputCls + ' flex-1'}>
+                  <option value="">— elegí —</option>
+                  {sugerencias.map(s => <option key={s} value={s}>{s}</option>)}
+                </select>
+                <input value={form.concepto} onChange={e => setForm({ ...form, concepto: e.target.value })} className={inputCls + ' flex-1'} placeholder="o escribilo libre" />
+              </div>
+            ) : (
+              <input value={form.concepto} onChange={e => setForm({ ...form, concepto: e.target.value })} className={inputCls} placeholder="Concepto" />
+            )}
+          </Field>
+          <Field label="Detalle">
+            <input value={form.detalle} onChange={e => setForm({ ...form, detalle: e.target.value })} className={inputCls} placeholder="Opcional" />
+          </Field>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Monto">
+              <input type="number" value={form.monto} onChange={e => setForm({ ...form, monto: e.target.value })} className={inputCls} placeholder="0" />
+            </Field>
+            <Field label="Modalidad">
+              <select value={form.modalidad} onChange={e => setForm({ ...form, modalidad: e.target.value as ModalidadPago })} className={inputCls}>
+                {MODALIDADES.map(m => <option key={m} value={m}>{m}</option>)}
+              </select>
+            </Field>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Pagador">
+              <select value={form.pagador} onChange={e => setForm({ ...form, pagador: e.target.value as SocioFinanzas | '' })} className={inputCls}>
+                <option value="">—</option>
+                {SOCIOS_FINANZAS.map(s => <option key={s} value={s}>{s}</option>)}
+              </select>
+            </Field>
+            <Field label="Beneficiario">
+              <input value={form.beneficiario} onChange={e => setForm({ ...form, beneficiario: e.target.value })} className={inputCls} placeholder="Opcional" />
+            </Field>
+          </div>
+          <Field label="Observaciones">
+            <textarea value={form.observaciones} onChange={e => setForm({ ...form, observaciones: e.target.value })} className={inputCls} rows={2} />
+          </Field>
+          <div className="flex justify-end gap-2 pt-2">
+            <button onClick={() => setModalOpen(false)} className="px-3 py-2 rounded-lg bg-white/5 text-sm text-white">Cancelar</button>
+            <button onClick={guardar} disabled={saving} className="px-3 py-2 rounded-lg bg-rose-600 hover:bg-rose-500 text-sm text-white disabled:opacity-50">
+              {saving ? 'Guardando…' : editId ? 'Actualizar' : 'Registrar'}
+            </button>
+          </div>
+        </div>
+      </Modal>
+    </div>
+  );
+}
+
+const inputCls = 'w-full px-3 py-2 rounded-lg bg-black/40 border border-white/10 text-sm text-white outline-none focus:border-rose-500';
+
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <label className="block">
+      <span className="block text-xs text-zinc-400 mb-1">{label}</span>
+      {children}
+    </label>
+  );
+}
+
+function MetricCard({ label, value, highlight }: { label: string; value: string; highlight?: boolean }) {
+  return (
+    <div className={`rounded-xl border p-4 ${highlight ? 'bg-rose-500/10 border-rose-500/30' : 'bg-white/[0.02] border-white/10'}`}>
+      <div className="text-xs text-zinc-400">{label}</div>
+      <div className={`text-lg font-semibold mt-1 ${highlight ? 'text-rose-300' : 'text-white'}`}>{value}</div>
+    </div>
+  );
+}
+
+function SelectFilter({ label, value, onChange, options }: { label: string; value: string; onChange: (v: string) => void; options: readonly string[] }) {
+  return (
+    <label className="block">
+      <span className="block text-[10px] uppercase text-zinc-500 mb-1">{label}</span>
+      <select value={value} onChange={e => onChange(e.target.value)} className="w-full px-2 py-1.5 rounded-lg bg-black/40 border border-white/10 text-xs text-white">
+        <option value="">Todos</option>
+        {options.map(o => <option key={o} value={o}>{o}</option>)}
+      </select>
+    </label>
+  );
+}
+
+function DateFilter({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
+  return (
+    <label className="block">
+      <span className="block text-[10px] uppercase text-zinc-500 mb-1">{label}</span>
+      <input type="date" value={value} onChange={e => onChange(e.target.value)} className="w-full px-2 py-1.5 rounded-lg bg-black/40 border border-white/10 text-xs text-white" />
+    </label>
   );
 }
