@@ -140,11 +140,42 @@ export default function MiDia() {
     // Tareas COMPARTIDAS: traigo tareas donde tengo un paso asignado
     const pasosMap: Record<string, { paso_id: string; paso_orden: number; paso_descripcion: string; paso_completado: boolean; paso_le_toca_ahora: boolean }[]> = {};
     if (!verTodos) {
-      const { data: pasosData } = await supabase
+      // intentar primero la vista nueva
+      let pasosData: any[] = [];
+      const tryView = await supabase
         .from('tareas_mi_dia_con_pasos')
         .select('tarea_id, paso_id, paso_orden, paso_descripcion, paso_completado, paso_le_toca_ahora, es_paso')
         .eq('user_id', targetUserId)
         .eq('es_paso', true);
+      if (!tryView.error) {
+        pasosData = tryView.data || [];
+      } else {
+        // fallback: leer tarea_pasos directo (si la vista no existe aún)
+        const { data: rawPasos } = await supabase
+          .from('tarea_pasos')
+          .select('id, tarea_id, orden, descripcion, completado, responsable_id')
+          .eq('responsable_id', targetUserId);
+        // calcular paso_le_toca_ahora en memoria
+        const tareaIds = Array.from(new Set((rawPasos || []).map((r: any) => r.tarea_id)));
+        let allPasos: any[] = [];
+        if (tareaIds.length > 0) {
+          const { data: ap } = await supabase
+            .from('tarea_pasos')
+            .select('tarea_id, orden, completado')
+            .in('tarea_id', tareaIds);
+          allPasos = ap || [];
+        }
+        pasosData = (rawPasos || []).map((r: any) => ({
+          tarea_id: r.tarea_id,
+          paso_id: r.id,
+          paso_orden: r.orden,
+          paso_descripcion: r.descripcion,
+          paso_completado: r.completado,
+          paso_le_toca_ahora: !r.completado && !allPasos.some(
+            (x: any) => x.tarea_id === r.tarea_id && x.orden < r.orden && !x.completado
+          ),
+        }));
+      }
       const idsExistentes = new Set(baseTareas.map(t => t.id));
       const tareasFaltantesIds: string[] = [];
       (pasosData || []).forEach((row: any) => {
