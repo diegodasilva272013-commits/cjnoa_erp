@@ -476,55 +476,68 @@ function CaseDetailModal({ caso: initial, onClose, onSaved }: {
               </div>
             </>
           ) : (
-            <div className="space-y-3">
-              {editing.abogado && (
-                <div className="p-3 rounded-xl bg-white/[0.03] border border-white/[0.06]">
-                  <p className="text-[10px] text-gray-500 uppercase tracking-widest mb-0.5">Abogado</p>
-                  <p className="text-sm font-semibold text-white">{editing.abogado}</p>
-                  {editing.personeria && <p className="text-xs text-gray-500 mt-0.5">{editing.personeria}</p>}
-                </div>
-              )}
-              <div className="grid grid-cols-2 gap-2">
-                {([
-                  {label:'Expediente', val:editing.expediente, mono:true},
-                  {label:'Tipo de caso', val:editing.tipo_caso},
-                  {label:'Estadísticas', val:editing.estadisticas_estado},
-                  {label:'Próx. audiencia', val:formatDate(editing.audiencias??null)},
-                  {label:'Vencimiento', val:formatDate(editing.vencimiento??null)},
-                ] as {label:string;val:string|null|undefined;mono?:boolean}[])
-                  .filter(i => i.val)
-                  .map(item => (
-                    <div key={item.label} className="bg-white/[0.025] rounded-xl p-3 border border-white/[0.05]">
-                      <p className="text-[10px] text-gray-500 uppercase tracking-widest mb-1">{item.label}</p>
-                      <p className={`text-sm text-white font-medium capitalize ${item.mono ? 'font-mono text-xs' : ''}`}>{item.val}</p>
+            <div className="space-y-2">
+              {/* Fila principal: abogado + datos en grid compacto */}
+              <div className="grid grid-cols-3 gap-1.5 text-xs">
+                {editing.abogado && (
+                  <div className="col-span-3 flex items-center gap-3 px-3 py-2 rounded-lg bg-white/[0.03] border border-white/[0.06]">
+                    <div className="w-7 h-7 rounded-full bg-gradient-to-br from-violet-500/30 to-violet-700/20 flex items-center justify-center text-violet-300 text-[10px] font-bold shrink-0">
+                      {abogadoInitials(editing.abogado)}
                     </div>
-                  ))}
+                    <div className="min-w-0">
+                      <p className="text-[11px] font-semibold text-white truncate">{editing.abogado}</p>
+                      {editing.personeria && <p className="text-[10px] text-gray-500">{editing.personeria}</p>}
+                    </div>
+                    {editing.telefono && (
+                      <a href={`tel:${editing.telefono}`}
+                        className="ml-auto shrink-0 text-[11px] text-emerald-400 hover:underline font-medium">
+                        📞 {editing.telefono}
+                      </a>
+                    )}
+                  </div>
+                )}
+
+                {/* Compact data cells */}
+                {([
+                  ['Expediente',   editing.expediente,          'font-mono text-[10px]'],
+                  ['Tipo',         editing.tipo_caso,            ''],
+                  ['Estadísticas', editing.estadisticas_estado,  editing.estadisticas_estado === 'atrasado' ? 'text-red-400' : 'text-emerald-400'],
+                  ['Radicado',     editing.radicado,             'col-span-2'],
+                  ['Audiencia',    formatDate(editing.audiencias??null), 'text-blue-400'],
+                  ['Vencimiento',  formatDate(editing.vencimiento??null), 'text-amber-400'],
+                ] as [string, string|null|undefined, string][])
+                  .filter(([,v]) => v)
+                  .map(([label, val, cls]) => (
+                    <div key={label} className={`px-2.5 py-1.5 rounded-lg bg-white/[0.025] border border-white/[0.04] min-w-0 ${cls.includes('col-span') ? cls : ''}`}>
+                      <p className="text-[9px] text-gray-600 uppercase tracking-widest leading-none mb-0.5">{label}</p>
+                      <p className={`text-[11px] text-white font-medium truncate capitalize ${cls.includes('col-span') ? '' : cls}`} title={val ?? ''}>{val}</p>
+                    </div>
+                  ))
+                }
+
+                {/* Drive link inline */}
+                {editing.url_drive && (
+                  <a href={editing.url_drive} target="_blank" rel="noopener noreferrer"
+                    className="col-span-3 flex items-center gap-2 px-3 py-1.5 rounded-lg bg-blue-500/10 border border-blue-500/20 text-blue-300 text-[11px] hover:bg-blue-500/20 transition-colors">
+                    <ExternalLink className="w-3 h-3 shrink-0"/>Abrir carpeta en Drive
+                  </a>
+                )}
               </div>
-              {editing.radicado && (
-                <div className="bg-white/[0.025] rounded-xl p-3 border border-white/[0.05]">
-                  <p className="text-[10px] text-gray-500 uppercase tracking-widest mb-1">Tribunal / Radicado</p>
-                  <p className="text-sm text-white">{editing.radicado}</p>
-                </div>
-              )}
-              {editing.telefono && (
-                <div className="bg-white/[0.025] rounded-xl p-3 border border-white/[0.05]">
-                  <p className="text-[10px] text-gray-500 uppercase tracking-widest mb-1">Teléfono del cliente</p>
-                  <a href={`tel:${editing.telefono}`} className="text-sm text-emerald-400 hover:underline">{editing.telefono}</a>
-                </div>
-              )}
-              {editing.url_drive && (
-                <a href={editing.url_drive} target="_blank" rel="noopener noreferrer"
-                  className="flex items-center gap-2 px-4 py-3 rounded-xl bg-blue-500/10 border border-blue-500/20 text-blue-300 text-sm hover:bg-blue-500/20 transition-colors">
-                  <ExternalLink className="w-4 h-4 shrink-0"/>Abrir carpeta en Drive
-                </a>
-              )}
-              {/* Descripción del caso — siempre visible en modo ver */}
+
+              {/* Descripción del caso — compacta con expand */}
               {editing.actualizacion && (
-                <div className="bg-white/[0.025] rounded-xl p-3 border border-white/[0.05]">
-                  <p className="text-[10px] text-gray-500 uppercase tracking-widest mb-2">Descripción del caso</p>
-                  <p className="text-sm text-gray-300 whitespace-pre-wrap leading-relaxed">{editing.actualizacion}</p>
-                </div>
+                <details className="group" open>
+                  <summary className="cursor-pointer list-none flex items-center justify-between px-2.5 py-1.5 rounded-lg bg-white/[0.025] border border-white/[0.04] hover:bg-white/[0.04] transition-colors">
+                    <p className="text-[9px] text-gray-500 uppercase tracking-widest font-semibold">Descripción del caso</p>
+                    <span className="text-[9px] text-gray-600 group-open:hidden">▾ expandir</span>
+                    <span className="text-[9px] text-gray-600 hidden group-open:inline">▴ colapsar</span>
+                  </summary>
+                  <div className="px-2.5 py-2 text-xs text-gray-300 whitespace-pre-wrap leading-relaxed max-h-36 overflow-y-auto bg-white/[0.015] rounded-b-lg border-x border-b border-white/[0.04]">
+                    {editing.actualizacion}
+                  </div>
+                </details>
               )}
+
               <EscritoPanel
                 editing={editing}
                 onToggle={async (val) => {
