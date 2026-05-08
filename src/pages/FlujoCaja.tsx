@@ -1,528 +1,220 @@
-import { useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
-import { BarChart3, FileSpreadsheet, PieChart, TrendingUp, Users } from 'lucide-react';
-import FinanceImportModal from '../components/finance/FinanceImportModal';
-import { FinanceBars, FinanceDonut, FinanceGroupedBars, FinanceLineChart, FinanceVerticalBars } from '../components/finance/FinanceCharts';
-import { useCaseFinancePipeline, useEgresos, useExcelFinanceSummaries, useIngresos } from '../hooks/useFinances';
-import { useSocios } from '../hooks/useSocios';
-import { useConfigEstudio } from '../hooks/useConfigEstudio';
-import { buildFinanceOverview, buildRepartoOverview } from '../lib/financeAnalytics';
-import { toCaseNetAmount } from '../lib/caseFinance';
-import { formatMoney, pctChange } from '../lib/financeFormat';
+import { useEffect, useMemo, useState } from 'react';
+import { Calculator, RefreshCw } from 'lucide-react';
+import { supabase } from '../lib/supabase';
+import { useIngresosOperativos } from '../hooks/useIngresosOperativos';
+import {
+  SOCIOS_FINANZAS, RAMAS,
+  type IngresoOperativo, type SocioFinanzas, type RamaLegal,
+  type RepartoCalculo,
+} from '../types/finanzas';
+import { useToast } from '../context/ToastContext';
+import { formatMoney } from '../lib/financeFormat';
+import Modal from '../components/Modal';
 
-type PeriodOption = 6 | 12 | 18;
-type BarView = 'resultado' | 'categorias' | 'clientes';
-type DonutView = 'ingresos' | 'egresos' | 'modalidades';
+const periodoActual = () => new Date().toISOString().slice(0, 7); // YYYY-MM
 
 export default function FlujoCaja() {
-  const { ingresos, loading: loadingIngresos, refetch: refetchIngresos } = useIngresos();
-  const { egresos, egresosCombinados, loading: loadingEgresos, refetch: refetchEgresos } = useEgresos();
-  const { summaries: excelSummaries, loading: loadingSummaries, refetch: refetchSummaries } = useExcelFinanceSummaries();
-  const [period, setPeriod] = useState<PeriodOption>(6);
-  const { pipeline, loading: loadingPipeline } = useCaseFinancePipeline(period);
-  const [barView, setBarView] = useState<BarView>('resultado');
-  const [donutView, setDonutView] = useState<DonutView>('ingresos');
-  const [importModalOpen, setImportModalOpen] = useState(false);
+  const { items, loading } = useIngresosOperativos();
+  const { showToast } = useToast();
+  const [periodo, setPeriodo] = useState(periodoActual());
+  const [meta, setMeta] = useState<number>(0);
+  const [calculandoReparto, setCalculandoReparto] = useState(false);
+  const [reparto, setReparto] = useState<RepartoCalculo | null>(null);
+  const [modalReparto, setModalReparto] = useState(false);
 
-  const socios = useSocios();
-  const { config: repartoConfig } = useConfigEstudio();
-  const repartoCfg = useMemo(() => ({
-    basePct: repartoConfig.reparto_base_pct,
-    rendimientoPct: repartoConfig.reparto_rendimiento_pct,
-  }), [repartoConfig]);
+  // Cargar meta del periodo
+  useEffect(() => {
+    (async () => {
+      const { data } = await supabase
+        .from('metas_finanzas')
+        .select('meta_recaudacion')
+        .eq('periodo', periodo)
+        .maybeSingle();
+      setMeta(Number(data?.meta_recaudacion || 0));
+    })();
+  }, [periodo]);
 
-  const overview = useMemo(() => buildFinanceOverview(ingresos, egresosCombinados, period), [egresosCombinados, ingresos, period]);
-  const reparto = useMemo(() => buildRepartoOverview(ingresos, egresosCombinados, period, socios, repartoCfg), [egresosCombinados, ingresos, period, socios, repartoCfg]);
+  const ingresosPeriodo = useMemo(
+    () => items.filter((i: IngresoOperativo) => i.fecha.startsWith(periodo)),
+    [items, periodo],
+  );
 
-  const changes = useMemo(() => {
-    const s = overview.monthlySeries;
-    if (s.length < 2) return { income: null, expense: null, net: null };
-    const cur = s[s.length - 1];
-    const prev = s[s.length - 2];
-    return {
-      income: pctChange(cur.income, prev.income),
-      expense: pctChange(cur.expense, prev.expense),
-      net: pctChange(cur.net, prev.net),
-    };
-  }, [overview.monthlySeries]);
+  const totales = useMemo(() => {
+    const total = ingresosPeriodo.reduce((s, i) => s + Number(i.monto || 0), 0);
+    const porSocio: Record<SocioFinanzas, number> = { Rodri: 0, Noe: 0, Ale: 0, Fabri: 0 };
+    const porRama: Record<string, number> = {};
+    ingresosPeriodo.forEach(i => {
+      porSocio[i.doctor_cobra] = (porSocio[i.doctor_cobra] || 0) + Number(i.monto || 0);
+      porRama[i.rama] = (porRama[i.rama] || 0) + Number(i.monto || 0);
+    });
+    return { total, porSocio, porRama };
+  }, [ingresosPeriodo]);
 
-  const barData = useMemo(() => {
-    if (barView === 'categorias') return overview.expenseCategoryBreakdown;
-    if (barView === 'clientes') return overview.topClients;
-    return overview.monthlySeries.map((item, index) => ({
-      label: item.label,
-      value: item.net,
-      color: item.net >= 0 ? '#34d399' : ['#fb7185', '#f97316'][index % 2],
-    }));
-  }, [barView, overview]);
+  const cumplimiento = meta > 0 ? (totales.total / meta) * 100 : 0;
+  const semaforo: 'rojo' | 'amarillo' | 'verde' =
+    cumplimiento >= 100 ? 'verde' : cumplimiento >= 60 ? 'amarillo' : 'rojo';
+  const colorSem =
+    semaforo === 'verde' ? 'bg-emerald-500/20 border-emerald-500/40 text-emerald-300'
+    : semaforo === 'amarillo' ? 'bg-amber-500/20 border-amber-500/40 text-amber-300'
+    : 'bg-rose-500/20 border-rose-500/40 text-rose-300';
 
-  const donutData = useMemo(() => {
-    if (donutView === 'egresos') return overview.expenseCategoryBreakdown;
-    if (donutView === 'modalidades') return overview.paymentBreakdown;
-    return overview.incomeSourceBreakdown;
-  }, [donutView, overview]);
+  async function guardarMeta(nueva: number) {
+    const { error } = await supabase.from('metas_finanzas').upsert({
+      periodo, meta_recaudacion: nueva,
+    }, { onConflict: 'periodo' });
+    if (error) showToast(error.message, 'error');
+    else { setMeta(nueva); showToast('Meta actualizada', 'success'); }
+  }
 
-  const loading = loadingIngresos || loadingEgresos || loadingSummaries || loadingPipeline;
-
-  if (loading) {
-    return (
-      <div className="flex h-64 items-center justify-center">
-        <div className="h-8 w-8 animate-spin rounded-full border-2 border-white/30 border-t-transparent" />
-      </div>
-    );
+  async function calcularReparto() {
+    setCalculandoReparto(true);
+    try {
+      const { data, error } = await supabase.rpc('calcular_reparto_periodo', { p_periodo: periodo });
+      if (error) throw error;
+      setReparto(data as RepartoCalculo);
+      setModalReparto(true);
+    } catch (err: any) {
+      showToast(err?.message || 'Error al calcular reparto', 'error');
+    } finally {
+      setCalculandoReparto(false);
+    }
   }
 
   return (
-    <div className="space-y-6 animate-fade-in">
-      <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
+    <div className="space-y-6">
+      <header className="flex items-center justify-between gap-4 flex-wrap">
         <div>
-          <h1 className="text-xl sm:text-2xl font-bold text-white">Flujo de caja</h1>
-          <p className="mt-1 text-sm text-gray-500 hidden sm:block">Panel dinamico del resultado financiero con linea, barras y torta sobre la misma base operativa</p>
+          <h1 className="text-2xl font-bold text-white">Tablero financiero</h1>
+          <p className="text-sm text-zinc-400 mt-1">Resumen del periodo y reparto sugerido entre los 4 socios.</p>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="rounded-xl border border-white/10 bg-white/[0.03] p-1">
-            {[6, 12, 18].map(option => (
-              <button
-                key={option}
-                onClick={() => setPeriod(option as PeriodOption)}
-                className={`rounded-lg px-3 py-2 text-sm transition ${period === option ? 'bg-white text-black' : 'text-gray-400 hover:text-white'}`}
-              >
-                {option} meses
-              </button>
-            ))}
-          </div>
-          <button onClick={() => setImportModalOpen(true)} className="btn-secondary flex items-center gap-2">
-            <FileSpreadsheet className="h-4 w-4" />
-            Importar Excel
+        <div className="flex items-center gap-2">
+          <input
+            type="month"
+            value={periodo}
+            onChange={e => setPeriodo(e.target.value)}
+            className="px-3 py-2 rounded-lg bg-black/40 border border-white/10 text-sm text-white"
+          />
+          <button
+            onClick={calcularReparto}
+            disabled={calculandoReparto}
+            className="px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-sm text-white flex items-center gap-2 disabled:opacity-50"
+          >
+            {calculandoReparto ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Calculator className="w-4 h-4" />}
+            Calcular reparto
           </button>
         </div>
-      </div>
+      </header>
 
-      <div className="grid gap-3 sm:gap-4 grid-cols-2 sm:grid-cols-3 md:grid-cols-3 xl:grid-cols-5">
-        <MetricCard label="Ingresos netos" value={formatMoney(overview.totals.netIncome)} tone="emerald" index={0} change={changes.income} />
-        <MetricCard label="Egresos totales" value={formatMoney(overview.totals.totalExpenses)} tone="rose" index={1} change={changes.expense} invertColor />
-        <MetricCard label="Resultado neto" value={formatMoney(overview.totals.netFlow)} tone={overview.totals.netFlow >= 0 ? 'emerald' : 'rose'} index={2} change={changes.net} />
-        <MetricCard label="Margen" value={`${overview.totals.profitMargin.toFixed(1)}%`} tone="sky" index={3} />
-        <MetricCard label="Cobertura de gastos" value={`${overview.totals.expenseCoverage.toFixed(1)}%`} tone="amber" index={4} />
-      </div>
-
-      <div className="glass-card p-5">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+      {/* Meta + semáforo */}
+      <div className={`rounded-xl border p-4 ${colorSem}`}>
+        <div className="flex items-center justify-between gap-4 flex-wrap">
           <div>
-            <p className="text-sm font-semibold text-white">Motor financiero unificado</p>
-            <p className="mt-1 text-sm text-gray-500">Neto = ingresos CJ NOA - egresos consolidados. El flujo de arriba es caja real; la cartera pendiente y fondos de caso se muestran abajo sin mezclar devengado con cobrado.</p>
-          </div>
-          <div className="flex flex-wrap gap-2 text-xs text-gray-400">
-            <span className="badge badge-green">Ingresos con formulas del Excel</span>
-            <span className="badge badge-red">Egresos operativos y judiciales</span>
-            <span className="badge badge-blue">Vista ERP consolidada</span>
-          </div>
-        </div>
-      </div>
-
-      <div className="glass-card p-5">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-          <div>
-            <p className="text-sm font-semibold text-white">Conexión real entre casos y caja</p>
-            <p className="mt-1 text-sm text-gray-500">Los KPI de esta tarjeta usan neto estimado para el estudio. Los fondos de caso siguen siendo caja real de terceros y no se mezclan con ese neto.</p>
-          </div>
-          <div className="flex flex-wrap gap-2 text-xs text-gray-400">
-            <span className="badge badge-yellow">{pipeline.summary.activeDebtors} deudores activos</span>
-            <span className="badge badge-red">{pipeline.summary.overdueCount} vencidas</span>
-            <span className="badge badge-blue">Cobranza {pipeline.summary.collectionRate.toFixed(1)}%</span>
-          </div>
-        </div>
-        <div className="mt-4 grid gap-3 sm:gap-4 grid-cols-2 sm:grid-cols-3 md:grid-cols-3 xl:grid-cols-5">
-          <MetricCard label="Por cobrar neto est." value={formatMoney(pipeline.summary.totalPendingNet)} tone="amber" index={0} />
-          <MetricCard label="Vencido neto est." value={formatMoney(pipeline.summary.overdueNetAmount)} tone="rose" index={1} />
-          <MetricCard label="Prox. 30 dias neto" value={formatMoney(pipeline.summary.dueNext30DaysNet)} tone="sky" index={2} />
-          <MetricCard label="Fondos casos ARS" value={formatCurrencyAmount('ARS', pipeline.fundsByCurrency.ARS.disponible)} tone={pipeline.fundsByCurrency.ARS.disponible >= 0 ? 'emerald' : 'rose'} index={3} />
-          <MetricCard label="Fondos casos USD" value={formatCurrencyAmount('USD', pipeline.fundsByCurrency.USD.disponible)} tone={pipeline.fundsByCurrency.USD.disponible >= 0 ? 'sky' : 'rose'} index={4} />
-        </div>
-      </div>
-
-      {/* Reparto calculado desde la base de datos */}
-      <div className="glass-card p-5">
-        <div className="flex items-center gap-2 text-sm font-semibold text-white">
-          <Users className="h-4 w-4 text-violet-300" />
-          Reparto y distribucion por socio (calculado)
-        </div>
-        <div className="mt-2 text-xs text-gray-500">Monto a cobrar = base comun + variable por rendimiento. Los egresos ya impactan en el total a repartir, por eso se muestran solo como referencia y no se descuentan dos veces.</div>
-        <div className="mt-4 grid gap-3 sm:gap-3 grid-cols-2 md:grid-cols-4">
-          <MiniKpi label="A repartir" value={formatMoney(reparto.global.totalARepartir)} tone="emerald" index={0} />
-          <MiniKpi label="Base por socio" value={formatMoney(reparto.global.basePorPersona)} tone="sky" index={1} />
-          <MiniKpi label={`Base ${Math.round(repartoCfg.basePct * 100)}%`} value={formatMoney(reparto.global.reparto65)} tone="violet" index={2} />
-          <MiniKpi label={`Variable ${Math.round(repartoCfg.rendimientoPct * 100)}%`} value={formatMoney(reparto.global.reparto35)} tone="amber" index={3} />
-        </div>
-        <div className="mt-4 grid gap-3 sm:gap-4 grid-cols-1 sm:grid-cols-2 xl:grid-cols-4">
-          {reparto.socios.map((s, i) => (
-            <div key={s.socio} className="rounded-2xl border border-white/8 bg-white/[0.03] p-4 hover-lift animate-slide-up transition-all duration-300 hover:border-white/15" style={{ animationDelay: `${i * 100 + 300}ms` }}>
-              <p className="text-sm font-semibold text-white">{s.socio}</p>
-              <div className="mt-3 space-y-1.5 text-sm text-gray-300">
-                <div className="flex justify-between"><span>Ingreso neto</span><span className="font-semibold text-emerald-300">{formatMoney(s.ingresoNeto)}</span></div>
-                <div className="flex justify-between"><span>Comisiones</span><span className="font-semibold text-amber-300">{formatMoney(s.comisiones)}</span></div>
-                <div className="flex justify-between"><span>Participacion</span><span className="font-semibold text-sky-300">{(s.participacion * 100).toFixed(1)}%</span></div>
-                <div className="flex justify-between"><span>Base comun</span><span className="font-semibold text-violet-200">{formatMoney(s.baseAsignada)}</span></div>
-                <div className="flex justify-between"><span>Variable</span><span className="font-semibold text-violet-300">{formatMoney(s.variableRendimiento)}</span></div>
-                <div className="flex justify-between"><span>Egresos resp.</span><span className="font-semibold text-rose-300">{formatMoney(s.egresosResponsable)}</span></div>
-                <div className="flex justify-between"><span>Clientes</span><span className="font-semibold text-white">{s.casosAtendidos}</span></div>
-                <div className="mt-2 rounded-lg bg-white/[0.06] px-3 py-2">
-                  <span className="text-xs text-gray-400">Monto a cobrar</span>
-                  <p className="text-lg font-bold text-violet-300">{formatMoney(s.montoACobrar)}</p>
-                </div>
-              </div>
+            <div className="text-xs uppercase opacity-80">Meta del periodo</div>
+            <div className="flex items-center gap-2 mt-1">
+              <input
+                type="number"
+                value={meta || ''}
+                onChange={e => setMeta(Number(e.target.value))}
+                onBlur={e => guardarMeta(Number(e.target.value))}
+                placeholder="Definí la meta"
+                className="bg-black/30 px-2 py-1 rounded text-sm text-white w-40 outline-none border border-white/10"
+              />
+              <span className="text-sm">→ Recaudado: <strong>{formatMoney(totales.total)}</strong></span>
             </div>
-          ))}
+          </div>
+          <div className="text-right">
+            <div className="text-3xl font-bold">{cumplimiento.toFixed(0)}%</div>
+            <div className="text-xs uppercase opacity-80">cumplimiento</div>
+          </div>
         </div>
       </div>
 
-      {/* Detalle mensual del reparto */}
-      <div className="glass-card overflow-hidden">
-        <div className="border-b border-white/5 px-5 py-4">
-          <h3 className="text-sm font-semibold text-white">Reparto mensual calculado</h3>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead>
-              <tr className="border-b border-white/5">
-                <th className="px-5 py-3 text-left text-xs font-medium uppercase text-gray-500">Mes</th>
-                <th className="px-5 py-3 text-right text-xs font-medium uppercase text-gray-500">Ingresos</th>
-                <th className="px-5 py-3 text-right text-xs font-medium uppercase text-gray-500">Egresos</th>
-                <th className="px-5 py-3 text-right text-xs font-medium uppercase text-gray-500">A repartir</th>
-                {reparto.socios.map(s => (
-                  <th key={s.socio} className="px-5 py-3 text-right text-xs font-medium uppercase text-gray-500">{s.socio}</th>
-                ))}
-                <th className="px-5 py-3 text-right text-xs font-medium uppercase text-gray-500">Clientes</th>
-              </tr>
-            </thead>
-            <tbody>
-              {reparto.mensual.filter(m => m.totalIngresos > 0 || m.totalEgresos > 0).map((m, i) => (
-                <tr key={m.mes} className="table-row row-enter" style={{ animationDelay: `${Math.min(i, 12) * 40}ms` }}>
-                  <td className="px-5 py-3 text-sm font-medium text-white">{m.label}</td>
-                  <td className="px-5 py-3 text-right text-sm text-emerald-400">{formatMoney(m.totalIngresos)}</td>
-                  <td className="px-5 py-3 text-right text-sm text-rose-400">{formatMoney(m.totalEgresos)}</td>
-                  <td className="px-5 py-3 text-right text-sm font-semibold text-violet-300">{formatMoney(m.totalARepartir)}</td>
-                  {m.socios.map(s => (
-                    <td key={s.socio} className="px-5 py-3 text-right text-sm text-sky-300">{formatMoney(s.montoACobrar)}</td>
-                  ))}
-                  <td className="px-5 py-3 text-right text-sm text-gray-400">{m.clientesUnicos}</td>
-                </tr>
-              ))}
+      {/* Cards por socio */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        {SOCIOS_FINANZAS.map(s => (
+          <div key={s} className="bg-white/[0.02] border border-white/10 rounded-xl p-4">
+            <div className="text-xs text-zinc-400">{s}</div>
+            <div className="text-xl font-semibold text-white mt-1">{formatMoney(totales.porSocio[s])}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Por rama */}
+      <div className="bg-white/[0.02] border border-white/10 rounded-xl overflow-hidden">
+        <div className="px-4 py-3 border-b border-white/10 text-sm text-zinc-300 font-medium">Por rama</div>
+        {loading ? (
+          <div className="p-6 text-sm text-zinc-400 text-center">Cargando…</div>
+        ) : (
+          <table className="w-full text-sm">
+            <tbody className="divide-y divide-white/5">
+              {RAMAS.map((r: RamaLegal) => {
+                const monto = totales.porRama[r] || 0;
+                const pct = totales.total > 0 ? (monto / totales.total) * 100 : 0;
+                return (
+                  <tr key={r}>
+                    <td className="px-4 py-2 text-zinc-300">{r}</td>
+                    <td className="px-4 py-2 w-1/2">
+                      <div className="h-2 bg-white/5 rounded">
+                        <div className="h-2 bg-emerald-500/60 rounded" style={{ width: `${pct}%` }} />
+                      </div>
+                    </td>
+                    <td className="px-4 py-2 text-right text-white font-medium whitespace-nowrap">{formatMoney(monto)}</td>
+                    <td className="px-4 py-2 text-right text-zinc-400 w-16">{pct.toFixed(0)}%</td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
-        </div>
+        )}
       </div>
 
-      {excelSummaries.length > 0 && (
-        <div className="glass-card p-5">
-          <div className="flex items-center gap-2 text-sm font-semibold text-white">
-            <FileSpreadsheet className="h-4 w-4 text-emerald-300" />
-            Referencia importada desde Excel
-          </div>
-          <p className="mt-1 text-xs text-gray-500">Estos datos vienen de la planilla Excel importada. Usan los valores que el Excel tenia guardados para comparar con los datos del ERP.</p>
-          <div className="mt-4 grid gap-4 xl:grid-cols-3">
-            {excelSummaries.slice(0, 3).map(summary => (
-              <WorkbookSummaryCard key={summary.id} summary={summary} />
-            ))}
-          </div>
-        </div>
-      )}
-
-      <div className="grid gap-4 xl:grid-cols-[0.9fr_1.1fr]">
-        <FinanceBars
-          title="Cobranza neta esperada de casos"
-          subtitle="Estimacion neta para el estudio agrupada por mes esperado de cobro"
-          data={pipeline.monthlyCollectionsNet.filter(item => item.value > 0)}
-        />
-
-        <div className="glass-card overflow-hidden">
-          <div className="border-b border-white/5 px-5 py-4">
-            <h3 className="text-sm font-semibold text-white">Pendientes y fondos de caso</h3>
-            <p className="mt-1 text-xs text-gray-500">Lectura operativa para que el flujo de caja no quede separado del estado comercial de los casos.</p>
-          </div>
-          <div className="grid gap-4 p-5 lg:grid-cols-[1.1fr_0.9fr]">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-gray-500">Siguientes cobros</p>
-              <div className="mt-3 space-y-2">
-                {pipeline.pendingItems.length === 0 ? (
-                  <div className="rounded-xl bg-white/[0.03] px-4 py-6 text-sm text-gray-500">No hay cobros pendientes.</div>
-                ) : (
-                  pipeline.pendingItems.slice(0, 6).map(item => {
-                    const destino = item.type === 'cuota'
-                      ? `/honorarios?q=${encodeURIComponent(item.clientName)}`
-                      : `/casos-trabajo?q=${encodeURIComponent(item.clientName)}`;
-                    return (
-                    <Link key={item.id} to={destino} className="rounded-xl bg-white/[0.03] px-4 py-3 hover:bg-white/[0.06] transition-colors block">
-                      <div className="flex items-center justify-between gap-3">
-                        <div>
-                          <p className="text-sm font-medium text-white">{item.clientName}</p>
-                          <p className="text-xs text-gray-500">{item.type === 'cuota' ? 'Cuota' : item.type === 'consulta' ? 'Consulta' : 'Saldo'} · {item.materia} · {item.socio}</p>
-                        </div>
-                        <div className="text-right">
-                          <p className="text-sm font-semibold text-amber-300">{formatMoney(toCaseNetAmount(item.amount, item.captadora, repartoConfig.comision_captadora_pct))}</p>
-                          {item.captadora && <p className="text-[10px] text-gray-500">Bruto {formatMoney(item.amount)}</p>}
-                          <p className={`text-xs ${item.overdue ? 'text-rose-400' : 'text-gray-500'}`}>{item.dueDate || 'Sin fecha'}</p>
-                        </div>
-                      </div>
-                    </Link>
-                    );
-                  })
-                )}
-              </div>
+      {/* Modal reparto */}
+      <Modal open={modalReparto} onClose={() => setModalReparto(false)} title={`Reparto sugerido — ${reparto?.periodo || periodo}`}>
+        {reparto && (
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-3">
+              <Stat label="Ingresos" value={formatMoney(reparto.ingresos_totales)} />
+              <Stat label="Egresos" value={formatMoney(reparto.egresos_totales)} />
+              <Stat label="Utilidad" value={formatMoney(reparto.utilidad)} highlight />
+              <Stat label="Parte por socio (÷4)" value={formatMoney(reparto.parte_por_socio)} />
             </div>
-
             <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-gray-500">Fondos por moneda</p>
-              <div className="mt-3 space-y-3">
-                {(['ARS', 'USD'] as const).map(currency => (
-                  <div key={currency} className="rounded-xl border border-white/8 bg-white/[0.03] p-4">
-                    <div className="flex items-center justify-between">
-                      <p className="text-sm font-semibold text-white">{currency}</p>
-                      <span className={`badge ${pipeline.fundsByCurrency[currency].disponible >= 0 ? 'badge-green' : 'badge-red'}`}>
-                        Disponible {formatCurrencyAmount(currency, pipeline.fundsByCurrency[currency].disponible)}
-                      </span>
-                    </div>
-                    <div className="mt-3 space-y-2 text-sm text-gray-300">
-                      <div className="flex items-center justify-between"><span>Depositos</span><span className="font-semibold text-emerald-300">{formatCurrencyAmount(currency, pipeline.fundsByCurrency[currency].depositos)}</span></div>
-                      <div className="flex items-center justify-between"><span>Gastos</span><span className="font-semibold text-rose-300">{formatCurrencyAmount(currency, pipeline.fundsByCurrency[currency].gastos)}</span></div>
-                    </div>
+              <h4 className="text-sm text-zinc-300 font-medium mb-2">Saldos actuales en cuenta</h4>
+              <div className="grid grid-cols-2 gap-2">
+                {SOCIOS_FINANZAS.map(s => (
+                  <div key={s} className="flex justify-between bg-black/30 rounded px-3 py-2 text-sm">
+                    <span className="text-zinc-400">{s}</span>
+                    <span className="text-white">{formatMoney(reparto.saldos?.[s]?.total ?? 0)}</span>
                   </div>
                 ))}
               </div>
             </div>
-          </div>
-        </div>
-      </div>
-
-      <FinanceLineChart
-        title="Evolucion mensual del flujo"
-        subtitle="Ingreso neto CJ NOA, egreso consolidado y resultado mensual"
-        series={overview.monthlySeries}
-        projectionMonths={3}
-      />
-
-      {/* Barras agrupadas ingreso vs egreso mensual */}
-      <FinanceGroupedBars
-        title="Ingreso vs Egreso mensual"
-        subtitle="Comparacion directa mes a mes entre flujo de entrada y salida"
-        series={overview.monthlySeries}
-      />
-
-      <div className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
-        <div>
-          <div className="glass-card p-4 mb-4">
-            <div className="flex items-center justify-between gap-3">
-              <div className="flex items-center gap-2 text-sm font-semibold text-white">
-                <BarChart3 className="h-4 w-4 text-cyan-300" />
-                Barras dinamicas
-              </div>
-              <select value={barView} onChange={e => setBarView(e.target.value as BarView)} className="select-dark w-[220px] py-2 text-sm">
-                <option value="resultado">Resultado mensual</option>
-                <option value="categorias">Categorias de egreso</option>
-                <option value="clientes">Top clientes</option>
-              </select>
+            <div>
+              <h4 className="text-sm text-zinc-300 font-medium mb-2">Transferencias sugeridas</h4>
+              {(!reparto.transferencias_sugeridas || reparto.transferencias_sugeridas.length === 0) ? (
+                <div className="text-xs text-zinc-500">Sin movimientos necesarios — ya está parejo.</div>
+              ) : (
+                <ul className="space-y-1">
+                  {reparto.transferencias_sugeridas.map((t, idx) => (
+                    <li key={idx} className="text-sm bg-emerald-500/5 border border-emerald-500/20 rounded px-3 py-2 text-emerald-200">
+                      <strong>{t.from}</strong> → <strong>{t.to}</strong>: {formatMoney(t.monto)}
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
           </div>
-          {barView === 'resultado' ? (
-            <FinanceVerticalBars
-              title="Resultado mensual"
-              subtitle="Meses con mejor y peor rendimiento"
-              data={barData}
-              height={240}
-            />
-          ) : (
-            <FinanceBars
-              title={barView === 'categorias' ? 'Categorias de egreso' : 'Clientes con mayor aporte'}
-              subtitle={barView === 'categorias' ? 'Rubros que presionan la caja' : 'Ingresos mas fuertes para el estudio'}
-              data={barData}
-            />
-          )}
-        </div>
-
-        <div className="glass-card p-5">
-          <div className="mb-4 flex items-center justify-between gap-3">
-            <div className="flex items-center gap-2 text-sm font-semibold text-white">
-              <PieChart className="h-4 w-4 text-amber-300" />
-              Torta dinamica
-            </div>
-            <select value={donutView} onChange={e => setDonutView(e.target.value as DonutView)} className="select-dark w-[220px] py-2 text-sm">
-              <option value="ingresos">Origen de ingresos</option>
-              <option value="egresos">Composicion de egresos</option>
-              <option value="modalidades">Modalidades de cobro</option>
-            </select>
-          </div>
-          <FinanceDonut
-            title={donutView === 'ingresos' ? 'Mix de ingresos' : donutView === 'egresos' ? 'Mix de egresos' : 'Modalidades de cobro'}
-            subtitle={donutView === 'ingresos' ? 'Directo, cuota, manual y captadora' : donutView === 'egresos' ? 'Categorias con mas peso en la estructura' : 'Como entra el dinero a caja'}
-            data={donutData}
-          />
-        </div>
-      </div>
-
-      <div className="grid gap-4 xl:grid-cols-3">
-        <SummaryPanel title="Ingresos y estructura" tone="emerald" rows={[
-          { label: 'Ingreso bruto', value: formatMoney(overview.totals.grossIncome) },
-          { label: 'Comisiones', value: formatMoney(overview.totals.commissions) },
-          { label: 'Ingreso neto', value: formatMoney(overview.totals.netIncome) },
-        ]} />
-        <SummaryPanel title="Gastos y cobertura" tone="rose" rows={[
-          { label: 'Egresos totales', value: formatMoney(overview.totals.totalExpenses) },
-          { label: 'Cobertura', value: `${overview.totals.expenseCoverage.toFixed(1)}%` },
-          { label: 'Margen final', value: `${overview.totals.profitMargin.toFixed(1)}%` },
-        ]} />
-        <SummaryPanel title="Lectura rapida" tone="sky" rows={[
-          { label: 'Top cliente', value: overview.topClients[0]?.label || 'Sin datos' },
-          { label: 'Top categoria egreso', value: overview.expenseCategoryBreakdown[0]?.label || 'Sin datos' },
-          { label: 'Origen principal ingreso', value: overview.incomeSourceBreakdown[0]?.label || 'Sin datos' },
-        ]} />
-      </div>
-
-      <div className="glass-card overflow-hidden">
-        <div className="border-b border-white/5 px-5 py-4">
-          <h3 className="text-sm font-semibold text-white">Detalle mensual</h3>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead>
-              <tr className="border-b border-white/5">
-                <th className="px-5 py-3 text-left text-xs font-medium uppercase text-gray-500">Mes</th>
-                <th className="px-5 py-3 text-right text-xs font-medium uppercase text-gray-500">Ingresos</th>
-                <th className="px-5 py-3 text-right text-xs font-medium uppercase text-gray-500">Egresos</th>
-                <th className="px-5 py-3 text-right text-xs font-medium uppercase text-gray-500">Neto</th>
-              </tr>
-            </thead>
-            <tbody>
-              {overview.monthlySeries.map(item => (
-                <tr key={item.label} className="table-row">
-                  <td className="px-5 py-3 text-sm font-medium text-white">{item.label}</td>
-                  <td className="px-5 py-3 text-right text-sm text-emerald-400">{formatMoney(item.income)}</td>
-                  <td className="px-5 py-3 text-right text-sm text-rose-400">{formatMoney(item.expense)}</td>
-                  <td className={`px-5 py-3 text-right text-sm font-semibold ${item.net >= 0 ? 'text-emerald-300' : 'text-rose-300'}`}>
-                    {formatMoney(item.net)}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      <FinanceImportModal
-        open={importModalOpen}
-        onClose={() => setImportModalOpen(false)}
-        target="todos"
-        existingIngresos={ingresos}
-        existingEgresos={egresos}
-        onImported={async () => {
-          await Promise.all([refetchIngresos(), refetchEgresos(), refetchSummaries()]);
-        }}
-      />
+        )}
+      </Modal>
     </div>
   );
 }
 
-function WorkbookSummaryCard({ summary }: { summary: { hoja: string; metricas: Record<string, any> } }) {
-  const ingresoSocios = summary.metricas?.ingresoSocios || {};
-
+function Stat({ label, value, highlight }: { label: string; value: string; highlight?: boolean }) {
   return (
-    <div className="rounded-2xl border border-white/8 bg-white/[0.03] p-4">
-      <div className="flex items-center justify-between gap-3">
-        <p className="text-sm font-semibold text-white">{summary.hoja}</p>
-        <span className="badge badge-green">Workbook</span>
-      </div>
-      <div className="mt-4 space-y-2 text-sm text-gray-300">
-        <div className="flex items-center justify-between"><span>Clientes</span><span className="font-semibold text-white">{summary.metricas?.totalClientes || 0}</span></div>
-        <div className="flex items-center justify-between"><span>Ingresos</span><span className="font-semibold text-emerald-300">{formatMoney(Number(summary.metricas?.totalIngresos || 0))}</span></div>
-        <div className="flex items-center justify-between"><span>Egresos</span><span className="font-semibold text-rose-300">{formatMoney(Number(summary.metricas?.totalEgresos || 0))}</span></div>
-        <div className="flex items-center justify-between"><span>A repartir</span><span className="font-semibold text-sky-300">{formatMoney(Number(summary.metricas?.totalARepartir || 0))}</span></div>
-      </div>
-      <div className="mt-4 grid grid-cols-2 gap-2 text-xs text-gray-400">
-        {Object.entries(ingresoSocios).map(([doctor, value]) => (
-          <div key={doctor} className="rounded-lg bg-white/[0.04] px-3 py-2">
-            <p>{doctor}</p>
-            <p className="mt-1 text-sm font-semibold text-white">{formatMoney(Number(value || 0))}</p>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function formatCurrencyAmount(currency: 'ARS' | 'USD', amount: number) {
-  if (currency === 'USD') {
-    return `US$ ${amount.toLocaleString('es-AR', { maximumFractionDigits: 0 })}`;
-  }
-
-  return formatMoney(amount);
-}
-
-function MetricCard({ label, value, tone, change, invertColor, index = 0 }: { label: string; value: string; tone: 'emerald' | 'rose' | 'sky' | 'amber'; change?: number | null; invertColor?: boolean; index?: number }) {
-  const accents: Record<string, string> = {
-    emerald: 'from-emerald-400 to-emerald-600',
-    rose: 'from-rose-400 to-rose-600',
-    sky: 'from-sky-400 to-sky-600',
-    amber: 'from-amber-400 to-amber-600',
-  };
-  const valueTones: Record<string, string> = {
-    emerald: 'text-emerald-300',
-    rose: 'text-rose-300',
-    sky: 'text-sky-300',
-    amber: 'text-amber-300',
-  };
-
-  const changeColor = change != null
-    ? invertColor
-      ? (change <= 0 ? 'text-emerald-400' : 'text-rose-400')
-      : (change >= 0 ? 'text-emerald-400' : 'text-rose-400')
-    : '';
-
-  return (
-    <div className="stat-card hover-lift animate-slide-up" style={{ animationDelay: `${index * 80}ms` }}>
-      <div className={`absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r ${accents[tone]}`} />
-      <p className="text-[10px] sm:text-[11px] uppercase tracking-[0.12em] sm:tracking-[0.18em] text-gray-500 font-medium">{label}</p>
-      <p className={`mt-2 sm:mt-3 text-lg sm:text-2xl font-bold count-up ${valueTones[tone]}`}>{value}</p>
-      {change != null && (
-        <p className={`mt-1 sm:mt-1.5 text-[10px] sm:text-[11px] font-medium ${changeColor}`}>
-          {(invertColor ? change <= 0 : change >= 0) ? '▲' : '▼'} {Math.abs(change).toFixed(1)}% vs mes ant.
-        </p>
-      )}
-    </div>
-  );
-}
-
-function MiniKpi({ label, value, tone, index = 0 }: { label: string; value: string; tone: 'emerald' | 'sky' | 'violet' | 'amber'; index?: number }) {
-  const tones = {
-    emerald: 'text-emerald-300 glow-emerald',
-    sky: 'text-sky-300 glow-sky',
-    violet: 'text-violet-300 glow-violet',
-    amber: 'text-amber-300 glow-amber',
-  };
-  return (
-    <div className="rounded-xl border border-white/8 bg-white/[0.03] p-3 hover-lift animate-scale-in transition-all duration-300 hover:border-white/15" style={{ animationDelay: `${index * 70}ms` }}>
-      <p className="text-[10px] uppercase tracking-widest text-gray-500">{label}</p>
-      <p className={`mt-1.5 sm:mt-2 text-base sm:text-xl font-bold count-up ${tones[tone]}`}>{value}</p>
-    </div>
-  );
-}
-
-function SummaryPanel({ title, rows, tone }: { title: string; rows: Array<{ label: string; value: string }>; tone: 'emerald' | 'rose' | 'sky' }) {
-  const toneClass = tone === 'emerald' ? 'text-emerald-300' : tone === 'rose' ? 'text-rose-300' : 'text-sky-300';
-  const icon = tone === 'emerald' ? <TrendingUp className="h-4 w-4" /> : tone === 'rose' ? <PieChart className="h-4 w-4" /> : <BarChart3 className="h-4 w-4" />;
-
-  return (
-    <div className="glass-card p-5 animate-fade-in">
-      <div className={`flex items-center gap-2 text-sm font-semibold ${toneClass}`}>
-        {icon}
-        {title}
-      </div>
-      <div className="mt-4 space-y-3 text-sm text-gray-300">
-        {rows.map((row, i) => (
-          <div key={row.label} className="flex items-center justify-between rounded-xl bg-white/[0.03] px-3 py-2 hover:bg-white/[0.06] transition-all duration-200 animate-slide-right" style={{ animationDelay: `${i * 50}ms` }}>
-            <span>{row.label}</span>
-            <span className="font-semibold text-white">{row.value}</span>
-          </div>
-        ))}
-      </div>
+    <div className={`rounded-lg p-3 border ${highlight ? 'bg-emerald-500/10 border-emerald-500/30' : 'bg-white/[0.02] border-white/10'}`}>
+      <div className="text-[10px] uppercase text-zinc-400">{label}</div>
+      <div className={`text-base font-semibold mt-0.5 ${highlight ? 'text-emerald-300' : 'text-white'}`}>{value}</div>
     </div>
   );
 }

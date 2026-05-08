@@ -1,1031 +1,379 @@
-import { useEffect, useMemo, useState } from 'react';
-import { format } from 'date-fns';
-import { es } from 'date-fns/locale';
-import { Download, FileSpreadsheet, Plus, Sigma, Users, FileText, RefreshCw, Rows3, Rows4, Trash2, ExternalLink, Pencil } from 'lucide-react';
-import { Link, useNavigate } from 'react-router-dom';
-import type { Ingreso } from '../types/database';
-import { useCaseFinancePipeline, useIngresos } from '../hooks/useFinances';
-import { MATERIAS } from '../types/database';
-import { useSocios } from '../hooks/useSocios';
+import { useMemo, useState } from 'react';
+import { Plus, Pencil, Search, Download } from 'lucide-react';
+import { useIngresosOperativos } from '../hooks/useIngresosOperativos';
+import {
+  SOCIOS_FINANZAS, MODALIDADES, TIPOS_CLIENTE, RAMAS, FUENTES, CONCEPTOS_INGRESO,
+  type IngresoOperativo, type SocioFinanzas, type ModalidadPago,
+  type TipoClienteIngreso, type RamaLegal, type FuenteIngreso, type ConceptoIngreso,
+} from '../types/finanzas';
 import Modal from '../components/Modal';
-import FinanceImportModal from '../components/finance/FinanceImportModal';
-import { FinanceBars, FinanceDonut, FinanceLineChart, FinanceVerticalBars } from '../components/finance/FinanceCharts';
-import { supabase } from '../lib/supabase';
 import { useToast } from '../context/ToastContext';
+import { formatMoney } from '../lib/financeFormat';
 import { exportToExcel } from '../lib/exportExcel';
-import { exportToPdf } from '../lib/exportPdf';
-import { buildIncomeOverview, aggregateIngresosPorSocio } from '../lib/financeAnalytics';
-import { formatMoney, pctChange } from '../lib/financeFormat';
-import { usePerfilMap } from '../hooks/usePerfiles';
-import { countCaseIncomeLedgerChanges } from '../lib/caseIncomeLedger';
-import { stripIncomeReference, parseIncomeReference } from '../lib/financeRefs';
-import { resolveOperationalSocio, sameOperationalSocio } from '../lib/operationalSocios';
+
+const HOY = () => new Date().toISOString().slice(0, 10);
+
+interface FormState {
+  fecha: string;
+  cliente_nombre: string;
+  tipo_cliente: TipoClienteIngreso;
+  monto: string;
+  modalidad: ModalidadPago;
+  doctor_cobra: SocioFinanzas;
+  receptor_transfer: SocioFinanzas | '';
+  rama: RamaLegal;
+  fuente: FuenteIngreso;
+  concepto: ConceptoIngreso;
+  observaciones: string;
+}
+
+const FORM_VACIO: FormState = {
+  fecha: HOY(),
+  cliente_nombre: '',
+  tipo_cliente: 'Nuevo',
+  monto: '',
+  modalidad: 'Transferencia',
+  doctor_cobra: 'Rodri',
+  receptor_transfer: 'Rodri',
+  rama: 'Jubilaciones',
+  fuente: 'Derivado',
+  concepto: 'Honorarios',
+  observaciones: '',
+};
 
 export default function Ingresos() {
-  const { ingresos, loading, refetch, syncWithCases, syncingCases } = useIngresos();
-  const { pipeline, loading: loadingPipeline } = useCaseFinancePipeline();
-  const socios = useSocios();
-  const perfilMap = usePerfilMap();
+  const { items: ingresos, loading, crear, actualizar } = useIngresosOperativos();
   const { showToast } = useToast();
-  const navigate = useNavigate();
 
-  function usePersistedFilter(key: string, fallback = '') {
-    const [value, setValue] = useState(() => {
-      try { return sessionStorage.getItem(`ingresos_${key}`) || fallback; } catch { return fallback; }
-    });
-    const set = (v: string) => { setValue(v); try { sessionStorage.setItem(`ingresos_${key}`, v); } catch {} };
-    return [value, set] as const;
-  }
-
-  const [filtroFechaDesde, setFiltroFechaDesde] = usePersistedFilter('desde');
-  const [filtroFechaHasta, setFiltroFechaHasta] = usePersistedFilter('hasta');
-  const [filtroSocio, setFiltroSocio] = usePersistedFilter('socio');
-  const [filtroFuente, setFiltroFuente] = usePersistedFilter('fuente');
-  const [filtroModalidad, setFiltroModalidad] = usePersistedFilter('modalidad');
-  const [manualModalOpen, setManualModalOpen] = useState(false);
-  const [editingIngreso, setEditingIngreso] = useState<Ingreso | null>(null);
-  const [importModalOpen, setImportModalOpen] = useState(false);
-  const [page, setPage] = useState(0);
-  const [compact, setCompact] = useState(() => sessionStorage.getItem('ingresos_compact') === '1');
-  const [deletingId, setDeletingId] = useState<string | null>(null);
-  const [bulkDeleting, setBulkDeleting] = useState(false);
-  const pageSize = 50;
-
-  function getIngresoOrigen(ingreso: { es_manual: boolean; concepto: string | null }): { label: string; to: string | null; badge: string } {
-    if (ingreso.es_manual) return { label: 'Manual', to: null, badge: 'badge-purple' };
-    const c = ingreso.concepto || '';
-    if (c.toLowerCase().includes('reserva')) return { label: 'Agendamiento', to: '/agendamiento-consultas', badge: 'badge-blue' };
-    if (c.toLowerCase().includes('saldo consulta')) return { label: 'Casos-Pagos', to: '/casos-pagos', badge: 'badge-blue' };
-    if (c.toLowerCase().includes('cuota')) return { label: 'Cuotas', to: '/casos-pagos', badge: 'badge-yellow' };
-    return { label: 'Casos', to: '/casos-trabajo', badge: 'badge-green' };
-  }
-
-  async function handleRowClick(ingreso: Ingreso) {
-    if (ingreso.es_manual) {
-      setEditingIngreso(ingreso);
-      return;
-    }
-    // Auto-resolve source record and navigate directly
-    const { reference } = parseIncomeReference(ingreso.notas);
-    if (reference?.type === 'cuota') {
-      navigate(`/honorarios?openId=${reference.id}`);
-      return;
-    }
-    if (reference?.type === 'pago_unico') {
-      navigate(`/casos-trabajo?openId=${reference.caseId}`);
-      return;
-    }
-    const c = (ingreso.concepto || '').toLowerCase();
-    if (c.includes('reserva')) {
-      const { data } = await supabase.from('consultas_agendadas').select('id').eq('ingreso_reserva_id', ingreso.id).maybeSingle();
-      navigate(data ? `/agendamiento-consultas?openId=${data.id}` : `/agendamiento-consultas?q=${encodeURIComponent(ingreso.cliente_nombre || '')}`);
-      return;
-    }
-    if (c.includes('saldo consulta')) {
-      const { data } = await supabase.from('casos_pagos').select('id').eq('ingreso_saldo_id', ingreso.id).maybeSingle();
-      navigate(data ? `/casos-pagos?openId=${data.id}` : `/casos-pagos?q=${encodeURIComponent(ingreso.cliente_nombre || '')}`);
-      return;
-    }
-    if (ingreso.caso_id) {
-      navigate(`/casos-trabajo?openId=${ingreso.caso_id}`);
-      return;
-    }
-    navigate(`/casos-trabajo?q=${encodeURIComponent(ingreso.cliente_nombre || '')}`);
-  }
-
-  async function handleDeleteIngreso(ingresoOrId: Ingreso | string, esManualArg?: boolean) {
-    // Resolver objeto ingreso completo
-    let ingreso: Ingreso | undefined;
-    if (typeof ingresoOrId === 'string') {
-      ingreso = ingresos.find(i => i.id === ingresoOrId);
-      if (!ingreso) {
-        const { data } = await supabase.from('ingresos').select('*').eq('id', ingresoOrId).maybeSingle();
-        ingreso = data as Ingreso | undefined;
-      }
-    } else {
-      ingreso = ingresoOrId;
-    }
-    if (!ingreso) { showToast('Ingreso no encontrado', 'error'); return; }
-    const id = ingreso.id;
-    const esManual = esManualArg ?? ingreso.es_manual;
-
-    const msg = esManual
-      ? '¿Eliminás este ingreso manual?'
-      : '¿Eliminás este ingreso? Si está vinculado a una reserva, saldo, cuota o pago de caso, también se desmarcará el cobro en su origen.';
-    if (!window.confirm(msg)) return;
-    setDeletingId(id);
-
-    const finish = async (ok: boolean, message: string) => {
-      setDeletingId(null);
-      showToast(message, ok ? 'success' : 'error');
-      if (ok) await refetch();
-    };
-
-    const ensureGone = async (label: string): Promise<{ ok: boolean; message: string }> => {
-      const { data: still } = await supabase.from('ingresos').select('id').eq('id', id).maybeSingle();
-      if (!still) return { ok: true, message: `Ingreso eliminado y ${label}` };
-      // Trigger no lo borró: forzar
-      const { error: dErr, data: dRows } = await supabase.from('ingresos').delete().eq('id', id).select('id');
-      if (dErr) return { ok: false, message: `Origen actualizado pero no se borró el ingreso: ${dErr.message}` };
-      if (!dRows || dRows.length === 0) return { ok: false, message: 'Sin permiso para borrar el ingreso (RLS). Corré la migración migration_ingresos_rls_fix.sql' };
-      return { ok: true, message: `Ingreso eliminado y ${label}` };
-    };
-
-    // Trata "tuple to be updated was already modified" como éxito parcial:
-    // significa que un trigger ya tocó la fila origen, así que pasamos a verificar el ingreso.
-    const isTupleConflict = (err: any) =>
-      typeof err?.message === 'string' &&
-      /tuple to be updated was already modified/i.test(err.message);
-
-    try {
-      // 0) Notas con referencia (cuotas legacy / pago único caso_completo)
-      const ref = parseIncomeReference(ingreso.notas).reference;
-      if (ref?.type === 'cuota') {
-        const { data: upd, error } = await supabase
-          .from('cuotas').update({ estado: 'Pendiente', fecha_pago: null }).eq('id', ref.id).select('id');
-        if (error && !isTupleConflict(error)) return finish(false, `No se pudo desmarcar la cuota: ${error.message}`);
-        if (!error && (!upd || upd.length === 0)) return finish(false, 'Sin permiso para desmarcar la cuota (RLS)');
-        const r = await ensureGone('cuota desmarcada');
-        return finish(r.ok, r.message);
-      }
-      if (ref?.type === 'pago_unico') {
-        const { data: upd, error } = await supabase
-          .from('casos_completos').update({ pago_unico_pagado: false }).eq('id', ref.caseId).select('id');
-        if (error && !isTupleConflict(error)) return finish(false, `No se pudo desmarcar el pago único: ${error.message}`);
-        if (!error && (!upd || upd.length === 0)) return finish(false, 'Sin permiso para desmarcar el pago único (RLS)');
-        const r = await ensureGone('pago único desmarcado');
-        return finish(r.ok, r.message);
-      }
-
-      // 1) consultas_agendadas (reserva)
-      const { data: caRes } = await supabase
-        .from('consultas_agendadas').select('id').eq('ingreso_reserva_id', id).maybeSingle();
-      if (caRes) {
-        const { data: upd, error } = await supabase
-          .from('consultas_agendadas').update({ reserva_pagada: false }).eq('id', caRes.id).select('id');
-        if (error && !isTupleConflict(error)) return finish(false, `No se pudo: ${error.message}`);
-        if (!error && (!upd || upd.length === 0)) return finish(false, 'Sin permiso para desmarcar la consulta (RLS)');
-        const r = await ensureGone('reserva desmarcada');
-        return finish(r.ok, r.message);
-      }
-
-      // 2) reserva en casos_pagos
-      const { data: cpRes } = await supabase
-        .from('casos_pagos').select('id').eq('ingreso_reserva_id', id).maybeSingle();
-      if (cpRes) {
-        const { data: upd, error } = await supabase
-          .from('casos_pagos').update({ reserva_pagada: false }).eq('id', cpRes.id).select('id');
-        if (error && !isTupleConflict(error)) return finish(false, `No se pudo: ${error.message}`);
-        if (!error && (!upd || upd.length === 0)) return finish(false, 'Sin permiso para desmarcar la reserva (RLS)');
-        const r = await ensureGone('reserva desmarcada');
-        return finish(r.ok, r.message);
-      }
-
-      // 3) saldo en casos_pagos
-      const { data: cpSal } = await supabase
-        .from('casos_pagos').select('id').eq('ingreso_saldo_id', id).maybeSingle();
-      if (cpSal) {
-        const { data: upd, error } = await supabase
-          .from('casos_pagos').update({ saldo_pagado: false }).eq('id', cpSal.id).select('id');
-        if (error && !isTupleConflict(error)) return finish(false, `No se pudo: ${error.message}`);
-        if (!error && (!upd || upd.length === 0)) return finish(false, 'Sin permiso para desmarcar el saldo (RLS)');
-        const r = await ensureGone('saldo desmarcado');
-        return finish(r.ok, r.message);
-      }
-
-      // 4) cuota de casos_pagos_cuotas
-      const { data: cpCuota } = await supabase
-        .from('casos_pagos_cuotas').select('id').eq('ingreso_id', id).maybeSingle();
-      if (cpCuota) {
-        const { data: upd, error } = await supabase
-          .from('casos_pagos_cuotas').update({ estado: 'Pendiente', fecha_pago: null }).eq('id', cpCuota.id).select('id');
-        if (error && !isTupleConflict(error)) return finish(false, `No se pudo: ${error.message}`);
-        if (!error && (!upd || upd.length === 0)) return finish(false, 'Sin permiso para desmarcar la cuota (RLS)');
-        const r = await ensureGone('cuota desmarcada');
-        return finish(r.ok, r.message);
-      }
-
-      // 5) Ingreso suelto: delete directo y verificar
-      const { error, data: rows } = await supabase.from('ingresos').delete().eq('id', id).select('id');
-      if (error) { console.error('[Ingresos] delete:', error); return finish(false, `No se pudo: ${error.message}`); }
-      if (!rows || rows.length === 0) return finish(false, 'No se borró ninguna fila (RLS o ya no existe). Corré migration_ingresos_rls_fix.sql');
-      return finish(true, 'Ingreso eliminado');
-    } catch (e: any) {
-      console.error('[Ingresos] catch:', e);
-      return finish(false, `Error inesperado: ${e?.message || e}`);
-    }
-  }
-
-  async function handleDeleteAllIngresos() {
-    const total = filtered.length;
-    if (total === 0) return;
-    const hayFiltro = !!(filtroFechaDesde || filtroFechaHasta || filtroSocio || filtroFuente || filtroModalidad);
-    const txt = hayFiltro
-      ? `los ${total} ingresos del filtro actual`
-      : `TODOS los ${total} ingresos`;
-    if (!window.confirm(`¿Eliminás ${txt}? Los autogenerados se desmarcarán en su origen. Esta acción NO se puede deshacer.`)) return;
-    const conf = window.prompt(`Para confirmar, escribí: BORRAR ${total}`);
-    if (conf !== `BORRAR ${total}`) { showToast('Cancelado', 'info'); return; }
-
-    setBulkDeleting(true);
-    let ok = 0, fail = 0;
-    const ids = filtered.map(i => i.id);
-
-    // Estrategia rápida: para los manuales, delete directo en bulk.
-    const manuales = filtered.filter(i => i.es_manual).map(i => i.id);
-    if (manuales.length > 0) {
-      const { data, error } = await supabase.from('ingresos').delete().in('id', manuales).select('id');
-      if (error) {
-        fail += manuales.length;
-      } else {
-        ok += data?.length || 0;
-        fail += manuales.length - (data?.length || 0);
-      }
-    }
-
-    // Para los auto-generados, ir uno por uno con la lógica de origen.
-    const autos = filtered.filter(i => !i.es_manual);
-    for (const ing of autos) {
-      try {
-        const ref = parseIncomeReference(ing.notas).reference;
-        if (ref?.type === 'cuota') {
-          await supabase.from('cuotas').update({ estado: 'Pendiente', fecha_pago: null }).eq('id', ref.id);
-        } else if (ref?.type === 'pago_unico') {
-          await supabase.from('casos_completos').update({ pago_unico_pagado: false }).eq('id', ref.caseId);
-        } else {
-          // Buscar origen en consultas_agendadas / casos_pagos / casos_pagos_cuotas
-          const [{ data: ca }, { data: cpr }, { data: cps }, { data: cpc }] = await Promise.all([
-            supabase.from('consultas_agendadas').select('id').eq('ingreso_reserva_id', ing.id).maybeSingle(),
-            supabase.from('casos_pagos').select('id').eq('ingreso_reserva_id', ing.id).maybeSingle(),
-            supabase.from('casos_pagos').select('id').eq('ingreso_saldo_id', ing.id).maybeSingle(),
-            supabase.from('casos_pagos_cuotas').select('id').eq('ingreso_id', ing.id).maybeSingle(),
-          ]);
-          if (ca) await supabase.from('consultas_agendadas').update({ reserva_pagada: false }).eq('id', ca.id);
-          else if (cpr) await supabase.from('casos_pagos').update({ reserva_pagada: false }).eq('id', cpr.id);
-          else if (cps) await supabase.from('casos_pagos').update({ saldo_pagado: false }).eq('id', cps.id);
-          else if (cpc) await supabase.from('casos_pagos_cuotas').update({ estado: 'Pendiente', fecha_pago: null }).eq('id', cpc.id);
-        }
-        // Verificar y forzar borrado si trigger no actuó
-        const { data: still } = await supabase.from('ingresos').select('id').eq('id', ing.id).maybeSingle();
-        if (still) {
-          const { data: dr } = await supabase.from('ingresos').delete().eq('id', ing.id).select('id');
-          if (dr && dr.length > 0) ok++;
-          else fail++;
-        } else {
-          ok++;
-        }
-      } catch {
-        fail++;
-      }
-    }
-
-    setBulkDeleting(false);
-    await refetch();
-    void ids; // referencia, evita warnings si se reordena
-    showToast(
-      `${ok} eliminado${ok === 1 ? '' : 's'}${fail ? `, ${fail} con error` : ''}`,
-      fail ? 'error' : 'success'
-    );
-  }
-
-  const filtered = useMemo(() => ingresos.filter(ingreso => {
-    if (filtroFechaDesde && ingreso.fecha < filtroFechaDesde) return false;
-    if (filtroFechaHasta && ingreso.fecha > filtroFechaHasta) return false;
-    if (filtroSocio && !sameOperationalSocio(ingreso.socio_cobro, filtroSocio)) return false;
-    if (filtroModalidad && ingreso.modalidad !== filtroModalidad) return false;
-    if (filtroFuente === 'Captadora' && !ingreso.captadora_nombre) return false;
-    if (filtroFuente === 'Directo' && ingreso.captadora_nombre) return false;
-    return true;
-  }), [filtroFechaDesde, filtroFechaHasta, filtroFuente, filtroModalidad, filtroSocio, ingresos]);
-
-  // Reset page when filters change
-  useEffect(() => { setPage(0); }, [filtroFechaDesde, filtroFechaHasta, filtroFuente, filtroModalidad, filtroSocio]);
-
-  const analytics = useMemo(() => buildIncomeOverview(filtered, 6), [filtered]);
-
-  const changes = useMemo(() => {
-    const s = analytics.monthlySeries;
-    if (s.length < 2) return { net: null, gross: null, commission: null };
-    const cur = s[s.length - 1];
-    const prev = s[s.length - 2];
-    return {
-      net: pctChange(cur.net, prev.net),
-      gross: pctChange(cur.income, prev.income),
-      commission: pctChange(cur.expense, prev.expense),
-    };
-  }, [analytics.monthlySeries]);
-
-  async function handleExportIngresos() {
-    const data = filtered.map(item => ({
-      Fecha: item.fecha,
-      Cliente: item.cliente_nombre || '',
-      Materia: item.materia || '',
-      Concepto: item.concepto || '',
-      'Monto Total': item.monto_total,
-      'Monto CJ NOA': item.monto_cj_noa,
-      'Comision Captadora': item.comision_captadora,
-      Captadora: item.captadora_nombre || '',
-      Socio: resolveOperationalSocio(item.socio_cobro) || '',
-      Modalidad: item.modalidad || '',
-      Notas: stripIncomeReference(item.notas) || '',
-    }));
-    await exportToExcel(data, 'Ingresos_CJ_NOA', 'Ingresos');
-  }
-
-  function handleExportPdf() {
-    exportToPdf({
-      title: 'Reporte de Ingresos — CJ NOA',
-      columns: [
-        { key: 'fecha', label: 'Fecha' },
-        { key: 'cliente', label: 'Cliente' },
-        { key: 'concepto', label: 'Concepto' },
-        { key: 'bruto', label: 'Bruto', align: 'right' },
-        { key: 'neto', label: 'Neto CJ NOA', align: 'right' },
-        { key: 'socio', label: 'Socio' },
-      ],
-      rows: filtered.map(i => ({
-        fecha: i.fecha,
-        cliente: i.cliente_nombre || '',
-        concepto: i.concepto || '',
-        bruto: formatMoney(i.monto_total || 0),
-        neto: formatMoney(i.monto_cj_noa || 0),
-        socio: resolveOperationalSocio(i.socio_cobro) || '',
-      })),
-      summary: [
-        { label: 'Total Registros', value: String(filtered.length) },
-        { label: 'Neto Total', value: formatMoney(analytics.totals.netIncome) },
-        { label: 'Bruto Total', value: formatMoney(analytics.totals.grossIncome) },
-      ],
-    });
-  }
-
-  async function handleSyncCases() {
-    try {
-      const summary = await syncWithCases();
-      const totalChanges = countCaseIncomeLedgerChanges(summary);
-
-      if (totalChanges === 0) {
-        showToast('Casos e ingresos ya estaban sincronizados');
-        return;
-      }
-
-      showToast(`Sincronizados ${totalChanges} movimientos desde casos`);
-      await refetch();
-    } catch (error: any) {
-      showToast(error.message || 'Error al sincronizar cobros desde casos', 'error');
-    }
-  }
-
-  if (loading || loadingPipeline) {
-    return (
-      <div className="flex h-64 items-center justify-center">
-        <div className="h-8 w-8 animate-spin rounded-full border-2 border-white/30 border-t-transparent" />
-      </div>
-    );
-  }
-
-  return (
-    <div className="space-y-6 animate-fade-in">
-      <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
-        <div>
-          <h1 className="text-xl sm:text-2xl font-bold text-white">Ingresos</h1>
-          <p className="mt-1 text-sm text-gray-500 hidden sm:block">Cobros reales del estudio y cartera pendiente conectada con los casos</p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <button onClick={handleExportIngresos} className="btn-secondary flex items-center gap-2 text-sm">
-            <Download className="h-4 w-4" />
-            <span className="hidden sm:inline">Exportar Excel</span>
-          </button>
-          <button onClick={handleExportPdf} className="btn-secondary flex items-center gap-2 text-sm">
-            <FileText className="h-4 w-4" />
-            <span className="hidden sm:inline">Exportar PDF</span>
-          </button>
-          <button onClick={handleSyncCases} disabled={syncingCases} className="btn-secondary flex items-center gap-2 text-sm disabled:opacity-50">
-            <RefreshCw className={`h-4 w-4 ${syncingCases ? 'animate-spin' : ''}`} />
-            <span className="hidden sm:inline">Sincronizar casos</span>
-          </button>
-          <button onClick={() => setImportModalOpen(true)} className="btn-secondary flex items-center gap-2 text-sm">
-            <FileSpreadsheet className="h-4 w-4" />
-            <span className="hidden sm:inline">Importar Excel</span>
-          </button>
-          <button onClick={() => setManualModalOpen(true)} className="btn-primary flex items-center gap-2 text-sm">
-            <Plus className="h-4 w-4" />
-            <span className="hidden sm:inline">Ingreso manual</span>
-          </button>
-          <button
-            onClick={handleDeleteAllIngresos}
-            disabled={filtered.length === 0 || bulkDeleting}
-            className="flex items-center gap-2 text-sm px-3 py-2 rounded-xl border border-red-500/30 bg-red-500/10 text-red-300 hover:bg-red-500/20 disabled:opacity-40 disabled:cursor-not-allowed"
-            title="Eliminar todos los ingresos del filtro actual (manuales y solo-manuales). Los automáticos requieren desmarcar el origen."
-          >
-            <Trash2 className="h-4 w-4" />
-            <span className="hidden sm:inline">{bulkDeleting ? 'Borrando…' : 'Eliminar todos'}</span>
-          </button>
-        </div>
-      </div>
-
-      <div className="glass-card p-4">
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-5">
-          <div>
-            <label className="text-xs text-gray-500">Desde</label>
-            <input type="date" value={filtroFechaDesde} onChange={e => setFiltroFechaDesde(e.target.value)} className="input-dark mt-1 text-sm py-2" />
-          </div>
-          <div>
-            <label className="text-xs text-gray-500">Hasta</label>
-            <input type="date" value={filtroFechaHasta} onChange={e => setFiltroFechaHasta(e.target.value)} className="input-dark mt-1 text-sm py-2" />
-          </div>
-          <div>
-            <label className="text-xs text-gray-500">Socio</label>
-            <select value={filtroSocio} onChange={e => setFiltroSocio(e.target.value)} className="select-dark mt-1 text-sm py-2">
-              <option value="">Todos</option>
-              {socios.map(socio => <option key={socio} value={socio}>{socio}</option>)}
-            </select>
-          </div>
-          <div>
-            <label className="text-xs text-gray-500">Fuente</label>
-            <select value={filtroFuente} onChange={e => setFiltroFuente(e.target.value)} className="select-dark mt-1 text-sm py-2">
-              <option value="">Todas</option>
-              <option value="Captadora">Captadora</option>
-              <option value="Directo">Directo</option>
-            </select>
-          </div>
-          <div>
-            <label className="text-xs text-gray-500">Modalidad</label>
-            <select value={filtroModalidad} onChange={e => setFiltroModalidad(e.target.value)} className="select-dark mt-1 text-sm py-2">
-              <option value="">Todas</option>
-              <option value="Efectivo">Efectivo</option>
-              <option value="Transferencia">Transferencia</option>
-            </select>
-          </div>
-        </div>
-      </div>
-
-      <div className="grid gap-3 sm:gap-4 grid-cols-2 sm:grid-cols-3 md:grid-cols-3 xl:grid-cols-5">
-        <KpiCard label="Ingreso neto CJ NOA" value={formatMoney(analytics.totals.netIncome)} tone="emerald" index={0} change={changes.net} />
-        <KpiCard label="Ingreso bruto" value={formatMoney(analytics.totals.grossIncome)} tone="sky" index={1} change={changes.gross} />
-        <KpiCard label="Comisiones captadora" value={formatMoney(analytics.totals.commissions)} tone="amber" index={2} change={changes.commission} />
-        <KpiCard label="Ticket promedio" value={formatMoney(analytics.totals.averageTicket)} tone="cyan" index={3} />
-        <KpiCard label="Registros activos" value={String(analytics.totals.records)} tone="slate" index={4} />
-      </div>
-
-      <div className="glass-card p-5">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-          <div>
-            <p className="text-sm font-semibold text-white">Pipeline de cobranzas por casos</p>
-            <p className="mt-1 text-xs text-gray-500">Los KPI de esta tarjeta muestran el neto estimado del estudio sobre lo pendiente. El detalle inferior conserva el bruto contractual del caso para no perder la referencia legal/comercial.</p>
-          </div>
-          <div className="flex flex-wrap gap-2 text-xs text-gray-400">
-            <span className="badge badge-yellow">{pipeline.summary.activeDebtors} deudores activos</span>
-            <span className="badge badge-red">{pipeline.summary.overdueCount} vencidas</span>
-            {pipeline.summary.noDueDateAmount > 0 && (
-              <span className="badge badge-blue">Sin fecha bruto {formatMoney(pipeline.summary.noDueDateAmount)}</span>
-            )}
-          </div>
-        </div>
-        <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
-          <PipelineKpi label="Acordado bruto" value={formatMoney(pipeline.summary.totalAgreed)} tone="slate" />
-          <PipelineKpi label="Acordado neto est." value={formatMoney(pipeline.summary.totalAgreedNet)} tone="sky" />
-          <PipelineKpi label="Cobrado neto CJ NOA" value={formatMoney(pipeline.summary.totalCollectedNet)} tone="emerald" />
-          <PipelineKpi label="Pendiente neto est." value={formatMoney(pipeline.summary.totalPendingNet)} tone="amber" />
-          <PipelineKpi label="Vencido neto est." value={formatMoney(pipeline.summary.overdueNetAmount)} tone="rose" />
-          <PipelineKpi label="Prox. 30 dias neto est." value={formatMoney(pipeline.summary.dueNext30DaysNet)} tone="sky" />
-        </div>
-      </div>
-
-      {/* Distribucion calculada por socio */}
-      <div className="glass-card p-5">
-        <div className="flex items-center gap-2 text-sm font-semibold text-white">
-          <Users className="h-4 w-4 text-violet-300" />
-          Ingreso por socio (calculado)
-        </div>
-        <div className="mt-1 text-xs text-gray-500">Calculado automaticamente desde los datos cargados (manuales + importados).</div>
-        <div className="mt-4 grid gap-3 sm:gap-4 grid-cols-1 sm:grid-cols-2 xl:grid-cols-4">
-          {(() => {
-            const aggregated = aggregateIngresosPorSocio(filtered, socios);
-            return socios.map(socio => {
-              const totals = aggregated.get(socio) || { ingresoNeto: 0, ingresoBruto: 0, comisiones: 0, registros: 0, clientes: new Set<string>() };
-              const participacion = analytics.totals.netIncome > 0 ? (totals.ingresoNeto / analytics.totals.netIncome * 100).toFixed(1) : '0.0';
-              return (
-                <div key={socio} className="rounded-2xl border border-white/8 bg-white/[0.03] p-4">
-                  <p className="text-sm font-semibold text-white">{socio}</p>
-                  <div className="mt-3 space-y-1.5 text-sm text-gray-300">
-                    <div className="flex justify-between"><span>Neto</span><span className="font-semibold text-emerald-300">{formatMoney(totals.ingresoNeto)}</span></div>
-                    <div className="flex justify-between"><span>Bruto</span><span className="font-semibold text-white">{formatMoney(totals.ingresoBruto)}</span></div>
-                    <div className="flex justify-between"><span>Comisiones</span><span className="font-semibold text-amber-300">{formatMoney(totals.comisiones)}</span></div>
-                    <div className="flex justify-between"><span>Participacion</span><span className="font-semibold text-sky-300">{participacion}%</span></div>
-                    <div className="flex justify-between"><span>Clientes</span><span className="font-semibold text-gray-200">{totals.clientes.size}</span></div>
-                    <div className="flex justify-between"><span>Registros</span><span className="font-semibold text-gray-400">{totals.registros}</span></div>
-                  </div>
-                </div>
-              );
-            });
-          })()}
-        </div>
-      </div>
-
-      <div className="grid gap-4 xl:grid-cols-[1.15fr_0.85fr]">
-        <div className="glass-card p-5">
-          <div className="flex items-center gap-2 text-sm font-semibold text-white">
-            <Sigma className="h-4 w-4 text-amber-300" />
-            Formulas del modelo de ingresos
-          </div>
-          <div className="mt-4 grid gap-3 md:grid-cols-3">
-            <FormulaBox title="Bruto" description="Monto total cobrado antes de repartir comisiones." value={`${formatMoney(analytics.totals.netIncome)} + ${formatMoney(analytics.totals.commissions)}`} />
-            <FormulaBox title="Neto CJ NOA" description="Resultado real para el estudio despues de captadoras." value={`${analytics.totals.collectionRate.toFixed(1)}% del bruto`} />
-            <FormulaBox title="Peso captadora" description="Participacion de derivaciones y comisiones sobre el ingreso total." value={`${analytics.totals.captadoraRate.toFixed(1)}% del bruto`} />
-          </div>
-        </div>
-
-        <div className="glass-card p-5">
-          <p className="text-sm font-semibold text-white">Resumen ejecutivo</p>
-          <div className="mt-4 space-y-3 text-sm text-gray-300">
-            <InsightRow label="Cobros via captadora" value={formatMoney(analytics.sourceBreakdown.find(item => item.label === 'Captadora')?.value || 0)} />
-            <InsightRow label="Cobros directos y por cuota" value={formatMoney(analytics.totals.netIncome - (analytics.sourceBreakdown.find(item => item.label === 'Captadora')?.value || 0))} />
-            <InsightRow label="Modalidad predominante" value={analytics.paymentBreakdown[0]?.label || 'Sin datos'} />
-            <InsightRow label="Socio con mayor cobranza" value={analytics.partnerBreakdown[0]?.label || 'Sin asignar'} />
-          </div>
-        </div>
-      </div>
-
-      <div className="grid gap-4 xl:grid-cols-2">
-        <FinanceLineChart
-          title="Evolucion de ingresos"
-          subtitle="Bruto, comisiones y neto de los ultimos 6 meses"
-          series={analytics.monthlySeries}
-          labels={{ income: 'Bruto', expense: 'Comision', net: 'Neto CJ NOA' }}
-        />
-        <FinanceDonut title="Origen del ingreso" subtitle="Mix entre captacion directa, cuotas y captadoras" data={analytics.sourceBreakdown} />
-      </div>
-
-      <div className="grid gap-4 xl:grid-cols-2">
-        <FinanceBars title="Top clientes por ingreso neto" subtitle="Clientes que mas aportan al flujo del estudio" data={analytics.topClients} />
-        <FinanceVerticalBars title="Rendimiento por socio" subtitle="Cobrado por cada socio filtrado" data={analytics.partnerBreakdown} height={220} />
-      </div>
-
-      <div className="grid gap-4 xl:grid-cols-[0.9fr_1.1fr]">
-        <FinanceBars
-          title="Vencimientos netos esperados"
-          subtitle="Estimacion neta para el estudio agrupada por mes esperado de cobro"
-          data={pipeline.monthlyCollectionsNet.filter(item => item.value > 0)}
-        />
-
-        <div className="glass-card overflow-hidden">
-          <div className="border-b border-white/5 px-5 py-4">
-            <h3 className="text-sm font-semibold text-white">Detalle de cartera pendiente</h3>
-            <p className="mt-1 text-xs text-gray-500">Casos que todavia no impactan en el libro de ingresos porque siguen pendientes de cobro.</p>
-          </div>
-          {pipeline.pendingItems.length === 0 ? (
-            <div className="px-5 py-10 text-sm text-gray-500">No hay cobros pendientes para mostrar.</div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead>
-                  <tr className="border-b border-white/5">
-                    <th className="px-5 py-3 text-left text-xs font-medium uppercase text-gray-500">Cliente</th>
-                    <th className="px-5 py-3 text-left text-xs font-medium uppercase text-gray-500">Tipo</th>
-                    <th className="px-5 py-3 text-left text-xs font-medium uppercase text-gray-500">Vencimiento</th>
-                    <th className="px-5 py-3 text-right text-xs font-medium uppercase text-gray-500">Monto</th>
-                    <th className="px-5 py-3 text-left text-xs font-medium uppercase text-gray-500">Estado</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {pipeline.pendingItems.slice(0, 8).map(item => {
-                    const destino = item.type === 'cuota'
-                      ? `/honorarios?q=${encodeURIComponent(item.clientName)}`
-                      : `/casos-trabajo?q=${encodeURIComponent(item.clientName)}`;
-                    return (
-                    <tr
-                      key={item.id}
-                      className="table-row cursor-pointer hover:bg-white/[0.03] transition-colors"
-                      onClick={() => navigate(destino)}
-                      title={`Ir a ${item.type === 'cuota' ? 'Honorarios' : 'Casos - Trabajo'}: ${item.clientName}`}
-                    >
-                      <td className="px-5 py-3">
-                        <div>
-                          <p className="text-sm font-medium text-white">{item.clientName}</p>
-                          <p className="text-xs text-gray-500">{item.materia} · {item.socio}</p>
-                        </div>
-                      </td>
-                      <td className="px-5 py-3 text-sm text-gray-300">
-                        <span className={`badge ${item.type === 'cuota' ? 'badge-yellow' : item.type === 'consulta' ? 'badge-blue' : 'badge-green'}`}>
-                          {item.type === 'cuota' ? 'Cuota' : item.type === 'consulta' ? 'Consulta' : 'Saldo'}
-                        </span>
-                      </td>
-                      <td className="px-5 py-3 text-sm text-gray-300">
-                        {item.dueDate ? format(new Date(`${item.dueDate}T12:00:00`), 'dd MMM yyyy', { locale: es }) : 'Sin fecha'}
-                      </td>
-                      <td className="px-5 py-3 text-right text-sm font-medium text-amber-300">{formatMoney(item.amount)}</td>
-                      <td className="px-5 py-3">
-                        <span className={`badge ${item.overdue ? 'badge-red' : 'badge-yellow'}`}>
-                          {item.overdue ? 'Vencido' : 'Pendiente'}
-                        </span>
-                      </td>
-                    </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
-      </div>
-
-      <div className="glass-card overflow-hidden">
-        <div className="flex items-center justify-end px-5 py-2 border-b border-white/[0.04]">
-          <button
-            onClick={() => { const v = !compact; setCompact(v); sessionStorage.setItem('ingresos_compact', v ? '1' : '0'); }}
-            className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-gray-300 transition-colors"
-            title={compact ? 'Vista normal' : 'Vista compacta'}
-          >
-            {compact ? <Rows3 className="w-3.5 h-3.5" /> : <Rows4 className="w-3.5 h-3.5" />}
-            {compact ? 'Normal' : 'Compacto'}
-          </button>
-        </div>
-        <div className="overflow-x-auto">
-          <table className={`w-full ${compact ? 'text-xs' : ''}`}>
-            <thead>
-              <tr className="border-b border-white/5">
-                <th className={`${compact ? 'px-3 py-2' : 'px-5 py-3'} text-left text-xs font-medium uppercase text-gray-500`}>Fecha</th>
-                <th className={`${compact ? 'px-3 py-2' : 'px-5 py-3'} text-left text-xs font-medium uppercase text-gray-500`}>Cliente</th>
-                <th className={`hidden ${compact ? 'px-3 py-2' : 'px-5 py-3'} text-left text-xs font-medium uppercase text-gray-500 md:table-cell`}>Concepto</th>
-                <th className={`${compact ? 'px-3 py-2' : 'px-5 py-3'} text-right text-xs font-medium uppercase text-gray-500`}>Neto CJ NOA</th>
-                <th className={`hidden ${compact ? 'px-3 py-2' : 'px-5 py-3'} text-right text-xs font-medium uppercase text-gray-500 lg:table-cell`}>Comision</th>
-                <th className={`hidden ${compact ? 'px-3 py-2' : 'px-5 py-3'} text-left text-xs font-medium uppercase text-gray-500 md:table-cell`}>Socio</th>
-                <th className={`hidden ${compact ? 'px-3 py-2' : 'px-5 py-3'} text-left text-xs font-medium uppercase text-gray-500 lg:table-cell`}>Modalidad</th>
-                <th className={`hidden ${compact ? 'px-3 py-2' : 'px-5 py-3'} text-left text-xs font-medium uppercase text-gray-500 md:table-cell`}>Cargado por</th>
-                <th className={`${compact ? 'px-3 py-2' : 'px-5 py-3'} text-left text-xs font-medium uppercase text-gray-500`}>Origen</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.slice(page * pageSize, (page + 1) * pageSize).map((ingreso, i) => {
-                const cp = compact ? 'px-3 py-1.5' : 'px-5 py-3';
-                return (
-                <tr key={ingreso.id} className="table-row row-enter cursor-pointer hover:bg-white/[0.04] transition-colors" style={{ animationDelay: `${Math.min(i, 15) * 30}ms` }} onClick={() => handleRowClick(ingreso)}>
-                  <td className={`${cp} text-sm text-gray-300`}>{format(new Date(ingreso.fecha), 'dd MMM yyyy', { locale: es })}</td>
-                  <td className={cp}>
-                    <div>
-                      <span className="text-sm text-white">{ingreso.cliente_nombre || 'Sin cliente'}</span>
-                      {ingreso.materia && <span className="ml-1 text-xs text-gray-500">({ingreso.materia})</span>}
-                    </div>
-                  </td>
-                  <td className={`hidden ${cp} text-sm text-gray-400 md:table-cell`}>{ingreso.concepto || 'Ingreso manual'}</td>
-                  <td className={`${cp} text-right`}>
-                    <span className="text-sm font-medium text-emerald-400">{formatMoney(ingreso.monto_cj_noa)}</span>
-                  </td>
-                  <td className={`hidden ${cp} text-right lg:table-cell`}>
-                    {Number(ingreso.comision_captadora || 0) > 0 ? (
-                      <span className="text-sm text-amber-400">{formatMoney(ingreso.comision_captadora)}</span>
-                    ) : (
-                      <span className="text-sm text-gray-600">-</span>
-                    )}
-                  </td>
-                  <td className={`hidden ${cp} text-sm text-gray-400 md:table-cell`}>{resolveOperationalSocio(ingreso.socio_cobro) || 'Sin asignar'}</td>
-                  <td className={`hidden ${cp} lg:table-cell`}>
-                    <span className={`badge ${ingreso.modalidad === 'Efectivo' ? 'badge-green' : 'badge-blue'}`}>
-                      {ingreso.modalidad || 'Sin definir'}
-                    </span>
-                  </td>
-                  <td className={`hidden ${cp} md:table-cell`}>
-                    <div className="text-xs">
-                      <span className="text-violet-300 font-medium">{ingreso.created_by ? perfilMap.get(ingreso.created_by) || 'Usuario' : 'Importación'}</span>
-                      <span className="block text-gray-500 mt-0.5">{format(new Date(ingreso.created_at), 'dd/MM/yy HH:mm', { locale: es })}</span>
-                    </div>
-                  </td>
-                  <td className={cp}>
-                    {(() => {
-                      const origen = getIngresoOrigen(ingreso);
-                      return (
-                        <div className="flex items-center gap-2">
-                          {origen.to ? (
-                            <Link to={origen.to} className={`badge ${origen.badge} flex items-center gap-1 hover:opacity-80 transition-opacity`}>
-                              {origen.label} <ExternalLink className="w-2.5 h-2.5" />
-                            </Link>
-                          ) : (
-                            <span className={`badge ${origen.badge}`}>{origen.label}</span>
-                          )}
-                          <button
-                              onClick={e => { e.stopPropagation(); handleDeleteIngreso(ingreso); }}
-                              disabled={deletingId === ingreso.id}
-                              className="p-1 rounded text-gray-600 hover:text-red-400 hover:bg-red-500/10 transition-colors disabled:opacity-40"
-                              title="Eliminar ingreso"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                        </div>
-                      );
-                    })()}
-                  </td>
-                </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-
-        <div className="border-t border-white/5 bg-white/[0.02] px-4 sm:px-5 py-3 sm:py-4">
-          <div className="flex flex-col sm:flex-row flex-wrap justify-end gap-3 sm:gap-6 text-sm">
-            <div>
-              <span className="text-gray-500">Ingreso neto:</span>{' '}
-              <span className="font-semibold text-emerald-400">{formatMoney(analytics.totals.netIncome)}</span>
-            </div>
-            <div>
-              <span className="text-gray-500">Comisiones:</span>{' '}
-              <span className="font-semibold text-amber-400">{formatMoney(analytics.totals.commissions)}</span>
-            </div>
-            <div>
-              <span className="text-gray-500">Bruto:</span>{' '}
-              <span className="font-semibold text-white">{formatMoney(analytics.totals.grossIncome)}</span>
-            </div>
-          </div>
-        </div>
-
-        {filtered.length > pageSize && (
-          <div className="border-t border-white/5 bg-white/[0.02] px-4 sm:px-5 py-3 flex items-center justify-between">
-            <span className="text-xs text-gray-500">
-              {page * pageSize + 1}–{Math.min((page + 1) * pageSize, filtered.length)} de {filtered.length}
-            </span>
-            <div className="flex gap-2">
-              <button onClick={() => setPage(p => Math.max(0, p - 1))} disabled={page === 0} className="px-3 py-1 text-xs rounded-lg bg-white/5 text-gray-300 hover:bg-white/10 disabled:opacity-30 transition">
-                Anterior
-              </button>
-              <button onClick={() => setPage(p => p + 1)} disabled={(page + 1) * pageSize >= filtered.length} className="px-3 py-1 text-xs rounded-lg bg-white/5 text-gray-300 hover:bg-white/10 disabled:opacity-30 transition">
-                Siguiente
-              </button>
-            </div>
-          </div>
-        )}
-      </div>
-
-      <IngresoManualModal
-        open={manualModalOpen || !!editingIngreso}
-        onClose={() => { setManualModalOpen(false); setEditingIngreso(null); }}
-        onSaved={refetch}
-        editing={editingIngreso}
-        onDelete={async (id) => { await handleDeleteIngreso(id); setEditingIngreso(null); }}
-      />
-      <FinanceImportModal
-        open={importModalOpen}
-        onClose={() => setImportModalOpen(false)}
-        target="ingresos"
-        existingIngresos={ingresos}
-        onImported={async () => { await refetch(); }}
-      />
-    </div>
-  );
-}
-
-function KpiCard({ label, value, tone, change, index = 0 }: { label: string; value: string; tone: 'emerald' | 'sky' | 'amber' | 'cyan' | 'slate'; change?: number | null; index?: number }) {
-  const accents: Record<string, string> = {
-    emerald: 'from-emerald-400 to-emerald-600',
-    sky: 'from-sky-400 to-sky-600',
-    amber: 'from-amber-400 to-amber-600',
-    cyan: 'from-cyan-400 to-cyan-600',
-    slate: 'from-gray-400 to-gray-600',
-  };
-  const valueTones: Record<string, string> = {
-    emerald: 'text-emerald-300',
-    sky: 'text-sky-300',
-    amber: 'text-amber-300',
-    cyan: 'text-cyan-300',
-    slate: 'text-white',
-  };
-
-  return (
-    <div className="stat-card hover-lift animate-slide-up" style={{ animationDelay: `${index * 80}ms` }}>
-      <div className={`absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r ${accents[tone]}`} />
-      <p className="text-[10px] sm:text-[11px] uppercase tracking-[0.12em] sm:tracking-[0.18em] text-gray-500 font-medium">{label}</p>
-      <p className={`mt-2 sm:mt-3 text-lg sm:text-2xl font-bold count-up ${valueTones[tone]}`}>{value}</p>
-      {change != null && (
-        <p className={`mt-1 sm:mt-1.5 text-[10px] sm:text-[11px] font-medium ${change >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-          {change >= 0 ? '▲' : '▼'} {Math.abs(change).toFixed(1)}% vs mes ant.
-        </p>
-      )}
-    </div>
-  );
-}
-
-function PipelineKpi({ label, value, tone }: { label: string; value: string; tone: 'emerald' | 'sky' | 'amber' | 'rose' | 'slate' }) {
-  const borderTones: Record<'emerald' | 'sky' | 'amber' | 'rose' | 'slate', string> = {
-    emerald: 'border-emerald-500/30 text-emerald-300',
-    sky: 'border-sky-500/30 text-sky-300',
-    amber: 'border-amber-500/30 text-amber-300',
-    rose: 'border-rose-500/30 text-rose-300',
-    slate: 'border-white/10 text-white',
-  };
-
-  return (
-    <div className={`rounded-2xl border bg-white/[0.03] p-4 ${borderTones[tone]}`}>
-      <p className="text-[10px] uppercase tracking-[0.16em] text-gray-500">{label}</p>
-      <p className="mt-2 text-lg font-bold count-up">{value}</p>
-    </div>
-  );
-}
-
-function FormulaBox({ title, description, value }: { title: string; description: string; value: string }) {
-  return (
-    <div className="rounded-2xl border border-white/8 bg-white/[0.03] p-4 hover-lift animate-fade-in transition-all duration-300 hover:border-white/15">
-      <p className="text-sm font-medium text-white">{title}</p>
-      <p className="mt-2 text-xs text-gray-500">{description}</p>
-      <p className="mt-3 text-sm font-semibold text-amber-300 count-up">{value}</p>
-    </div>
-  );
-}
-
-function InsightRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex items-center justify-between rounded-xl bg-white/[0.03] px-3 py-2 hover:bg-white/[0.06] transition-all duration-200 animate-slide-right">
-      <span>{label}</span>
-      <span className="font-semibold text-white">{value}</span>
-    </div>
-  );
-}
-
-function IngresoManualModal({ open, onClose, onSaved, editing, onDelete }: {
-  open: boolean;
-  onClose: () => void;
-  onSaved: () => void;
-  editing?: Ingreso | null;
-  onDelete?: (id: string) => void;
-}) {
-  const { showToast } = useToast();
-  const socios = useSocios();
-  const isEditing = !!editing;
-
-  const [fecha, setFecha] = useState(new Date().toISOString().split('T')[0]);
-  const [cliente, setCliente] = useState('');
-  const [materia, setMateria] = useState('');
-  const [concepto, setConcepto] = useState('');
-  const [montoTotal, setMontoTotal] = useState('');
-  const [montoCjNoa, setMontoCjNoa] = useState('');
-  const [comision, setComision] = useState('');
-  const [captadora, setCaptadora] = useState('');
-  const [modalidad, setModalidad] = useState('Efectivo');
-  const [socio, setSocio] = useState(socios[0] || '');
-  const [notas, setNotas] = useState('');
+  const [modalOpen, setModalOpen] = useState(false);
+  const [editId, setEditId] = useState<string | null>(null);
+  const [form, setForm] = useState<FormState>(FORM_VACIO);
   const [saving, setSaving] = useState(false);
 
-  // Populate fields when editing
-  useEffect(() => {
-    if (editing) {
-      setFecha(editing.fecha);
-      setCliente(editing.cliente_nombre || '');
-      setMateria(editing.materia || '');
-      setConcepto(editing.concepto || '');
-      setMontoTotal(String(editing.monto_total || ''));
-      setMontoCjNoa(String(editing.monto_cj_noa || ''));
-      setComision(String(editing.comision_captadora || ''));
-      setCaptadora(editing.captadora_nombre || '');
-      setModalidad(editing.modalidad || 'Efectivo');
-      setSocio(editing.socio_cobro || socios[0] || '');
-      setNotas(editing.notas || '');
-    } else {
-      setFecha(new Date().toISOString().split('T')[0]);
-      setCliente(''); setMateria(''); setConcepto(''); setMontoTotal('');
-      setMontoCjNoa(''); setComision(''); setCaptadora('');
-      setModalidad('Efectivo'); setNotas('');
+  // Filtros
+  const [busqueda, setBusqueda] = useState('');
+  const [filtroDoctor, setFiltroDoctor] = useState<SocioFinanzas | ''>('');
+  const [filtroRama, setFiltroRama] = useState<RamaLegal | ''>('');
+  const [filtroFuente, setFiltroFuente] = useState<FuenteIngreso | ''>('');
+  const [filtroModalidad, setFiltroModalidad] = useState<ModalidadPago | ''>('');
+  const [desde, setDesde] = useState('');
+  const [hasta, setHasta] = useState('');
+
+  const filtrados = useMemo(() => {
+    return ingresos.filter((i: IngresoOperativo) => {
+      if (busqueda && !i.cliente_nombre.toLowerCase().includes(busqueda.toLowerCase())) return false;
+      if (filtroDoctor && i.doctor_cobra !== filtroDoctor) return false;
+      if (filtroRama && i.rama !== filtroRama) return false;
+      if (filtroFuente && i.fuente !== filtroFuente) return false;
+      if (filtroModalidad && i.modalidad !== filtroModalidad) return false;
+      if (desde && i.fecha < desde) return false;
+      if (hasta && i.fecha > hasta) return false;
+      return true;
+    });
+  }, [ingresos, busqueda, filtroDoctor, filtroRama, filtroFuente, filtroModalidad, desde, hasta]);
+
+  const totales = useMemo(() => {
+    const total = filtrados.reduce((s: number, i: IngresoOperativo) => s + Number(i.monto || 0), 0);
+    const porSocio: Record<SocioFinanzas, number> = { Rodri: 0, Noe: 0, Ale: 0, Fabri: 0 };
+    filtrados.forEach((i: IngresoOperativo) => {
+      porSocio[i.doctor_cobra] = (porSocio[i.doctor_cobra] || 0) + Number(i.monto || 0);
+    });
+    return { total, porSocio };
+  }, [filtrados]);
+
+  function abrirNuevo() {
+    setEditId(null);
+    setForm(FORM_VACIO);
+    setModalOpen(true);
+  }
+
+  function abrirEditar(i: IngresoOperativo) {
+    setEditId(i.id);
+    setForm({
+      fecha: i.fecha,
+      cliente_nombre: i.cliente_nombre,
+      tipo_cliente: i.tipo_cliente,
+      monto: String(i.monto),
+      modalidad: i.modalidad,
+      doctor_cobra: i.doctor_cobra,
+      receptor_transfer: i.receptor_transfer || '',
+      rama: i.rama,
+      fuente: i.fuente,
+      concepto: i.concepto,
+      observaciones: i.observaciones || '',
+    });
+    setModalOpen(true);
+  }
+
+  async function guardar() {
+    if (!form.cliente_nombre.trim()) {
+      showToast('Falta el nombre del cliente', 'error');
+      return;
     }
-  }, [editing, open]);
-
-  const montoTotalNum = parseFloat(montoTotal) || 0;
-  const comisionNum = parseFloat(comision) || 0;
-  const netoAutoCalc = montoTotalNum - comisionNum;
-  const netoFinal = montoCjNoa !== '' ? (parseFloat(montoCjNoa) || 0) : netoAutoCalc;
-
-  async function handleSave() {
-    if (montoTotalNum <= 0) { showToast('El monto total es obligatorio', 'error'); return; }
+    const montoNum = Number(form.monto);
+    if (!montoNum || montoNum <= 0) {
+      showToast('Monto inválido', 'error');
+      return;
+    }
+    if (form.modalidad === 'Transferencia' && !form.receptor_transfer) {
+      showToast('Indicá quién recibe la transferencia', 'error');
+      return;
+    }
     setSaving(true);
     try {
       const payload = {
-        fecha,
-        cliente_nombre: cliente || null,
-        materia: materia || null,
-        concepto: concepto || 'Ingreso manual',
-        monto_total: montoTotalNum,
-        monto_cj_noa: netoFinal,
-        comision_captadora: comisionNum,
-        captadora_nombre: captadora || null,
-        socio_cobro: socio,
-        modalidad,
-        notas: notas || null,
-        es_manual: true,
+        fecha: form.fecha,
+        cliente_nombre: form.cliente_nombre.trim(),
+        tipo_cliente: form.tipo_cliente,
+        monto: montoNum,
+        modalidad: form.modalidad,
+        doctor_cobra: form.doctor_cobra,
+        receptor_transfer: form.modalidad === 'Transferencia' ? (form.receptor_transfer as SocioFinanzas) : null,
+        rama: form.rama,
+        fuente: form.fuente,
+        concepto: form.concepto,
+        observaciones: form.observaciones.trim() || null,
       };
-      if (isEditing && editing) {
-        await supabase.from('ingresos').update(payload).eq('id', editing.id);
-        showToast('Ingreso actualizado');
+      if (editId) {
+        await actualizar(editId, payload);
+        showToast('Ingreso actualizado', 'success');
       } else {
-        await supabase.from('ingresos').insert(payload);
-        showToast('Ingreso registrado');
+        await crear(payload);
+        showToast('Ingreso registrado', 'success');
       }
-      onSaved();
-      onClose();
-    } catch (error: any) {
-      showToast(error.message || 'Error al guardar ingreso', 'error');
+      setModalOpen(false);
+    } catch (err: any) {
+      showToast(err?.message || 'Error al guardar', 'error');
     } finally {
       setSaving(false);
     }
   }
 
+  function exportar() {
+    const rows = filtrados.map((i: IngresoOperativo) => ({
+      Fecha: i.fecha,
+      Cliente: i.cliente_nombre,
+      Tipo: i.tipo_cliente,
+      Monto: Number(i.monto),
+      Modalidad: i.modalidad,
+      'Doctor cobra': i.doctor_cobra,
+      'Receptor transfer': i.receptor_transfer || '',
+      Rama: i.rama,
+      Fuente: i.fuente,
+      Concepto: i.concepto,
+      Observaciones: i.observaciones || '',
+    }));
+    exportToExcel(rows, `ingresos-operativos-${HOY()}`);
+  }
+
   return (
-    <Modal
-      open={open}
-      onClose={onClose}
-      title={isEditing ? 'Editar ingreso' : 'Nuevo ingreso'}
-      subtitle={isEditing ? 'Modificá los datos del ingreso manual' : 'Registra un cobro con desglose bruto, neto y comisiones'}
-      maxWidth="max-w-2xl"
-    >
-      <div className="space-y-4">
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className="mb-1.5 block text-sm text-gray-400">Fecha</label>
-            <input type="date" value={fecha} onChange={e => setFecha(e.target.value)} className="input-dark" />
-          </div>
-          <div>
-            <label className="mb-1.5 block text-sm text-gray-400">Socio que cobra</label>
-            <select value={socio} onChange={e => setSocio(e.target.value)} className="select-dark">
-              {socios.map(item => <option key={item} value={item}>{item}</option>)}
-            </select>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className="mb-1.5 block text-sm text-gray-400">Cliente</label>
-            <input type="text" value={cliente} onChange={e => setCliente(e.target.value)} className="input-dark" placeholder="Nombre del cliente" />
-          </div>
-          <div>
-            <label className="mb-1.5 block text-sm text-gray-400">Materia</label>
-            <select value={materia} onChange={e => setMateria(e.target.value)} className="select-dark">
-              <option value="">Sin especificar</option>
-              {MATERIAS.map(m => <option key={m} value={m}>{m}</option>)}
-            </select>
-          </div>
-        </div>
-
+    <div className="space-y-6">
+      <header className="flex items-center justify-between gap-4 flex-wrap">
         <div>
-          <label className="mb-1.5 block text-sm text-gray-400">Concepto</label>
-          <input type="text" value={concepto} onChange={e => setConcepto(e.target.value)} className="input-dark" placeholder="Ej: Pago de honorarios, consulta, cuota..." />
+          <h1 className="text-2xl font-bold text-white">Ingresos Operativos</h1>
+          <p className="text-sm text-zinc-400 mt-1">Honorarios y consultas — entran a la cuenta del receptor.</p>
         </div>
-
-        <div className="rounded-xl border border-white/10 bg-white/[0.02] p-4 space-y-3">
-          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Desglose de montos</p>
-          <div className="grid grid-cols-3 gap-3">
-            <div>
-              <label className="mb-1.5 block text-sm text-gray-400">Monto total (bruto)</label>
-              <input type="number" value={montoTotal} onChange={e => setMontoTotal(e.target.value)} className="input-dark" min="0" placeholder="0" />
-            </div>
-            <div>
-              <label className="mb-1.5 block text-sm text-gray-400">Comision captadora</label>
-              <input type="number" value={comision} onChange={e => setComision(e.target.value)} className="input-dark" min="0" placeholder="0" />
-            </div>
-            <div>
-              <label className="mb-1.5 block text-sm text-gray-400">Neto CJ NOA</label>
-              <input type="number" value={montoCjNoa} onChange={e => setMontoCjNoa(e.target.value)} className="input-dark" min="0" placeholder={String(netoAutoCalc)} />
-              <p className="mt-1 text-[10px] text-gray-500">Autocalculado: bruto - comision</p>
-            </div>
-          </div>
-          {montoTotalNum > 0 && (
-            <div className="flex gap-4 text-xs text-gray-400 pt-1">
-              <span>Bruto: <span className="text-white font-semibold">{formatMoney(montoTotalNum)}</span></span>
-              <span>Comision: <span className="text-amber-300 font-semibold">{formatMoney(comisionNum)}</span></span>
-              <span>Neto: <span className="text-emerald-300 font-semibold">{formatMoney(netoFinal)}</span></span>
-            </div>
-          )}
-        </div>
-
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className="mb-1.5 block text-sm text-gray-400">Captadora / fuente</label>
-            <input type="text" value={captadora} onChange={e => setCaptadora(e.target.value)} className="input-dark" placeholder="Nombre de la captadora (opcional)" />
-          </div>
-          <div>
-            <label className="mb-1.5 block text-sm text-gray-400">Modalidad</label>
-            <select value={modalidad} onChange={e => setModalidad(e.target.value)} className="select-dark">
-              <option value="Efectivo">Efectivo</option>
-              <option value="Transferencia">Transferencia</option>
-            </select>
-          </div>
-        </div>
-
-        <div>
-          <label className="mb-1.5 block text-sm text-gray-400">Notas / observaciones</label>
-          <input type="text" value={notas} onChange={e => setNotas(e.target.value)} className="input-dark" placeholder="Detalle adicional (opcional)" />
-        </div>
-
-        <div className="flex gap-3 pt-2">
-          <button onClick={onClose} className="btn-secondary flex-1">Cancelar</button>
-          {isEditing && onDelete && editing && (
-            <button
-              onClick={() => onDelete(editing.id)}
-              className="btn-secondary flex items-center gap-2 text-red-400 border-red-500/30 hover:bg-red-500/10"
-            >
-              <Trash2 className="w-4 h-4" /> Eliminar
-            </button>
-          )}
-          <button onClick={handleSave} disabled={saving || montoTotalNum <= 0} className="btn-primary flex-1">
-            {saving ? 'Guardando...' : isEditing ? 'Guardar cambios' : 'Registrar ingreso'}
+        <div className="flex gap-2">
+          <button onClick={exportar} className="px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-sm text-white hover:bg-white/10 flex items-center gap-2">
+            <Download className="w-4 h-4" /> Excel
+          </button>
+          <button onClick={abrirNuevo} className="px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-sm text-white flex items-center gap-2">
+            <Plus className="w-4 h-4" /> Nuevo ingreso
           </button>
         </div>
+      </header>
+
+      {/* Métricas */}
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+        <MetricCard label="Total filtrado" value={formatMoney(totales.total)} highlight />
+        {SOCIOS_FINANZAS.map(s => (
+          <MetricCard key={s} label={s} value={formatMoney(totales.porSocio[s] || 0)} />
+        ))}
       </div>
-    </Modal>
+
+      {/* Filtros */}
+      <div className="bg-white/[0.02] border border-white/10 rounded-xl p-4 space-y-3">
+        <div className="flex items-center gap-2">
+          <Search className="w-4 h-4 text-zinc-400" />
+          <input
+            value={busqueda}
+            onChange={e => setBusqueda(e.target.value)}
+            placeholder="Buscar por cliente…"
+            className="flex-1 bg-transparent outline-none text-sm text-white placeholder:text-zinc-500"
+          />
+        </div>
+        <div className="grid grid-cols-2 md:grid-cols-6 gap-2">
+          <SelectFilter label="Doctor" value={filtroDoctor} onChange={v => setFiltroDoctor(v as SocioFinanzas | '')} options={SOCIOS_FINANZAS} />
+          <SelectFilter label="Rama" value={filtroRama} onChange={v => setFiltroRama(v as RamaLegal | '')} options={RAMAS} />
+          <SelectFilter label="Fuente" value={filtroFuente} onChange={v => setFiltroFuente(v as FuenteIngreso | '')} options={FUENTES} />
+          <SelectFilter label="Modalidad" value={filtroModalidad} onChange={v => setFiltroModalidad(v as ModalidadPago | '')} options={MODALIDADES} />
+          <DateFilter label="Desde" value={desde} onChange={setDesde} />
+          <DateFilter label="Hasta" value={hasta} onChange={setHasta} />
+        </div>
+      </div>
+
+      {/* Tabla */}
+      <div className="bg-white/[0.02] border border-white/10 rounded-xl overflow-hidden">
+        {loading ? (
+          <div className="p-8 text-center text-sm text-zinc-400">Cargando…</div>
+        ) : filtrados.length === 0 ? (
+          <div className="p-8 text-center text-sm text-zinc-400">No hay ingresos para mostrar.</div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-white/[0.03] text-xs uppercase text-zinc-400">
+                <tr>
+                  <th className="px-3 py-2 text-left">Fecha</th>
+                  <th className="px-3 py-2 text-left">Cliente</th>
+                  <th className="px-3 py-2 text-left">Tipo</th>
+                  <th className="px-3 py-2 text-right">Monto</th>
+                  <th className="px-3 py-2 text-left">Modalidad</th>
+                  <th className="px-3 py-2 text-left">Cobra</th>
+                  <th className="px-3 py-2 text-left">Recibe</th>
+                  <th className="px-3 py-2 text-left">Rama</th>
+                  <th className="px-3 py-2 text-left">Fuente</th>
+                  <th className="px-3 py-2 text-left">Concepto</th>
+                  <th className="px-3 py-2"></th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-white/5">
+                {filtrados.map((i: IngresoOperativo) => (
+                  <tr key={i.id} className="hover:bg-white/[0.02]">
+                    <td className="px-3 py-2 text-zinc-300 whitespace-nowrap">{i.fecha}</td>
+                    <td className="px-3 py-2 text-white">{i.cliente_nombre}</td>
+                    <td className="px-3 py-2 text-zinc-300">{i.tipo_cliente}</td>
+                    <td className="px-3 py-2 text-right text-white font-medium">{formatMoney(Number(i.monto))}</td>
+                    <td className="px-3 py-2 text-zinc-300">{i.modalidad}</td>
+                    <td className="px-3 py-2 text-zinc-300">{i.doctor_cobra}</td>
+                    <td className="px-3 py-2 text-zinc-300">{i.receptor_transfer || '—'}</td>
+                    <td className="px-3 py-2 text-zinc-300">{i.rama}</td>
+                    <td className="px-3 py-2 text-zinc-300">{i.fuente}</td>
+                    <td className="px-3 py-2 text-zinc-300">{i.concepto}</td>
+                    <td className="px-3 py-2 text-right">
+                      <button onClick={() => abrirEditar(i)} className="text-zinc-400 hover:text-white">
+                        <Pencil className="w-4 h-4" />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* Modal */}
+      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title={editId ? 'Editar ingreso' : 'Nuevo ingreso'}>
+        <div className="space-y-3">
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Fecha">
+              <input type="date" value={form.fecha} onChange={e => setForm({ ...form, fecha: e.target.value })} className={inputCls} />
+            </Field>
+            <Field label="Tipo cliente">
+              <select value={form.tipo_cliente} onChange={e => setForm({ ...form, tipo_cliente: e.target.value as TipoClienteIngreso })} className={inputCls}>
+                {TIPOS_CLIENTE.map(t => <option key={t} value={t}>{t}</option>)}
+              </select>
+            </Field>
+          </div>
+          <Field label="Cliente">
+            <input value={form.cliente_nombre} onChange={e => setForm({ ...form, cliente_nombre: e.target.value })} className={inputCls} placeholder="Nombre y apellido" />
+          </Field>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Monto">
+              <input type="number" value={form.monto} onChange={e => setForm({ ...form, monto: e.target.value })} className={inputCls} placeholder="0" />
+            </Field>
+            <Field label="Modalidad">
+              <select value={form.modalidad} onChange={e => setForm({ ...form, modalidad: e.target.value as ModalidadPago })} className={inputCls}>
+                {MODALIDADES.map(m => <option key={m} value={m}>{m}</option>)}
+              </select>
+            </Field>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Doctor que cobra">
+              <select value={form.doctor_cobra} onChange={e => setForm({ ...form, doctor_cobra: e.target.value as SocioFinanzas })} className={inputCls}>
+                {SOCIOS_FINANZAS.map(s => <option key={s} value={s}>{s}</option>)}
+              </select>
+            </Field>
+            <Field label="Recibe transferencia">
+              <select
+                value={form.receptor_transfer}
+                onChange={e => setForm({ ...form, receptor_transfer: e.target.value as SocioFinanzas | '' })}
+                disabled={form.modalidad === 'Efectivo'}
+                className={inputCls + (form.modalidad === 'Efectivo' ? ' opacity-40' : '')}
+              >
+                {SOCIOS_FINANZAS.map(s => <option key={s} value={s}>{s}</option>)}
+              </select>
+            </Field>
+          </div>
+          <div className="grid grid-cols-3 gap-3">
+            <Field label="Rama">
+              <select value={form.rama} onChange={e => setForm({ ...form, rama: e.target.value as RamaLegal })} className={inputCls}>
+                {RAMAS.map(r => <option key={r} value={r}>{r}</option>)}
+              </select>
+            </Field>
+            <Field label="Fuente">
+              <select value={form.fuente} onChange={e => setForm({ ...form, fuente: e.target.value as FuenteIngreso })} className={inputCls}>
+                {FUENTES.map(f => <option key={f} value={f}>{f}</option>)}
+              </select>
+            </Field>
+            <Field label="Concepto">
+              <select value={form.concepto} onChange={e => setForm({ ...form, concepto: e.target.value as ConceptoIngreso })} className={inputCls}>
+                {CONCEPTOS_INGRESO.map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
+            </Field>
+          </div>
+          <Field label="Observaciones">
+            <textarea value={form.observaciones} onChange={e => setForm({ ...form, observaciones: e.target.value })} className={inputCls} rows={2} />
+          </Field>
+          <div className="flex justify-end gap-2 pt-2">
+            <button onClick={() => setModalOpen(false)} className="px-3 py-2 rounded-lg bg-white/5 text-sm text-white">Cancelar</button>
+            <button onClick={guardar} disabled={saving} className="px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-sm text-white disabled:opacity-50">
+              {saving ? 'Guardando…' : editId ? 'Actualizar' : 'Registrar'}
+            </button>
+          </div>
+        </div>
+      </Modal>
+    </div>
+  );
+}
+
+const inputCls = 'w-full px-3 py-2 rounded-lg bg-black/40 border border-white/10 text-sm text-white outline-none focus:border-emerald-500';
+
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <label className="block">
+      <span className="block text-xs text-zinc-400 mb-1">{label}</span>
+      {children}
+    </label>
+  );
+}
+
+function MetricCard({ label, value, highlight }: { label: string; value: string; highlight?: boolean }) {
+  return (
+    <div className={`rounded-xl border p-4 ${highlight ? 'bg-emerald-500/10 border-emerald-500/30' : 'bg-white/[0.02] border-white/10'}`}>
+      <div className="text-xs text-zinc-400">{label}</div>
+      <div className={`text-lg font-semibold mt-1 ${highlight ? 'text-emerald-300' : 'text-white'}`}>{value}</div>
+    </div>
+  );
+}
+
+function SelectFilter({ label, value, onChange, options }: { label: string; value: string; onChange: (v: string) => void; options: readonly string[] }) {
+  return (
+    <label className="block">
+      <span className="block text-[10px] uppercase text-zinc-500 mb-1">{label}</span>
+      <select value={value} onChange={e => onChange(e.target.value)} className="w-full px-2 py-1.5 rounded-lg bg-black/40 border border-white/10 text-xs text-white">
+        <option value="">Todos</option>
+        {options.map(o => <option key={o} value={o}>{o}</option>)}
+      </select>
+    </label>
+  );
+}
+
+function DateFilter({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
+  return (
+    <label className="block">
+      <span className="block text-[10px] uppercase text-zinc-500 mb-1">{label}</span>
+      <input type="date" value={value} onChange={e => onChange(e.target.value)} className="w-full px-2 py-1.5 rounded-lg bg-black/40 border border-white/10 text-xs text-white" />
+    </label>
   );
 }
