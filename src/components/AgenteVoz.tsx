@@ -299,81 +299,90 @@ export default function AgenteVoz() {
     setTimeout(() => { iniciarGrabacion(); }, 1400);
   }, [perfil?.nombre]);
 
-  useEffect(() => {
-    if (!user || !wakeOn) {
-      // apagar si estaba prendido
-      wakeReiniciarRef.current = false;
-      try { wakeRecRef.current?.stop?.(); } catch { /* noop */ }
-      wakeRecRef.current = null;
-      setWakeActivo(false);
-      return;
-    }
+  // Crea una instancia fresca de SpeechRecognition y la arranca.
+  // Cada vez que termina (onend), se vuelve a crear una nueva si el agente está idle.
+  const arrancarWake = useCallback(() => {
+    if (!user || !wakeOn) return;
+    if (estadoRef.current !== 'idle') return;
     const SR: any = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (!SR) {
-      // Navegador sin Web Speech API (Firefox, algunos iOS) — silencioso
-      setWakeActivo(false);
-      return;
+    if (!SR) { setWakeActivo(false); return; }
+    // si ya hay uno corriendo, no duplicar
+    if (wakeRecRef.current) {
+      try { wakeRecRef.current.stop(); } catch { /* noop */ }
+      wakeRecRef.current = null;
     }
-    wakeReiniciarRef.current = true;
     const rec = new SR();
     rec.lang = 'es-AR';
     rec.continuous = true;
     rec.interimResults = true;
     rec.maxAlternatives = 3;
-
+    rec.onstart = () => setWakeActivo(true);
     rec.onresult = (ev: any) => {
-      // Sólo nos interesa detectar si en algún resultado (incluso interim) aparece la wake word
       for (let i = ev.resultIndex; i < ev.results.length; i++) {
         const r = ev.results[i];
         for (let j = 0; j < r.length; j++) {
           const txt = r[j].transcript || '';
           if (contieneWakeWord(txt)) {
-            // Detener y disparar; onend reinicia
             try { rec.stop(); } catch { /* noop */ }
+            wakeRecRef.current = null;
+            setWakeActivo(false);
             onWakeDetectado();
             return;
           }
         }
       }
     };
-    rec.onerror = (_ev: any) => {
-      // 'not-allowed' / 'service-not-allowed' / 'no-speech' — dejar que onend re-arranque
-    };
+    rec.onerror = () => { /* dejar que onend reintente */ };
     rec.onend = () => {
-      // Auto-reinicio mientras esté habilitado y el agente no esté grabando/procesando
-      if (!wakeReiniciarRef.current) { setWakeActivo(false); return; }
-      if (estadoRef.current !== 'idle') {
-        // se reanudará cuando vuelva a idle (efecto se vuelve a montar via wakeOn toggling no aplica;
-        // usamos un pequeño timer que reintenta)
-        setTimeout(() => {
-          if (wakeReiniciarRef.current && estadoRef.current === 'idle') {
-            try { rec.start(); setWakeActivo(true); } catch { /* noop */ }
-          }
-        }, 1200);
-        return;
-      }
-      try { rec.start(); setWakeActivo(true); } catch { /* noop */ }
+      setWakeActivo(false);
+      wakeRecRef.current = null;
+      // re-arrancar sólo si seguimos habilitados y el agente está idle
+      setTimeout(() => {
+        if (wakeReiniciarRef.current && estadoRef.current === 'idle') arrancarWake();
+      }, 600);
     };
-
     wakeRecRef.current = rec;
-    try { rec.start(); setWakeActivo(true); } catch { /* noop */ }
+    try { rec.start(); } catch { /* noop */ }
+  }, [user, wakeOn, onWakeDetectado]);
 
+  // Mount/unmount del wake según user y wakeOn
+  useEffect(() => {
+    if (!user || !wakeOn) {
+      wakeReiniciarRef.current = false;
+      try { wakeRecRef.current?.stop?.(); } catch { /* noop */ }
+      wakeRecRef.current = null;
+      setWakeActivo(false);
+      return;
+    }
+    wakeReiniciarRef.current = true;
+    arrancarWake();
     return () => {
       wakeReiniciarRef.current = false;
-      try { rec.stop(); } catch { /* noop */ }
+      try { wakeRecRef.current?.stop?.(); } catch { /* noop */ }
       wakeRecRef.current = null;
       setWakeActivo(false);
     };
-  }, [user, wakeOn, onWakeDetectado]);
+  }, [user, wakeOn, arrancarWake]);
 
-  // Cuando el agente termina (vuelve a idle), reanudar wake-word si quedó frenado
+  // Pausar wake mientras grabamos / procesamos / ejecutamos.
+  // Reanudar al volver a idle. Esto evita conflictos con el getUserMedia de la grabación.
   useEffect(() => {
-    if (estado !== 'idle') return;
-    if (!wakeOn || !wakeReiniciarRef.current) return;
-    if (wakeRecRef.current && !wakeActivo) {
-      try { wakeRecRef.current.start(); setWakeActivo(true); } catch { /* noop */ }
+    if (!wakeOn) return;
+    if (estado !== 'idle') {
+      // pausar
+      try { wakeRecRef.current?.stop?.(); } catch { /* noop */ }
+      wakeRecRef.current = null;
+      setWakeActivo(false);
+    } else {
+      // reanudar luego de un pequeño delay (para liberar mic y sintetizador)
+      const t = setTimeout(() => {
+        if (wakeReiniciarRef.current && estadoRef.current === 'idle' && !wakeRecRef.current) {
+          arrancarWake();
+        }
+      }, 800);
+      return () => clearTimeout(t);
     }
-  }, [estado, wakeOn, wakeActivo]);
+  }, [estado, wakeOn, arrancarWake]);
 
   function toggleWake() {
     setWakeOn(prev => {
@@ -383,25 +392,44 @@ export default function AgenteVoz() {
     });
   }
 
+  // Botón "reactivar CJ" — fuerza recreación de la wake recognition
+  function reactivarCJ() {
+    wakeReiniciarRef.current = true;
+    if (!wakeOn) {
+      setWakeOn(true);
+      try { localStorage.setItem(WAKE_PREF_KEY, '1'); } catch { /* noop */ }
+    }
+    arrancarWake();
+    showToast('CJ reactivado, te escucho', 'success');
+  }
+
   if (!user) return null;
 
   return (
     <>
       {/* Botón flotante CJ */}
       <div className="fixed bottom-5 right-5 z-[90] flex flex-col items-end gap-2">
-        {/* Toggle wake-word */}
+        {/* Toggle / reactivar wake-word */}
         <button
-          onClick={toggleWake}
-          title={wakeOn ? (wakeActivo ? 'Escuchando "CJ" — click para apagar' : 'Wake-word ON (sin soporte del navegador)') : 'Activar escucha de "CJ"'}
-          className={`w-9 h-9 rounded-full shadow-lg flex items-center justify-center border transition-all ${
+          onClick={() => {
+            if (wakeOn && wakeActivo) toggleWake(); // apagar
+            else reactivarCJ(); // prender o reanimar
+          }}
+          title={
+            wakeOn && wakeActivo ? 'Escuchando "CJ" — click para apagar'
+            : wakeOn ? 'CJ inactivo — click para reactivar'
+            : 'Activar escucha de "CJ"'
+          }
+          className={`px-2.5 h-9 rounded-full shadow-lg flex items-center gap-1.5 border transition-all text-[11px] font-bold ${
             wakeOn && wakeActivo
               ? 'bg-emerald-600/90 border-emerald-300 text-white animate-pulse'
               : wakeOn
-              ? 'bg-amber-600/80 border-amber-300 text-white'
+              ? 'bg-amber-600/90 border-amber-300 text-white'
               : 'bg-gray-700/80 border-gray-500 text-gray-300 hover:bg-gray-600'
           }`}
         >
-          {wakeOn ? <Ear className="w-4 h-4" /> : <EarOff className="w-4 h-4" />}
+          {wakeOn ? <Ear className="w-3.5 h-3.5" /> : <EarOff className="w-3.5 h-3.5" />}
+          {wakeOn && wakeActivo ? 'CJ ON' : wakeOn ? 'Reactivar CJ' : 'CJ OFF'}
         </button>
 
         {/* Botón principal */}
