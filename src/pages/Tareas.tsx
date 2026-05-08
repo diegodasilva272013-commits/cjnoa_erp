@@ -4,12 +4,14 @@ import {
   Plus, Search, ListTodo, Columns3, Calendar as CalendarIcon,
   Clock, CheckCircle, AlertTriangle, Trash2, User, X, Paperclip,
   Filter, Edit2, FileDown, Briefcase, FileText, ArrowRight, Eye,
-  ExternalLink,
+  ExternalLink, Users, ChevronUp, ChevronDown, GripVertical,
 } from 'lucide-react';
 import { useTareas, uploadTareaAdjunto, getTareaAdjuntoUrl } from '../hooks/useTareas';
+import { useTareaPasos, useTareasConPasos, TareaPaso } from '../hooks/useTareaPasos';
 import { useCases } from '../hooks/useCases';
 import { useCasosGenerales } from '../hooks/useCasosGenerales';
 import { useAuth } from '../context/AuthContext';
+import { useToast } from '../context/ToastContext';
 import { supabase } from '../lib/supabase';
 import { useAvatarUrl } from '../hooks/useAvatarUrl';
 import NotasFeedPanel from '../components/cases/NotasFeedPanel';
@@ -41,7 +43,8 @@ export default function Tareas() {
   const { casos: casosGenerales } = useCasosGenerales();
   const [perfiles, setPerfiles] = useState<PerfilLite[]>([]);
 
-  const [view, setView] = useState<'lista' | 'kanban' | 'calendario' | 'responsable'>('lista');
+  const [view, setView] = useState<'lista' | 'kanban' | 'calendario' | 'responsable' | 'compartidas'>('lista');
+  const { data: tareasConPasos } = useTareasConPasos();
   const [search, setSearch] = useState('');
   const [filterEstado, setFilterEstado] = useState<EstadoTareaGeneral | 'all'>('all');
   const [filterPrioridad, setFilterPrioridad] = useState<PrioridadTareaGeneral | 'all'>('all');
@@ -157,6 +160,7 @@ export default function Tareas() {
               { id: 'kanban', icon: Columns3, label: 'Kanban' },
               { id: 'calendario', icon: CalendarIcon, label: 'Calendario' },
               { id: 'responsable', icon: User, label: 'Responsable' },
+              { id: 'compartidas', icon: Users, label: 'Compartidas' },
             ].map(v => (
               <button key={v.id} onClick={() => setView(v.id as any)}
                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
@@ -210,9 +214,13 @@ export default function Tareas() {
         <KanbanView tareas={filtered} onOpen={t => { setSelected(t); setModalOpen(true); }} isVencida={isVencida} />
       ) : view === 'calendario' ? (
         <CalendarioView calendarMap={calendarMap} onOpen={t => { setSelected(t); setModalOpen(true); }} />
-      ) : (
+      ) : view === 'responsable' ? (
         <ResponsableView tareas={filtered} perfiles={perfiles}
           onOpen={t => { setSelected(t); setModalOpen(true); }} isVencida={isVencida} />
+      ) : (
+        <CompartidasView tareas={tareas} tareasConPasos={tareasConPasos}
+          currentUserId={user?.id || ''}
+          onOpen={t => { setSelected(t); setModalOpen(true); }} />
       )}
 
       {modalOpen && (
@@ -875,6 +883,16 @@ function TareaModal({ tarea, casos, casosGenerales, perfiles, onClose, onSave }:
             )}
           </div>
         </div>
+
+        {/* PASOS COMPARTIDOS */}
+        {form.id ? (
+          <PasosEditor tareaId={form.id} perfiles={perfiles} />
+        ) : (
+          <div className="rounded-xl border border-white/10 bg-white/[0.02] p-3 text-[11px] text-gray-500 flex items-center gap-2">
+            <Users className="w-3.5 h-3.5" />
+            Guardá la tarea primero para poder agregar pasos compartidos (varios responsables).
+          </div>
+        )}
         </div>{/* /body */}
 
         {/* Footer sticky */}
@@ -1180,3 +1198,288 @@ function Field({ label, value, mono, full, chip }: { label: string; value: any; 
     </div>
   );
 }
+
+// ============================================
+// PasosEditor — pasos compartidos dentro del modal de tarea
+// ============================================
+function PasosEditor({ tareaId, perfiles }: { tareaId: string; perfiles: PerfilLite[] }) {
+  const { user } = useAuth();
+  const { pasos, agregar, actualizar, eliminar, togglePaso, mover } = useTareaPasos(tareaId);
+  const [nuevoDesc, setNuevoDesc] = useState('');
+  const [nuevoResp, setNuevoResp] = useState('');
+
+  const total = pasos.length;
+  const hechos = pasos.filter(p => p.completado).length;
+
+  const onAgregar = async () => {
+    if (!nuevoDesc.trim()) return;
+    const ok = await agregar(nuevoDesc, nuevoResp || null);
+    if (ok) { setNuevoDesc(''); setNuevoResp(''); }
+  };
+
+  return (
+    <div className="rounded-2xl border border-violet-500/20 bg-violet-500/[0.04] p-3 space-y-3">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Users className="w-4 h-4 text-violet-300" />
+          <span className="text-[11px] uppercase tracking-widest font-semibold text-violet-300">
+            Pasos compartidos
+          </span>
+        </div>
+        {total > 0 && (
+          <span className="text-[10px] text-gray-400">
+            {hechos}/{total} completados
+          </span>
+        )}
+      </div>
+
+      <p className="text-[11px] text-gray-500 -mt-1">
+        Dividí la tarea en pasos. Asignale cada paso a alguien. Cuando todos estén completos,
+        la tarea se marca como completada automáticamente. Al terminar tu paso se notifica al siguiente.
+      </p>
+
+      {/* Lista */}
+      <div className="space-y-1.5">
+        {pasos.map((p, i) => (
+          <div key={p.id} className={`flex items-start gap-2 p-2 rounded-lg border ${
+            p.completado ? 'bg-emerald-500/[0.06] border-emerald-500/20' : 'bg-white/[0.03] border-white/[0.06]'
+          }`}>
+            {/* Reorder */}
+            <div className="flex flex-col -gap-1 pt-0.5">
+              <button type="button" onClick={() => mover(p, 'up')} disabled={i === 0}
+                className="text-gray-600 hover:text-white disabled:opacity-20 disabled:cursor-not-allowed">
+                <ChevronUp className="w-3 h-3" />
+              </button>
+              <button type="button" onClick={() => mover(p, 'down')} disabled={i === pasos.length - 1}
+                className="text-gray-600 hover:text-white disabled:opacity-20 disabled:cursor-not-allowed">
+                <ChevronDown className="w-3 h-3" />
+              </button>
+            </div>
+
+            {/* Orden */}
+            <span className="text-[10px] font-mono text-violet-400 mt-1.5 w-4 text-center flex-shrink-0">
+              {p.orden}
+            </span>
+
+            {/* Check */}
+            <button type="button" onClick={() => togglePaso(p, user?.id || '')}
+              className={`mt-1 w-4 h-4 rounded border-2 flex items-center justify-center flex-shrink-0 ${
+                p.completado ? 'bg-emerald-500/30 border-emerald-500' : 'border-gray-600 hover:border-emerald-400'
+              }`}>
+              {p.completado && <CheckCircle className="w-3 h-3 text-emerald-300" />}
+            </button>
+
+            {/* Contenido */}
+            <div className="flex-1 min-w-0 space-y-1">
+              <input
+                value={p.descripcion}
+                onChange={e => actualizar(p.id, { descripcion: e.target.value })}
+                className={`input-dark text-xs py-1 ${p.completado ? 'line-through text-gray-500' : ''}`}
+                placeholder="Qué hay que hacer en este paso"
+              />
+              <div className="flex items-center gap-2">
+                <select
+                  value={p.responsable_id || ''}
+                  onChange={e => actualizar(p.id, { responsable_id: e.target.value || null })}
+                  className="select-dark text-[10px] py-0.5 flex-1"
+                >
+                  <option value="">— Sin asignar —</option>
+                  {perfiles.map(pp => (
+                    <option key={pp.id} value={pp.id}>{pp.nombre}</option>
+                  ))}
+                </select>
+                {p.completado && p.completado_por_nombre && (
+                  <span className="text-[9px] text-emerald-400 whitespace-nowrap">
+                    ✓ {p.completado_por_nombre} · {p.completado_at && new Date(p.completado_at).toLocaleDateString('es-AR')}
+                  </span>
+                )}
+                <button type="button" onClick={() => eliminar(p.id)}
+                  className="text-gray-600 hover:text-red-400 p-0.5">
+                  <Trash2 className="w-3 h-3" />
+                </button>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Nuevo paso */}
+      <div className="flex flex-col sm:flex-row gap-2 pt-2 border-t border-white/[0.05]">
+        <input
+          value={nuevoDesc}
+          onChange={e => setNuevoDesc(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); onAgregar(); } }}
+          className="input-dark text-xs flex-1"
+          placeholder="Descripción del nuevo paso (ej: Procurador retira oficio)"
+        />
+        <select
+          value={nuevoResp}
+          onChange={e => setNuevoResp(e.target.value)}
+          className="select-dark text-xs sm:w-44"
+        >
+          <option value="">— Responsable —</option>
+          {perfiles.map(p => <option key={p.id} value={p.id}>{p.nombre}</option>)}
+        </select>
+        <button type="button" onClick={onAgregar} disabled={!nuevoDesc.trim()}
+          className="btn-primary text-xs px-3 py-1.5 flex items-center gap-1 disabled:opacity-40 disabled:cursor-not-allowed">
+          <Plus className="w-3 h-3" /> Agregar
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ============================================
+// CompartidasView — vista global de tareas con pasos compartidos
+// ============================================
+function CompartidasView({ tareas, tareasConPasos, currentUserId, onOpen }: {
+  tareas: TareaCompleta[];
+  tareasConPasos: { tarea_id: string; pasos: TareaPaso[] }[];
+  currentUserId: string;
+  onOpen: (t: TareaCompleta) => void;
+}) {
+  const { user } = useAuth();
+  const { showToast } = useToast();
+  const [filter, setFilter] = useState<'todas' | 'mias' | 'pendientes'>('todas');
+
+  const items = useMemo(() => {
+    return tareasConPasos
+      .map(tp => {
+        const tarea = tareas.find(t => t.id === tp.tarea_id);
+        return tarea ? { tarea, pasos: tp.pasos } : null;
+      })
+      .filter((x): x is { tarea: TareaCompleta; pasos: TareaPaso[] } => !!x)
+      .filter(({ pasos }) => {
+        if (filter === 'mias') return pasos.some(p => p.responsable_id === currentUserId);
+        if (filter === 'pendientes') return pasos.some(p => !p.completado);
+        return true;
+      })
+      .sort((a, b) => {
+        // pendientes primero
+        const ap = a.pasos.every(p => p.completado) ? 1 : 0;
+        const bp = b.pasos.every(p => p.completado) ? 1 : 0;
+        if (ap !== bp) return ap - bp;
+        return (b.tarea.created_at || '').localeCompare(a.tarea.created_at || '');
+      });
+  }, [tareasConPasos, tareas, filter, currentUserId]);
+
+  const togglePasoQuick = async (paso: TareaPaso) => {
+    const next = !paso.completado;
+    const { error } = await supabase.from('tarea_pasos').update({
+      completado: next,
+      completado_at: next ? new Date().toISOString() : null,
+      completado_por: next ? (user?.id || null) : null,
+    }).eq('id', paso.id);
+    if (error) showToast('Error: ' + error.message, 'error');
+    else showToast(next ? 'Paso completado' : 'Paso reabierto', 'success');
+  };
+
+  if (items.length === 0) {
+    return (
+      <div className="glass-card p-12 text-center">
+        <Users className="w-10 h-10 text-gray-700 mx-auto mb-3" />
+        <p className="text-sm text-gray-500">No hay tareas con pasos compartidos.</p>
+        <p className="text-[11px] text-gray-600 mt-1">
+          Abrí una tarea, guardala y agregale pasos para asignar partes a distintos responsables.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center gap-2 flex-wrap">
+        {([
+          { id: 'todas', label: 'Todas' },
+          { id: 'mias', label: 'Con mi participación' },
+          { id: 'pendientes', label: 'Con pasos pendientes' },
+        ] as const).map(f => (
+          <button key={f.id} onClick={() => setFilter(f.id)}
+            className={`text-xs px-3 py-1.5 rounded-xl border transition-colors ${
+              filter === f.id
+                ? 'bg-violet-500/20 border-violet-500/40 text-violet-200'
+                : 'border-white/10 text-gray-500 hover:text-white'
+            }`}>
+            {f.label}
+          </button>
+        ))}
+      </div>
+
+      {items.map(({ tarea, pasos }) => {
+        const total = pasos.length;
+        const hechos = pasos.filter(p => p.completado).length;
+        const pct = total > 0 ? Math.round((hechos / total) * 100) : 0;
+        const completa = total > 0 && hechos === total;
+        const siguiente = pasos.find(p => !p.completado);
+
+        return (
+          <div key={tarea.id} className={`glass-card p-4 ${completa ? 'opacity-70' : ''}`}>
+            <div className="flex items-start justify-between gap-3 mb-2">
+              <button onClick={() => onOpen(tarea)} className="text-left min-w-0 flex-1 group">
+                <h4 className={`text-sm font-semibold truncate ${completa ? 'text-gray-400 line-through' : 'text-white group-hover:text-violet-200'}`}>
+                  {tarea.titulo}
+                </h4>
+                {(tarea.caso_general_titulo || tarea.cliente_nombre) && (
+                  <p className="text-[10px] text-gray-500 truncate flex items-center gap-1 mt-0.5">
+                    {tarea.caso_general_titulo
+                      ? <><Briefcase className="w-2.5 h-2.5 text-violet-400" /> <span className="text-violet-300">{tarea.caso_general_titulo}</span></>
+                      : <><FileText className="w-2.5 h-2.5 text-emerald-400" /> <span className="text-emerald-300">{tarea.cliente_nombre}</span></>}
+                  </p>
+                )}
+              </button>
+              <div className="text-right flex-shrink-0">
+                <div className="text-[10px] text-gray-500">{hechos}/{total}</div>
+                <div className="w-20 h-1.5 bg-white/5 rounded-full overflow-hidden mt-1">
+                  <div className={`h-full transition-all ${completa ? 'bg-emerald-500' : 'bg-violet-500'}`}
+                    style={{ width: `${pct}%` }} />
+                </div>
+              </div>
+            </div>
+
+            {!completa && siguiente && (
+              <div className="text-[10px] text-violet-300 flex items-center gap-1 mb-2">
+                <ArrowRight className="w-3 h-3" />
+                Siguiente: <span className="font-semibold">{siguiente.descripcion}</span>
+                {siguiente.responsable_nombre && <span className="text-gray-500">· {siguiente.responsable_nombre}</span>}
+              </div>
+            )}
+
+            <div className="space-y-1">
+              {pasos.map(p => {
+                const esMio = p.responsable_id === currentUserId;
+                return (
+                  <div key={p.id}
+                    className={`flex items-center gap-2 px-2 py-1.5 rounded-lg ${
+                      p.completado ? 'bg-emerald-500/[0.05]' : esMio ? 'bg-violet-500/[0.08] border border-violet-500/20' : 'bg-white/[0.02]'
+                    }`}>
+                    <button type="button" onClick={() => togglePasoQuick(p)}
+                      className={`w-4 h-4 rounded border-2 flex items-center justify-center flex-shrink-0 ${
+                        p.completado ? 'bg-emerald-500/30 border-emerald-500' : 'border-gray-600 hover:border-emerald-400'
+                      }`}>
+                      {p.completado && <CheckCircle className="w-3 h-3 text-emerald-300" />}
+                    </button>
+                    <span className="text-[10px] font-mono text-gray-600 w-3">{p.orden}</span>
+                    <span className={`text-xs flex-1 min-w-0 truncate ${p.completado ? 'text-gray-500 line-through' : 'text-white'}`}>
+                      {p.descripcion}
+                    </span>
+                    {p.responsable_nombre && (
+                      <span className="flex items-center gap-1 text-[10px] text-gray-400 flex-shrink-0">
+                        <MiniAvatar path={p.responsable_avatar} nombre={p.responsable_nombre} size={16} />
+                        <span className={esMio ? 'text-violet-200 font-semibold' : ''}>
+                          {esMio ? 'Vos' : p.responsable_nombre}
+                        </span>
+                      </span>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// (fin)
+
