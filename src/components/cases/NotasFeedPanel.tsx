@@ -2,7 +2,7 @@ import { useState, useMemo, useRef, useEffect } from 'react';
 import {
   MessageSquare, Send, Clock, User as UserIcon, Trash2, CheckCircle2,
   ListTodo, Calendar, Eye, ChevronDown, AlertCircle, Mic, MicOff, Square,
-  Gavel, X as XIcon, MapPin,
+  Gavel, X as XIcon, MapPin, Users, Plus,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
@@ -191,6 +191,7 @@ export default function NotasFeedPanel({ casoId }: { casoId: string }) {
   const [cargoHora, setCargoHora] = useState('');
   const [cargoHoraFavor, setCargoHoraFavor] = useState('');
   const [cargoHoraFavorFecha, setCargoHoraFavorFecha] = useState('');
+  const [pasos, setPasos] = useState<{ descripcion: string; responsable_id: string }[]>([]);
   const [enviando, setEnviando] = useState(false);
 
   // Modal: Agendar audiencia
@@ -356,6 +357,7 @@ export default function NotasFeedPanel({ casoId }: { casoId: string }) {
         cargoHoraFavor: cargoHoraFavor || undefined,
         cargoHoraFavorFecha: cargoHoraFavorFecha || null,
         audioBlob,
+        pasos: pasos.map(p => ({ descripcion: p.descripcion, responsable_id: p.responsable_id || null })),
       });
       ok = res.ok; errMsg = res.error;
     } else {
@@ -366,6 +368,7 @@ export default function NotasFeedPanel({ casoId }: { casoId: string }) {
       setResponsableId(''); setFechaLimite(''); setCargoHora('');
       setCargoHoraFavor(''); setCargoHoraFavorFecha('');
       setPrioridad('sin_prioridad'); setConTarea(false);
+      setPasos([]);
       descartarAudio();
       showToast(conTarea ? 'Nota + tarea creadas' : 'Nota agregada', 'success');
     } else {
@@ -555,6 +558,55 @@ export default function NotasFeedPanel({ casoId }: { casoId: string }) {
                 Aviso automático: el día que llegue esa fecha el sistema avisará que hay que <b>presentar el escrito</b> porque venció el plazo de la contraparte.
               </p>
             )}
+
+            {/* Pasos compartidos */}
+            <div className="rounded-xl border border-violet-500/20 bg-violet-500/[0.04] p-2.5 space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] uppercase tracking-widest font-semibold text-violet-300 flex items-center gap-1.5">
+                  <Users className="w-3 h-3" /> Pasos compartidos (opcional)
+                </span>
+                <button type="button"
+                  onClick={() => setPasos(p => [...p, { descripcion: '', responsable_id: '' }])}
+                  className="text-[10px] text-violet-200 hover:text-white flex items-center gap-1 px-2 py-0.5 rounded-md bg-violet-500/15 border border-violet-500/30">
+                  <Plus className="w-3 h-3" /> Agregar paso
+                </button>
+              </div>
+              {pasos.length === 0 ? (
+                <p className="text-[10px] text-gray-500 italic">
+                  Si la tarea la hacen entre varios (ej: procurador retira, secretaria carga), agregá un paso por cada uno. El orden se respeta y al terminar uno se notifica al siguiente.
+                </p>
+              ) : (
+                <div className="space-y-1.5">
+                  {pasos.map((p, idx) => (
+                    <div key={idx} className="flex items-center gap-1.5">
+                      <span className="text-[10px] font-mono text-violet-400 w-4 text-center">{idx + 1}</span>
+                      <input
+                        value={p.descripcion}
+                        onChange={e => setPasos(arr => arr.map((x, i) => i === idx ? { ...x, descripcion: e.target.value } : x))}
+                        placeholder="Qué hace este paso"
+                        className="flex-1 bg-white/5 border border-white/10 rounded-lg px-2 py-1.5 text-xs text-white placeholder-gray-600 focus:outline-none focus:border-violet-500/50"
+                      />
+                      <select
+                        value={p.responsable_id}
+                        onChange={e => setPasos(arr => arr.map((x, i) => i === idx ? { ...x, responsable_id: e.target.value } : x))}
+                        className="bg-white/5 border border-white/10 rounded-lg px-1.5 py-1.5 text-[10px] text-white w-32 focus:outline-none focus:border-violet-500/50"
+                      >
+                        <option value="">Responsable…</option>
+                        {responsablesOptions.map(pp => (
+                          <option key={pp.id} value={pp.id}>{pp.nombre}</option>
+                        ))}
+                      </select>
+                      <button type="button"
+                        onClick={() => setPasos(arr => arr.filter((_, i) => i !== idx))}
+                        className="text-gray-600 hover:text-red-400 p-1">
+                        <Trash2 className="w-3 h-3" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
             {!responsableId && (
               <p className="text-[10px] text-amber-400/80 flex items-center gap-1">
                 <AlertCircle className="w-3 h-3" /> Elegí un responsable para crear la tarea

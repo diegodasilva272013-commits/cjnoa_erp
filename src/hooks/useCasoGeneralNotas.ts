@@ -123,6 +123,7 @@ export function useCasoGeneralNotas(casoId: string | null) {
     cargoHoraFavor?: string;
     cargoHoraFavorFecha?: string | null;
     audioBlob?: Blob | null;
+    pasos?: { descripcion: string; responsable_id: string | null }[];
   }): Promise<{ ok: boolean; error?: string }> {
     if (!casoId) return { ok: false, error: 'casoId vacío' };
     let audio_path: string | null = null;
@@ -153,6 +154,21 @@ export function useCasoGeneralNotas(casoId: string | null) {
     if (errTarea || !tareaIns) {
       console.error('[tareas insert]', errTarea);
       return { ok: false, error: errTarea?.message || 'No se pudo crear la tarea' };
+    }
+    // 1.b) si hay pasos, los insertamos en tarea_pasos
+    const pasosValidos = (params.pasos || []).filter(p => p.descripcion.trim());
+    if (pasosValidos.length > 0) {
+      const rows = pasosValidos.map((p, i) => ({
+        tarea_id: tareaIns.id,
+        orden: i + 1,
+        descripcion: p.descripcion.trim(),
+        responsable_id: p.responsable_id || null,
+      }));
+      const { error: errPasos } = await supabase.from('tarea_pasos').insert(rows);
+      if (errPasos) {
+        console.error('[tarea_pasos insert]', errPasos);
+        // no abortamos: la tarea ya existe; avisamos pero seguimos creando la nota
+      }
     }
     // 2) crear nota apuntando a la tarea
     const { error: errNota } = await supabase.from('caso_general_notas')
