@@ -6,7 +6,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const apiKey = process.env.api_openai || process.env.OPENAI_API_KEY;
   if (!apiKey) return res.status(500).json({ error: 'api_openai no configurada' });
 
-  const { tipo, datos } = req.body as { tipo: 'analizar_caso' | 'analizar_previsional' | 'calcular_score' | 'resumen_caso'; datos: Record<string, unknown> };
+  const { tipo, datos } = req.body as { tipo: 'analizar_caso' | 'analizar_previsional' | 'calcular_score' | 'resumen_caso' | 'reporte_tarea_finalizada'; datos: Record<string, unknown> };
 
   let prompt = '';
 
@@ -93,6 +93,28 @@ Respondé en español argentino, formato JSON con claves:
   "proximos_pasos": ["acción 1", "acción 2"],
   "alertas": ["alerta 1 si la hay", ...]
 }`;
+  } else if (tipo === 'reporte_tarea_finalizada') {
+    prompt = `Sos un asistente legal argentino. Una tarea compartida del estudio acaba de finalizarse y necesito que generes un análisis ejecutivo profesional para dejar constancia en el seguimiento del caso.
+
+Datos de la tarea:
+- Título: ${datos.titulo}
+- Descripción: ${datos.descripcion || 'sin descripción'}
+- Caso/Cliente: ${datos.caso_titulo || 'sin caso'}
+- Duración total (minutos): ${datos.duracion_min}
+- Cantidad de pasos: ${datos.total_pasos}
+
+Pasos ejecutados (en orden):
+${JSON.stringify(datos.pasos || [], null, 2)}
+
+Generá un análisis claro, profesional y útil para que cualquier abogado del estudio entienda QUÉ se hizo, CÓMO se ejecutó, y QUÉ queda pendiente o como sugerencia.
+
+Respondé en español argentino, formato JSON con claves:
+{
+  "resumen": "1-2 oraciones que resuman qué se logró con esta tarea",
+  "analisis": "2-4 oraciones de análisis: cómo se distribuyó el trabajo, tiempos, calidad de la ejecución",
+  "proximos_pasos": ["sugerencia concreta 1", "sugerencia 2", "sugerencia 3"],
+  "observaciones": ["observación relevante 1", "observación 2"]
+}`;
   }
 
   if (!prompt) return res.status(400).json({ error: 'Tipo no válido' });
@@ -132,11 +154,13 @@ Respondé en español argentino, formato JSON con claves:
     const safe: Record<string, unknown> = {};
     if (parsed.resumen !== undefined)        safe.resumen        = toStr(parsed.resumen);
     if (parsed.justificacion !== undefined)  safe.justificacion  = toStr(parsed.justificacion);
+    if (parsed.analisis !== undefined)       safe.analisis       = toStr(parsed.analisis);
     if (parsed.score !== undefined)          safe.score          = typeof parsed.score === 'number' ? parsed.score : undefined;
     if (parsed.proximos_pasos !== undefined) safe.proximos_pasos = toStrArr(parsed.proximos_pasos) ?? [];
     if (parsed.riesgos !== undefined)        safe.riesgos        = toStrArr(parsed.riesgos) ?? [];
     if (parsed.ultimos_avances !== undefined) safe.ultimos_avances = toStrArr(parsed.ultimos_avances) ?? [];
     if (parsed.alertas !== undefined)        safe.alertas        = toStrArr(parsed.alertas) ?? [];
+    if (parsed.observaciones !== undefined)  safe.observaciones  = toStrArr(parsed.observaciones) ?? [];
 
     return res.status(200).json(safe);
   } catch (err: any) {
