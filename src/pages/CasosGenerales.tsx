@@ -26,6 +26,8 @@ const ESTADOS_ORDERED = [
   'complicacion judicial/analisis',
   'suspendido por falta de directivas',
   'suspendido por falta de pago',
+  'seguimiento',
+  'archivo',
 ] as const;
 type EstadoCaso = typeof ESTADOS_ORDERED[number];
 
@@ -37,6 +39,8 @@ const ESTADO_LABELS: Record<string, string> = {
   'complicacion judicial/analisis':      'En análisis',
   'suspendido por falta de directivas':  'Sin directivas',
   'suspendido por falta de pago':        'Sin pago',
+  'seguimiento':                         'Seguimiento',
+  'archivo':                             'Archivo',
 };
 
 // "bg-X/10 text-X border-X/20" — matches FichasList PIPELINE_COLORS pattern
@@ -48,6 +52,8 @@ const ESTADO_COLORS: Record<string, string> = {
   'complicacion judicial/analisis':      'bg-orange-500/10 text-orange-400 border-orange-500/20',
   'suspendido por falta de directivas':  'bg-gray-500/10 text-gray-400 border-gray-500/20',
   'suspendido por falta de pago':        'bg-red-500/10 text-red-400 border-red-500/20',
+  'seguimiento':                         'bg-purple-500/10 text-purple-400 border-purple-500/20',
+  'archivo':                             'bg-zinc-700/10 text-zinc-400 border-zinc-500/20',
 };
 
 const ESTADO_DOT: Record<string, string> = {
@@ -58,6 +64,8 @@ const ESTADO_DOT: Record<string, string> = {
   'complicacion judicial/analisis':      'bg-orange-500',
   'suspendido por falta de directivas':  'bg-gray-500',
   'suspendido por falta de pago':        'bg-red-500',
+  'seguimiento':                         'bg-purple-500',
+  'archivo':                             'bg-zinc-500',
 };
 
 const KANBAN_BORDER: Record<string, string> = {
@@ -68,6 +76,8 @@ const KANBAN_BORDER: Record<string, string> = {
   'complicacion judicial/analisis':      'border-t-orange-500',
   'suspendido por falta de directivas':  'border-t-gray-500',
   'suspendido por falta de pago':        'border-t-red-500',
+  'seguimiento':                         'border-t-purple-500',
+  'archivo':                             'border-t-zinc-500',
   'archivado':                           'border-t-zinc-600',
 };
 
@@ -79,6 +89,8 @@ const KANBAN_BADGE: Record<string, string> = {
   'complicacion judicial/analisis':      'bg-orange-500/10 text-orange-400',
   'suspendido por falta de directivas':  'bg-gray-500/10 text-gray-400',
   'suspendido por falta de pago':        'bg-red-500/10 text-red-400',
+  'seguimiento':                         'bg-purple-500/10 text-purple-400',
+  'archivo':                             'bg-zinc-700/20 text-zinc-400',
   'archivado':                           'bg-zinc-700/40 text-zinc-300',
 };
 
@@ -371,8 +383,12 @@ function CaseDetailModal({ caso: initial, onClose, onSaved }: {
               )}
               {!isNew && (
                 <button onClick={() => setEditMode(m => !m)}
-                  className={`px-2.5 py-1 rounded-lg text-[11px] font-medium transition-colors ${editMode ? 'bg-violet-500/20 text-violet-300' : 'bg-white/5 text-gray-400 hover:text-white'}`}>
-                  {editMode ? 'Ver' : 'Editar'}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors border ${
+                    editMode
+                      ? 'bg-violet-500/20 border-violet-500/40 text-violet-200 hover:bg-violet-500/30'
+                      : 'bg-white/10 border-white/20 text-white hover:bg-white/15'
+                  }`}>
+                  {editMode ? '← Ver' : '✏️ Editar'}
                 </button>
               )}
               <button onClick={onClose}
@@ -429,14 +445,23 @@ function CaseDetailModal({ caso: initial, onClose, onSaved }: {
                 <label className="text-[10px] text-gray-500 uppercase tracking-widest block mb-1">Radicado / Tribunal</label>
                 <input className={inp} value={editing.radicado ?? ''} onChange={e => set('radicado', e.target.value || null)}/>
               </div>
-              <div>
-                <label className="text-[10px] text-gray-500 uppercase tracking-widest block mb-1">URL Drive</label>
-                <input className={inp} value={editing.url_drive ?? ''} onChange={e => set('url_drive', e.target.value || null)} placeholder="https://drive.google.com/..."/>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-[10px] text-gray-500 uppercase tracking-widest block mb-1">Teléfono del cliente</label>
+                  <input className={inp} type="tel" value={editing.telefono ?? ''}
+                    onChange={e => set('telefono', e.target.value || null)}
+                    placeholder="Ej: 388-4001234"/>
+                </div>
+                <div>
+                  <label className="text-[10px] text-gray-500 uppercase tracking-widest block mb-1">URL Drive</label>
+                  <input className={inp} value={editing.url_drive ?? ''} onChange={e => set('url_drive', e.target.value || null)} placeholder="https://drive.google.com/..."/>
+                </div>
               </div>
               <div>
-                <label className="text-[10px] text-gray-500 uppercase tracking-widest block mb-1">Notas / Actualizaciones</label>
-                <textarea className={`${inp} resize-none`} rows={3}
-                  value={editing.actualizacion ?? ''} onChange={e => set('actualizacion', e.target.value || null)}/>
+                <label className="text-[10px] text-gray-500 uppercase tracking-widest block mb-1">Descripción del caso</label>
+                <textarea className={`${inp} resize-none`} rows={4}
+                  value={editing.actualizacion ?? ''} onChange={e => set('actualizacion', e.target.value || null)}
+                  placeholder="Descripción del caso, antecedentes, observaciones..."/>
               </div>
               <div className="flex gap-6">
                 {(['prioridad','archivado'] as const).map(k => (
@@ -481,13 +506,25 @@ function CaseDetailModal({ caso: initial, onClose, onSaved }: {
                   <p className="text-sm text-white">{editing.radicado}</p>
                 </div>
               )}
+              {editing.telefono && (
+                <div className="bg-white/[0.025] rounded-xl p-3 border border-white/[0.05]">
+                  <p className="text-[10px] text-gray-500 uppercase tracking-widest mb-1">Teléfono del cliente</p>
+                  <a href={`tel:${editing.telefono}`} className="text-sm text-emerald-400 hover:underline">{editing.telefono}</a>
+                </div>
+              )}
               {editing.url_drive && (
                 <a href={editing.url_drive} target="_blank" rel="noopener noreferrer"
                   className="flex items-center gap-2 px-4 py-3 rounded-xl bg-blue-500/10 border border-blue-500/20 text-blue-300 text-sm hover:bg-blue-500/20 transition-colors">
                   <ExternalLink className="w-4 h-4 shrink-0"/>Abrir carpeta en Drive
                 </a>
               )}
-              {/* Escrito subido + acceso al Poder Judicial */}
+              {/* Descripción del caso — siempre visible en modo ver */}
+              {editing.actualizacion && (
+                <div className="bg-white/[0.025] rounded-xl p-3 border border-white/[0.05]">
+                  <p className="text-[10px] text-gray-500 uppercase tracking-widest mb-2">Descripción del caso</p>
+                  <p className="text-sm text-gray-300 whitespace-pre-wrap leading-relaxed">{editing.actualizacion}</p>
+                </div>
+              )}
               <EscritoPanel
                 editing={editing}
                 onToggle={async (val) => {
@@ -520,19 +557,7 @@ function CaseDetailModal({ caso: initial, onClose, onSaved }: {
                   <NotasFeedPanel casoId={editing.id} />
                 </div>
               )}
-              {/* Histórico importado de Notion (colapsable) */}
-              {editing.actualizacion && (
-                <details className="bg-white/[0.025] rounded-xl border border-white/[0.05] group">
-                  <summary className="cursor-pointer px-3 py-2 flex items-center justify-between hover:bg-white/[0.03] rounded-xl">
-                    <p className="text-[10px] text-gray-500 uppercase tracking-widest">Histórico (importado de Notion)</p>
-                    <span className="text-[10px] text-gray-600 group-open:hidden">Ver ▾</span>
-                    <span className="text-[10px] text-gray-600 hidden group-open:inline">Ocultar ▴</span>
-                  </summary>
-                  <div className="p-3 pt-0 border-t border-white/[0.04]">
-                    <p className="text-sm text-gray-400 whitespace-pre-wrap leading-relaxed">{editing.actualizacion}</p>
-                  </div>
-                </details>
-              )}
+
             </div>
           )}
 

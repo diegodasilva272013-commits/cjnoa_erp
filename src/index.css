@@ -31,11 +31,29 @@
     overflow-x: hidden;
     -webkit-tap-highlight-color: transparent;
     -webkit-text-size-adjust: 100%;
+    /* Enable momentum scrolling on iOS */
+    -webkit-overflow-scrolling: touch;
   }
 
   /* Safe areas for notched phones */
   html {
     padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  }
+
+  /* Prevent iOS from zooming into inputs (requires font-size >= 16px) */
+  input, textarea, select {
+    font-size: 16px !important;
+  }
+
+  /* Ensure scrollable containers work on iOS */
+  .overflow-y-auto, .overflow-x-auto, .overflow-auto {
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* Minimum touch target size for iOS (44×44pt recommended by Apple HIG) */
+  button, a, [role="button"] {
+    min-height: 44px;
+    min-width: 44px;
   }
 
   input[type="number"]::-webkit-inner-spin-button,

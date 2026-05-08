@@ -9,6 +9,7 @@ export interface CasoGeneral {
   tipo_caso: string | null;
   abogado: string | null;
   personeria: string | null;
+  telefono: string | null;
   radicado: string | null;
   url_drive: string | null;
   actualizacion: string | null;
@@ -36,6 +37,8 @@ export const ESTADOS_CASO_GENERAL = [
   'complicacion judicial/analisis',
   'suspendido por falta de directivas',
   'suspendido por falta de pago',
+  'seguimiento',
+  'archivo',
 ] as const;
 
 export const TIPOS_CASO = [
