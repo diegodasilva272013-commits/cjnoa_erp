@@ -959,8 +959,8 @@ export default function Calendario() {
             </div>
 
             {!conectado && (
-              <div className="text-xs px-3 py-2 rounded-md bg-amber-500/10 text-amber-200 border border-amber-500/30">
-                Necesitás conectar Google Calendar para crear eventos.
+              <div className="text-xs px-3 py-2 rounded-md bg-blue-500/10 text-blue-200 border border-blue-500/30">
+                Se va a guardar solo en el sistema interno. Si conectás Google Calendar también se sincroniza ahí.
               </div>
             )}
 
@@ -1037,10 +1037,10 @@ export default function Calendario() {
                 className="px-3 py-2 text-xs rounded-md bg-white/5 hover:bg-white/10 text-gray-300 border border-white/10">
                 Cancelar
               </button>
-              <button onClick={guardarNuevoEvento} disabled={nuevoEvento.guardando || !conectado}
+              <button onClick={guardarNuevoEvento} disabled={nuevoEvento.guardando}
                 className="px-3 py-2 text-xs rounded-md bg-emerald-500 hover:bg-emerald-400 text-black font-medium disabled:opacity-50 flex items-center gap-1.5">
                 {nuevoEvento.guardando && <RefreshCw className="w-3 h-3 animate-spin" />}
-                Crear en Google Calendar
+                {conectado ? 'Crear (sistema + Google Calendar)' : 'Crear evento'}
               </button>
             </div>
           </div>
