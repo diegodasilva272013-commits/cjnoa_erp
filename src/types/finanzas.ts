@@ -24,7 +24,7 @@ export const CONCEPTOS_INGRESO = ['Honorarios', 'Consulta'] as const;
 export type ConceptoIngreso = typeof CONCEPTOS_INGRESO[number];
 
 export const TIPOS_EGRESO = [
-  'fijo', 'eventual', 'tarjeta', 'vencimiento', 'sueldo', 'servicio', 'permuta',
+  'fijo', 'eventual', 'tarjeta', 'vencimiento', 'sueldo', 'servicio',
 ] as const;
 export type TipoEgreso = typeof TIPOS_EGRESO[number];
 

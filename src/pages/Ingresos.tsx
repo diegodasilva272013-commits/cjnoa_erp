@@ -7,6 +7,7 @@ import {
   type TipoClienteIngreso, type RamaLegal, type FuenteIngreso, type ConceptoIngreso,
 } from '../types/finanzas';
 import Modal from '../components/Modal';
+import FinanceMiniCharts from '../components/finance/FinanceMiniCharts';
 import { useToast } from '../context/ToastContext';
 import { formatMoney } from '../lib/financeFormat';
 import { exportToExcel } from '../lib/exportExcel';
@@ -75,11 +76,23 @@ export default function Ingresos() {
   const totales = useMemo(() => {
     const total = filtrados.reduce((s: number, i: IngresoOperativo) => s + Number(i.monto || 0), 0);
     const porSocio: Record<SocioFinanzas, number> = { Rodri: 0, Noe: 0, Ale: 0, Fabri: 0 };
+    let efectivo = 0;
+    let transferencia = 0;
     filtrados.forEach((i: IngresoOperativo) => {
       porSocio[i.doctor_cobra] = (porSocio[i.doctor_cobra] || 0) + Number(i.monto || 0);
+      if (i.modalidad === 'Efectivo') efectivo += Number(i.monto || 0);
+      else if (i.modalidad === 'Transferencia') transferencia += Number(i.monto || 0);
     });
-    return { total, porSocio };
+    return { total, porSocio, efectivo, transferencia };
   }, [filtrados]);
+
+  const chartItems = useMemo(() => filtrados.map((i: IngresoOperativo) => ({
+    fecha: i.fecha,
+    monto: Number(i.monto || 0),
+    categoria: i.doctor_cobra,
+    subcategoria: i.rama,
+    modalidad: i.modalidad,
+  })), [filtrados]);
 
   function abrirNuevo() {
     setEditId(null);
@@ -184,12 +197,24 @@ export default function Ingresos() {
       </header>
 
       {/* Métricas */}
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-7 gap-3">
         <MetricCard label="Total filtrado" value={formatMoney(totales.total)} tone="emerald" highlight />
         {SOCIOS_FINANZAS.map(s => (
           <MetricCard key={s} label={s} value={formatMoney(totales.porSocio[s] || 0)} tone={SOCIO_TONE[s]} />
         ))}
+        <MetricCard label="Caja Efectivo" value={formatMoney(totales.efectivo)} tone="amber" />
+        <MetricCard label="Caja Transferencia" value={formatMoney(totales.transferencia)} tone="sky" />
       </div>
+
+      {/* Gráficos */}
+      <FinanceMiniCharts
+        items={chartItems}
+        pieTitle="Ingresos por doctor"
+        lineTitle="Evolución diaria de ingresos"
+        barTitle="Top ramas"
+        barLabel="Ingresos"
+        accent="emerald"
+      />
 
       {/* Filtros */}
       <div className="bg-white/[0.02] border border-white/10 rounded-xl p-4 space-y-3">
