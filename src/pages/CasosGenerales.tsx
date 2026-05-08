@@ -541,9 +541,20 @@ function CaseDetailModal({ caso: initial, onClose, onSaved }: {
                 editing={editing}
                 onToggle={async (val) => {
                   if (!editing.id) return;
+                  const nowIso = new Date().toISOString();
                   set('escrito_subido' as keyof CasoGeneral, val as never);
+                  if (val) {
+                    set('escrito_subido_at' as keyof CasoGeneral, nowIso as never);
+                    set('escrito_ultima_verificacion' as keyof CasoGeneral, nowIso as never);
+                  } else {
+                    set('escrito_subido_at' as keyof CasoGeneral, null as never);
+                    set('escrito_ultima_verificacion' as keyof CasoGeneral, null as never);
+                  }
                   await supabase.from('casos_generales')
-                    .update({ escrito_subido: val })
+                    .update(val
+                      ? { escrito_subido: true, escrito_subido_at: nowIso, escrito_ultima_verificacion: nowIso }
+                      : { escrito_subido: false, escrito_subido_at: null, escrito_ultima_verificacion: null }
+                    )
                     .eq('id', editing.id);
                 }}
                 onSetUrl={async (url) => {
