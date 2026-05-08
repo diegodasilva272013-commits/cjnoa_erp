@@ -149,7 +149,7 @@ export default function Egresos() {
       showToast('Monto inválido', 'error');
       return;
     }
-    if (!form.pagador) {
+    if (form.modalidad !== 'Efectivo' && !form.pagador) {
       showToast('Indicá quién paga', 'error');
       return;
     }
@@ -162,7 +162,7 @@ export default function Egresos() {
         detalle: form.detalle.trim() || null,
         monto,
         modalidad: form.modalidad,
-        pagador: form.pagador as SocioFinanzas,
+        pagador: form.modalidad === 'Efectivo' ? null : (form.pagador as SocioFinanzas),
         beneficiario: form.beneficiario.trim() || null,
         observaciones: form.observaciones.trim() || null,
         updated_by: user?.id,
@@ -284,7 +284,7 @@ export default function Egresos() {
                     <td className="px-3 py-2 text-zinc-300">{e.beneficiario || '—'}</td>
                     <td className="px-3 py-2 text-right text-white font-medium">{formatMoney(Number(e.monto))}</td>
                     <td className="px-3 py-2 text-zinc-300">{e.modalidad}</td>
-                    <td className="px-3 py-2 text-zinc-300">{e.pagador || '—'}</td>
+                    <td className="px-3 py-2 text-zinc-300">{e.modalidad === 'Efectivo' && !e.pagador ? <span className="px-2 py-0.5 rounded bg-amber-500/15 text-amber-300 text-xs">Caja CJ</span> : (e.pagador || '—')}</td>
                     <td className="px-3 py-2 text-right whitespace-nowrap">
                       <button onClick={() => abrirEditar(e)} className="text-zinc-400 hover:text-white mr-2">
                         <Pencil className="w-4 h-4" />
@@ -335,17 +335,24 @@ export default function Egresos() {
               <input type="number" value={form.monto} onChange={e => setForm({ ...form, monto: e.target.value })} className={inputCls} placeholder="0" />
             </Field>
             <Field label="Modalidad">
-              <select value={form.modalidad} onChange={e => setForm({ ...form, modalidad: e.target.value as ModalidadPago })} className={inputCls}>
+              <select value={form.modalidad} onChange={e => setForm({ ...form, modalidad: e.target.value as ModalidadPago, pagador: e.target.value === 'Efectivo' ? '' : (form.pagador || 'Rodri') })} className={inputCls}>
                 {MODALIDADES.map(m => <option key={m} value={m}>{m}</option>)}
               </select>
             </Field>
           </div>
           <div className="grid grid-cols-2 gap-3">
             <Field label="Pagador">
-              <select value={form.pagador} onChange={e => setForm({ ...form, pagador: e.target.value as SocioFinanzas | '' })} className={inputCls}>
-                <option value="">—</option>
-                {SOCIOS_FINANZAS.map(s => <option key={s} value={s}>{s}</option>)}
-              </select>
+              {form.modalidad === 'Efectivo' ? (
+                <div className={inputCls + ' flex items-center gap-2 opacity-90'}>
+                  <span className="px-2 py-0.5 rounded bg-amber-500/15 text-amber-300 text-xs font-medium">Caja CJ</span>
+                  <span className="text-xs text-zinc-400">(automático para efectivo)</span>
+                </div>
+              ) : (
+                <select value={form.pagador} onChange={e => setForm({ ...form, pagador: e.target.value as SocioFinanzas | '' })} className={inputCls}>
+                  <option value="">—</option>
+                  {SOCIOS_FINANZAS.map(s => <option key={s} value={s}>{s}</option>)}
+                </select>
+              )}
             </Field>
             <Field label="Beneficiario">
               <input value={form.beneficiario} onChange={e => setForm({ ...form, beneficiario: e.target.value })} className={inputCls} placeholder="Opcional" />
