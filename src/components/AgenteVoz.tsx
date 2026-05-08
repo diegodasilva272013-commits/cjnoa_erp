@@ -239,18 +239,16 @@ export default function AgenteVoz() {
       if (!p.destructiva) {
         // Tools de lectura: ejecutar AUTO sin pedir confirmacion y leer el resultado en voz alta
         if (p.tool === 'consultar') {
-          const txt = p.respuesta_voz || (p.args?.respuesta as string) || 'Listo.';
+          const txt = (p.args?.respuesta as string) || p.respuesta_voz || 'Listo.';
           setResultado(txt);
           hablar(txt);
           setEstado('idle');
         } else {
-          // obtener_datos_* / listar_*: ejecutar y leer
+          // obtener_datos_* / listar_*: ejecutar SIN chamuyo y leer el resultado real
           setEstado('ejecutando');
-          if (p.respuesta_voz) hablar(p.respuesta_voz); // "dale, lo busco"
           const r = await ejecutarTool(p, user?.id || '');
           setResultado(r.mensaje);
-          // Esperar a que termine de hablar el "dale" antes de leer la respuesta
-          setTimeout(() => hablar(r.mensaje), p.respuesta_voz ? 1100 : 0);
+          hablar(r.mensaje);
           if (!r.ok) showToast(r.mensaje, 'error');
           setEstado('idle');
         }
