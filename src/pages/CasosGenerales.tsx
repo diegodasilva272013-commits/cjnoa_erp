@@ -27,7 +27,6 @@ const ESTADOS_ORDERED = [
   'suspendido por falta de directivas',
   'suspendido por falta de pago',
   'seguimiento',
-  'archivo',
 ] as const;
 type EstadoCaso = typeof ESTADOS_ORDERED[number];
 
@@ -1693,7 +1692,6 @@ export default function CasosGenerales() {
         </button>
         {ESTADOS_ORDERED.map(e => {
           const count = activos.filter(c => (c.estado ?? '') === e).length;
-          if (!count) return null;
           const active = filtroEstados.has(e);
           return (
             <button key={e} onClick={() => toggleEstado(e)}

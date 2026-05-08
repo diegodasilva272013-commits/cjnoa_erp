@@ -38,7 +38,6 @@ export const ESTADOS_CASO_GENERAL = [
   'suspendido por falta de directivas',
   'suspendido por falta de pago',
   'seguimiento',
-  'archivo',
 ] as const;
 
 export const TIPOS_CASO = [
