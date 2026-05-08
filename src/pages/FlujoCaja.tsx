@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Calculator, RefreshCw } from 'lucide-react';
+import { Calculator, RefreshCw, Archive } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useIngresosOperativos } from '../hooks/useIngresosOperativos';
+import { useCierresMes } from '../hooks/useCierresMes';
 import {
   SOCIOS_FINANZAS, RAMAS,
   type IngresoOperativo, type SocioFinanzas, type RamaLegal,
-  type RepartoCalculo, type EgresoV2,
+  type RepartoCalculo, type EgresoV2, type MovimientoCaja,
 } from '../types/finanzas';
 import { useToast } from '../context/ToastContext';
 import { formatMoney } from '../lib/financeFormat';
@@ -16,6 +17,7 @@ const periodoActual = () => new Date().toISOString().slice(0, 7); // YYYY-MM
 
 export default function FlujoCaja() {
   const { items, loading } = useIngresosOperativos();
+  const { items: cierres, cerrarMes } = useCierresMes();
   const { showToast } = useToast();
   const [periodo, setPeriodo] = useState(periodoActual());
   const [meta, setMeta] = useState<number>(0);
@@ -23,6 +25,9 @@ export default function FlujoCaja() {
   const [reparto, setReparto] = useState<RepartoCalculo | null>(null);
   const [modalReparto, setModalReparto] = useState(false);
   const [egresos, setEgresos] = useState<EgresoV2[]>([]);
+  const [movimientos, setMovimientos] = useState<MovimientoCaja[]>([]);
+  const [cerrando, setCerrando] = useState(false);
+  const yaCerrado = cierres.some(c => c.periodo === periodo);
 
   // Cargar egresos del periodo
   useEffect(() => {
@@ -40,6 +45,15 @@ export default function FlujoCaja() {
         .order('fecha', { ascending: false });
       if (error) { showToast('Error al cargar egresos: ' + error.message, 'error'); return; }
       setEgresos((data || []) as EgresoV2[]);
+
+      const { data: movs, error: errMov } = await supabase
+        .from('movimientos_caja')
+        .select('*')
+        .gte('fecha', inicio)
+        .lt('fecha', finExclusivo)
+        .order('fecha', { ascending: false });
+      if (errMov) { showToast('Error al cargar cambios: ' + errMov.message, 'error'); return; }
+      setMovimientos((movs || []) as MovimientoCaja[]);
     })();
   }, [periodo, showToast]);
 
@@ -94,17 +108,35 @@ export default function FlujoCaja() {
       if (e.pagador) egresosPorSocio[e.pagador] = (egresosPorSocio[e.pagador] || 0) + m;
     });
     const neto = total - totalEgresos;
-    const cajaEfectivo = efectivoIn - efectivoOut;
-    const cajaTransfer = transferIn - transferOut;
+    // Aplicar movimientos de caja (cambios efectivo↔transferencia)
+    let cambiosEfectivoNet = 0, cambiosTransferNet = 0;
+    const deltaEfectivoSocio: Record<SocioFinanzas, number> = { Rodri: 0, Noe: 0, Ale: 0, Fabri: 0 };
+    const deltaTransferSocio: Record<SocioFinanzas, number> = { Rodri: 0, Noe: 0, Ale: 0, Fabri: 0 };
+    movimientos.forEach(m => {
+      const v = Number(m.monto || 0);
+      // Origen pierde tipo_origen
+      if (m.tipo_origen === 'Efectivo') { cambiosEfectivoNet -= v; deltaEfectivoSocio[m.socio_origen] -= v; }
+      else if (m.tipo_origen === 'Transferencia') { cambiosTransferNet -= v; deltaTransferSocio[m.socio_origen] -= v; }
+      // Destino gana tipo_destino
+      if (m.tipo_destino === 'Efectivo') { cambiosEfectivoNet += v; deltaEfectivoSocio[m.socio_destino] += v; }
+      else if (m.tipo_destino === 'Transferencia') { cambiosTransferNet += v; deltaTransferSocio[m.socio_destino] += v; }
+    });
+    const cajaEfectivo = efectivoIn - efectivoOut + cambiosEfectivoNet;
+    const cajaTransfer = transferIn - transferOut + cambiosTransferNet;
     const transferSocioNeto: Record<SocioFinanzas, number> = { Rodri: 0, Noe: 0, Ale: 0, Fabri: 0 };
     SOCIOS_FINANZAS.forEach(s => {
-      transferSocioNeto[s] = (ingTransferSocio[s] || 0) - (egTransferSocio[s] || 0);
+      transferSocioNeto[s] = (ingTransferSocio[s] || 0) - (egTransferSocio[s] || 0) + deltaTransferSocio[s];
+    });
+    const efectivoSocioFinal: Record<SocioFinanzas, number> = { Rodri: 0, Noe: 0, Ale: 0, Fabri: 0 };
+    SOCIOS_FINANZAS.forEach(s => {
+      efectivoSocioFinal[s] = (ingEfectivoSocio[s] || 0) + deltaEfectivoSocio[s];
     });
     return {
       total, porSocio, porRama, totalEgresos, neto, cajaEfectivo, cajaTransfer, egresosPorSocio,
       ingEfectivoSocio, ingTransferSocio, egTransferSocio, transferSocioNeto,
+      efectivoSocioFinal, cambiosEfectivoNet, cambiosTransferNet, cantCambios: movimientos.length,
     };
-  }, [ingresosPeriodo, egresos]);
+  }, [ingresosPeriodo, egresos, movimientos]);
 
   const chartItemsIngresos = useMemo(() => ingresosPeriodo.map((i: IngresoOperativo) => ({
     fecha: i.fecha,
@@ -159,6 +191,47 @@ export default function FlujoCaja() {
     }
   }
 
+  async function handleCerrarMes() {
+    if (yaCerrado) {
+      const ok = window.confirm(`El mes ${periodo} ya estaba cerrado. ¿Sobrescribir el snapshot con los datos actuales?`);
+      if (!ok) return;
+    } else {
+      const ok = window.confirm(`Cerrar el mes ${periodo}?\n\nSe guardará un snapshot con todos los ingresos, egresos, cambios y totales en el Historial. Los datos NO se borran de las tablas.`);
+      if (!ok) return;
+    }
+    setCerrando(true);
+    try {
+      const snapshot = {
+        ingresos: ingresosPeriodo,
+        egresos,
+        movimientos,
+        totales: {
+          totalIngresos: totales.total,
+          totalEgresos: totales.totalEgresos,
+          neto: totales.neto,
+          cajaEfectivo: totales.cajaEfectivo,
+          cajaTransfer: totales.cajaTransfer,
+          porSocio: totales.porSocio,
+          porRama: totales.porRama,
+          ingEfectivoSocio: totales.ingEfectivoSocio,
+          ingTransferSocio: totales.ingTransferSocio,
+          egTransferSocio: totales.egTransferSocio,
+          transferSocioNeto: totales.transferSocioNeto,
+          efectivoSocioFinal: totales.efectivoSocioFinal,
+          egresosPorSocio: totales.egresosPorSocio,
+          cambiosEfectivoNet: totales.cambiosEfectivoNet,
+          cambiosTransferNet: totales.cambiosTransferNet,
+        },
+      };
+      await cerrarMes(periodo, snapshot);
+      showToast(`Mes ${periodo} cerrado y archivado en Historial`, 'success');
+    } catch (err: any) {
+      showToast(err?.message || 'Error al cerrar mes', 'error');
+    } finally {
+      setCerrando(false);
+    }
+  }
+
   return (
     <div className="space-y-6">
       <header className="flex items-center justify-between gap-4 flex-wrap">
@@ -180,6 +253,15 @@ export default function FlujoCaja() {
           >
             {calculandoReparto ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Calculator className="w-4 h-4" />}
             Calcular reparto
+          </button>
+          <button
+            onClick={handleCerrarMes}
+            disabled={cerrando}
+            className={`px-3 py-2 rounded-lg text-sm text-white flex items-center gap-2 disabled:opacity-50 ${yaCerrado ? 'bg-amber-600 hover:bg-amber-500' : 'bg-violet-600 hover:bg-violet-500'}`}
+            title={yaCerrado ? 'Sobrescribir cierre existente' : 'Archivar mes en Historial'}
+          >
+            {cerrando ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Archive className="w-4 h-4" />}
+            {yaCerrado ? `Re-cerrar ${periodo}` : 'Cerrar mes'}
           </button>
         </div>
       </header>
@@ -213,14 +295,14 @@ export default function FlujoCaja() {
         <MetricCard label="Ingresos del periodo" value={formatMoney(totales.total)} tone="emerald" highlight />
         <MetricCard label="Egresos del periodo" value={formatMoney(totales.totalEgresos)} tone="rose" highlight />
         <MetricCard label="Neto (In - Out)" value={formatMoney(totales.neto)} tone={totales.neto >= 0 ? 'emerald' : 'rose'} highlight />
-        <MetricCard label="Caja Efectivo" value={formatMoney(totales.cajaEfectivo)} tone="amber" />
-        <MetricCard label="Caja Transferencia" value={formatMoney(totales.cajaTransfer)} tone="sky" />
+        <MetricCard label="Caja Efectivo" value={formatMoney(totales.cajaEfectivo)} tone="amber" sub={totales.cambiosEfectivoNet !== 0 ? `Cambios: ${totales.cambiosEfectivoNet >= 0 ? '+' : ''}${formatMoney(totales.cambiosEfectivoNet)}` : undefined} />
+        <MetricCard label="Caja Transferencia" value={formatMoney(totales.cajaTransfer)} tone="sky" sub={totales.cambiosTransferNet !== 0 ? `Cambios: ${totales.cambiosTransferNet >= 0 ? '+' : ''}${formatMoney(totales.cambiosTransferNet)}` : undefined} />
       </div>
 
       {/* Cards por socio (efectivo + transferencia) */}
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
         {SOCIOS_FINANZAS.map(s => {
-          const efe = totales.ingEfectivoSocio[s];
+          const efe = totales.efectivoSocioFinal[s];
           const tr = totales.transferSocioNeto[s];
           const ing = totales.porSocio[s];
           const eg = totales.egresosPorSocio[s];

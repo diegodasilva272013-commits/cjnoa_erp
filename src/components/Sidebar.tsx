@@ -17,6 +17,8 @@ import {
   Activity,
   Gavel,
   Wallet,
+  ArrowLeftRight,
+  Archive,
   Clock,
   CalendarClock,
   Scale,
@@ -48,7 +50,7 @@ export default function Sidebar({ open, onClose }: SidebarProps) {
         : 'text-gray-500 hover:text-gray-200 hover:bg-white/[0.04] hover:translate-x-1'
     }`;
 
-  const isFinanzasActive = ['/ingresos', '/egresos', '/flujo-caja'].includes(location.pathname);
+  const isFinanzasActive = ['/ingresos', '/egresos', '/flujo-caja', '/cambios', '/historial-finanzas'].includes(location.pathname);
   const isPrevisionalActive = location.pathname.startsWith('/previsional');
 
   return (
@@ -206,6 +208,14 @@ export default function Sidebar({ open, onClose }: SidebarProps) {
               <NavLink to="/flujo-caja" onClick={onClose} className={({ isActive }) => `${linkClass(isActive)} pl-12`}>
                 <BarChart3 className="w-4 h-4" />
                 Flujo de Caja
+              </NavLink>
+              <NavLink to="/cambios" onClick={onClose} className={({ isActive }) => `${linkClass(isActive)} pl-12`}>
+                <ArrowLeftRight className="w-4 h-4" />
+                Cambios
+              </NavLink>
+              <NavLink to="/historial-finanzas" onClick={onClose} className={({ isActive }) => `${linkClass(isActive)} pl-12`}>
+                <Archive className="w-4 h-4" />
+                Historial
               </NavLink>
             </div>
           )}

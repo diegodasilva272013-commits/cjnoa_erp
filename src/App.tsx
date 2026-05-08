@@ -15,6 +15,8 @@ const CasosPagos = lazyWithRetry(() => import('./pages/CasosPagos'));
 const Ingresos = lazyWithRetry(() => import('./pages/Ingresos'));
 const Egresos = lazyWithRetry(() => import('./pages/Egresos'));
 const FlujoCaja = lazyWithRetry(() => import('./pages/FlujoCaja'));
+const Cambios = lazyWithRetry(() => import('./pages/Cambios'));
+const Historial = lazyWithRetry(() => import('./pages/Historial'));
 const Equipo = lazyWithRetry(() => import('./pages/Equipo'));
 const Agenda = lazyWithRetry(() => import('./pages/Agenda'));
 const FichasClientes = lazyWithRetry(() => import('./pages/FichasClientes'));
@@ -94,6 +96,8 @@ export default function App() {
           <Route path="/ingresos" element={<ProtectedRoute modulo="finanzas"><Ingresos /></ProtectedRoute>} />
           <Route path="/egresos" element={<ProtectedRoute modulo="finanzas"><Egresos /></ProtectedRoute>} />
           <Route path="/flujo-caja" element={<ProtectedRoute modulo="finanzas"><FlujoCaja /></ProtectedRoute>} />
+          <Route path="/cambios" element={<ProtectedRoute modulo="finanzas"><Cambios /></ProtectedRoute>} />
+          <Route path="/historial-finanzas" element={<ProtectedRoute modulo="finanzas"><Historial /></ProtectedRoute>} />
           <Route path="/equipo" element={<ProtectedRoute modulo="equipo"><Equipo /></ProtectedRoute>} />
           <Route path="/agenda" element={<ProtectedRoute modulo="agenda"><Agenda /></ProtectedRoute>} />
           <Route path="/previsional/fichas" element={<ProtectedRoute modulo="previsional"><FichasClientes /></ProtectedRoute>} />

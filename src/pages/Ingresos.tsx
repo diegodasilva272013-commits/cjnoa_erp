@@ -13,6 +13,7 @@ import { formatMoney } from '../lib/financeFormat';
 import { exportToExcel } from '../lib/exportExcel';
 
 const HOY = () => new Date().toISOString().slice(0, 10);
+const INICIO_MES = () => new Date().toISOString().slice(0, 7) + '-01';
 
 interface FormState {
   fecha: string;
@@ -57,7 +58,7 @@ export default function Ingresos() {
   const [filtroRama, setFiltroRama] = useState<RamaLegal | ''>('');
   const [filtroFuente, setFiltroFuente] = useState<FuenteIngreso | ''>('');
   const [filtroModalidad, setFiltroModalidad] = useState<ModalidadPago | ''>('');
-  const [desde, setDesde] = useState('');
+  const [desde, setDesde] = useState(INICIO_MES());
   const [hasta, setHasta] = useState('');
 
   const filtrados = useMemo(() => {
