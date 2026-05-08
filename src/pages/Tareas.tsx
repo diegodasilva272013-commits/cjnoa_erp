@@ -38,11 +38,13 @@ const PRIORIDAD_COLORS_V2: Record<PrioridadTareaGeneral, string> = {
 interface PerfilLite { id: string; nombre: string; rol: string }
 
 export default function Tareas() {
-  const { user } = useAuth();
+  const { user, perfil } = useAuth();
   const { tareas, loading, upsert, completar, reabrir, archivar } = useTareas();
   const { casos } = useCases();
   const { casos: casosGenerales } = useCasosGenerales();
   const [perfiles, setPerfiles] = useState<PerfilLite[]>([]);
+
+  const esAdmin = perfil?.rol === 'admin' || perfil?.rol === 'socio';
 
   const [view, setView] = useState<'lista' | 'kanban' | 'calendario' | 'responsable' | 'compartidas'>('lista');
   const { data: tareasConPasos } = useTareasConPasos();
@@ -90,7 +92,19 @@ export default function Tareas() {
   };
 
   const filtered = useMemo(() => {
+    // Restricción por rol: secretario/procurador (no admin/socio) solo ven
+    // tareas propias (responsable principal) o donde tienen un paso asignado.
+    const misIdsConPaso = new Set<string>();
+    if (!esAdmin && user?.id) {
+      tareasConPasos.forEach(tp => {
+        if (tp.pasos.some(p => p.responsable_id === user.id)) misIdsConPaso.add(tp.tarea_id);
+      });
+    }
     return tareas.filter(t => {
+      if (!esAdmin && user?.id) {
+        const mia = t.responsable_id === user.id || misIdsConPaso.has(t.id);
+        if (!mia) return false;
+      }
       const s = search.toLowerCase();
       const matchSearch = !s || t.titulo.toLowerCase().includes(s) ||
         (t.cliente_nombre || '').toLowerCase().includes(s) ||
@@ -102,9 +116,9 @@ export default function Tareas() {
       const matchSemana = !filterSemana || inSemana(t);
       return matchSearch && matchEstado && matchPrioridad && matchResp && matchSemana;
     });
-  }, [tareas, search, filterEstado, filterPrioridad, filterResponsable, filterSemana]);
+  }, [tareas, tareasConPasos, esAdmin, user?.id, search, filterEstado, filterPrioridad, filterResponsable, filterSemana]);
 
-  const tareasVencidas = tareas.filter(isVencida).length;
+  const tareasVencidas = filtered.filter(isVencida).length;
 
   // Calendario: agrupar por fecha_limite (yyyy-mm-dd)
   const calendarMap = useMemo(() => {
@@ -219,7 +233,7 @@ export default function Tareas() {
         <ResponsableView tareas={filtered} perfiles={perfiles}
           onOpen={t => { setSelected(t); setModalOpen(true); }} isVencida={isVencida} />
       ) : (
-        <CompartidasView tareas={tareas} tareasConPasos={tareasConPasos}
+        <CompartidasView tareas={esAdmin ? tareas : filtered} tareasConPasos={tareasConPasos}
           currentUserId={user?.id || ''}
           onOpen={t => { setSelected(t); setModalOpen(true); }} />
       )}

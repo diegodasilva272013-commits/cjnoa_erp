@@ -9,6 +9,7 @@ import {
 } from 'recharts';
 import { supabase } from '../lib/supabase';
 import { useAvatarUrl } from '../hooks/useAvatarUrl';
+import { useAuth } from '../context/AuthContext';
 
 interface ControlTarea {
   id: string;
@@ -54,6 +55,8 @@ function MiniAvatar({ path, nombre, size = 28 }: { path: string | null; nombre: 
 }
 
 export default function ControlTareas() {
+  const { user, perfil } = useAuth();
+  const esAdmin = perfil?.rol === 'admin' || perfil?.rol === 'socio';
   const [tareas, setTareas] = useState<ControlTarea[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -181,22 +184,24 @@ export default function ControlTareas() {
 
   const filtered = useMemo(() => {
     return tareas.filter(t => {
+      if (!esAdmin && user?.id && t.responsable_id !== user.id) return false;
       if (search && !`${t.titulo} ${t.cargo_hora} ${t.responsable_nombre} ${t.caso_general_titulo} ${t.cliente_nombre}`.toLowerCase().includes(search.toLowerCase())) return false;
       if (filterEstadoTiempo !== 'all' && t.estado_tiempo !== filterEstadoTiempo) return false;
       if (filterResp !== 'all' && t.responsable_id !== filterResp) return false;
       return true;
     });
-  }, [tareas, search, filterEstadoTiempo, filterResp]);
+  }, [tareas, search, filterEstadoTiempo, filterResp, esAdmin, user?.id]);
 
-  // === Métricas ===
+  // === Métricas (basadas en lo que el usuario realmente puede ver) ===
   const stats = useMemo(() => {
-    const total = tareas.length;
-    const realizadas = tareas.filter(t => t.estado_tiempo === 'realizada').length;
-    const vencidas = tareas.filter(t => t.estado_tiempo === 'vencida').length;
-    const hoy = tareas.filter(t => t.estado_tiempo === 'hoy').length;
-    const proximas = tareas.filter(t => t.estado_tiempo === 'proxima').length;
+    const visibles = !esAdmin && user?.id ? tareas.filter(t => t.responsable_id === user.id) : tareas;
+    const total = visibles.length;
+    const realizadas = visibles.filter(t => t.estado_tiempo === 'realizada').length;
+    const vencidas = visibles.filter(t => t.estado_tiempo === 'vencida').length;
+    const hoy = visibles.filter(t => t.estado_tiempo === 'hoy').length;
+    const proximas = visibles.filter(t => t.estado_tiempo === 'proxima').length;
     return { total, realizadas, vencidas, hoy, proximas, pct_realizadas: total ? Math.round(realizadas * 100 / total) : 0 };
-  }, [tareas]);
+  }, [tareas, esAdmin, user?.id]);
 
   // Tarta por estado_tiempo
   const pieData = useMemo(() => {
