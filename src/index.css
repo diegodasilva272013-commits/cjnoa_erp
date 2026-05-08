@@ -191,11 +191,12 @@
 
   .modal-overlay {
     @apply fixed inset-0 bg-black/70 backdrop-blur-sm z-50 
-           flex items-center justify-center p-2 sm:p-4 animate-fade-in overflow-y-auto;
+           flex items-center justify-center animate-fade-in overflow-y-auto;
+    padding: 80px 12px 24px 12px;
   }
 
   .modal-content {
-    @apply glass-card w-full max-h-[95vh] overflow-y-auto 
+    @apply glass-card w-full max-h-[calc(100vh-110px)] overflow-y-auto 
            animate-slide-up p-0 rounded-2xl my-auto;
     border: 2px solid rgba(255, 255, 255, 0.5);
     box-shadow: 0 25px 60px -10px rgba(0, 0, 0, 0.95);
