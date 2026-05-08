@@ -140,61 +140,100 @@ export default function MiDia() {
     // Tareas COMPARTIDAS: traigo tareas donde tengo un paso asignado
     const pasosMap: Record<string, { paso_id: string; paso_orden: number; paso_descripcion: string; paso_completado: boolean; paso_le_toca_ahora: boolean }[]> = {};
     if (!verTodos) {
-      // intentar primero la vista nueva
-      let pasosData: any[] = [];
-      const tryView = await supabase
-        .from('tareas_mi_dia_con_pasos')
-        .select('tarea_id, paso_id, paso_orden, paso_descripcion, paso_completado, paso_le_toca_ahora, es_paso')
-        .eq('user_id', targetUserId)
-        .eq('es_paso', true);
-      if (!tryView.error) {
-        pasosData = tryView.data || [];
-      } else {
-        // fallback: leer tarea_pasos directo (si la vista no existe aún)
-        const { data: rawPasos } = await supabase
-          .from('tarea_pasos')
-          .select('id, tarea_id, orden, descripcion, completado, responsable_id')
-          .eq('responsable_id', targetUserId);
-        // calcular paso_le_toca_ahora en memoria
-        const tareaIds = Array.from(new Set((rawPasos || []).map((r: any) => r.tarea_id)));
-        let allPasos: any[] = [];
-        if (tareaIds.length > 0) {
-          const { data: ap } = await supabase
-            .from('tarea_pasos')
-            .select('tarea_id, orden, completado')
-            .in('tarea_id', tareaIds);
-          allPasos = ap || [];
-        }
-        pasosData = (rawPasos || []).map((r: any) => ({
-          tarea_id: r.tarea_id,
-          paso_id: r.id,
-          paso_orden: r.orden,
-          paso_descripcion: r.descripcion,
-          paso_completado: r.completado,
-          paso_le_toca_ahora: !r.completado && !allPasos.some(
-            (x: any) => x.tarea_id === r.tarea_id && x.orden < r.orden && !x.completado
-          ),
-        }));
-      }
-      const idsExistentes = new Set(baseTareas.map(t => t.id));
-      const tareasFaltantesIds: string[] = [];
-      (pasosData || []).forEach((row: any) => {
-        if (!pasosMap[row.tarea_id]) pasosMap[row.tarea_id] = [];
-        pasosMap[row.tarea_id].push({
-          paso_id: row.paso_id, paso_orden: row.paso_orden,
-          paso_descripcion: row.paso_descripcion, paso_completado: row.paso_completado,
-          paso_le_toca_ahora: !!row.paso_le_toca_ahora,
+      // 1) Camino A: RPC SECURITY DEFINER (bypassa RLS, devuelve tarea + paso en una sola)
+      const rpcRes = await supabase.rpc('mi_dia_pasos_y_tareas', { p_user_id: targetUserId });
+      const idsExistentesRpc = new Set(baseTareas.map(t => t.id));
+      if (!rpcRes.error && Array.isArray(rpcRes.data)) {
+        const rows = rpcRes.data as any[];
+        rows.forEach(r => {
+          if (!pasosMap[r.tarea_id]) pasosMap[r.tarea_id] = [];
+          pasosMap[r.tarea_id].push({
+            paso_id: r.paso_id,
+            paso_orden: r.paso_orden,
+            paso_descripcion: r.paso_descripcion,
+            paso_completado: r.paso_completado,
+            paso_le_toca_ahora: !!r.paso_le_toca_ahora,
+          });
+          if (!idsExistentesRpc.has(r.tarea_id)) {
+            idsExistentesRpc.add(r.tarea_id);
+            baseTareas.push({
+              id: r.tarea_id,
+              titulo: r.tarea_titulo,
+              descripcion: r.tarea_descripcion,
+              caso_id: r.tarea_caso_id,
+              cliente_nombre: null,
+              expediente: null,
+              prioridad: (r.tarea_prioridad || 'sin_prioridad') as any,
+              fecha_limite: r.tarea_fecha_limite,
+              estado: (r.tarea_estado || 'en_curso') as any,
+              estado_dia: 'pendiente' as any,
+              orden_dia: null,
+              fecha_orden: null,
+              tiempo_estimado_min: null,
+              tiempo_real_min: 0,
+              started_at: null,
+              fecha_completada: r.tarea_fecha_completada,
+              archivada: !!r.tarea_archivada,
+              observaciones_demora: null,
+              culminacion: null,
+            } as Tarea);
+          }
         });
-        if (!idsExistentes.has(row.tarea_id) && !tareasFaltantesIds.includes(row.tarea_id)) {
-          tareasFaltantesIds.push(row.tarea_id);
+      } else {
+        // 2) Fallback (si la RPC no existe aún): vista o tarea_pasos directo
+        let pasosData: any[] = [];
+        const tryView = await supabase
+          .from('tareas_mi_dia_con_pasos')
+          .select('tarea_id, paso_id, paso_orden, paso_descripcion, paso_completado, paso_le_toca_ahora, es_paso')
+          .eq('user_id', targetUserId)
+          .eq('es_paso', true);
+        if (!tryView.error) {
+          pasosData = tryView.data || [];
+        } else {
+          const { data: rawPasos } = await supabase
+            .from('tarea_pasos')
+            .select('id, tarea_id, orden, descripcion, completado, responsable_id')
+            .eq('responsable_id', targetUserId);
+          const tareaIds = Array.from(new Set((rawPasos || []).map((r: any) => r.tarea_id)));
+          let allPasos: any[] = [];
+          if (tareaIds.length > 0) {
+            const { data: ap } = await supabase
+              .from('tarea_pasos')
+              .select('tarea_id, orden, completado')
+              .in('tarea_id', tareaIds);
+            allPasos = ap || [];
+          }
+          pasosData = (rawPasos || []).map((r: any) => ({
+            tarea_id: r.tarea_id,
+            paso_id: r.id,
+            paso_orden: r.orden,
+            paso_descripcion: r.descripcion,
+            paso_completado: r.completado,
+            paso_le_toca_ahora: !r.completado && !allPasos.some(
+              (x: any) => x.tarea_id === r.tarea_id && x.orden < r.orden && !x.completado
+            ),
+          }));
         }
-      });
-      if (tareasFaltantesIds.length > 0) {
-        let qExtra = await supabase.from('tareas_completas_v2').select('*').in('id', tareasFaltantesIds).eq('archivada', false);
-        if (qExtra.error) {
-          qExtra = await supabase.from('tareas_completas').select('*').in('id', tareasFaltantesIds).eq('archivada', false);
+        const idsExistentes = new Set(baseTareas.map(t => t.id));
+        const tareasFaltantesIds: string[] = [];
+        (pasosData || []).forEach((row: any) => {
+          if (!pasosMap[row.tarea_id]) pasosMap[row.tarea_id] = [];
+          pasosMap[row.tarea_id].push({
+            paso_id: row.paso_id, paso_orden: row.paso_orden,
+            paso_descripcion: row.paso_descripcion, paso_completado: row.paso_completado,
+            paso_le_toca_ahora: !!row.paso_le_toca_ahora,
+          });
+          if (!idsExistentes.has(row.tarea_id) && !tareasFaltantesIds.includes(row.tarea_id)) {
+            tareasFaltantesIds.push(row.tarea_id);
+          }
+        });
+        if (tareasFaltantesIds.length > 0) {
+          let qExtra = await supabase.from('tareas_completas_v2').select('*').in('id', tareasFaltantesIds).eq('archivada', false);
+          if (qExtra.error) {
+            qExtra = await supabase.from('tareas_completas').select('*').in('id', tareasFaltantesIds).eq('archivada', false);
+          }
+          baseTareas = [...baseTareas, ...((qExtra.data || []) as Tarea[])];
         }
-        baseTareas = [...baseTareas, ...((qExtra.data || []) as Tarea[])];
       }
     }
     setPasosPorTarea(pasosMap);

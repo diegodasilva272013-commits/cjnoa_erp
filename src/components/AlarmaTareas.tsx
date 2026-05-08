@@ -10,7 +10,7 @@ interface AlarmaTarea {
   mensaje: string | null;
   link: string | null;
   related_id: string | null;
-  tipo: 'tarea_proxima' | 'tarea_vencida' | 'presentar_escrito' | 'verificar_escrito' | 'tarea_paso_siguiente' | 'tarea_paso_asignado' | 'tarea_compartida_completa';
+  tipo: 'tarea_proxima' | 'tarea_vencida' | 'presentar_escrito' | 'verificar_escrito' | 'tarea_paso_siguiente' | 'tarea_paso_asignado' | 'tarea_compartida_completa' | 'tarea_asignada';
   created_at: string;
 }
 
@@ -96,7 +96,7 @@ export default function AlarmaTareas() {
         .from('notificaciones_app')
         .select('id, titulo, mensaje, link, related_id, tipo, created_at, leida')
         .eq('user_id', user.id)
-        .in('tipo', ['tarea_proxima', 'tarea_vencida', 'presentar_escrito', 'verificar_escrito', 'tarea_paso_siguiente', 'tarea_paso_asignado', 'tarea_compartida_completa'])
+        .in('tipo', ['tarea_proxima', 'tarea_vencida', 'presentar_escrito', 'verificar_escrito', 'tarea_paso_siguiente', 'tarea_paso_asignado', 'tarea_compartida_completa', 'tarea_asignada'])
         .eq('leida', false)
         .gte('created_at', desde.toISOString())
         .order('created_at', { ascending: false })
@@ -120,7 +120,7 @@ export default function AlarmaTareas() {
         { event: 'INSERT', schema: 'public', table: 'notificaciones_app', filter: `user_id=eq.${user.id}` },
         (payload) => {
           const n: any = payload.new;
-          if (n.tipo === 'tarea_proxima' || n.tipo === 'tarea_vencida' || n.tipo === 'presentar_escrito' || n.tipo === 'verificar_escrito' || n.tipo === 'tarea_paso_siguiente' || n.tipo === 'tarea_paso_asignado' || n.tipo === 'tarea_compartida_completa') {
+          if (n.tipo === 'tarea_proxima' || n.tipo === 'tarea_vencida' || n.tipo === 'presentar_escrito' || n.tipo === 'verificar_escrito' || n.tipo === 'tarea_paso_siguiente' || n.tipo === 'tarea_paso_asignado' || n.tipo === 'tarea_compartida_completa' || n.tipo === 'tarea_asignada') {
             encolar({
               id: n.id, titulo: n.titulo, mensaje: n.mensaje, link: n.link,
               related_id: n.related_id, tipo: n.tipo, created_at: n.created_at,
@@ -153,8 +153,8 @@ export default function AlarmaTareas() {
           const esVencida = n.tipo === 'tarea_vencida';
           const esEscrito = n.tipo === 'presentar_escrito';
           const esVerificar = n.tipo === 'verificar_escrito';
-          const esFinalizada = n.tipo === 'tarea_compartida_completa';
-          const esPaso = n.tipo === 'tarea_paso_siguiente' || n.tipo === 'tarea_paso_asignado';
+          const esFinalizada = n.tipo === 'tarea_compartida_completa' || (n.tipo === 'tarea_asignada' && (n.titulo || '').includes('finalizada'));
+          const esPaso = n.tipo === 'tarea_paso_siguiente' || n.tipo === 'tarea_paso_asignado' || (n.tipo === 'tarea_asignada' && (((n.titulo||'').includes('Te toca')) || ((n.titulo||'').includes('Nuevo paso'))));
           return (
             <div
               key={n.id}

@@ -13,6 +13,7 @@ import { useCasosGenerales } from '../hooks/useCasosGenerales';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import { supabase } from '../lib/supabase';
+import { notificarSiguientePaso } from '../lib/tareaPasosNotify';
 import { useAvatarUrl } from '../hooks/useAvatarUrl';
 import NotasFeedPanel from '../components/cases/NotasFeedPanel';
 import {
@@ -1450,7 +1451,7 @@ function CompartidasView({ tareas, tareasConPasos, currentUserId, onOpen }: {
   currentUserId: string;
   onOpen: (t: TareaCompleta) => void;
 }) {
-  const { user } = useAuth();
+  const { user, perfil } = useAuth();
   const { showToast } = useToast();
   const [filter, setFilter] = useState<'todas' | 'mias' | 'pendientes'>('todas');
 
@@ -1483,7 +1484,12 @@ function CompartidasView({ tareas, tareasConPasos, currentUserId, onOpen }: {
       completado_por: next ? (user?.id || null) : null,
     }).eq('id', paso.id);
     if (error) showToast('Error: ' + error.message, 'error');
-    else showToast(next ? 'Paso completado' : 'Paso reabierto', 'success');
+    else {
+      showToast(next ? 'Paso completado' : 'Paso reabierto', 'success');
+      if (next && user?.id) {
+        notificarSiguientePaso(paso.tarea_id, paso.orden, paso.descripcion, user.id, perfil?.nombre || 'Alguien');
+      }
+    }
   };
 
   if (items.length === 0) {

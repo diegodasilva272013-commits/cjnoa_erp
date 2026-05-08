@@ -1,6 +1,8 @@
 import { useEffect, useState, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
 import { useToast } from '../context/ToastContext';
+import { useAuth } from '../context/AuthContext';
+import { notificarSiguientePaso, notificarAsignacionPaso } from '../lib/tareaPasosNotify';
 
 export interface TareaPaso {
   id: string;
@@ -23,6 +25,7 @@ export function useTareaPasos(tareaId: string | null | undefined) {
   const [pasos, setPasos] = useState<TareaPaso[]>([]);
   const [loading, setLoading] = useState(false);
   const { showToast } = useToast();
+  const { user, perfil } = useAuth();
 
   const fetch = useCallback(async () => {
     if (!tareaId) { setPasos([]); return; }
@@ -62,16 +65,25 @@ export function useTareaPasos(tareaId: string | null | undefined) {
       responsable_id: responsableId || null,
     });
     if (error) { showToast('Error: ' + error.message, 'error'); return false; }
+    if (responsableId && user?.id) {
+      notificarAsignacionPaso(tareaId, responsableId, descripcion.trim(), user.id, perfil?.nombre || 'Alguien');
+    }
     fetch();
     return true;
-  }, [tareaId, pasos, showToast, fetch]);
+  }, [tareaId, pasos, showToast, fetch, user?.id, perfil?.nombre]);
 
   const actualizar = useCallback(async (id: string, patch: Partial<TareaPaso>) => {
+    const prev = pasos.find(p => p.id === id);
     const { error } = await supabase.from('tarea_pasos').update(patch).eq('id', id);
     if (error) { showToast('Error: ' + error.message, 'error'); return false; }
+    // Si cambia el responsable, notificarle
+    if (tareaId && patch.responsable_id && patch.responsable_id !== prev?.responsable_id && user?.id) {
+      const desc = patch.descripcion || prev?.descripcion || '(sin descripción)';
+      notificarAsignacionPaso(tareaId, patch.responsable_id as string, desc, user.id, perfil?.nombre || 'Alguien');
+    }
     fetch();
     return true;
-  }, [showToast, fetch]);
+  }, [pasos, tareaId, showToast, fetch, user?.id, perfil?.nombre]);
 
   const eliminar = useCallback(async (id: string) => {
     const { error } = await supabase.from('tarea_pasos').delete().eq('id', id);
@@ -89,8 +101,17 @@ export function useTareaPasos(tareaId: string | null | undefined) {
     }).eq('id', paso.id);
     if (error) { showToast('Error: ' + error.message, 'error'); return; }
     showToast(next ? 'Paso completado — se notificó al siguiente' : 'Paso reabierto', 'success');
+    if (next) {
+      notificarSiguientePaso(
+        paso.tarea_id,
+        paso.orden,
+        paso.descripcion,
+        userId,
+        perfil?.nombre || 'Alguien'
+      );
+    }
     fetch();
-  }, [showToast, fetch]);
+  }, [showToast, fetch, perfil?.nombre]);
 
   const mover = useCallback(async (paso: TareaPaso, direccion: 'up' | 'down') => {
     const idx = pasos.findIndex(p => p.id === paso.id);
