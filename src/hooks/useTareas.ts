@@ -50,11 +50,11 @@ export function useTareas() {
   const upsert = useCallback(async (t: Partial<Tarea>, userId: string) => {
     const payload: any = { ...t, updated_by: userId, updated_at: new Date().toISOString() };
     if (!t.id) payload.created_by = userId;
-    const { error } = await supabase.from('tareas').upsert(payload).select().single();
-    if (error) { showToast('Error al guardar tarea: ' + error.message, 'error'); return false; }
+    const { data, error } = await supabase.from('tareas').upsert(payload).select().single();
+    if (error) { showToast('Error al guardar tarea: ' + error.message, 'error'); return false as const; }
     showToast(t.id ? 'Tarea actualizada' : 'Tarea creada', 'success');
     fetch();
-    return true;
+    return data as Tarea;
   }, [showToast, fetch]);
 
   const completar = useCallback(async (id: string, userId: string) => {
