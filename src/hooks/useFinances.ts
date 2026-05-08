@@ -72,33 +72,15 @@ export function useIngresos() {
   const { showToast } = useToast();
 
   const cleanupOrphans = useCallback(async () => {
-    // Borra ingresos auto-generados cuyo caso ya no existe (caso_id NULL).
-    // No toca ingresos manuales (es_manual=true) ni los que tienen caso vivo.
-    // Incluye filas con es_manual NULL (legacy) usando filtro OR.
-    try {
-      await supabase
-        .from('ingresos')
-        .delete()
-        .or('es_manual.is.null,es_manual.eq.false')
-        .is('caso_id', null);
-    } catch {
-      // silencioso: si falla por RLS u otro motivo, no rompemos la carga
-    }
+    // No-op: tabla 'ingresos' fue removida en migration_finanzas_v2.
+    // Mantenido para no romper la API del hook.
   }, []);
 
   const readIngresos = useCallback(async () => {
-    await cleanupOrphans();
-    const { data, error } = await supabase
-      .from('ingresos')
-      .select('*')
-      .order('fecha', { ascending: false });
-
-    if (error) {
-      throw error;
-    }
-
-    setIngresos((data || []) as Ingreso[]);
-  }, [cleanupOrphans]);
+    // Tabla legacy 'ingresos' fue removida; devolvemos vacio para no crashear
+    // a los componentes que aun consumen este hook (Dashboard).
+    setIngresos([]);
+  }, []);
 
   const fetchIngresos = useCallback(async (options?: { syncHistoricalCases?: boolean }) => {
     const shouldSyncHistoricalCases = options?.syncHistoricalCases === true;
@@ -133,12 +115,7 @@ export function useIngresos() {
 
     const channel = supabase
       .channel('ingresos-realtime')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'ingresos' }, () => {
-        fetchIngresos();
-      })
       .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'casos' }, () => {
-        // Si se borra un caso en cualquier parte de la app, refrescar ingresos
-        // (la cascada de la FK + cleanupOrphans dejan la lista consistente)
         fetchIngresos();
       })
       .subscribe();
@@ -159,11 +136,12 @@ export function useEgresos() {
 
   const fetchEgresos = useCallback(async () => {
     try {
-      const [egresosRes, movimientosRes, casosRes] = await Promise.all([
-        supabase.from('egresos').select('*').order('fecha', { ascending: false }),
+      // Tabla legacy 'egresos' fue removida; mantenemos solo gastos por caso.
+      const [movimientosRes, casosRes] = await Promise.all([
         supabase.from('movimientos_caso').select('*').eq('tipo', 'gasto').order('fecha', { ascending: false }),
         supabase.from('casos_completos').select('id, nombre_apellido, materia'),
       ]);
+      const egresosRes = { data: [] as any[], error: null as any };
 
       if (egresosRes.error) {
         showToast('Error al cargar egresos: ' + egresosRes.error.message, 'error');
@@ -344,20 +322,18 @@ export function useDashboardStats() {
     // Fetch all data in parallel
     const [casosRes, ingresosRes, egresosRes, cuotasRes, movimientosRes, configRes] = await Promise.all([
       supabase.from('casos_completos').select('*'),
-      supabase.from('ingresos').select('*').gte('fecha', firstDay).lte('fecha', lastDay),
-      supabase.from('egresos').select('*').gte('fecha', firstDay).lte('fecha', lastDay),
+      supabase.from('ingresos_operativos').select('monto').gte('fecha', firstDay).lte('fecha', lastDay),
+      supabase.from('egresos_v2').select('monto').gte('fecha', firstDay).lte('fecha', lastDay),
       supabase.from('cuotas').select('*').eq('estado', 'Pendiente').lt('fecha', new Date().toISOString().split('T')[0]),
       supabase.from('movimientos_caso').select('caso_id, tipo, monto, moneda, fecha'),
       supabase.from('configuracion_estudio').select('comision_captadora_pct').limit(1).single(),
     ]);
 
     if (casosRes.error) showToast('Error al cargar estadísticas de casos', 'error');
-    if (ingresosRes.error) showToast('Error al cargar estadísticas de ingresos', 'error');
-    if (egresosRes.error) showToast('Error al cargar estadísticas de egresos', 'error');
 
     const casos = (casosRes.data || []) as CasoCompleto[];
-    const ingresos = (ingresosRes.data || []) as Ingreso[];
-    const egresos = (egresosRes.data || []) as Egreso[];
+    const ingresosV2 = (ingresosRes.data || []) as { monto: number }[];
+    const egresosV2 = (egresosRes.data || []) as { monto: number }[];
     const cuotasVencidas = cuotasRes.data || [];
     const movimientos = (movimientosRes.data || []) as { caso_id: string; tipo: string; monto: number; moneda?: string; fecha?: string }[];
     const commissionPct = Number(configRes.data?.comision_captadora_pct || 0.2);
@@ -376,11 +352,11 @@ export function useDashboardStats() {
     ).length;
 
     const porCobrar = casos.reduce((sum, c) => sum + describeCaseFinanceAmounts(c, commissionPct).pendingNet, 0);
-    const ingresosMes = ingresos.reduce((sum, i) => sum + (i.monto_cj_noa || 0), 0);
+    const ingresosMes = ingresosV2.reduce((sum, i) => sum + Number(i.monto || 0), 0);
     const gastosCasoMes = movimientos
       .filter(m => m.tipo === 'gasto' && m.moneda !== 'USD' && m.fecha && m.fecha >= firstDay && m.fecha <= lastDay)
       .reduce((sum, movement) => sum + Number(movement.monto || 0), 0);
-    const egresosMes = egresos.reduce((sum, e) => sum + (e.monto || 0), 0) + gastosCasoMes;
+    const egresosMes = egresosV2.reduce((sum, e) => sum + Number(e.monto || 0), 0) + gastosCasoMes;
 
     const casosPorMateria: Record<string, number> = {};
     casos.forEach(c => {

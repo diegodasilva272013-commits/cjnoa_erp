@@ -23,10 +23,10 @@ export default function SmartAlerts() {
       const weekAgo = new Date(now.getTime() - 7 * 86400000).toISOString().split('T')[0];
 
       const [curIng, prevIng, curEgr, prevEgr, cuotasRes] = await Promise.all([
-        supabase.from('ingresos').select('monto_cj_noa').gte('fecha', curMonth).lte('fecha', curEnd),
-        supabase.from('ingresos').select('monto_cj_noa').gte('fecha', prevMonth).lte('fecha', prevEnd),
-        supabase.from('egresos').select('monto').gte('fecha', curMonth).lte('fecha', curEnd),
-        supabase.from('egresos').select('monto').gte('fecha', prevMonth).lte('fecha', prevEnd),
+        supabase.from('ingresos_operativos').select('monto').gte('fecha', curMonth).lte('fecha', curEnd),
+        supabase.from('ingresos_operativos').select('monto').gte('fecha', prevMonth).lte('fecha', prevEnd),
+        supabase.from('egresos_v2').select('monto').gte('fecha', curMonth).lte('fecha', curEnd),
+        supabase.from('egresos_v2').select('monto').gte('fecha', prevMonth).lte('fecha', prevEnd),
         supabase.from('cuotas').select('id, fecha').eq('estado', 'Pendiente').gte('fecha', now.toISOString().split('T')[0]).lte('fecha', new Date(now.getTime() + 7 * 86400000).toISOString().split('T')[0]),
       ]);
 
@@ -43,8 +43,8 @@ export default function SmartAlerts() {
         supabase.from('tareas').select('caso_id').eq('archivada', false).neq('estado', 'completada').not('caso_id', 'is', null),
       ]);
 
-      const curIngTotal = (curIng.data || []).reduce((s, r) => s + Number(r.monto_cj_noa || 0), 0);
-      const prevIngTotal = (prevIng.data || []).reduce((s, r) => s + Number(r.monto_cj_noa || 0), 0);
+      const curIngTotal = (curIng.data || []).reduce((s, r: any) => s + Number(r.monto || 0), 0);
+      const prevIngTotal = (prevIng.data || []).reduce((s, r: any) => s + Number(r.monto || 0), 0);
       const curEgrTotal = (curEgr.data || []).reduce((s, r) => s + Number(r.monto || 0), 0);
       const prevEgrTotal = (prevEgr.data || []).reduce((s, r) => s + Number(r.monto || 0), 0);
       const cuotasSemana = cuotasRes.data?.length || 0;

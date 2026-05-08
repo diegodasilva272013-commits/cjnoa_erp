@@ -49,8 +49,6 @@ export function useCases() {
   }, [fetchCasos]);
 
   const removeCase = useCallback(async (id: string): Promise<boolean> => {
-    // Borrar primero ingresos vinculados al caso
-    await supabase.from('ingresos').delete().eq('caso_id', id);
     await supabase.from('cuotas').delete().eq('caso_id', id);
     const { error, data } = await supabase.from('casos').delete().eq('id', id).select('id');
     if (error) {
@@ -67,7 +65,6 @@ export function useCases() {
 
   const removeCasesBulk = useCallback(async (ids: string[]): Promise<{ ok: number; fail: number }> => {
     if (ids.length === 0) return { ok: 0, fail: 0 };
-    await supabase.from('ingresos').delete().in('caso_id', ids);
     await supabase.from('cuotas').delete().in('caso_id', ids);
     const { error, data } = await supabase.from('casos').delete().in('id', ids).select('id');
     if (error) {

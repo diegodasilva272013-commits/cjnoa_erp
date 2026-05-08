@@ -103,7 +103,20 @@ async function getCaptadoraCommissionPct(commissionPct?: number) {
   return Number(data?.comision_captadora_pct || DEFAULT_CAPTADORA_COMMISSION_PCT);
 }
 
-export async function syncCaseIncomeLedger({
+export async function syncCaseIncomeLedger(_args: {
+  sourceCase: CaseIncomeLedgerSource;
+  existingCuotas: Cuota[];
+  savedCuotas: Cuota[];
+  commissionPct: number;
+  existingIngresos?: Ingreso[];
+  deleteLegacyMissing?: boolean;
+}) {
+  // No-op tras migration_finanzas_v2: la tabla 'ingresos' ya no existe.
+  // Los nuevos ingresos_operativos se cargan manualmente sin vinculo a casos.
+  return emptySummary(1);
+}
+
+async function _legacy_syncCaseIncomeLedger({
   sourceCase,
   existingCuotas,
   savedCuotas,
@@ -288,7 +301,12 @@ export async function syncCaseIncomeLedger({
   return summary;
 }
 
-export async function reconcileAllCaseIncomeLedgers(commissionPct?: number) {
+export async function reconcileAllCaseIncomeLedgers(_commissionPct?: number) {
+  // No-op tras migration_finanzas_v2: la tabla 'ingresos' ya no existe.
+  return emptySummary();
+}
+
+async function _legacy_reconcileAllCaseIncomeLedgers(commissionPct?: number) {
   const effectiveCommissionPct = await getCaptadoraCommissionPct(commissionPct);
   const [casesRes, cuotasRes, ingresosRes] = await Promise.all([
     supabase

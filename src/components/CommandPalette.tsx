@@ -104,8 +104,8 @@ export default function CommandPalette() {
     try {
       const [casosRes, ingresosRes, egresosRes, prevRes] = await Promise.all([
         supabase.from('casos_completos').select('id, nombre_apellido, materia, estado').ilike('nombre_apellido', `%${normalizedQuery}%`).limit(5),
-        supabase.from('ingresos').select('id, cliente_nombre, concepto, monto_cj_noa').or(`cliente_nombre.ilike.%${normalizedQuery}%,concepto.ilike.%${normalizedQuery}%`).limit(5),
-        supabase.from('egresos').select('id, concepto, concepto_detalle, monto').or(`concepto.ilike.%${normalizedQuery}%,concepto_detalle.ilike.%${normalizedQuery}%`).limit(5),
+        supabase.from('ingresos_operativos').select('id, cliente_nombre, concepto, monto').or(`cliente_nombre.ilike.%${normalizedQuery}%,concepto.ilike.%${normalizedQuery}%`).limit(5),
+        supabase.from('egresos_v2').select('id, concepto, detalle, monto').or(`concepto.ilike.%${normalizedQuery}%,detalle.ilike.%${normalizedQuery}%`).limit(5),
         supabase.from('clientes_previsional').select('id, apellido_nombre, pipeline, cuil').or(`apellido_nombre.ilike.%${normalizedQuery}%,cuil.ilike.%${normalizedQuery}%`).limit(5),
       ]);
 
@@ -117,19 +117,19 @@ export default function CommandPalette() {
         route: '/casos-trabajo',
       }));
 
-      const ingresos: SearchResult[] = (ingresosRes.data || []).map(i => ({
+      const ingresos: SearchResult[] = (ingresosRes.data || []).map((i: any) => ({
         id: `i-${i.id}`,
         type: 'ingreso',
         title: i.cliente_nombre || i.concepto || 'Ingreso',
-        subtitle: `$${Number(i.monto_cj_noa || 0).toLocaleString('es-AR')}`,
+        subtitle: `$${Number(i.monto || 0).toLocaleString('es-AR')}`,
         route: '/ingresos',
       }));
 
-      const egresos: SearchResult[] = (egresosRes.data || []).map(e => ({
+      const egresos: SearchResult[] = (egresosRes.data || []).map((e: any) => ({
         id: `e-${e.id}`,
         type: 'egreso',
         title: e.concepto,
-        subtitle: e.concepto_detalle || `$${Number(e.monto || 0).toLocaleString('es-AR')}`,
+        subtitle: e.detalle || `$${Number(e.monto || 0).toLocaleString('es-AR')}`,
         route: '/egresos',
       }));
 

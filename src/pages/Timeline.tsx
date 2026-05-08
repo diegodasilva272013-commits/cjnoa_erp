@@ -33,8 +33,8 @@ export default function Timeline() {
     try {
       const [casosRes, ingresosRes, egresosRes, audienciasRes, tareasRes] = await Promise.all([
         supabase.from('casos_completos').select('id,nombre_apellido,materia,estado,created_at').order('created_at', { ascending: false }).limit(20),
-        supabase.from('ingresos').select('id,cliente_nombre,concepto,monto_cj_noa,created_at').order('created_at', { ascending: false }).limit(20),
-        supabase.from('egresos').select('id,concepto,concepto_detalle,monto,created_at').order('created_at', { ascending: false }).limit(20),
+        supabase.from('ingresos_operativos').select('id,cliente_nombre,concepto,monto,created_at').order('created_at', { ascending: false }).limit(20),
+        supabase.from('egresos_v2').select('id,concepto,detalle,monto,created_at').order('created_at', { ascending: false }).limit(20),
         supabase.from('audiencias').select('id,tipo,fecha,hora,juzgado,notas,created_at').order('created_at', { ascending: false }).limit(20),
         supabase.from('tareas_previsional').select('id,titulo,estado,prioridad,created_at').order('created_at', { ascending: false }).limit(20),
       ]);
@@ -51,14 +51,14 @@ export default function Timeline() {
           id: `ingreso-${i.id}`,
           tipo: 'ingreso' as const,
           titulo: i.cliente_nombre || i.concepto || 'Ingreso',
-          subtitulo: `${i.concepto || ''} · ${fmt(i.monto_cj_noa || 0)}`,
+          subtitulo: `${i.concepto || ''} · ${fmt(i.monto || 0)}`,
           fecha: i.created_at,
         })),
         ...(egresosRes.data || []).map((e: any) => ({
           id: `egreso-${e.id}`,
           tipo: 'egreso' as const,
           titulo: e.concepto,
-          subtitulo: `${e.concepto_detalle || ''} · ${fmt(e.monto || 0)}`,
+          subtitulo: `${e.detalle || ''} · ${fmt(e.monto || 0)}`,
           fecha: e.created_at,
         })),
         ...(audienciasRes.data || []).map((a: any) => ({
