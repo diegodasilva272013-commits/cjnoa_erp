@@ -8,6 +8,7 @@ const Login = lazy(() => import('./pages/Login'));
 const Dashboard = lazy(() => import('./pages/Dashboard'));
 const Cases = lazy(() => import('./pages/Cases'));
 const CasosGenerales = lazy(() => import('./pages/CasosGenerales'));
+const CasosFederales = lazy(() => import('./pages/CasosFederales'));
 const AgendamientoConsultas = lazy(() => import('./pages/AgendamientoConsultas'));
 const CasosPagos = lazy(() => import('./pages/CasosPagos'));
 const Ingresos = lazy(() => import('./pages/Ingresos'));
@@ -78,6 +79,7 @@ export default function App() {
           <Route path="/casos" element={<Navigate to="/casos-generales" replace />} />
           <Route path="/casos-trabajo" element={<Navigate to="/casos-generales" replace />} />
           <Route path="/casos-generales" element={<CasosGenerales />} />
+          <Route path="/casos-federales" element={<CasosFederales />} />
           <Route path="/agendamiento-consultas" element={<AgendamientoConsultas />} />
           <Route path="/casos-pagos" element={<CasosPagos />} />
           <Route path="/tareas" element={<Tareas />} />

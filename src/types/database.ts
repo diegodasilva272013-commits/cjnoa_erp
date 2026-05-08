@@ -13,6 +13,7 @@ export interface PermisosUsuario {
   ver_honorarios: boolean;
   // Modulos nuevos (gating de menu)
   casos_generales: boolean;
+  casos_federales: boolean;
   agendamiento: boolean;
   casos_pagos: boolean;
   tareas: boolean;
@@ -44,17 +45,18 @@ export const ROLES: { value: Rol; label: string; description: string }[] = [
 ];
 
 export const PERMISOS_DEFAULT: Record<Rol, PermisosUsuario> = {
-  admin:     { dashboard: true,  casos: true, finanzas: true,  equipo: true,  agenda: true, previsional: true,  honorarios: true,  ver_honorarios: true,  casos_generales: true, agendamiento: true,  casos_pagos: true,  tareas: true, mi_dia: true, chat: true, audiencias: true, calendario: true, cargos_hora: true, control_tareas: true, timeline: true },
-  socio:     { dashboard: true,  casos: true, finanzas: true,  equipo: false, agenda: true, previsional: true,  honorarios: true,  ver_honorarios: true,  casos_generales: true, agendamiento: true,  casos_pagos: true,  tareas: true, mi_dia: true, chat: true, audiencias: true, calendario: true, cargos_hora: true, control_tareas: true, timeline: true },
-  abogado:   { dashboard: true,  casos: true, finanzas: true,  equipo: false, agenda: true, previsional: true,  honorarios: true,  ver_honorarios: true,  casos_generales: true, agendamiento: false, casos_pagos: false, tareas: true, mi_dia: true, chat: true, audiencias: true, calendario: true, cargos_hora: true, control_tareas: true, timeline: true },
-  empleado:  { dashboard: true,  casos: true, finanzas: true,  equipo: false, agenda: true, previsional: true,  honorarios: true,  ver_honorarios: true,  casos_generales: true, agendamiento: true,  casos_pagos: false, tareas: true, mi_dia: true, chat: true, audiencias: true, calendario: true, cargos_hora: true, control_tareas: true, timeline: true },
-  procurador:{ dashboard: false, casos: true, finanzas: false, equipo: false, agenda: true, previsional: true,  honorarios: false, ver_honorarios: false, casos_generales: true, agendamiento: false, casos_pagos: false, tareas: true, mi_dia: true, chat: true, audiencias: true, calendario: true, cargos_hora: true, control_tareas: true, timeline: true },
+  admin:     { dashboard: true,  casos: true, finanzas: true,  equipo: true,  agenda: true, previsional: true,  honorarios: true,  ver_honorarios: true,  casos_generales: true, casos_federales: true,  agendamiento: true,  casos_pagos: true,  tareas: true, mi_dia: true, chat: true, audiencias: true, calendario: true, cargos_hora: true, control_tareas: true, timeline: true },
+  socio:     { dashboard: true,  casos: true, finanzas: true,  equipo: false, agenda: true, previsional: true,  honorarios: true,  ver_honorarios: true,  casos_generales: true, casos_federales: true,  agendamiento: true,  casos_pagos: true,  tareas: true, mi_dia: true, chat: true, audiencias: true, calendario: true, cargos_hora: true, control_tareas: true, timeline: true },
+  abogado:   { dashboard: true,  casos: true, finanzas: true,  equipo: false, agenda: true, previsional: true,  honorarios: true,  ver_honorarios: true,  casos_generales: true, casos_federales: true,  agendamiento: false, casos_pagos: false, tareas: true, mi_dia: true, chat: true, audiencias: true, calendario: true, cargos_hora: true, control_tareas: true, timeline: true },
+  empleado:  { dashboard: true,  casos: true, finanzas: true,  equipo: false, agenda: true, previsional: true,  honorarios: true,  ver_honorarios: true,  casos_generales: true, casos_federales: true,  agendamiento: true,  casos_pagos: false, tareas: true, mi_dia: true, chat: true, audiencias: true, calendario: true, cargos_hora: true, control_tareas: true, timeline: true },
+  procurador:{ dashboard: false, casos: true, finanzas: false, equipo: false, agenda: true, previsional: true,  honorarios: false, ver_honorarios: false, casos_generales: true, casos_federales: true,  agendamiento: false, casos_pagos: false, tareas: true, mi_dia: true, chat: true, audiencias: true, calendario: true, cargos_hora: true, control_tareas: true, timeline: true },
 };
 
 export const MODULOS: { key: keyof PermisosUsuario; label: string; description: string }[] = [
   { key: 'dashboard', label: 'Panel de Control', description: 'Métricas, alertas y resumen financiero' },
   { key: 'casos', label: 'Casos', description: 'Gestión de clientes y casos' },
-  { key: 'casos_generales', label: 'Casos Generales', description: 'Listado general de casos' },
+  { key: 'casos_generales', label: 'Casos Provinciales', description: 'Listado de casos del fuero provincial' },
+  { key: 'casos_federales', label: 'Casos Federales', description: 'Listado de casos del fuero federal' },
   { key: 'casos_pagos', label: 'Casos - Pagos', description: 'Gestión de pagos y cobros de casos' },
   { key: 'agendamiento', label: 'Agendamiento', description: 'Consultas previas con reserva' },
   { key: 'audiencias', label: 'Audiencias', description: 'Listado y seguimiento de audiencias' },

@@ -95,11 +95,19 @@ export default function Sidebar({ open, onClose }: SidebarProps) {
             </NavLink>
           )}
 
-          {/* CASOS GENERALES */}
+          {/* CASOS PROVINCIALES */}
           {permisos.casos_generales && (
             <NavLink to="/casos-generales" onClick={onClose} className={({ isActive }) => linkClass(isActive || location.pathname === '/casos' || location.pathname === '/casos-trabajo')}>
               <Scale className="w-5 h-5" />
-              Casos Generales
+              Casos Provinciales
+            </NavLink>
+          )}
+
+          {/* CASOS FEDERALES */}
+          {permisos.casos_federales && (
+            <NavLink to="/casos-federales" onClick={onClose} className={({ isActive }) => linkClass(isActive)}>
+              <Gavel className="w-5 h-5" />
+              Casos Federales
             </NavLink>
           )}
 
