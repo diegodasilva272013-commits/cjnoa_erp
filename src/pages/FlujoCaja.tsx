@@ -109,17 +109,43 @@ export default function FlujoCaja() {
     });
     const neto = total - totalEgresos;
     // Aplicar movimientos de caja (cambios efectivo↔transferencia)
+    // - Mismo socio (depósito/retiro real): SÍ cambia el total de caja del estudio.
+    //   Ej: Rodri convierte efectivo en transferencia → caja efectivo baja, caja transfer sube.
+    // - Distintos socios (swap puro): NO cambia el total, solo redistribuye entre socios.
+    //   Ej: Rodri da efectivo a Noe y Noe le devuelve transferencia → caja total igual.
     let cambiosEfectivoNet = 0, cambiosTransferNet = 0;
     const deltaEfectivoSocio: Record<SocioFinanzas, number> = { Rodri: 0, Noe: 0, Ale: 0, Fabri: 0 };
     const deltaTransferSocio: Record<SocioFinanzas, number> = { Rodri: 0, Noe: 0, Ale: 0, Fabri: 0 };
     movimientos.forEach(m => {
       const v = Number(m.monto || 0);
-      // Origen pierde tipo_origen
-      if (m.tipo_origen === 'Efectivo') { cambiosEfectivoNet -= v; deltaEfectivoSocio[m.socio_origen] -= v; }
-      else if (m.tipo_origen === 'Transferencia') { cambiosTransferNet -= v; deltaTransferSocio[m.socio_origen] -= v; }
-      // Destino gana tipo_destino
-      if (m.tipo_destino === 'Efectivo') { cambiosEfectivoNet += v; deltaEfectivoSocio[m.socio_destino] += v; }
-      else if (m.tipo_destino === 'Transferencia') { cambiosTransferNet += v; deltaTransferSocio[m.socio_destino] += v; }
+      const mismoSocio = m.socio_origen === m.socio_destino;
+      if (mismoSocio) {
+        // Conversión real: el socio cambia su propio dinero de un tipo a otro.
+        // Origen pierde tipo_origen, gana tipo_destino. Total caja se mueve.
+        if (m.tipo_origen === 'Efectivo') { cambiosEfectivoNet -= v; deltaEfectivoSocio[m.socio_origen] -= v; }
+        else { cambiosTransferNet -= v; deltaTransferSocio[m.socio_origen] -= v; }
+        if (m.tipo_destino === 'Efectivo') { cambiosEfectivoNet += v; deltaEfectivoSocio[m.socio_destino] += v; }
+        else { cambiosTransferNet += v; deltaTransferSocio[m.socio_destino] += v; }
+      } else {
+        // Swap entre socios: cada uno entrega lo suyo y recibe lo del otro.
+        // El total de caja (efectivo y transfer) NO cambia, solo se redistribuye.
+        // Origen entrega tipo_origen y recibe tipo_destino.
+        // Destino entrega tipo_destino y recibe tipo_origen.
+        if (m.tipo_origen === 'Efectivo') {
+          deltaEfectivoSocio[m.socio_origen] -= v;
+          deltaEfectivoSocio[m.socio_destino] += v;
+        } else {
+          deltaTransferSocio[m.socio_origen] -= v;
+          deltaTransferSocio[m.socio_destino] += v;
+        }
+        if (m.tipo_destino === 'Efectivo') {
+          deltaEfectivoSocio[m.socio_destino] -= v;
+          deltaEfectivoSocio[m.socio_origen] += v;
+        } else {
+          deltaTransferSocio[m.socio_destino] -= v;
+          deltaTransferSocio[m.socio_origen] += v;
+        }
+      }
     });
     const cajaEfectivo = efectivoIn - efectivoOut + cambiosEfectivoNet;
     const cajaTransfer = transferIn - transferOut + cambiosTransferNet;
