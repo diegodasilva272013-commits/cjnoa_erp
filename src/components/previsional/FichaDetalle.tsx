@@ -2,7 +2,7 @@ import { useState, useMemo, useRef } from 'react';
 import {
   ArrowLeft, Briefcase, Clock, ExternalLink, Edit3, Trash2, CheckSquare,
   CalendarDays, Plus, Calculator, FileText, Download, Printer, Upload,
-  Loader2, X as XIcon,
+  Loader2, X as XIcon, MessageSquare,
 } from 'lucide-react';
 import {
   ClientePrevisional, SexoCliente, TareaPrevisional, Audiencia,
@@ -20,6 +20,7 @@ import AportesTable from './AportesTable';
 import HistorialTimeline from './HistorialTimeline';
 import TareaModal from './TareaModal';
 import AudienciaModal from './AudienciaModal';
+import SeguimientoPrevisionalPanel from './SeguimientoPrevisionalPanel';
 import CrossLinkPanel from '../cases/CrossLinkPanel';
 
 interface Props {
@@ -230,7 +231,7 @@ function DocumentosTab({ cliente }: { cliente: ClientePrevisional }) {
 }
 
 export default function FichaDetalle({ cliente, onBack, onEdit, onDelete }: Props) {
-  const [tab, setTab] = useState<'aportes' | 'historial' | 'tareas' | 'audiencias' | 'calc' | 'docs'>('aportes');
+  const [tab, setTab] = useState<'seguimiento' | 'aportes' | 'historial' | 'tareas' | 'audiencias' | 'calc' | 'docs'>('seguimiento');
   const [tareaOpen, setTareaOpen] = useState(false);
   const [tareaEdit, setTareaEdit] = useState<TareaPrevisional | null>(null);
   const [audienciaOpen, setAudienciaOpen] = useState(false);
@@ -279,6 +280,7 @@ export default function FichaDetalle({ cliente, onBack, onEdit, onDelete }: Prop
   };
 
   const TABS = [
+    { id: 'seguimiento', icon: MessageSquare, label: 'Seguimiento' },
     { id: 'aportes', icon: Briefcase, label: 'Aportes', count: aportes.length },
     { id: 'historial', icon: Clock, label: 'Historial', count: avances.length },
     { id: 'tareas', icon: CheckSquare, label: 'Tareas', badge: tareas.filter(t => t.estado !== 'completada').length },
@@ -431,6 +433,9 @@ export default function FichaDetalle({ cliente, onBack, onEdit, onDelete }: Prop
 
       <CrossLinkPanel clienteId={cliente.id} tipo="previsional" />
 
+      {tab === 'seguimiento' && (
+        <SeguimientoPrevisionalPanel clientePrevisionalId={cliente.id} />
+      )}
       {tab === 'aportes' && (
         <AportesTable
           aportes={aportes}
