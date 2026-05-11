@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Save, User, Calendar, Clock, FileText, AlertTriangle } from 'lucide-react';
+import { Save, User, Calendar, Clock, FileText, AlertTriangle, Users, Plus, X as XIcon, CheckCircle2, Circle } from 'lucide-react';
 import Modal from '../Modal';
 import {
   TareaPrevisional, ClientePrevisional,
@@ -8,13 +8,16 @@ import {
 } from '../../types/previsional';
 import { useAuth } from '../../context/AuthContext';
 import { usePerfilesList } from '../../hooks/usePerfilesList';
+import { useTareaPasosPrevisional } from '../../hooks/useClientesPrevisionalNotas';
+import { supabase } from '../../lib/supabase';
 
 interface Props {
   open: boolean;
   onClose: () => void;
   tarea: TareaPrevisional | null;
   clientes: ClientePrevisional[];
-  onSave: (data: Partial<TareaPrevisional>, id?: string) => Promise<boolean>;
+  /** Devuelve el id de la tarea creada/actualizada o null si falló */
+  onSave: (data: Partial<TareaPrevisional>, id?: string) => Promise<string | null | boolean>;
 }
 
 const PRIORIDADES: PrioridadTarea[] = ['alta', 'media', 'sin_prioridad'];
@@ -24,6 +27,9 @@ export default function TareaModal({ open, onClose, tarea, clientes, onSave }: P
   const { user } = useAuth();
   const [saving, setSaving] = useState(false);
   const { perfiles, loading: loadingPerfiles } = usePerfilesList();
+  const { pasos: pasosExistentes, togglePaso, refetch: refetchPasos } = useTareaPasosPrevisional(tarea?.id || null);
+  // Pasos pendientes a insertar (cuando es tarea nueva, o cuando se agregan a una existente)
+  const [pasosNuevos, setPasosNuevos] = useState<{ descripcion: string; responsable_id: string }[]>([]);
   const [form, setForm] = useState({
     titulo: '',
     descripcion: '',
@@ -65,6 +71,8 @@ export default function TareaModal({ open, onClose, tarea, clientes, onSave }: P
         observaciones_demora: '',
       });
     }
+    // Reset pasos pendientes al abrir/cambiar tarea
+    setPasosNuevos([]);
   }, [tarea, open]);
 
   const handleSave = async () => {
@@ -84,9 +92,33 @@ export default function TareaModal({ open, onClose, tarea, clientes, onSave }: P
       observaciones_demora: form.observaciones_demora || null,
       ...(tarea ? {} : { created_by: user?.id }),
     };
-    const ok = await onSave(data, tarea?.id);
+    const result = await onSave(data, tarea?.id);
+    // Permitimos onSave devuelva el id (string), true, false o null
+    const tareaId: string | null = typeof result === 'string'
+      ? result
+      : (result === true ? (tarea?.id || null) : null);
+
+    // Insertar pasos pendientes si la tarea se guardó OK y hay pasos nuevos
+    if (tareaId && pasosNuevos.length > 0) {
+      const validos = pasosNuevos.filter(p => p.descripcion.trim());
+      if (validos.length > 0) {
+        // calcular orden inicial: continuar después de los existentes
+        const baseOrden = pasosExistentes.length;
+        const rows = validos.map((p, i) => ({
+          tarea_previsional_id: tareaId,
+          orden: baseOrden + i + 1,
+          descripcion: p.descripcion.trim(),
+          responsable_id: p.responsable_id || null,
+        }));
+        const { error: errPasos } = await supabase.from('tarea_pasos_previsional').insert(rows);
+        if (errPasos) console.error('[tarea_pasos_previsional insert]', errPasos);
+        await refetchPasos();
+      }
+      setPasosNuevos([]);
+    }
+
     setSaving(false);
-    if (ok) onClose();
+    if (result) onClose();
   };
 
   // Verificar si está vencida
@@ -249,6 +281,119 @@ export default function TareaModal({ open, onClose, tarea, clientes, onSave }: P
             className="input-dark"
             placeholder="Motivo de demora (si aplica)"
           />
+        </div>
+
+        {/* ── Pasos compartidos ── */}
+        <div className="rounded-xl border border-violet-500/20 bg-violet-500/[0.04] p-3 space-y-3">
+          <div className="flex items-center gap-2">
+            <Users className="w-4 h-4 text-violet-400" />
+            <span className="text-xs font-semibold text-violet-200">Pasos compartidos</span>
+            <span className="text-[10px] text-gray-500">
+              {pasosExistentes.filter(p => p.completado).length}/{pasosExistentes.length} completos
+            </span>
+          </div>
+
+          {/* Pasos existentes (solo edición de tarea) */}
+          {tarea && pasosExistentes.length > 0 && (
+            <div className="space-y-1.5">
+              {pasosExistentes.map(p => {
+                const esResp = p.responsable_id === user?.id;
+                const puedeMarcar = esResp && !p.completado && !!user?.id;
+                return (
+                  <div key={p.id} className={`flex items-start gap-2 px-2 py-1.5 rounded-lg border ${
+                    p.completado
+                      ? 'bg-emerald-500/[0.05] border-emerald-500/15'
+                      : esResp ? 'bg-violet-500/[0.05] border-violet-500/20' : 'bg-white/[0.02] border-white/5'
+                  }`}>
+                    <button
+                      onClick={() => puedeMarcar && user?.id && togglePaso(p.id, true, user.id)}
+                      disabled={!puedeMarcar}
+                      title={p.completado ? `Hecho por ${p.completado_por_nombre || '—'}` : esResp ? 'Marcar como completado' : 'No sos el responsable'}
+                      className={`mt-0.5 ${puedeMarcar ? 'cursor-pointer hover:scale-110' : 'cursor-default'} transition`}
+                    >
+                      {p.completado
+                        ? <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                        : <Circle className={`w-4 h-4 ${esResp ? 'text-violet-300' : 'text-gray-600'}`} />}
+                    </button>
+                    <div className="flex-1 min-w-0">
+                      <p className={`text-[11px] ${p.completado ? 'text-gray-500 line-through' : 'text-gray-200'}`}>
+                        <span className="text-gray-500 mr-1">#{p.orden}</span>{p.descripcion}
+                      </p>
+                      <p className="text-[10px] text-gray-500 mt-0.5">
+                        {p.responsable_nombre || 'Sin asignar'}
+                        {p.completado && p.completado_at && (
+                          <span className="ml-1 text-emerald-500">· {new Date(p.completado_at).toLocaleString('es-AR')}</span>
+                        )}
+                      </p>
+                    </div>
+                    {!p.completado && (
+                      <button
+                        type="button"
+                        onClick={async () => { await supabase.from('tarea_pasos_previsional').delete().eq('id', p.id); await refetchPasos(); }}
+                        className="text-gray-500 hover:text-red-400 p-1"
+                        title="Eliminar paso"
+                      >
+                        <XIcon className="w-3 h-3" />
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Pasos nuevos a agregar */}
+          {pasosNuevos.length > 0 && (
+            <div className="space-y-1.5">
+              {pasosNuevos.map((p, i) => (
+                <div key={i} className="flex items-center gap-1.5">
+                  <span className="text-[10px] text-gray-500 w-5">#{(tarea ? pasosExistentes.length : 0) + i + 1}</span>
+                  <input
+                    value={p.descripcion}
+                    onChange={e => {
+                      const arr = [...pasosNuevos];
+                      arr[i] = { ...arr[i], descripcion: e.target.value };
+                      setPasosNuevos(arr);
+                    }}
+                    placeholder="Qué hay que hacer en este paso"
+                    className="flex-1 bg-white/[0.03] border border-white/10 rounded-lg px-2 py-1 text-[11px] text-white placeholder-gray-600 focus:outline-none focus:border-violet-500/50"
+                  />
+                  <select
+                    value={p.responsable_id}
+                    onChange={e => {
+                      const arr = [...pasosNuevos];
+                      arr[i] = { ...arr[i], responsable_id: e.target.value };
+                      setPasosNuevos(arr);
+                    }}
+                    className="bg-white/[0.03] border border-white/10 rounded-lg px-2 py-1 text-[11px] text-white focus:outline-none focus:border-violet-500/50"
+                  >
+                    <option value="">Responsable…</option>
+                    {perfiles.map(pf => (
+                      <option key={pf.id} value={pf.id}>{pf.nombre}</option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    onClick={() => setPasosNuevos(pasosNuevos.filter((_, j) => j !== i))}
+                    className="text-gray-500 hover:text-red-400 p-1"
+                  >
+                    <XIcon className="w-3 h-3" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <button
+            type="button"
+            onClick={() => setPasosNuevos([...pasosNuevos, { descripcion: '', responsable_id: '' }])}
+            className="flex items-center gap-1 text-[11px] text-violet-300 hover:text-violet-200"
+          >
+            <Plus className="w-3 h-3" /> Agregar paso
+          </button>
+          <p className="text-[10px] text-gray-500 leading-relaxed">
+            Cada paso se asigna a un responsable. Cuando todos estén completos, la tarea se marca finalizada y se carga un reporte automático en el seguimiento del cliente.
+          </p>
         </div>
       </div>
 
