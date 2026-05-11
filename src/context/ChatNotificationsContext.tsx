@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase';
 import { useAuth } from './AuthContext';
 import { useToast } from './ToastContext';
 import { registrarServiceWorker, suscribirPush } from '../lib/pushNotifications';
+import { showOSNotification } from '../lib/notify';
 
 interface ChatNotificationsContextType {
   unreadTotal: number;
@@ -141,11 +142,7 @@ export function ChatNotificationsProvider({ children }: { children: ReactNode })
           : 'Nuevo mensaje';
         playDing();
         showToast(`💬 ${nombre}: ${preview}`, 'info');
-        try {
-          if ('Notification' in window && Notification.permission === 'granted') {
-            new Notification(`Mensaje de ${nombre}`, { body: preview, icon: '/Logo NOA.jpeg', tag: m.conversacion_id });
-          }
-        } catch { /* ignore */ }
+        void showOSNotification(`Mensaje de ${nombre}`, { body: preview, icon: '/Logo NOA.jpeg', tag: m.conversacion_id });
       }
     }
     // Polling de mensajes nuevos cada 5s — fallback robusto
@@ -187,11 +184,7 @@ export function ChatNotificationsProvider({ children }: { children: ReactNode })
         playDing();
         showToast(`💬 ${nombre}: ${preview}`, 'info');
 
-        try {
-          if ('Notification' in window && Notification.permission === 'granted') {
-            new Notification(`Mensaje de ${nombre}`, { body: preview, icon: '/Logo NOA.jpeg', tag: m.conversacion_id });
-          }
-        } catch { /* ignore */ }
+        void showOSNotification(`Mensaje de ${nombre}`, { body: preview, icon: '/Logo NOA.jpeg', tag: m.conversacion_id });
       })
       .subscribe();
 

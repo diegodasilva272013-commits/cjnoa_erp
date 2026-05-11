@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { AlertTriangle, X, ExternalLink, Volume2 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
+import { showOSNotification } from '../lib/notify';
 
 interface AlarmaTarea {
   id: string;
@@ -67,11 +68,7 @@ export default function AlarmaTareas() {
     setCola(prev => [...prev, n]);
     reproducirBeep();
     // Notificacion del SO si esta permitida (silencioso si no)
-    try {
-      if ('Notification' in window && Notification.permission === 'granted') {
-        new Notification(n.titulo, { body: n.mensaje || '', tag: n.id });
-      }
-    } catch { /* noop */ }
+    void showOSNotification(n.titulo, { body: n.mensaje || '', tag: n.id });
   }
 
   // Pedir permiso de notificacion del SO una vez
