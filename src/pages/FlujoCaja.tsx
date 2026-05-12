@@ -12,6 +12,7 @@ import { useToast } from '../context/ToastContext';
 import { formatMoney } from '../lib/financeFormat';
 import Modal from '../components/Modal';
 import FinanceMiniCharts from '../components/finance/FinanceMiniCharts';
+import PlanillaMetricas from '../components/finance/PlanillaMetricas';
 
 const periodoActual = () => new Date().toISOString().slice(0, 7); // YYYY-MM
 
@@ -376,6 +377,18 @@ export default function FlujoCaja() {
           </div>
         </div>
       </div>
+
+      {/* Planilla estilo Excel: Métricas por socio + Transferencia + Resumen */}
+      <PlanillaMetricas
+        ingresos={ingresosPeriodo}
+        metaGrupal={meta}
+        totalIngresos={totales.total}
+        totalEgresos={totales.totalEgresos}
+        cajaEfectivo={totales.cajaEfectivo}
+        ingTransferSocio={totales.ingTransferSocio}
+        egTransferSocio={totales.egTransferSocio}
+        efectivoSocioFinal={totales.efectivoSocioFinal}
+      />
 
       {/* Cards principales */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3">

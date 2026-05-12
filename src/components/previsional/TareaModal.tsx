@@ -125,12 +125,8 @@ export default function TareaModal({ open, onClose, tarea, clientes, onSave }: P
   const isVencida = form.fecha_limite && new Date(form.fecha_limite) < new Date() && form.estado !== 'completada';
 
   return (
-    <Modal open={open} onClose={onClose} title={tarea ? 'Editar Tarea ⭐ con pasos' : 'Nueva Tarea ⭐ con pasos'} subtitle="Seguimiento Previsional" maxWidth="max-w-2xl">
+    <Modal open={open} onClose={onClose} title={tarea ? 'Editar Tarea' : 'Nueva Tarea'} subtitle="Seguimiento Previsional" maxWidth="max-w-2xl">
       <div className="space-y-4">
-        {/* BANNER TEMPORAL DE VERSIÓN — borrar después de confirmar */}
-        <div className="rounded-xl bg-gradient-to-r from-violet-600 to-fuchsia-600 text-white text-xs font-bold px-3 py-2 text-center shadow-lg">
-          ✅ NUEVA VERSIÓN — scrolleá hasta abajo, vas a ver la sección violeta &quot;Pasos compartidos&quot;
-        </div>
         {/* Alerta vencida */}
         {isVencida && (
           <div className="flex items-center gap-2 p-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-xs">
