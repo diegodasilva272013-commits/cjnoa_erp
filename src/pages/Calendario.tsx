@@ -295,10 +295,7 @@ export default function Calendario() {
   }
 
   async function crearTurnosEnGoogle() {
-    if (!iaModal || !user || !conectado) {
-      setMsg('Conectá Google Calendar primero.');
-      return;
-    }
+    if (!iaModal || !user) return;
     setIaModal({ ...iaModal, fase: 'creando', log: 'Creando eventos…' });
     const turnos = [...iaModal.turnos];
     let ok = 0, fail = 0;
@@ -309,29 +306,70 @@ export default function Calendario() {
         const startISO = `${t.fecha}T${(t.hora || '10:00')}:00`;
         const startDate = new Date(startISO);
         const endDate = new Date(startDate.getTime() + 60 * 60_000);
-        const r = await fetch('/api/google/create-event', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
+        const summary = t.titulo || `Turno ${t.persona || ''}`.trim();
+        const description = [
+          t.persona && `Titular: ${t.persona}`,
+          t.cuil && `CUIL: ${t.cuil}`,
+          t.numero_solicitud && `Nº solicitud: ${t.numero_solicitud}`,
+          t.descripcion,
+        ].filter(Boolean).join('\n');
+        const location = t.ubicacion || t.oficina || '';
+
+        // 1) Siempre se guarda en el sistema interno.
+        const { data: insertado, error: errInterno } = await supabase
+          .from('eventos_internos')
+          .insert({
             user_id: user.id,
-            summary: t.titulo || `Turno ${t.persona || ''}`.trim(),
-            description: [t.persona && `Titular: ${t.persona}`, t.cuil && `CUIL: ${t.cuil}`, t.numero_solicitud && `Nº solicitud: ${t.numero_solicitud}`, t.descripcion]
-              .filter(Boolean).join('\n'),
-            location: t.ubicacion || t.oficina || '',
-            start: startDate.toISOString(),
-            end: endDate.toISOString(),
-            allDay: false,
-          }),
-        });
-        const j = await r.json();
-        if (j.ok) { turnos[i] = { ...t, creado: true }; ok++; }
-        else { turnos[i] = { ...t, error: j.error || 'fallo' }; fail++; }
+            titulo: summary,
+            descripcion: description || null,
+            ubicacion: location || null,
+            fecha_inicio: startDate.toISOString(),
+            fecha_fin: endDate.toISOString(),
+            todo_el_dia: false,
+          })
+          .select('id')
+          .single();
+        if (errInterno) {
+          turnos[i] = { ...t, error: errInterno.message };
+          fail++;
+          continue;
+        }
+
+        // 2) Si Google Calendar está conectado, además se sincroniza.
+        if (conectado) {
+          try {
+            const r = await fetch('/api/google/create-event', {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                user_id: user.id,
+                summary,
+                description,
+                location,
+                start: startDate.toISOString(),
+                end: endDate.toISOString(),
+                allDay: false,
+              }),
+            });
+            const j = await r.json();
+            if (j.ok && j.event_id && insertado?.id) {
+              await supabase.from('eventos_internos').update({ google_event_id: j.event_id }).eq('id', insertado.id);
+            }
+          } catch {
+            // no rompemos el flujo: ya quedó guardado en el sistema.
+          }
+        }
+
+        turnos[i] = { ...t, creado: true };
+        ok++;
       } catch (e: any) {
         turnos[i] = { ...t, error: e?.message || 'error' };
         fail++;
       }
     }
     setIaModal({ ...iaModal, fase: 'revisar', turnos, log: `Listo: ${ok} creados${fail ? `, ${fail} con error` : ''}.` });
-    setMsg(`✅ ${ok} turno(s) agregado(s) al Google Calendar.`);
+    setMsg(conectado
+      ? `✅ ${ok} turno(s) agregado(s) (sistema + Google Calendar).`
+      : `✅ ${ok} turno(s) agregado(s) en la agenda.`);
     setCursor(new Date(cursor));
   }
 
@@ -1117,8 +1155,8 @@ export default function Calendario() {
             </div>
 
             {!conectado && (
-              <div className="text-xs px-3 py-2 rounded-md bg-amber-500/10 text-amber-200 border border-amber-500/30">
-                Necesitás conectar Google Calendar para que los turnos se guarden ahí.
+              <div className="text-xs px-3 py-2 rounded-md bg-sky-500/10 text-sky-200 border border-sky-500/30">
+                Los turnos se guardarán en tu agenda del sistema. Si conectás Google Calendar también se sincronizan ahí.
               </div>
             )}
 
@@ -1126,7 +1164,7 @@ export default function Calendario() {
               <div className="space-y-3">
                 <p className="text-sm text-gray-300">
                   Subí las fotos / capturas de los turnos (ANSES, juzgados, citas, etc.). La IA va a leer
-                  fecha, hora, persona, oficina y crear los eventos en tu Google Calendar.
+                  fecha, hora, persona, oficina y crear los eventos en tu agenda{conectado ? ' y en tu Google Calendar' : ''}.
                 </p>
                 <label className="block border-2 border-dashed border-white/15 hover:border-fuchsia-400/40 rounded-xl p-6 text-center cursor-pointer transition">
                   <ImageIcon className="w-8 h-8 text-gray-500 mx-auto mb-2" />
@@ -1176,7 +1214,7 @@ export default function Calendario() {
             {(iaModal.fase === 'revisar' || iaModal.fase === 'creando') && (
               <div className="space-y-3">
                 {iaModal.log && <div className="text-xs text-emerald-300">{iaModal.log}</div>}
-                <p className="text-xs text-gray-400">Revisá los datos extraídos. Podés editar o desmarcar antes de crearlos en Google Calendar.</p>
+                <p className="text-xs text-gray-400">Revisá los datos extraídos. Podés editar o desmarcar antes de crearlos en {conectado ? 'la agenda y Google Calendar' : 'tu agenda'}.</p>
 
                 <div className="space-y-2">
                   {iaModal.turnos.map((t, i) => (
@@ -1234,10 +1272,10 @@ export default function Calendario() {
                     ← Subir más
                   </button>
                   <button onClick={crearTurnosEnGoogle}
-                    disabled={iaModal.fase === 'creando' || !conectado || iaModal.turnos.every(t => !t.incluir || t.creado)}
+                    disabled={iaModal.fase === 'creando' || iaModal.turnos.every(t => !t.incluir || t.creado)}
                     className="px-3 py-2 text-xs rounded-md bg-emerald-500 hover:bg-emerald-400 text-black font-medium disabled:opacity-50 flex items-center gap-1.5">
                     {iaModal.fase === 'creando' && <RefreshCw className="w-3 h-3 animate-spin" />}
-                    Crear {iaModal.turnos.filter(t => t.incluir && !t.creado).length} en Google Calendar
+                    Crear {iaModal.turnos.filter(t => t.incluir && !t.creado).length} en {conectado ? 'agenda + Google Calendar' : 'la agenda'}
                   </button>
                 </div>
               </div>
