@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Plus, Pencil, Search, Download } from 'lucide-react';
+import { Plus, Pencil, Trash2, Search, Download, X, ArrowUp, ArrowDown } from 'lucide-react';
 import { useIngresosOperativos } from '../hooks/useIngresosOperativos';
 import {
   SOCIOS_FINANZAS, MODALIDADES, TIPOS_CLIENTE, RAMAS, FUENTES, CONCEPTOS_INGRESO,
@@ -44,13 +44,14 @@ const FORM_VACIO: FormState = {
 };
 
 export default function Ingresos() {
-  const { items: ingresos, loading, crear, actualizar } = useIngresosOperativos();
+  const { items: ingresos, loading, crear, actualizar, eliminar } = useIngresosOperativos();
   const { showToast } = useToast();
 
   const [modalOpen, setModalOpen] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const [form, setForm] = useState<FormState>(FORM_VACIO);
   const [saving, setSaving] = useState(false);
+  const [eliminandoId, setEliminandoId] = useState<string | null>(null);
 
   // Filtros
   const [busqueda, setBusqueda] = useState('');
@@ -58,21 +59,66 @@ export default function Ingresos() {
   const [filtroRama, setFiltroRama] = useState<RamaLegal | ''>('');
   const [filtroFuente, setFiltroFuente] = useState<FuenteIngreso | ''>('');
   const [filtroModalidad, setFiltroModalidad] = useState<ModalidadPago | ''>('');
+  const [filtroConcepto, setFiltroConcepto] = useState<ConceptoIngreso | ''>('');
+  const [filtroTipoCliente, setFiltroTipoCliente] = useState<TipoClienteIngreso | ''>('');
+  const [montoMin, setMontoMin] = useState('');
+  const [montoMax, setMontoMax] = useState('');
   const [desde, setDesde] = useState(INICIO_MES());
   const [hasta, setHasta] = useState('');
 
+  // Orden
+  type SortKey = 'fecha' | 'cliente_nombre' | 'monto' | 'doctor_cobra' | 'rama' | 'fuente' | 'concepto' | 'modalidad' | 'tipo_cliente';
+  const [sortKey, setSortKey] = useState<SortKey>('fecha');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
+
+  function toggleSort(k: SortKey) {
+    if (sortKey === k) setSortDir(d => (d === 'asc' ? 'desc' : 'asc'));
+    else { setSortKey(k); setSortDir(k === 'monto' || k === 'fecha' ? 'desc' : 'asc'); }
+  }
+
+  function limpiarFiltros() {
+    setBusqueda(''); setFiltroDoctor(''); setFiltroRama(''); setFiltroFuente('');
+    setFiltroModalidad(''); setFiltroConcepto(''); setFiltroTipoCliente('');
+    setMontoMin(''); setMontoMax(''); setDesde(INICIO_MES()); setHasta('');
+  }
+
+  const hayFiltrosActivos = !!(
+    busqueda || filtroDoctor || filtroRama || filtroFuente || filtroModalidad ||
+    filtroConcepto || filtroTipoCliente || montoMin || montoMax || hasta || desde !== INICIO_MES()
+  );
+
   const filtrados = useMemo(() => {
-    return ingresos.filter((i: IngresoOperativo) => {
+    const min = Number(montoMin) || 0;
+    const max = Number(montoMax) || Infinity;
+    const arr = ingresos.filter((i: IngresoOperativo) => {
       if (busqueda && !i.cliente_nombre.toLowerCase().includes(busqueda.toLowerCase())) return false;
       if (filtroDoctor && i.doctor_cobra !== filtroDoctor) return false;
       if (filtroRama && i.rama !== filtroRama) return false;
       if (filtroFuente && i.fuente !== filtroFuente) return false;
       if (filtroModalidad && i.modalidad !== filtroModalidad) return false;
+      if (filtroConcepto && i.concepto !== filtroConcepto) return false;
+      if (filtroTipoCliente && i.tipo_cliente !== filtroTipoCliente) return false;
       if (desde && i.fecha < desde) return false;
       if (hasta && i.fecha > hasta) return false;
+      const m = Number(i.monto || 0);
+      if (m < min || m > max) return false;
       return true;
     });
-  }, [ingresos, busqueda, filtroDoctor, filtroRama, filtroFuente, filtroModalidad, desde, hasta]);
+    arr.sort((a, b) => {
+      const dir = sortDir === 'asc' ? 1 : -1;
+      let va: any = a[sortKey];
+      let vb: any = b[sortKey];
+      if (sortKey === 'monto') { va = Number(va || 0); vb = Number(vb || 0); }
+      else { va = String(va ?? '').toLowerCase(); vb = String(vb ?? '').toLowerCase(); }
+      if (va < vb) return -1 * dir;
+      if (va > vb) return 1 * dir;
+      return 0;
+    });
+    return arr;
+  }, [
+    ingresos, busqueda, filtroDoctor, filtroRama, filtroFuente, filtroModalidad,
+    filtroConcepto, filtroTipoCliente, montoMin, montoMax, desde, hasta, sortKey, sortDir,
+  ]);
 
   const totales = useMemo(() => {
     const total = filtrados.reduce((s: number, i: IngresoOperativo) => s + Number(i.monto || 0), 0);
@@ -163,6 +209,20 @@ export default function Ingresos() {
     }
   }
 
+  async function handleEliminar(i: IngresoOperativo) {
+    const ok = window.confirm(`¿Eliminar el ingreso de "${i.cliente_nombre}" por ${formatMoney(Number(i.monto))} del ${i.fecha}?\n\nEsta acción no se puede deshacer.`);
+    if (!ok) return;
+    setEliminandoId(i.id);
+    try {
+      await eliminar(i.id);
+      showToast('Ingreso eliminado', 'success');
+    } catch (err: any) {
+      showToast(err?.message || 'Error al eliminar', 'error');
+    } finally {
+      setEliminandoId(null);
+    }
+  }
+
   function exportar() {
     const rows = filtrados.map((i: IngresoOperativo) => ({
       Fecha: i.fecha,
@@ -227,14 +287,31 @@ export default function Ingresos() {
             placeholder="Buscar por cliente…"
             className="flex-1 bg-transparent outline-none text-sm text-white placeholder:text-zinc-500"
           />
+          {hayFiltrosActivos && (
+            <button
+              onClick={limpiarFiltros}
+              className="px-2 py-1 rounded-lg bg-white/5 border border-white/10 text-xs text-zinc-300 hover:bg-white/10 flex items-center gap-1"
+              title="Limpiar todos los filtros"
+            >
+              <X className="w-3 h-3" /> Limpiar
+            </button>
+          )}
         </div>
         <div className="grid grid-cols-2 md:grid-cols-6 gap-2">
           <SelectFilter label="Doctor" value={filtroDoctor} onChange={v => setFiltroDoctor(v as SocioFinanzas | '')} options={SOCIOS_FINANZAS} />
           <SelectFilter label="Rama" value={filtroRama} onChange={v => setFiltroRama(v as RamaLegal | '')} options={RAMAS} />
           <SelectFilter label="Fuente" value={filtroFuente} onChange={v => setFiltroFuente(v as FuenteIngreso | '')} options={FUENTES} />
           <SelectFilter label="Modalidad" value={filtroModalidad} onChange={v => setFiltroModalidad(v as ModalidadPago | '')} options={MODALIDADES} />
+          <SelectFilter label="Concepto" value={filtroConcepto} onChange={v => setFiltroConcepto(v as ConceptoIngreso | '')} options={CONCEPTOS_INGRESO} />
+          <SelectFilter label="Tipo cliente" value={filtroTipoCliente} onChange={v => setFiltroTipoCliente(v as TipoClienteIngreso | '')} options={TIPOS_CLIENTE} />
           <DateFilter label="Desde" value={desde} onChange={setDesde} />
           <DateFilter label="Hasta" value={hasta} onChange={setHasta} />
+          <NumberFilter label="Monto mínimo" value={montoMin} onChange={setMontoMin} placeholder="0" />
+          <NumberFilter label="Monto máximo" value={montoMax} onChange={setMontoMax} placeholder="∞" />
+        </div>
+        <div className="flex items-center justify-between text-xs text-zinc-400 pt-1 border-t border-white/5">
+          <span>{filtrados.length} resultado{filtrados.length === 1 ? '' : 's'}</span>
+          <span>Orden: <strong className="text-zinc-200">{sortKey}</strong> {sortDir === 'asc' ? '↑' : '↓'}</span>
         </div>
       </div>
 
@@ -249,16 +326,16 @@ export default function Ingresos() {
             <table className="w-full text-sm">
               <thead className="bg-white/[0.03] text-xs uppercase text-zinc-400">
                 <tr>
-                  <th className="px-3 py-2 text-left">Fecha</th>
-                  <th className="px-3 py-2 text-left">Cliente</th>
-                  <th className="px-3 py-2 text-left">Tipo</th>
-                  <th className="px-3 py-2 text-right">Monto</th>
-                  <th className="px-3 py-2 text-left">Modalidad</th>
-                  <th className="px-3 py-2 text-left">Cobra</th>
+                  <Th label="Fecha" k="fecha" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+                  <Th label="Cliente" k="cliente_nombre" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+                  <Th label="Tipo" k="tipo_cliente" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+                  <Th label="Monto" k="monto" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" />
+                  <Th label="Modalidad" k="modalidad" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+                  <Th label="Cobra" k="doctor_cobra" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
                   <th className="px-3 py-2 text-left">Recibe</th>
-                  <th className="px-3 py-2 text-left">Rama</th>
-                  <th className="px-3 py-2 text-left">Fuente</th>
-                  <th className="px-3 py-2 text-left">Concepto</th>
+                  <Th label="Rama" k="rama" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+                  <Th label="Fuente" k="fuente" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+                  <Th label="Concepto" k="concepto" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
                   <th className="px-3 py-2"></th>
                 </tr>
               </thead>
@@ -276,9 +353,23 @@ export default function Ingresos() {
                     <td className="px-3 py-2 text-zinc-300">{i.fuente}</td>
                     <td className="px-3 py-2 text-zinc-300">{i.concepto}</td>
                     <td className="px-3 py-2 text-right">
-                      <button onClick={() => abrirEditar(i)} className="text-zinc-400 hover:text-white">
-                        <Pencil className="w-4 h-4" />
-                      </button>
+                      <div className="flex items-center justify-end gap-1">
+                        <button
+                          onClick={() => abrirEditar(i)}
+                          className="p-1.5 rounded text-zinc-400 hover:text-white hover:bg-white/5"
+                          title="Editar"
+                        >
+                          <Pencil className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() => handleEliminar(i)}
+                          disabled={eliminandoId === i.id}
+                          className="p-1.5 rounded text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 disabled:opacity-40"
+                          title="Eliminar"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -421,5 +512,41 @@ function DateFilter({ label, value, onChange }: { label: string; value: string; 
       <span className="block text-[10px] uppercase text-zinc-500 mb-1">{label}</span>
       <input type="date" value={value} onChange={e => onChange(e.target.value)} className="w-full px-2 py-1.5 rounded-lg bg-black/40 border border-white/10 text-xs text-white" />
     </label>
+  );
+}
+
+function NumberFilter({ label, value, onChange, placeholder }: { label: string; value: string; onChange: (v: string) => void; placeholder?: string }) {
+  return (
+    <label className="block">
+      <span className="block text-[10px] uppercase text-zinc-500 mb-1">{label}</span>
+      <input
+        type="number"
+        inputMode="numeric"
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        placeholder={placeholder}
+        className="w-full px-2 py-1.5 rounded-lg bg-black/40 border border-white/10 text-xs text-white"
+      />
+    </label>
+  );
+}
+
+function Th<K extends string>({
+  label, k, sortKey, sortDir, onSort, align = 'left',
+}: {
+  label: string; k: K; sortKey: string; sortDir: 'asc' | 'desc'; onSort: (k: K) => void; align?: 'left' | 'right';
+}) {
+  const active = sortKey === k;
+  return (
+    <th className={`px-3 py-2 ${align === 'right' ? 'text-right' : 'text-left'}`}>
+      <button
+        type="button"
+        onClick={() => onSort(k)}
+        className={`inline-flex items-center gap-1 uppercase tracking-wide ${active ? 'text-white' : 'text-zinc-400 hover:text-zinc-200'}`}
+      >
+        {label}
+        {active && (sortDir === 'asc' ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />)}
+      </button>
+    </th>
   );
 }

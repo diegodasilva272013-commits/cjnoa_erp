@@ -52,5 +52,11 @@ export function useIngresosOperativos() {
     await cargar();
   };
 
-  return { items, loading, error, cargar, crear, actualizar };
+  const eliminar = async (id: string) => {
+    const { error } = await supabase.from('ingresos_operativos').delete().eq('id', id);
+    if (error) throw error;
+    await cargar();
+  };
+
+  return { items, loading, error, cargar, crear, actualizar, eliminar };
 }
