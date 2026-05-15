@@ -22,6 +22,8 @@ export default function FlujoCaja() {
   const { showToast } = useToast();
   const [periodo, setPeriodo] = useState(periodoActual());
   const [meta, setMeta] = useState<number>(0);
+  const [metaInput, setMetaInput] = useState<string>('');
+  const [guardandoMeta, setGuardandoMeta] = useState(false);
   const [calculandoReparto, setCalculandoReparto] = useState(false);
   const [reparto, setReparto] = useState<RepartoCalculo | null>(null);
   const [modalReparto, setModalReparto] = useState(false);
@@ -66,7 +68,9 @@ export default function FlujoCaja() {
         .select('meta_recaudacion')
         .eq('periodo', periodo)
         .maybeSingle();
-      setMeta(Number(data?.meta_recaudacion || 0));
+      const m = Number(data?.meta_recaudacion || 0);
+      setMeta(m);
+      setMetaInput(m ? String(m) : '');
     })();
   }, [periodo]);
 
@@ -197,11 +201,13 @@ export default function FlujoCaja() {
     : 'bg-rose-500/20 border-rose-500/40 text-rose-300';
 
   async function guardarMeta(nueva: number) {
+    setGuardandoMeta(true);
     const { error } = await supabase.from('metas_finanzas').upsert({
       periodo, meta_recaudacion: nueva,
     }, { onConflict: 'periodo' });
+    setGuardandoMeta(false);
     if (error) showToast(error.message, 'error');
-    else { setMeta(nueva); showToast('Meta actualizada', 'success'); }
+    else { setMeta(nueva); setMetaInput(nueva ? String(nueva) : ''); showToast('Meta actualizada', 'success'); }
   }
 
   async function calcularReparto() {
@@ -359,15 +365,29 @@ export default function FlujoCaja() {
         <div className="flex items-center justify-between gap-4 flex-wrap">
           <div>
             <div className="text-xs uppercase opacity-80">Meta del periodo</div>
-            <div className="flex items-center gap-2 mt-1">
+            <div className="flex items-center gap-2 mt-1 flex-wrap">
               <input
                 type="number"
-                value={meta || ''}
-                onChange={e => setMeta(Number(e.target.value))}
-                onBlur={e => guardarMeta(Number(e.target.value))}
+                inputMode="numeric"
+                value={metaInput}
+                onChange={e => setMetaInput(e.target.value)}
+                onKeyDown={e => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    guardarMeta(Number(metaInput) || 0);
+                  }
+                }}
                 placeholder="Definí la meta"
                 className="bg-black/30 px-2 py-1 rounded text-sm text-white w-40 outline-none border border-white/10"
               />
+              <button
+                type="button"
+                onClick={() => guardarMeta(Number(metaInput) || 0)}
+                disabled={guardandoMeta || Number(metaInput || 0) === meta}
+                className="px-3 py-1 rounded text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                {guardandoMeta ? 'Guardando…' : 'Actualizar'}
+              </button>
               <span className="text-sm">→ Recaudado: <strong>{formatMoney(totales.total)}</strong></span>
             </div>
           </div>
