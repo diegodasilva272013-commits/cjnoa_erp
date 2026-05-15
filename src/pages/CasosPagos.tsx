@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo } from 'react';
-import { Plus, Pencil, Trash2, CheckCircle2, DollarSign, Search, ListChecks } from 'lucide-react';
+import { Plus, Pencil, Trash2, CheckCircle2, DollarSign, Search, ListChecks, Trash } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
@@ -88,6 +88,40 @@ export default function CasosPagos() {
     else { showToast('Eliminado'); load(); }
   }
 
+  const [borrandoTodo, setBorrandoTodo] = useState(false);
+  async function handleDeleteAll() {
+    if (items.length === 0) {
+      showToast('No hay registros para borrar', 'info');
+      return;
+    }
+    const ok1 = window.confirm(`¿Eliminar TODOS los ${items.length} registros de Casos - Pagos?\n\nTambién se eliminarán sus cuotas. Esta acción no se puede deshacer.`);
+    if (!ok1) return;
+    const confirmacion = window.prompt('Para confirmar, escribí BORRAR TODO');
+    if (confirmacion !== 'BORRAR TODO') {
+      showToast('Cancelado: la confirmación no coincide', 'error');
+      return;
+    }
+    setBorrandoTodo(true);
+    try {
+      // Borrar de a tandas para evitar timeouts y respetar RLS por fila
+      let totalEliminados = 0;
+      const errores: string[] = [];
+      for (const it of items) {
+        const { error } = await supabase.from('casos_pagos').delete().eq('id', it.id);
+        if (error) errores.push(`${it.cliente_nombre}: ${error.message}`);
+        else totalEliminados++;
+      }
+      if (errores.length === 0) {
+        showToast(`✅ ${totalEliminados} registro(s) eliminado(s)`);
+      } else {
+        showToast(`Eliminados ${totalEliminados}. Errores en ${errores.length}: ${errores[0]}`, 'error');
+      }
+      await load();
+    } finally {
+      setBorrandoTodo(false);
+    }
+  }
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     if (!q) return items;
@@ -115,12 +149,25 @@ export default function CasosPagos() {
           <h1 className="text-xl sm:text-2xl font-bold text-white">Casos - Pagos</h1>
           <p className="text-sm text-gray-500 mt-1">Gestión financiera y agendamiento de consultas (socios y administradores)</p>
         </div>
-        <button
-          onClick={() => { setEditing(null); setModalOpen(true); }}
-          className="btn-primary flex items-center gap-2"
-        >
-          <Plus className="w-4 h-4" /> Nuevo registro
-        </button>
+        <div className="flex items-center gap-2">
+          {items.length > 0 && (
+            <button
+              onClick={handleDeleteAll}
+              disabled={borrandoTodo}
+              className="px-3 py-2 rounded-lg text-sm bg-red-500/10 hover:bg-red-500/20 text-red-300 border border-red-500/30 flex items-center gap-2 disabled:opacity-40"
+              title="Borrar todos los registros"
+            >
+              <Trash className="w-4 h-4" />
+              {borrandoTodo ? 'Borrando…' : 'Borrar todos'}
+            </button>
+          )}
+          <button
+            onClick={() => { setEditing(null); setModalOpen(true); }}
+            className="btn-primary flex items-center gap-2"
+          >
+            <Plus className="w-4 h-4" /> Nuevo registro
+          </button>
+        </div>
       </div>
 
       <div className="glass-card p-3 flex items-center gap-2">
