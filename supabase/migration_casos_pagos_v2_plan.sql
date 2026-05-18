@@ -12,7 +12,9 @@ ALTER TABLE public.casos_pagos
   ADD COLUMN IF NOT EXISTS pago_inicial_modalidad text CHECK (pago_inicial_modalidad IN ('Efectivo','Transferencia') OR pago_inicial_modalidad IS NULL),
   ADD COLUMN IF NOT EXISTS pago_inicial_fecha date,
   ADD COLUMN IF NOT EXISTS pago_inicial_pagado boolean DEFAULT false,
-  ADD COLUMN IF NOT EXISTS ingreso_pago_inicial_id uuid REFERENCES public.ingresos(id) ON DELETE SET NULL;
+  -- ingreso_pago_inicial_id: uuid sin FK porque el esquema actual usa ingresos_operativos
+  -- (el FK se puede agregar más adelante si se decide vincularlo formalmente)
+  ADD COLUMN IF NOT EXISTS ingreso_pago_inicial_id uuid;
 
 -- 2) Motivo de atraso rápido en cada cuota
 ALTER TABLE public.casos_pagos_cuotas
