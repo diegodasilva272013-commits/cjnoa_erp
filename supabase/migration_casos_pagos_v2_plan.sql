@@ -134,3 +134,15 @@ CREATE POLICY "cp_mora_insert" ON public.casos_pagos_cuotas_mora_historial
 CREATE POLICY "cp_mora_delete" ON public.casos_pagos_cuotas_mora_historial
   FOR DELETE TO authenticated
   USING (EXISTS (SELECT 1 FROM public.perfiles p WHERE p.id = auth.uid() AND p.rol IN ('socio','admin')));
+
+-- ----------------------------------------------------------------------------
+-- 5) Realtime + refresh schema cache de PostgREST
+-- ----------------------------------------------------------------------------
+DO $$ BEGIN
+  ALTER PUBLICATION supabase_realtime ADD TABLE public.casos_pagos_cuotas;
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN
+  ALTER PUBLICATION supabase_realtime ADD TABLE public.casos_pagos_cuotas_mora_historial;
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+NOTIFY pgrst, 'reload schema';
