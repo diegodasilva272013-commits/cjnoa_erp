@@ -1006,7 +1006,6 @@ function ModalCasoPago({ open, onClose, editing, socios, cuotasIniciales, onSave
         pago_inicial_modalidad: form.pago_inicial_modalidad || null,
         pago_inicial_fecha: form.pago_inicial_fecha || null,
         pago_inicial_pagado: form.pago_inicial_pagado,
-        modalidad_pago: planCuotas.length > 0 ? 'En cuotas' : 'Único',
       };
 
       let casoId: string;
