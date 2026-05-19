@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { Plus, Search, Edit2, Trash2, Briefcase, Phone, CreditCard, FileText, LayoutGrid, List } from 'lucide-react';
 import { useClientesFederales } from '../hooks/useFederales';
 import FichaFederalModal from '../components/federales/FichaFederalModal';
@@ -203,38 +203,73 @@ function VistaKanban({
   onAbrir: (f: ClienteFederal) => void;
   onMover: (id: string, pipeline: PipelineFederal) => Promise<boolean>;
 }) {
-  const [dragging, setDragging] = useState<string | null>(null);
+  // Usamos useRef para no depender del closure del estado en onDrop
+  const draggingIdRef = useRef<string | null>(null);
+  const [hoverCol, setHoverCol] = useState<PipelineFederal | null>(null);
+  const [draggingId, setDraggingId] = useState<string | null>(null);
+
+  function handleDragStart(e: React.DragEvent, id: string, fromPipeline: PipelineFederal) {
+    draggingIdRef.current = id;
+    setDraggingId(id);
+    try {
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', id);
+      e.dataTransfer.setData('application/x-fed-from', fromPipeline);
+    } catch { /* noop */ }
+  }
+  function handleDragEnd() {
+    draggingIdRef.current = null;
+    setDraggingId(null);
+    setHoverCol(null);
+  }
+  function handleDragOver(e: React.DragEvent, col: PipelineFederal) {
+    e.preventDefault();
+    try { e.dataTransfer.dropEffect = 'move'; } catch { /* noop */ }
+    if (hoverCol !== col) setHoverCol(col);
+  }
+  async function handleDrop(e: React.DragEvent, col: PipelineFederal) {
+    e.preventDefault();
+    const id = draggingIdRef.current || e.dataTransfer.getData('text/plain');
+    setHoverCol(null);
+    draggingIdRef.current = null;
+    setDraggingId(null);
+    if (!id) return;
+    const item = items.find(c => c.id === id);
+    if (!item || item.pipeline === col) return;
+    await onMover(id, col);
+  }
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
       {PIPELINE_FEDERAL_ORDERED.map(p => {
         const enCol = items.filter(c => c.pipeline === p);
+        const isHover = hoverCol === p && draggingId !== null;
         return (
           <div
             key={p}
-            onDragOver={e => e.preventDefault()}
-            onDrop={async () => {
-              if (dragging) {
-                const item = items.find(c => c.id === dragging);
-                if (item && item.pipeline !== p) await onMover(dragging, p);
-                setDragging(null);
-              }
-            }}
-            className="bg-gray-900/40 border border-gray-700 rounded-lg p-2.5 min-h-[160px]"
+            onDragOver={e => handleDragOver(e, p)}
+            onDragEnter={e => handleDragOver(e, p)}
+            onDragLeave={() => { if (hoverCol === p) setHoverCol(null); }}
+            onDrop={e => handleDrop(e, p)}
+            className={`bg-gray-900/40 border rounded-lg p-2.5 min-h-[180px] transition-colors ${
+              isHover ? 'border-blue-400 bg-blue-500/10' : 'border-gray-700'
+            }`}
           >
             <div className={`text-xs font-bold uppercase mb-2 px-2 py-1 rounded border ${PIPELINE_FEDERAL_COLORS[p]} flex items-center justify-between`}>
               <span>{PIPELINE_FEDERAL_LABELS[p]}</span>
               <span className="text-[10px] opacity-80">{enCol.length}</span>
             </div>
-            <div className="space-y-1.5">
+            <div className="space-y-1.5 min-h-[60px]">
               {enCol.map(c => (
                 <div
                   key={c.id}
                   draggable
-                  onDragStart={() => setDragging(c.id)}
-                  onDragEnd={() => setDragging(null)}
-                  onClick={() => onAbrir(c)}
-                  className="bg-gray-800/70 border border-gray-700 rounded p-2 cursor-pointer hover:border-blue-500/50"
+                  onDragStart={e => handleDragStart(e, c.id, p)}
+                  onDragEnd={handleDragEnd}
+                  onClick={() => { if (draggingIdRef.current === null) onAbrir(c); }}
+                  className={`bg-gray-800/70 border border-gray-700 rounded p-2 cursor-grab active:cursor-grabbing hover:border-blue-500/50 ${
+                    draggingId === c.id ? 'opacity-40' : ''
+                  }`}
                 >
                   <div className="text-sm font-semibold text-white truncate">{c.apellido_nombre}</div>
                   {c.numero_expediente && (
@@ -248,7 +283,9 @@ function VistaKanban({
                 </div>
               ))}
               {enCol.length === 0 && (
-                <div className="text-center text-[10px] text-gray-600 py-3 italic">Vacío</div>
+                <div className="text-center text-[10px] text-gray-600 py-3 italic">
+                  {isHover ? 'Soltar acá' : 'Vacío'}
+                </div>
               )}
             </div>
           </div>

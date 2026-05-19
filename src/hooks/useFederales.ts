@@ -44,8 +44,14 @@ export function useClientesFederales() {
   };
 
   const updatePipeline = async (id: string, pipeline: ClienteFederal['pipeline']) => {
+    // Optimistic update: actualiza UI antes del round-trip
+    setClientes(prev => prev.map(c => c.id === id ? { ...c, pipeline } : c));
     const { error } = await supabase.from('clientes_federales').update({ pipeline }).eq('id', id);
-    if (error) { showToast('Error al mover: ' + error.message, 'error'); return false; }
+    if (error) {
+      showToast('Error al mover: ' + error.message, 'error');
+      await fetch(); // revertir desde DB
+      return false;
+    }
     return true;
   };
 
