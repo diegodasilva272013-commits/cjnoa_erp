@@ -155,24 +155,25 @@ function VistaLista({
   onEliminar: (f: ClienteFederal) => void;
 }) {
   return (
-    <div className="space-y-2">
+    <div className="space-y-1.5">
       {items.map(c => (
-        <div key={c.id} className="bg-gray-800/40 border border-gray-700 rounded-lg p-3 hover:border-blue-500/50 transition-colors">
+        <div key={c.id} className="group p-3 rounded-xl bg-white/[0.03] border border-white/[0.07] hover:bg-white/[0.06] hover:border-white/10 transition-all">
           <div className="flex flex-wrap items-start gap-3">
             <button onClick={() => onAbrir(c)} className="flex-1 min-w-0 text-left">
-              <div className="font-bold text-white truncate flex items-center gap-2">
-                {c.apellido_nombre}
-                <span className={`px-2 py-0.5 rounded text-[10px] font-semibold border ${PIPELINE_FEDERAL_COLORS[c.pipeline]}`}>
+              <div className="flex items-center gap-2">
+                <div className={`w-2 h-2 rounded-full shrink-0 ${pipelineDot(c.pipeline)}`} />
+                <p className="font-medium text-white truncate">{c.apellido_nombre}</p>
+                <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold border ${PIPELINE_FEDERAL_COLORS[c.pipeline]}`}>
                   {PIPELINE_FEDERAL_LABELS[c.pipeline]}
                 </span>
               </div>
-              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gray-400 mt-1">
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gray-500 mt-1 pl-4">
                 {c.cuil && <span className="flex items-center gap-1"><CreditCard className="w-3 h-3" />{c.cuil}</span>}
                 {c.telefono && <span className="flex items-center gap-1"><Phone className="w-3 h-3" />{c.telefono}</span>}
                 {c.numero_expediente && <span className="flex items-center gap-1"><FileText className="w-3 h-3" />Expte: <span className="font-mono text-gray-300">{c.numero_expediente}</span></span>}
               </div>
               {(c.tipo_caso || []).length > 0 && (
-                <div className="flex flex-wrap gap-1 mt-1.5">
+                <div className="flex flex-wrap gap-1 mt-1.5 pl-4">
                   {c.tipo_caso.map(t => (
                     <span key={t} className="px-1.5 py-0.5 text-[10px] rounded bg-blue-500/10 text-blue-300 border border-blue-500/30">
                       {TIPO_CASO_FEDERAL_LABELS[t]}
@@ -181,12 +182,12 @@ function VistaLista({
                 </div>
               )}
             </button>
-            <div className="flex items-center gap-1">
-              <button onClick={() => onEditar(c)} className="p-1.5 text-gray-400 hover:text-blue-400" title="Editar">
-                <Edit2 className="w-4 h-4" />
+            <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+              <button onClick={() => onEditar(c)} className="p-1.5 rounded-md text-gray-500 hover:text-blue-400 hover:bg-blue-400/10" title="Editar">
+                <Edit2 className="w-3.5 h-3.5" />
               </button>
-              <button onClick={() => onEliminar(c)} className="p-1.5 text-gray-400 hover:text-red-400" title="Eliminar">
-                <Trash2 className="w-4 h-4" />
+              <button onClick={() => onEliminar(c)} className="p-1.5 rounded-md text-gray-500 hover:text-red-400 hover:bg-red-500/10" title="Eliminar">
+                <Trash2 className="w-3.5 h-3.5" />
               </button>
             </div>
           </div>
@@ -194,6 +195,19 @@ function VistaLista({
       ))}
     </div>
   );
+}
+
+// Dot color por pipeline (mismo enfoque que CasosGenerales con eDot)
+function pipelineDot(p: PipelineFederal): string {
+  switch (p) {
+    case 'activo': return 'bg-emerald-500';
+    case 'esperando_audiencia': return 'bg-blue-500';
+    case 'esperando_sentencia': return 'bg-cyan-500';
+    case 'analisis_sin_directivas': return 'bg-orange-500';
+    case 'sin_pago': return 'bg-red-500';
+    case 'seguimiento': return 'bg-purple-500';
+    default: return 'bg-gray-500';
+  }
 }
 
 function VistaKanban({
@@ -240,7 +254,7 @@ function VistaKanban({
   }
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+    <div className="flex gap-3 overflow-x-auto pb-2">
       {PIPELINE_FEDERAL_ORDERED.map(p => {
         const enCol = items.filter(c => c.pipeline === p);
         const isHover = hoverCol === p && draggingId !== null;
@@ -251,13 +265,13 @@ function VistaKanban({
             onDragEnter={e => handleDragOver(e, p)}
             onDragLeave={() => { if (hoverCol === p) setHoverCol(null); }}
             onDrop={e => handleDrop(e, p)}
-            className={`bg-gray-900/40 border rounded-lg p-2.5 min-h-[180px] transition-colors ${
-              isHover ? 'border-blue-400 bg-blue-500/10' : 'border-gray-700'
+            className={`flex-shrink-0 w-64 bg-white/[0.02] border rounded-xl p-2 min-h-[200px] transition-colors ${
+              isHover ? 'border-blue-400 bg-blue-500/10' : 'border-white/[0.06]'
             }`}
           >
-            <div className={`text-xs font-bold uppercase mb-2 px-2 py-1 rounded border ${PIPELINE_FEDERAL_COLORS[p]} flex items-center justify-between`}>
-              <span>{PIPELINE_FEDERAL_LABELS[p]}</span>
-              <span className="text-[10px] opacity-80">{enCol.length}</span>
+            <div className={`text-[11px] font-bold uppercase mb-2 px-2 py-1 rounded-lg border ${PIPELINE_FEDERAL_COLORS[p]} flex items-center justify-between`}>
+              <span className="truncate">{PIPELINE_FEDERAL_LABELS[p]}</span>
+              <span className="text-[10px] opacity-80 shrink-0 ml-2">{enCol.length}</span>
             </div>
             <div className="space-y-1.5 min-h-[60px]">
               {enCol.map(c => (
@@ -267,18 +281,26 @@ function VistaKanban({
                   onDragStart={e => handleDragStart(e, c.id, p)}
                   onDragEnd={handleDragEnd}
                   onClick={() => { if (draggingIdRef.current === null) onAbrir(c); }}
-                  className={`bg-gray-800/70 border border-gray-700 rounded p-2 cursor-grab active:cursor-grabbing hover:border-blue-500/50 ${
+                  className={`relative group p-3 rounded-xl bg-white/[0.03] border border-white/[0.07] hover:bg-white/[0.06] hover:border-white/10 transition-all cursor-grab active:cursor-grabbing select-none ${
                     draggingId === c.id ? 'opacity-40' : ''
                   }`}
                 >
-                  <div className="text-sm font-semibold text-white truncate">{c.apellido_nombre}</div>
+                  <div className="flex items-start gap-1.5">
+                    <div className={`w-2 h-2 rounded-full mt-1 shrink-0 ${pipelineDot(c.pipeline)}`} />
+                    <p className="text-[11px] font-medium text-white leading-tight">{c.apellido_nombre}</p>
+                  </div>
                   {c.numero_expediente && (
-                    <div className="text-[10px] text-gray-400 mt-0.5 font-mono">Expte {c.numero_expediente}</div>
+                    <p className="text-[10px] text-gray-500 mt-1 pl-4 font-mono truncate">Expte {c.numero_expediente}</p>
                   )}
                   {(c.tipo_caso || []).length > 0 && (
-                    <div className="text-[10px] text-blue-300 truncate mt-0.5">
+                    <p className="text-[10px] text-blue-300/80 truncate mt-0.5 pl-4">
                       {c.tipo_caso.map(t => TIPO_CASO_FEDERAL_LABELS[t]).join(' · ')}
-                    </div>
+                    </p>
+                  )}
+                  {c.telefono && (
+                    <p className="text-[10px] text-gray-600 mt-0.5 pl-4 truncate flex items-center gap-1">
+                      <Phone className="w-2.5 h-2.5 shrink-0" />{c.telefono}
+                    </p>
                   )}
                 </div>
               ))}
