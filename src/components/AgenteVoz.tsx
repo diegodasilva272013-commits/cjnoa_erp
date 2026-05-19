@@ -72,6 +72,80 @@ export default function AgenteVoz() {
   const [wakeOn, setWakeOn] = useState<boolean>(() => {
     try { return localStorage.getItem(WAKE_PREF_KEY) !== '0'; } catch { return true; }
   });
+
+  // Posición del botón flotante (arrastrable + persistida)
+  const FAB_POS_KEY = 'noa_cj_fab_pos';
+  const [fabPos, setFabPos] = useState<{ x: number; y: number }>(() => {
+    try {
+      const raw = localStorage.getItem(FAB_POS_KEY);
+      if (raw) {
+        const p = JSON.parse(raw);
+        if (typeof p?.x === 'number' && typeof p?.y === 'number') return p;
+      }
+    } catch { /* noop */ }
+    // Default: esquina inferior derecha (20px de margen, 60x110 aprox)
+    if (typeof window !== 'undefined') {
+      return { x: window.innerWidth - 140, y: window.innerHeight - 130 };
+    }
+    return { x: 20, y: 20 };
+  });
+  const dragRef = useRef<{ dragging: boolean; offX: number; offY: number; moved: boolean }>({
+    dragging: false, offX: 0, offY: 0, moved: false,
+  });
+  // Clamp al redimensionar la ventana
+  useEffect(() => {
+    function onResize() {
+      setFabPos(p => {
+        const maxX = Math.max(0, window.innerWidth - 130);
+        const maxY = Math.max(0, window.innerHeight - 120);
+        return { x: Math.min(p.x, maxX), y: Math.min(p.y, maxY) };
+      });
+    }
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
+  function startDrag(clientX: number, clientY: number) {
+    dragRef.current = {
+      dragging: true,
+      offX: clientX - fabPos.x,
+      offY: clientY - fabPos.y,
+      moved: false,
+    };
+  }
+  function moveDrag(clientX: number, clientY: number) {
+    if (!dragRef.current.dragging) return;
+    const nx = Math.max(0, Math.min(window.innerWidth - 130, clientX - dragRef.current.offX));
+    const ny = Math.max(0, Math.min(window.innerHeight - 120, clientY - dragRef.current.offY));
+    if (Math.abs(nx - fabPos.x) > 3 || Math.abs(ny - fabPos.y) > 3) dragRef.current.moved = true;
+    setFabPos({ x: nx, y: ny });
+  }
+  function endDrag() {
+    if (dragRef.current.dragging) {
+      try { localStorage.setItem(FAB_POS_KEY, JSON.stringify(fabPos)); } catch { /* noop */ }
+    }
+    dragRef.current.dragging = false;
+  }
+  useEffect(() => {
+    function onMove(e: MouseEvent) { moveDrag(e.clientX, e.clientY); }
+    function onUp() { endDrag(); }
+    function onTouchMove(e: TouchEvent) {
+      if (!dragRef.current.dragging) return;
+      const t = e.touches[0];
+      if (t) moveDrag(t.clientX, t.clientY);
+    }
+    function onTouchEnd() { endDrag(); }
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    window.addEventListener('touchmove', onTouchMove, { passive: true });
+    window.addEventListener('touchend', onTouchEnd);
+    return () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+      window.removeEventListener('touchmove', onTouchMove);
+      window.removeEventListener('touchend', onTouchEnd);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fabPos]);
   const [wakeActivo, setWakeActivo] = useState(false);
   const wakeRecRef = useRef<any>(null);
   const wakeReiniciarRef = useRef(true);
@@ -405,20 +479,26 @@ export default function AgenteVoz() {
 
   return (
     <>
-      {/* Botón flotante CJ */}
-      <div className="fixed bottom-5 right-5 z-[90] flex flex-col items-end gap-2">
+      {/* Botón flotante CJ (arrastrable) */}
+      <div
+        className="fixed z-[90] flex flex-col items-end gap-2 select-none touch-none"
+        style={{ left: fabPos.x, top: fabPos.y }}
+        onMouseDown={(e) => { startDrag(e.clientX, e.clientY); }}
+        onTouchStart={(e) => { const t = e.touches[0]; if (t) startDrag(t.clientX, t.clientY); }}
+      >
         {/* Toggle / reactivar wake-word */}
         <button
           onClick={() => {
+            if (dragRef.current.moved) { dragRef.current.moved = false; return; }
             if (wakeOn && wakeActivo) toggleWake(); // apagar
             else reactivarCJ(); // prender o reanimar
           }}
           title={
-            wakeOn && wakeActivo ? 'Escuchando "CJ" — click para apagar'
-            : wakeOn ? 'CJ inactivo — click para reactivar'
-            : 'Activar escucha de "CJ"'
+            wakeOn && wakeActivo ? 'Escuchando "CJ" — click para apagar (arrastrá para mover)'
+            : wakeOn ? 'CJ inactivo — click para reactivar (arrastrá para mover)'
+            : 'Activar escucha de "CJ" (arrastrá para mover)'
           }
-          className={`px-2.5 h-9 rounded-full shadow-lg flex items-center gap-1.5 border transition-all text-[11px] font-bold ${
+          className={`px-2.5 h-9 rounded-full shadow-lg flex items-center gap-1.5 border transition-all text-[11px] font-bold cursor-move ${
             wakeOn && wakeActivo
               ? 'bg-emerald-600/90 border-emerald-300 text-white animate-pulse'
               : wakeOn
@@ -433,12 +513,13 @@ export default function AgenteVoz() {
         {/* Botón principal */}
         <button
           onClick={() => {
+            if (dragRef.current.moved) { dragRef.current.moved = false; return; }
             if (estado === 'grabando') detenerGrabacion();
             else if (estado === 'idle') iniciarGrabacion();
             else setOpen(true);
           }}
-          title='Decí "CJ" para activar, o tocá para hablar'
-          className={`w-14 h-14 rounded-full shadow-xl flex items-center justify-center transition-all border-2 relative ${
+          title='Decí "CJ" para activar, tocá para hablar, arrastrá para mover'
+          className={`w-14 h-14 rounded-full shadow-xl flex items-center justify-center transition-all border-2 relative cursor-move ${
             estado === 'grabando'
               ? 'bg-red-500 border-red-300 animate-pulse'
               : estado === 'procesando' || estado === 'ejecutando'
