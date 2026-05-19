@@ -85,6 +85,8 @@ export default function FlujoCaja() {
     const porRama: Record<string, number> = {};
     const ingEfectivoSocio: Record<SocioFinanzas, number> = { Rodri: 0, Noe: 0, Ale: 0, Fabri: 0 };
     const ingTransferSocio: Record<SocioFinanzas, number> = { Rodri: 0, Noe: 0, Ale: 0, Fabri: 0 };
+    // ingTransferGeneradoSocio: por doctor_cobra (para reconciliar con Monto Generado)
+    const ingTransferGeneradoSocio: Record<SocioFinanzas, number> = { Rodri: 0, Noe: 0, Ale: 0, Fabri: 0 };
     let efectivoIn = 0, transferIn = 0;
     ingresosPeriodo.forEach(i => {
       const m = Number(i.monto || 0);
@@ -97,6 +99,7 @@ export default function FlujoCaja() {
         transferIn += m;
         const dest = (i.receptor_transfer || i.doctor_cobra) as SocioFinanzas;
         ingTransferSocio[dest] = (ingTransferSocio[dest] || 0) + m;
+        ingTransferGeneradoSocio[i.doctor_cobra] = (ingTransferGeneradoSocio[i.doctor_cobra] || 0) + m;
       }
     });
     const totalEgresos = egresos.reduce((s, e) => s + Number(e.monto || 0), 0);
@@ -164,7 +167,7 @@ export default function FlujoCaja() {
     });
     return {
       total, porSocio, porRama, totalEgresos, neto, cajaEfectivo, cajaTransfer, egresosPorSocio,
-      ingEfectivoSocio, ingTransferSocio, egTransferSocio, transferSocioNeto,
+      ingEfectivoSocio, ingTransferSocio, ingTransferGeneradoSocio, egTransferSocio, transferSocioNeto,
       efectivoSocioFinal, cambiosEfectivoNet, cambiosTransferNet, cantCambios: movimientos.length,
     };
   }, [ingresosPeriodo, egresos, movimientos]);
@@ -405,9 +408,9 @@ export default function FlujoCaja() {
         totalIngresos={totales.total}
         totalEgresos={totales.totalEgresos}
         cajaEfectivo={totales.cajaEfectivo}
-        ingTransferSocio={totales.ingTransferSocio}
+        ingTransferSocio={totales.ingTransferGeneradoSocio}
         egTransferSocio={totales.egTransferSocio}
-        efectivoSocioFinal={totales.efectivoSocioFinal}
+        efectivoSocioFinal={totales.ingEfectivoSocio}
       />
 
       {/* Cards principales */}

@@ -138,10 +138,10 @@ export default function PlanillaMetricas({
               </tr>
             </thead>
             <tbody className="divide-y divide-white/5">
-              <Row label="Transferencias" values={SOCIOS_FINANZAS.map(s => formatMoney(ingTransferSocio[s] || 0))} />
-              <Row label="Gastos en Transf." values={SOCIOS_FINANZAS.map(s => formatMoney(egTransferSocio[s] || 0))} />
+              <Row label="Transferencias generadas" values={SOCIOS_FINANZAS.map(s => formatMoney(ingTransferSocio[s] || 0))} />
+              <Row label="Gastos pagados desde cuenta" values={SOCIOS_FINANZAS.map(s => formatMoney(egTransferSocio[s] || 0))} />
               <Row
-                label="Total Transferencia"
+                label="Neto Transferencia"
                 values={SOCIOS_FINANZAS.map(s => formatMoney((ingTransferSocio[s] || 0) - (egTransferSocio[s] || 0)))}
                 accent
               />
@@ -181,7 +181,9 @@ export default function PlanillaMetricas({
           </table>
         </div>
         <div className="px-4 py-2 text-[10px] text-zinc-500 border-t border-white/5">
-          La meta personal se calcula automáticamente como Meta Grupal ÷ 4. Para editarla, cambiá la Meta del periodo arriba.
+          La meta personal se calcula automáticamente como Meta Grupal ÷ 4. Para editarla, cambiá la Meta del periodo arriba.<br/>
+          <strong>Transferencias / Efectivo neto:</strong> por doctor que generó el cobro (reconcilia con Monto Generado).<br/>
+          <strong>Gastos pagados desde cuenta:</strong> por dueño de la cuenta pagadora.
         </div>
       </div>
     </div>
