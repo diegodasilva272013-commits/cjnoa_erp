@@ -14,6 +14,8 @@ interface Props {
   ingTransferRecibidoSocio: Record<SocioFinanzas, number>;
   // Egresos por transferencia: gastos pagados desde la cuenta de cada socio
   egTransferSocio: Record<SocioFinanzas, number>;
+  // Egresos por efectivo: gastos pagados en efectivo por cada socio (de su bolsillo)
+  egEfectivoSocio: Record<SocioFinanzas, number>;
   // Ajustes por cambios efectivo↔transferencia (movimientos de caja)
   deltaTransferSocio: Record<SocioFinanzas, number>;
   // Saldo final por socio en cuentas (recibido - pagado + ajustes)
@@ -37,7 +39,7 @@ const norm = (s: string) => s.toLowerCase().trim().replace(/\s+/g, ' ');
 
 export default function PlanillaMetricas({
   ingresos, metaGrupal, totalIngresos, totalEgresos, cajaEfectivo,
-  ingTransferGeneradoSocio, ingTransferRecibidoSocio, egTransferSocio,
+  ingTransferGeneradoSocio, ingTransferRecibidoSocio, egTransferSocio, egEfectivoSocio,
   deltaTransferSocio, transferSocioNeto,
   egTransferSinPagador, totalEgresosTransfer,
   efectivoSocioFinal,
@@ -154,7 +156,14 @@ export default function PlanillaMetricas({
             <tbody className="divide-y divide-white/5">
               <RowT label="Generó por transferencia (cobro)" hint="doctor_cobra" values={SOCIOS_FINANZAS.map(s => ingTransferGeneradoSocio[s] || 0)} />
               <RowT label="Recibió en su cuenta" hint="receptor de la transferencia" values={SOCIOS_FINANZAS.map(s => ingTransferRecibidoSocio[s] || 0)} />
-              <RowT label="Pagó desde su cuenta (gastos)" hint="pagador del egreso" values={SOCIOS_FINANZAS.map(s => egTransferSocio[s] || 0)} />
+              <RowT label="Pagó desde su cuenta (transferencia)" hint="egreso modalidad Transferencia + pagador" values={SOCIOS_FINANZAS.map(s => egTransferSocio[s] || 0)} />
+              <RowT label="Pagó en efectivo (de su bolsillo)" hint="egreso modalidad Efectivo + pagador" values={SOCIOS_FINANZAS.map(s => egEfectivoSocio[s] || 0)} />
+              <RowT
+                label="Total gastado por el socio"
+                hint="transferencia + efectivo"
+                values={SOCIOS_FINANZAS.map(s => (egTransferSocio[s] || 0) + (egEfectivoSocio[s] || 0))}
+                muted
+              />
               <RowT
                 label="Ajustes entre cuentas (cambios)"
                 hint="movimientos efectivo↔transfer"
