@@ -17,11 +17,17 @@ export async function notificarSiguientePaso(
   try {
     const { data: pasos } = await supabase
       .from('tarea_pasos')
-      .select('id, orden, descripcion, responsable_id, completado')
+      .select('id, orden, descripcion, responsable_id, completado, completado_por')
       .eq('tarea_id', tareaId)
       .order('orden', { ascending: true });
 
-    const lista = (pasos || []) as Array<{ orden: number; descripcion: string; responsable_id: string | null; completado: boolean }>;
+    const lista = (pasos || []) as Array<{
+      orden: number;
+      descripcion: string;
+      responsable_id: string | null;
+      completado: boolean;
+      completado_por: string | null;
+    }>;
     const todosCompletos = lista.length > 0 && lista.every(p => p.completado);
 
     const { data: tareaRow } = await supabase
@@ -35,12 +41,28 @@ export async function notificarSiguientePaso(
     const casoGeneral = (tareaRow as any)?.caso_general_id as string | null;
 
     if (todosCompletos) {
-      const destinatarios = new Set<string>();
-      if (respPrincipal && respPrincipal !== completadoPor) destinatarios.add(respPrincipal);
-      if (creador && creador !== completadoPor) destinatarios.add(creador);
-      if (destinatarios.size > 0) {
+      // Conjunto de TODOS los participantes: responsables de cada paso,
+      // quienes efectivamente lo marcaron, el responsable principal y el
+      // creador de la tarea.
+      const participantes = new Set<string>();
+      for (const p of lista) {
+        if (p.completado_por) participantes.add(p.completado_por);
+        if (p.responsable_id) participantes.add(p.responsable_id);
+      }
+      if (respPrincipal) participantes.add(respPrincipal);
+      if (creador) participantes.add(creador);
+
+      // 1) Marcar la tarea como finalizada → se despinea para todos.
+      await supabase
+        .from('tareas')
+        .update({ estado: 'finalizada' })
+        .eq('id', tareaId);
+
+      // 2) Notificación a TODOS los participantes (excepto quien cerró).
+      const destinatarios = Array.from(participantes).filter(uid => uid !== completadoPor);
+      if (destinatarios.length > 0) {
         const link = casoGeneral ? `/seguimiento?caso=${casoGeneral}` : '/tareas';
-        const rows = Array.from(destinatarios).map(uid => ({
+        const rows = destinatarios.map(uid => ({
           user_id: uid,
           tipo: 'tarea_asignada',
           titulo: '🎉 Tarea finalizada: ' + tareaTitulo,
@@ -51,8 +73,31 @@ export async function notificarSiguientePaso(
         }));
         await supabase.from('notificaciones_app').insert(rows);
       }
-      // Sin reporte automatico: solo quedan en seguimiento las notas
-      // que cada usuario escribe al marcar su paso (con detalle).
+
+      // 3) Registro en el seguimiento del caso con el resumen y la lista
+      //    de participantes (si la tarea está vinculada a un caso provincial).
+      if (casoGeneral) {
+        const ids = Array.from(participantes);
+        let nombres = '';
+        if (ids.length > 0) {
+          const { data: perfs } = await supabase
+            .from('perfiles')
+            .select('id, nombre')
+            .in('id', ids);
+          const byId = new Map((perfs || []).map((p: any) => [p.id, p.nombre as string]));
+          nombres = ids.map(id => byId.get(id) || 'Usuario').join(', ');
+        }
+        const partes = [
+          `🎉 Tarea completada: ${tareaTitulo}`,
+          `Cerrada por ${completadoPorNombre || 'Alguien'} (último paso: "${pasoCompletadoDescripcion}").`,
+          nombres ? `Participaron: ${nombres}.` : '',
+        ].filter(Boolean);
+        await supabase.from('caso_general_notas').insert({
+          caso_id: casoGeneral,
+          contenido: partes.join('\n'),
+          created_by: completadoPor,
+        });
+      }
       return;
     }
 
