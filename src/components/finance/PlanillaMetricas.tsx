@@ -22,8 +22,12 @@ interface Props {
   transferSocioNeto: Record<SocioFinanzas, number>;
   // Egresos transferencia sin pagador asignado (caja común)
   egTransferSinPagador: number;
+  // Egresos efectivo sin pagador asignado (caja común / Caja CJ)
+  egEfectivoSinPagador: number;
   // Total egresos transferencia del periodo (para reconciliar con la página de Egresos)
   totalEgresosTransfer: number;
+  // Total egresos efectivo del periodo
+  totalEgresosEfectivo: number;
   // Efectivo final por socio (resumen de cobro)
   efectivoSocioFinal: Record<SocioFinanzas, number>;
 }
@@ -41,7 +45,7 @@ export default function PlanillaMetricas({
   ingresos, metaGrupal, totalIngresos, totalEgresos, cajaEfectivo,
   ingTransferGeneradoSocio, ingTransferRecibidoSocio, egTransferSocio, egEfectivoSocio,
   deltaTransferSocio, transferSocioNeto,
-  egTransferSinPagador, totalEgresosTransfer,
+  egTransferSinPagador, egEfectivoSinPagador, totalEgresosTransfer, totalEgresosEfectivo,
   efectivoSocioFinal,
 }: Props) {
   const metaPersonal = metaGrupal > 0 ? metaGrupal / 4 : 0;
@@ -186,23 +190,30 @@ export default function PlanillaMetricas({
           </table>
         </div>
         {/* Reconciliación con Egresos */}
-        <div className="px-4 py-2 text-[10px] text-zinc-500 border-t border-white/5 flex flex-wrap gap-x-4 gap-y-1">
-          <span>
-            <strong>Total transferencias egresos del periodo:</strong>{' '}
-            <span className="font-mono text-zinc-300">{formatMoney(totalEgresosTransfer)}</span>
-          </span>
-          <span>
-            = pagado por socios {formatMoney(totalEgresosTransfer - egTransferSinPagador)}
-            {egTransferSinPagador > 0 && (
-              <>
-                {' '}+ <span className="text-amber-300">sin pagador asignado {formatMoney(egTransferSinPagador)}</span>
-              </>
-            )}
-          </span>
-          {egTransferSinPagador > 0 && (
-            <span className="text-amber-300/80 w-full">
-              ⚠ Hay {formatMoney(egTransferSinPagador)} en egresos por transferencia sin pagador asignado. Editalos en Egresos para que aparezcan en la fila correcta.
+        <div className="px-4 py-2 text-[10px] text-zinc-500 border-t border-white/5 space-y-1">
+          <div className="flex flex-wrap gap-x-4 gap-y-1">
+            <span>
+              <strong>Total egresos transferencia:</strong>{' '}
+              <span className="font-mono text-zinc-300">{formatMoney(totalEgresosTransfer)}</span>
+              {' '}= por socios {formatMoney(totalEgresosTransfer - egTransferSinPagador)}
+              {egTransferSinPagador > 0 && (
+                <> + <span className="text-amber-300">sin pagador {formatMoney(egTransferSinPagador)}</span></>
+              )}
             </span>
+            <span>
+              <strong>Total egresos efectivo:</strong>{' '}
+              <span className="font-mono text-zinc-300">{formatMoney(totalEgresosEfectivo)}</span>
+              {' '}= por socios {formatMoney(totalEgresosEfectivo - egEfectivoSinPagador)}
+              {egEfectivoSinPagador > 0 && (
+                <> + <span className="text-amber-300">Caja CJ {formatMoney(egEfectivoSinPagador)}</span></>
+              )}
+            </span>
+          </div>
+          {(egTransferSinPagador > 0 || egEfectivoSinPagador > 0) && (
+            <div className="text-amber-300/90 bg-amber-500/5 border border-amber-500/20 rounded px-2 py-1">
+              ⚠ Hay egresos sin pagador asignado (transferencia: {formatMoney(egTransferSinPagador)}, efectivo / Caja CJ: {formatMoney(egEfectivoSinPagador)}).
+              Por eso no se reparten en las filas por socio. Editá esos egresos en la página de <strong>Egresos</strong> y asigná quien efectivamente pagó para que aparezcan acá.
+            </div>
           )}
         </div>
       </div>

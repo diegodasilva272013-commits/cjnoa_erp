@@ -121,11 +121,13 @@ export default function FlujoCaja() {
     // Egresos transferencia SIN pagador asignado (no caen en ningún socio).
     // Necesario para reconciliar con el total que se ve en la página de Egresos.
     let egTransferSinPagador = 0;
+    let egEfectivoSinPagador = 0;
     egresos.forEach(e => {
       const m = Number(e.monto || 0);
       if (e.modalidad === 'Efectivo') {
         efectivoOut += m;
         if (e.pagador) egEfectivoSocio[e.pagador] = (egEfectivoSocio[e.pagador] || 0) + m;
+        else egEfectivoSinPagador += m;
       }
       else if (e.modalidad === 'Transferencia') {
         transferOut += m;
@@ -187,7 +189,7 @@ export default function FlujoCaja() {
     return {
       total, porSocio, porRama, totalEgresos, neto, cajaEfectivo, cajaTransfer, egresosPorSocio,
       ingEfectivoSocio, ingTransferSocio, ingTransferGeneradoSocio, egTransferSocio, egEfectivoSocio, transferSocioNeto,
-      deltaTransferSocio, egTransferSinPagador, transferOut,
+      deltaTransferSocio, egTransferSinPagador, egEfectivoSinPagador, transferOut, efectivoOut,
       efectivoSocioFinal, cambiosEfectivoNet, cambiosTransferNet, cantCambios: movimientos.length,
     };
   }, [ingresosPeriodo, egresos, movimientos]);
@@ -435,7 +437,9 @@ export default function FlujoCaja() {
         deltaTransferSocio={totales.deltaTransferSocio}
         transferSocioNeto={totales.transferSocioNeto}
         egTransferSinPagador={totales.egTransferSinPagador}
+        egEfectivoSinPagador={totales.egEfectivoSinPagador}
         totalEgresosTransfer={totales.transferOut}
+        totalEgresosEfectivo={totales.efectivoOut}
         efectivoSocioFinal={totales.ingEfectivoSocio}
       />
 
