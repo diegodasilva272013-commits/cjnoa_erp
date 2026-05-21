@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   X, MessageSquare, ListChecks, Phone, MapPin, CreditCard, FileText, ExternalLink,
-  Trash2, Check, Plus, Pencil, Mic, MicOff, Square, Paperclip, Download,
+  Trash2, Check, Plus, Pencil, Mic, MicOff, Square, Paperclip, FolderOpen, Download,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useNotasFederales, useTareasFederales } from '../../hooks/useFederales';
+import { useFederalesDocs } from '../../hooks/useFederalesDocs';
 import { supabase } from '../../lib/supabase';
+import ArchivosFederalPanel from './ArchivosFederalPanel';
 import {
   ClienteFederal,
   PIPELINE_FEDERAL_LABELS,
@@ -23,10 +25,11 @@ interface Props {
 
 export default function FichaFederalDetalle({ ficha, onClose, onEdit }: Props) {
   const { user } = useAuth();
-  const [tab, setTab] = useState<'datos' | 'seguimiento' | 'tareas'>('seguimiento');
+  const [tab, setTab] = useState<'datos' | 'seguimiento' | 'tareas' | 'documentos'>('seguimiento');
 
   const { notas, add: addNota, remove: removeNota } = useNotasFederales(ficha.id);
   const { tareas, upsert: upsertTarea, remove: removeTarea, toggleEstado } = useTareasFederales(ficha.id);
+  const { docs } = useFederalesDocs(ficha.id);
 
   const [nuevaNota, setNuevaNota] = useState('');
   const [nuevaTareaTitulo, setNuevaTareaTitulo] = useState('');
@@ -102,27 +105,16 @@ export default function FichaFederalDetalle({ ficha, onClose, onEdit }: Props) {
     setAudioUrl(null);
   }
 
-  // ── Subida de documento ──
-  const docInputRef = useRef<HTMLInputElement>(null);
-  const [docFile, setDocFile] = useState<File | null>(null);
-
-  // ── Envío de nota (texto + audio + doc) ──
+  // ── Envío de nota (texto + audio) ──
   const [enviando, setEnviando] = useState(false);
   async function handleAddNota() {
-    if (!nuevaNota.trim() && !audioBlob && !docFile) return;
+    if (!nuevaNota.trim() && !audioBlob) return;
     setEnviando(true);
-    const ok = await addNota(
-      nuevaNota,
-      user?.id || null,
-      audioBlob,
-      docFile ? { file: docFile } : null,
-    );
+    const ok = await addNota(nuevaNota, user?.id || null, audioBlob);
     setEnviando(false);
     if (ok) {
       setNuevaNota('');
       discardAudio();
-      setDocFile(null);
-      if (docInputRef.current) docInputRef.current.value = '';
     }
   }
 
@@ -177,6 +169,7 @@ export default function FichaFederalDetalle({ ficha, onClose, onEdit }: Props) {
               { id: 'datos', label: 'Datos', icon: <CreditCard className="w-3.5 h-3.5" /> },
               { id: 'seguimiento', label: 'Seguimiento', icon: <MessageSquare className="w-3.5 h-3.5" /> },
               { id: 'tareas', label: `Tareas (${tareas.length})`, icon: <ListChecks className="w-3.5 h-3.5" /> },
+              { id: 'documentos', label: `Documentos (${docs.length})`, icon: <FolderOpen className="w-3.5 h-3.5" /> },
             ] as const).map(t => (
               <button
                 key={t.id}
@@ -256,22 +249,6 @@ export default function FichaFederalDetalle({ ficha, onClose, onEdit }: Props) {
                   </div>
                 )}
 
-                {/* Preview documento */}
-                {docFile && (
-                  <div className="flex items-center gap-2 bg-gray-900/60 border border-blue-500/30 rounded px-2 py-1 text-xs">
-                    <Paperclip className="w-3.5 h-3.5 text-blue-400" />
-                    <span className="text-gray-200 truncate flex-1">{docFile.name}</span>
-                    <span className="text-gray-500">{(docFile.size / 1024).toFixed(0)} KB</span>
-                    <button
-                      onClick={() => { setDocFile(null); if (docInputRef.current) docInputRef.current.value = ''; }}
-                      className="text-red-400 hover:text-red-300"
-                      title="Descartar"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                )}
-
                 <div className="flex flex-wrap gap-2 items-center">
                   <button
                     type="button"
@@ -310,27 +287,18 @@ export default function FichaFederalDetalle({ ficha, onClose, onEdit }: Props) {
 
                   <button
                     type="button"
-                    onClick={() => docInputRef.current?.click()}
+                    onClick={() => setTab('documentos')}
                     className="px-2.5 py-1.5 rounded text-xs font-semibold flex items-center gap-1 border bg-gray-800 text-gray-200 border-gray-700 hover:bg-gray-700"
-                    title="Adjuntar documento"
+                    title="Ir a documentos"
                   >
-                    <Paperclip className="w-3.5 h-3.5" /> Documento
+                    <FolderOpen className="w-3.5 h-3.5" /> Documentos
                   </button>
-                  <input
-                    ref={docInputRef}
-                    type="file"
-                    className="hidden"
-                    onChange={e => {
-                      const f = e.target.files?.[0];
-                      if (f) setDocFile(f);
-                    }}
-                  />
 
                   <div className="flex-1" />
 
                   <button
                     onClick={handleAddNota}
-                    disabled={enviando || (!nuevaNota.trim() && !audioBlob && !docFile)}
+                    disabled={enviando || (!nuevaNota.trim() && !audioBlob)}
                     className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-40 text-white rounded text-xs font-semibold flex items-center gap-1"
                   >
                     <Plus className="w-3.5 h-3.5" /> {enviando ? 'Guardando…' : 'Agregar nota'}
@@ -447,6 +415,10 @@ export default function FichaFederalDetalle({ ficha, onClose, onEdit }: Props) {
                   </ul>
                 )}
             </div>
+          )}
+
+          {tab === 'documentos' && (
+            <ArchivosFederalPanel clienteId={ficha.id} />
           )}
         </div>
       </div>
