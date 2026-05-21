@@ -202,6 +202,7 @@ export default function NotasFeedPanel({ casoId }: { casoId: string }) {
   const [audAbogadoId, setAudAbogadoId] = useState('');
   const [audNotas, setAudNotas] = useState('');
   const [audGuardando, setAudGuardando] = useState(false);
+  const [mostrarAnteriores, setMostrarAnteriores] = useState(false);
 
   async function handleAgendarAudiencia() {
     if (!user?.id || !audFecha) {
@@ -634,16 +635,63 @@ export default function NotasFeedPanel({ casoId }: { casoId: string }) {
         </div>
       ) : (
         <div className="space-y-3 group">
-          {notas.map(n => (
-            <NotaCard
-              key={n.id}
-              n={n}
-              currentUserId={user?.id || null}
-              onDelete={handleEliminar}
-              onMarcarVista={handleMarcarVista}
-              onCambiarEstado={handleCambiarEstado}
-            />
-          ))}
+          {(() => {
+            // notas vienen ordenadas desc (más nueva primero).
+            // Mostramos las 2 más nuevas arriba, la más antigua abajo,
+            // y colapsamos las del medio detrás de un botón.
+            const total = notas.length;
+            const COLAPSAR_DESDE = 4; // colapsar sólo si hay al menos 1 nota intermedia para esconder
+            const renderNota = (n: CasoGeneralNota) => (
+              <NotaCard
+                key={n.id}
+                n={n}
+                currentUserId={user?.id || null}
+                onDelete={handleEliminar}
+                onMarcarVista={handleMarcarVista}
+                onCambiarEstado={handleCambiarEstado}
+              />
+            );
+
+            if (total < COLAPSAR_DESDE) {
+              return notas.map(renderNota);
+            }
+
+            const nuevas = notas.slice(0, 2);
+            const medio = notas.slice(2, total - 1);
+            const original = notas[total - 1];
+            const ocultas = medio.length;
+
+            return (
+              <>
+                {nuevas.map(renderNota)}
+                {ocultas > 0 && (
+                  mostrarAnteriores ? (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => setMostrarAnteriores(false)}
+                        className="w-full flex items-center justify-center gap-1.5 py-2 rounded-xl border border-dashed border-white/10 text-[11px] text-gray-400 hover:text-white hover:border-white/20 transition-colors"
+                      >
+                        <ChevronDown className="w-3.5 h-3.5 rotate-180" />
+                        Ocultar {ocultas} {ocultas === 1 ? 'mensaje intermedio' : 'mensajes intermedios'}
+                      </button>
+                      {medio.map(renderNota)}
+                    </>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => setMostrarAnteriores(true)}
+                      className="w-full flex items-center justify-center gap-1.5 py-2 rounded-xl border border-dashed border-white/10 text-[11px] text-gray-400 hover:text-white hover:border-white/20 transition-colors"
+                    >
+                      <ChevronDown className="w-3.5 h-3.5" />
+                      Mostrar {ocultas} {ocultas === 1 ? 'mensaje anterior' : 'mensajes anteriores'}
+                    </button>
+                  )
+                )}
+                {renderNota(original)}
+              </>
+            );
+          })()}
         </div>
       )}
 
