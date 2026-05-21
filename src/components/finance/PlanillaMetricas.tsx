@@ -8,11 +8,17 @@ interface Props {
   totalIngresos: number;
   totalEgresos: number;
   cajaEfectivo: number;
-  // ingresos transferencia por socio (ya calculado por FlujoCaja)
-  ingTransferSocio: Record<SocioFinanzas, number>;
-  // egresos transferencia por socio
+  // Transferencias COBRADAS por cada socio (mérito comercial: doctor_cobra)
+  ingTransferGeneradoSocio: Record<SocioFinanzas, number>;
+  // Transferencias que entraron a la CUENTA de cada socio (receptor_transfer)
+  ingTransferRecibidoSocio: Record<SocioFinanzas, number>;
+  // Egresos por transferencia: gastos pagados desde la cuenta de cada socio
   egTransferSocio: Record<SocioFinanzas, number>;
-  // efectivo final por socio (resumen de cobro)
+  // Ajustes por cambios efectivo↔transferencia (movimientos de caja)
+  deltaTransferSocio: Record<SocioFinanzas, number>;
+  // Saldo final por socio en cuentas (recibido - pagado + ajustes)
+  transferSocioNeto: Record<SocioFinanzas, number>;
+  // Efectivo final por socio (resumen de cobro)
   efectivoSocioFinal: Record<SocioFinanzas, number>;
 }
 
@@ -27,7 +33,8 @@ const norm = (s: string) => s.toLowerCase().trim().replace(/\s+/g, ' ');
 
 export default function PlanillaMetricas({
   ingresos, metaGrupal, totalIngresos, totalEgresos, cajaEfectivo,
-  ingTransferSocio, egTransferSocio, efectivoSocioFinal,
+  ingTransferGeneradoSocio, ingTransferRecibidoSocio, egTransferSocio,
+  deltaTransferSocio, transferSocioNeto, efectivoSocioFinal,
 }: Props) {
   const metaPersonal = metaGrupal > 0 ? metaGrupal / 4 : 0;
 
@@ -126,8 +133,8 @@ export default function PlanillaMetricas({
           <table className="w-full text-sm">
             <thead>
               <tr className="bg-sky-500/10 border-b border-white/10">
-                <th colSpan={5} className="px-4 py-2 text-center text-sky-300 font-semibold uppercase text-xs tracking-wider">
-                  Transferencia
+                <th colSpan={SOCIOS_FINANZAS.length + 2} className="px-4 py-2 text-center text-sky-300 font-semibold uppercase text-xs tracking-wider">
+                  Transferencia — quién cobra, quién recibe, qué queda en cuenta
                 </th>
               </tr>
               <tr className="bg-sky-500/5 border-b border-white/10">
@@ -135,15 +142,30 @@ export default function PlanillaMetricas({
                 {SOCIOS_FINANZAS.map(s => (
                   <th key={s} className={`px-4 py-2 text-right text-xs uppercase font-bold ${SOCIO_COLOR[s]}`}>{s}</th>
                 ))}
+                <th className="px-4 py-2 text-right text-xs uppercase font-bold text-sky-300">Total</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-white/5">
-              <Row label="Transferencias generadas" values={SOCIOS_FINANZAS.map(s => formatMoney(ingTransferSocio[s] || 0))} />
-              <Row label="Gastos pagados desde cuenta" values={SOCIOS_FINANZAS.map(s => formatMoney(egTransferSocio[s] || 0))} />
-              <Row
-                label="Neto Transferencia"
-                values={SOCIOS_FINANZAS.map(s => formatMoney((ingTransferSocio[s] || 0) - (egTransferSocio[s] || 0)))}
+              <RowT label="Generó por transferencia (cobro)" hint="doctor_cobra" values={SOCIOS_FINANZAS.map(s => ingTransferGeneradoSocio[s] || 0)} />
+              <RowT label="Recibió en su cuenta" hint="receptor de la transferencia" values={SOCIOS_FINANZAS.map(s => ingTransferRecibidoSocio[s] || 0)} />
+              <RowT label="Pagó desde su cuenta (gastos)" hint="pagador del egreso" values={SOCIOS_FINANZAS.map(s => egTransferSocio[s] || 0)} />
+              <RowT
+                label="Ajustes entre cuentas (cambios)"
+                hint="movimientos efectivo↔transfer"
+                values={SOCIOS_FINANZAS.map(s => deltaTransferSocio[s] || 0)}
+                muted
+              />
+              <RowT
+                label="Saldo final en cuenta"
+                hint="recibido − pagado + ajustes"
+                values={SOCIOS_FINANZAS.map(s => transferSocioNeto[s] || 0)}
                 accent
+              />
+              <RowT
+                label="Liquidación (a favor / debe)"
+                hint="generó − recibió. Positivo: le deben. Negativo: debe."
+                values={SOCIOS_FINANZAS.map(s => (ingTransferGeneradoSocio[s] || 0) - (ingTransferRecibidoSocio[s] || 0))}
+                signed
               />
             </tbody>
           </table>
@@ -182,8 +204,8 @@ export default function PlanillaMetricas({
         </div>
         <div className="px-4 py-2 text-[10px] text-zinc-500 border-t border-white/5">
           La meta personal se calcula automáticamente como Meta Grupal ÷ 4. Para editarla, cambiá la Meta del periodo arriba.<br/>
-          <strong>Transferencias / Efectivo neto:</strong> por doctor que generó el cobro (reconcilia con Monto Generado).<br/>
-          <strong>Gastos pagados desde cuenta:</strong> por dueño de la cuenta pagadora.
+          <strong>Transferencia:</strong> distinguimos <em>quien generó el cobro</em> (doctor_cobra) de <em>quien recibió en su cuenta</em> (receptor). Los <em>ajustes</em> incluyen movimientos entre cuentas. La <em>liquidación</em> muestra cuánto le deben (positivo) o cuánto debe (negativo) a la caja del grupo.<br/>
+          <strong>Efectivo neto:</strong> por doctor que generó el cobro.
         </div>
       </div>
     </div>
@@ -204,6 +226,39 @@ function Row({ label, values, accent, muted }: { label: string; values: string[]
           {v}
         </td>
       ))}
+    </tr>
+  );
+}
+
+// Row para tablas con columna Total al final. Acepta números crudos para que
+// podamos sumar el total y colorear signos cuando corresponda.
+function RowT({ label, hint, values, accent, muted, signed }: {
+  label: string; hint?: string; values: number[]; accent?: boolean; muted?: boolean; signed?: boolean;
+}) {
+  const total = values.reduce((s, v) => s + v, 0);
+  const fmt = (n: number) => signed && n !== 0
+    ? `${n > 0 ? '+' : ''}${formatMoney(n)}`
+    : formatMoney(n);
+  const colorFor = (n: number) => {
+    if (signed) return n > 0 ? 'text-emerald-300' : n < 0 ? 'text-rose-300' : 'text-zinc-400';
+    if (accent) return 'text-emerald-200 font-bold';
+    if (muted) return 'text-zinc-400';
+    return 'text-white';
+  };
+  return (
+    <tr className={accent ? 'bg-emerald-500/5' : ''}>
+      <td className={`px-4 py-2 text-xs font-medium ${accent ? 'text-emerald-200' : 'text-zinc-300'}`}>
+        <div>{label}</div>
+        {hint && <div className="text-[9px] text-zinc-500 font-normal normal-case">{hint}</div>}
+      </td>
+      {values.map((v, i) => (
+        <td key={i} className={`px-4 py-2 text-right whitespace-nowrap font-mono text-xs ${colorFor(v)}`}>
+          {fmt(v)}
+        </td>
+      ))}
+      <td className={`px-4 py-2 text-right whitespace-nowrap font-mono text-xs border-l border-white/10 ${colorFor(total)}`}>
+        {fmt(total)}
+      </td>
     </tr>
   );
 }

@@ -168,6 +168,7 @@ export default function FlujoCaja() {
     return {
       total, porSocio, porRama, totalEgresos, neto, cajaEfectivo, cajaTransfer, egresosPorSocio,
       ingEfectivoSocio, ingTransferSocio, ingTransferGeneradoSocio, egTransferSocio, transferSocioNeto,
+      deltaTransferSocio,
       efectivoSocioFinal, cambiosEfectivoNet, cambiosTransferNet, cantCambios: movimientos.length,
     };
   }, [ingresosPeriodo, egresos, movimientos]);
@@ -408,8 +409,11 @@ export default function FlujoCaja() {
         totalIngresos={totales.total}
         totalEgresos={totales.totalEgresos}
         cajaEfectivo={totales.cajaEfectivo}
-        ingTransferSocio={totales.ingTransferGeneradoSocio}
+        ingTransferGeneradoSocio={totales.ingTransferGeneradoSocio}
+        ingTransferRecibidoSocio={totales.ingTransferSocio}
         egTransferSocio={totales.egTransferSocio}
+        deltaTransferSocio={totales.deltaTransferSocio}
+        transferSocioNeto={totales.transferSocioNeto}
         efectivoSocioFinal={totales.ingEfectivoSocio}
       />
 
