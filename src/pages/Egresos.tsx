@@ -15,6 +15,16 @@ import { exportToExcel } from '../lib/exportExcel';
 
 const HOY = () => new Date().toISOString().slice(0, 10);
 const INICIO_MES = () => new Date().toISOString().slice(0, 7) + '-01';
+// Último día del mes actual (YYYY-MM-DD). Se usa como tope superior por defecto
+// para que el filtro coincida exactamente con el período de Flujo de Caja
+// y los totales de ambas pantallas cuadren.
+const FIN_MES = () => {
+  // Usar UTC para que coincida con el periodo de Flujo de Caja
+  // (que se calcula con toISOString().slice(0, 7)).
+  const d = new Date();
+  const fin = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0));
+  return fin.toISOString().slice(0, 10);
+};
 
 interface FormState {
   fecha: string;
@@ -67,7 +77,7 @@ export default function Egresos() {
   const [filtroPagador, setFiltroPagador] = useState<SocioFinanzas | ''>('');
   const [filtroModalidad, setFiltroModalidad] = useState<ModalidadPago | ''>('');
   const [desde, setDesde] = useState(INICIO_MES());
-  const [hasta, setHasta] = useState('');
+  const [hasta, setHasta] = useState(FIN_MES());
 
   const cargar = useCallback(async () => {
     setLoading(true);
