@@ -39,11 +39,14 @@ export default function FlujoCaja() {
     const finExclusivo = m === 12
       ? `${y + 1}-01-01`
       : `${y}-${String(m + 1).padStart(2, '0')}-01`;
+    // Egresos: SIN tope superior, para que coincida con el filtro por defecto
+    // de la p\u00e1gina de Egresos (desde = inicio de mes, hasta = vac\u00edo).
+    // Esto incluye egresos con fecha futura (sueldos/vencimientos adelantados)
+    // que el usuario ya considera del per\u00edodo.
     const { data, error } = await supabase
       .from('egresos_v2')
       .select('*')
       .gte('fecha', inicio)
-      .lt('fecha', finExclusivo)
       .order('fecha', { ascending: false });
     if (error) { showToast('Error al cargar egresos: ' + error.message, 'error'); return; }
     setEgresos((data || []) as EgresoV2[]);
