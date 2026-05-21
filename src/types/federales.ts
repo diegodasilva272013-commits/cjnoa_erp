@@ -8,8 +8,9 @@ export type PipelineFederal =
   | 'esperando_audiencia'
   | 'esperando_sentencia'
   | 'analisis_sin_directivas'
-  | 'sin_pago'
-  | 'seguimiento';
+  | 'en_ejecucion'
+  | 'seguimiento'
+  | 'archivado';
 
 export type SexoCliente = 'HOMBRE' | 'MUJER';
 
@@ -65,6 +66,8 @@ export interface NotaFederal {
   contenido: string;
   tarea_federal_id: string | null;
   audio_path: string | null;
+  documento_path: string | null;
+  documento_nombre: string | null;
   editado: boolean;
   created_by: string | null;
   created_at: string;
@@ -101,8 +104,9 @@ export const PIPELINE_FEDERAL_ORDERED: PipelineFederal[] = [
   'esperando_audiencia',
   'esperando_sentencia',
   'analisis_sin_directivas',
-  'sin_pago',
+  'en_ejecucion',
   'seguimiento',
+  'archivado',
 ];
 
 export const PIPELINE_FEDERAL_LABELS: Record<PipelineFederal, string> = {
@@ -110,8 +114,9 @@ export const PIPELINE_FEDERAL_LABELS: Record<PipelineFederal, string> = {
   esperando_audiencia: 'Esperando audiencia',
   esperando_sentencia: 'Esperando sentencia',
   analisis_sin_directivas: 'En análisis sin directivas',
-  sin_pago: 'Sin pago',
+  en_ejecucion: 'En ejecución',
   seguimiento: 'Seguimiento',
+  archivado: 'Archivado',
 };
 
 export const PIPELINE_FEDERAL_COLORS: Record<PipelineFederal, string> = {
@@ -119,8 +124,9 @@ export const PIPELINE_FEDERAL_COLORS: Record<PipelineFederal, string> = {
   esperando_audiencia: 'bg-blue-500/10 text-blue-400 border-blue-500/20',
   esperando_sentencia: 'bg-violet-500/10 text-violet-400 border-violet-500/20',
   analisis_sin_directivas: 'bg-amber-500/10 text-amber-400 border-amber-500/20',
-  sin_pago: 'bg-red-500/10 text-red-400 border-red-500/20',
+  en_ejecucion: 'bg-cyan-500/10 text-cyan-400 border-cyan-500/20',
   seguimiento: 'bg-sky-500/10 text-sky-400 border-sky-500/20',
+  archivado: 'bg-gray-500/10 text-gray-400 border-gray-500/20',
 };
 
 export const TIPO_CASO_FEDERAL_LABELS: Record<TipoCasoFederal, string> = {

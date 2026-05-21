@@ -95,12 +95,50 @@ export function useNotasFederales(clienteId: string | null) {
     return () => { supabase.removeChannel(ch); };
   }, [fetch, clienteId]);
 
-  const add = async (contenido: string, userId: string | null) => {
-    if (!clienteId || !contenido.trim()) return false;
+  const add = async (
+    contenido: string,
+    userId: string | null,
+    audioBlob?: Blob | null,
+    documento?: { file: File } | null,
+  ) => {
+    if (!clienteId) return false;
+    if (!contenido.trim() && !audioBlob && !documento) return false;
+    let audio_path: string | null = null;
+    if (audioBlob) {
+      audio_path = `clientes-federales/${clienteId}/${Date.now()}.webm`;
+      const up = await supabase.storage
+        .from('notas-voz')
+        .upload(audio_path, audioBlob, { contentType: 'audio/webm', upsert: false });
+      if (up.error) {
+        showToast('No se pudo subir el audio: ' + up.error.message, 'error');
+        audio_path = null;
+      }
+    }
+    let documento_path: string | null = null;
+    let documento_nombre: string | null = null;
+    if (documento?.file) {
+      const safeName = documento.file.name.replace(/[^\w.\-]+/g, '_');
+      documento_path = `federales/${clienteId}/${Date.now()}-${safeName}`;
+      const up = await supabase.storage
+        .from('documentos')
+        .upload(documento_path, documento.file, { contentType: documento.file.type, upsert: false });
+      if (up.error) {
+        showToast('No se pudo subir el documento: ' + up.error.message, 'error');
+        documento_path = null;
+      } else {
+        documento_nombre = documento.file.name;
+      }
+    }
+    const finalContenido = contenido.trim()
+      || (audio_path ? '(nota de voz)' : '')
+      || (documento_nombre ? `📎 ${documento_nombre}` : '');
     const { error } = await supabase.from('clientes_federales_notas').insert({
       cliente_fed_id: clienteId,
-      contenido: contenido.trim(),
+      contenido: finalContenido,
       created_by: userId,
+      audio_path,
+      documento_path,
+      documento_nombre,
     });
     if (error) { showToast('Error: ' + error.message, 'error'); return false; }
     await fetch();
@@ -108,6 +146,13 @@ export function useNotasFederales(clienteId: string | null) {
   };
 
   const remove = async (id: string) => {
+    const n = notas.find(x => x.id === id);
+    if (n?.audio_path) {
+      await supabase.storage.from('notas-voz').remove([n.audio_path]);
+    }
+    if (n?.documento_path) {
+      await supabase.storage.from('documentos').remove([n.documento_path]);
+    }
     const { error } = await supabase.from('clientes_federales_notas').delete().eq('id', id);
     if (error) { showToast('Error: ' + error.message, 'error'); return false; }
     await fetch();
