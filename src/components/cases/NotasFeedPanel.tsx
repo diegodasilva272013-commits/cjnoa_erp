@@ -637,10 +637,10 @@ export default function NotasFeedPanel({ casoId }: { casoId: string }) {
         <div className="space-y-3 group">
           {(() => {
             // notas vienen ordenadas desc (más nueva primero).
-            // Mostramos las 2 más nuevas arriba, la más antigua abajo,
+            // Mostramos la más nueva arriba, la más antigua abajo,
             // y colapsamos las del medio detrás de un botón.
             const total = notas.length;
-            const COLAPSAR_DESDE = 4; // colapsar sólo si hay al menos 1 nota intermedia para esconder
+            const COLAPSAR_DESDE = 3; // desde 3 notas: 1 arriba + medio colapsable + 1 abajo
             const renderNota = (n: CasoGeneralNota) => (
               <NotaCard
                 key={n.id}
@@ -656,8 +656,8 @@ export default function NotasFeedPanel({ casoId }: { casoId: string }) {
               return notas.map(renderNota);
             }
 
-            const nuevas = notas.slice(0, 2);
-            const medio = notas.slice(2, total - 1);
+            const nuevas = notas.slice(0, 1);
+            const medio = notas.slice(1, total - 1);
             const original = notas[total - 1];
             const ocultas = medio.length;
 
