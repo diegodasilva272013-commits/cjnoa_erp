@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useCallback } from 'react';
 import { Calculator, RefreshCw, Archive } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useIngresosOperativos } from '../hooks/useIngresosOperativos';
@@ -33,32 +33,43 @@ export default function FlujoCaja() {
   const yaCerrado = cierres.some(c => c.periodo === periodo);
 
   // Cargar egresos del periodo
-  useEffect(() => {
-    (async () => {
-      const [y, m] = periodo.split('-').map(Number);
-      const inicio = `${periodo}-01`;
-      const finExclusivo = m === 12
-        ? `${y + 1}-01-01`
-        : `${y}-${String(m + 1).padStart(2, '0')}-01`;
-      const { data, error } = await supabase
-        .from('egresos_v2')
-        .select('*')
-        .gte('fecha', inicio)
-        .lt('fecha', finExclusivo)
-        .order('fecha', { ascending: false });
-      if (error) { showToast('Error al cargar egresos: ' + error.message, 'error'); return; }
-      setEgresos((data || []) as EgresoV2[]);
+  const cargarEgresosYMovs = useCallback(async () => {
+    const [y, m] = periodo.split('-').map(Number);
+    const inicio = `${periodo}-01`;
+    const finExclusivo = m === 12
+      ? `${y + 1}-01-01`
+      : `${y}-${String(m + 1).padStart(2, '0')}-01`;
+    const { data, error } = await supabase
+      .from('egresos_v2')
+      .select('*')
+      .gte('fecha', inicio)
+      .lt('fecha', finExclusivo)
+      .order('fecha', { ascending: false });
+    if (error) { showToast('Error al cargar egresos: ' + error.message, 'error'); return; }
+    setEgresos((data || []) as EgresoV2[]);
 
-      const { data: movs, error: errMov } = await supabase
-        .from('movimientos_caja')
-        .select('*')
-        .gte('fecha', inicio)
-        .lt('fecha', finExclusivo)
-        .order('fecha', { ascending: false });
-      if (errMov) { showToast('Error al cargar cambios: ' + errMov.message, 'error'); return; }
-      setMovimientos((movs || []) as MovimientoCaja[]);
-    })();
+    const { data: movs, error: errMov } = await supabase
+      .from('movimientos_caja')
+      .select('*')
+      .gte('fecha', inicio)
+      .lt('fecha', finExclusivo)
+      .order('fecha', { ascending: false });
+    if (errMov) { showToast('Error al cargar cambios: ' + errMov.message, 'error'); return; }
+    setMovimientos((movs || []) as MovimientoCaja[]);
   }, [periodo, showToast]);
+
+  useEffect(() => { cargarEgresosYMovs(); }, [cargarEgresosYMovs]);
+
+  // Realtime: refrescar al detectar cambios en egresos o movimientos para que
+  // la planilla siempre coincida con la página de Egresos.
+  useEffect(() => {
+    const ch = supabase
+      .channel('flujo_caja_rt')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'egresos_v2' }, () => cargarEgresosYMovs())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'movimientos_caja' }, () => cargarEgresosYMovs())
+      .subscribe();
+    return () => { supabase.removeChannel(ch); };
+  }, [cargarEgresosYMovs]);
 
   // Cargar meta del periodo
   useEffect(() => {
