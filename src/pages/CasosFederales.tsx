@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from 'react';
-import { Plus, Search, Trash2, Briefcase, Phone, Check, Copy, ChevronRight, Filter, FileText } from 'lucide-react';
+import { Plus, Search, Trash2, Briefcase, Phone, Check, Copy, ChevronRight, Filter, FileText, Pencil } from 'lucide-react';
 import { useClientesFederales } from '../hooks/useFederales';
 import FichaFederalModal from '../components/federales/FichaFederalModal';
 import FichaFederalDetalle from '../components/federales/FichaFederalDetalle';
@@ -87,6 +87,11 @@ export default function CasosFederales() {
   }, [clientes, busqueda, filtroPipelines, sortKey, sortDir]);
 
   function abrirNuevo() { setFichaEditando(null); setModalAbierto(true); }
+  function abrirEditar(c: ClienteFederal) {
+    setFichaEditando(c);
+    setFichaDetalle(null);
+    setModalAbierto(true);
+  }
   async function handleSave(data: Partial<ClienteFederal>, id?: string) { return upsert(data, id); }
 
   return (
@@ -179,6 +184,7 @@ export default function CasosFederales() {
           sortDir={sortDir}
           toggleSort={toggleSort}
           onSelect={setFichaDetalle}
+          onEdit={abrirEditar}
           copiado={copiado}
           copiar={copiar}
           confirmDel={confirmDel}
@@ -227,13 +233,14 @@ function SortHeader({ k, label, sortKey, sortDir, onClick, className = '' }: {
 }
 
 function VistaTabla({
-  items, sortKey, sortDir, toggleSort, onSelect, copiado, copiar, confirmDel, handleDel,
+  items, sortKey, sortDir, toggleSort, onSelect, onEdit, copiado, copiar, confirmDel, handleDel,
 }: {
   items: ClienteFederal[];
   sortKey: SortKey;
   sortDir: SortDir;
   toggleSort: (k: SortKey) => void;
   onSelect: (c: ClienteFederal) => void;
+  onEdit: (c: ClienteFederal) => void;
   copiado: string | null;
   copiar: (e: React.MouseEvent, txt: string, id: string) => void;
   confirmDel: string | null;
@@ -331,6 +338,13 @@ function VistaTabla({
                 {/* Acciones */}
                 <td className="px-4 py-3">
                   <div className="flex items-center gap-1 justify-end">
+                    <button
+                      onClick={e => { e.stopPropagation(); onEdit(c); }}
+                      title="Editar"
+                      className="p-1.5 rounded-lg transition-colors text-gray-600 hover:text-blue-400 hover:bg-blue-500/10"
+                    >
+                      <Pencil className="w-3.5 h-3.5" />
+                    </button>
                     <button
                       onClick={e => handleDel(e, c)}
                       title={confirmDel === c.id ? 'Click otra vez para eliminar' : 'Eliminar'}
