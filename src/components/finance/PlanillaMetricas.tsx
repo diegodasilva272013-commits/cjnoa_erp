@@ -18,6 +18,10 @@ interface Props {
   deltaTransferSocio: Record<SocioFinanzas, number>;
   // Saldo final por socio en cuentas (recibido - pagado + ajustes)
   transferSocioNeto: Record<SocioFinanzas, number>;
+  // Egresos transferencia sin pagador asignado (caja común)
+  egTransferSinPagador: number;
+  // Total egresos transferencia del periodo (para reconciliar con la página de Egresos)
+  totalEgresosTransfer: number;
   // Efectivo final por socio (resumen de cobro)
   efectivoSocioFinal: Record<SocioFinanzas, number>;
 }
@@ -34,7 +38,9 @@ const norm = (s: string) => s.toLowerCase().trim().replace(/\s+/g, ' ');
 export default function PlanillaMetricas({
   ingresos, metaGrupal, totalIngresos, totalEgresos, cajaEfectivo,
   ingTransferGeneradoSocio, ingTransferRecibidoSocio, egTransferSocio,
-  deltaTransferSocio, transferSocioNeto, efectivoSocioFinal,
+  deltaTransferSocio, transferSocioNeto,
+  egTransferSinPagador, totalEgresosTransfer,
+  efectivoSocioFinal,
 }: Props) {
   const metaPersonal = metaGrupal > 0 ? metaGrupal / 4 : 0;
 
@@ -169,6 +175,26 @@ export default function PlanillaMetricas({
               />
             </tbody>
           </table>
+        </div>
+        {/* Reconciliación con Egresos */}
+        <div className="px-4 py-2 text-[10px] text-zinc-500 border-t border-white/5 flex flex-wrap gap-x-4 gap-y-1">
+          <span>
+            <strong>Total transferencias egresos del periodo:</strong>{' '}
+            <span className="font-mono text-zinc-300">{formatMoney(totalEgresosTransfer)}</span>
+          </span>
+          <span>
+            = pagado por socios {formatMoney(totalEgresosTransfer - egTransferSinPagador)}
+            {egTransferSinPagador > 0 && (
+              <>
+                {' '}+ <span className="text-amber-300">sin pagador asignado {formatMoney(egTransferSinPagador)}</span>
+              </>
+            )}
+          </span>
+          {egTransferSinPagador > 0 && (
+            <span className="text-amber-300/80 w-full">
+              ⚠ Hay {formatMoney(egTransferSinPagador)} en egresos por transferencia sin pagador asignado. Editalos en Egresos para que aparezcan en la fila correcta.
+            </span>
+          )}
         </div>
       </div>
 
