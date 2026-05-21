@@ -2,7 +2,7 @@ import { useState, useMemo, useRef, useEffect } from 'react';
 import {
   MessageSquare, Send, Clock, User as UserIcon, Trash2, CheckCircle2,
   ListTodo, Calendar, Eye, ChevronDown, AlertCircle, Mic, MicOff, Square,
-  Gavel, X as XIcon, MapPin, Users, Plus,
+  Gavel, X as XIcon, MapPin, Users, Plus, Pin,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
@@ -636,59 +636,101 @@ export default function NotasFeedPanel({ casoId }: { casoId: string }) {
       ) : (
         <div className="space-y-3 group">
           {(() => {
-            // notas vienen ordenadas desc (más nueva primero).
-            // Mostramos la más nueva arriba, la más antigua abajo,
-            // y colapsamos las del medio detrás de un botón.
-            const total = notas.length;
-            const COLAPSAR_DESDE = 3; // desde 3 notas: 1 arriba + medio colapsable + 1 abajo
+            const currentUid = user?.id || null;
             const renderNota = (n: CasoGeneralNota) => (
               <NotaCard
                 key={n.id}
                 n={n}
-                currentUserId={user?.id || null}
+                currentUserId={currentUid}
                 onDelete={handleEliminar}
                 onMarcarVista={handleMarcarVista}
                 onCambiarEstado={handleCambiarEstado}
               />
             );
 
-            if (total < COLAPSAR_DESDE) {
-              return notas.map(renderNota);
-            }
+            // ── Tareas fijadas arriba ──
+            // Cualquier nota con tarea NO finalizada queda fijada arriba,
+            // donde el responsable es el usuario actual.
+            // Cuando el usuario marca su tarea como finalizada, ésta deja
+            // de aparecer fijada para él y vuelve al hilo normal de seguimiento.
+            const esTareaPendiente = (n: CasoGeneralNota) =>
+              !!n.tarea_id
+              && n.tarea_estado !== 'finalizada'
+              && n.tarea_estado !== 'completada'
+              && !!currentUid
+              && n.tarea_responsable_id === currentUid;
 
-            const nuevas = notas.slice(0, 1);
-            const medio = notas.slice(1, total - 1);
-            const original = notas[total - 1];
-            const ocultas = medio.length;
+            const fijadas = notas.filter(esTareaPendiente);
+            const fijadasIds = new Set(fijadas.map(n => n.id));
+            const restantes = notas.filter(n => !fijadasIds.has(n.id));
+
+            // ── Colapso del hilo restante ──
+            // notas vienen ordenadas desc (más nueva primero).
+            // Mostramos la más nueva arriba, la más antigua abajo,
+            // y colapsamos las del medio detrás de un botón.
+            const total = restantes.length;
+            const COLAPSAR_DESDE = 3;
+
+            let feedRestante: JSX.Element | JSX.Element[];
+            if (total === 0) {
+              feedRestante = (
+                <div className="text-center py-6 rounded-2xl border border-dashed border-white/10">
+                  <p className="text-[11px] text-gray-500">Sin más mensajes en el hilo.</p>
+                </div>
+              );
+            } else if (total < COLAPSAR_DESDE) {
+              feedRestante = restantes.map(renderNota);
+            } else {
+              const nuevas = restantes.slice(0, 1);
+              const medio = restantes.slice(1, total - 1);
+              const original = restantes[total - 1];
+              const ocultas = medio.length;
+              feedRestante = (
+                <>
+                  {nuevas.map(renderNota)}
+                  {ocultas > 0 && (
+                    mostrarAnteriores ? (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => setMostrarAnteriores(false)}
+                          className="w-full flex items-center justify-center gap-1.5 py-2 rounded-xl border border-dashed border-white/10 text-[11px] text-gray-400 hover:text-white hover:border-white/20 transition-colors"
+                        >
+                          <ChevronDown className="w-3.5 h-3.5 rotate-180" />
+                          Ocultar {ocultas} {ocultas === 1 ? 'mensaje intermedio' : 'mensajes intermedios'}
+                        </button>
+                        {medio.map(renderNota)}
+                      </>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => setMostrarAnteriores(true)}
+                        className="w-full flex items-center justify-center gap-1.5 py-2 rounded-xl border border-dashed border-white/10 text-[11px] text-gray-400 hover:text-white hover:border-white/20 transition-colors"
+                      >
+                        <ChevronDown className="w-3.5 h-3.5" />
+                        Mostrar {ocultas} {ocultas === 1 ? 'mensaje anterior' : 'mensajes anteriores'}
+                      </button>
+                    )
+                  )}
+                  {renderNota(original)}
+                </>
+              );
+            }
 
             return (
               <>
-                {nuevas.map(renderNota)}
-                {ocultas > 0 && (
-                  mostrarAnteriores ? (
-                    <>
-                      <button
-                        type="button"
-                        onClick={() => setMostrarAnteriores(false)}
-                        className="w-full flex items-center justify-center gap-1.5 py-2 rounded-xl border border-dashed border-white/10 text-[11px] text-gray-400 hover:text-white hover:border-white/20 transition-colors"
-                      >
-                        <ChevronDown className="w-3.5 h-3.5 rotate-180" />
-                        Ocultar {ocultas} {ocultas === 1 ? 'mensaje intermedio' : 'mensajes intermedios'}
-                      </button>
-                      {medio.map(renderNota)}
-                    </>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => setMostrarAnteriores(true)}
-                      className="w-full flex items-center justify-center gap-1.5 py-2 rounded-xl border border-dashed border-white/10 text-[11px] text-gray-400 hover:text-white hover:border-white/20 transition-colors"
-                    >
-                      <ChevronDown className="w-3.5 h-3.5" />
-                      Mostrar {ocultas} {ocultas === 1 ? 'mensaje anterior' : 'mensajes anteriores'}
-                    </button>
-                  )
+                {fijadas.length > 0 && (
+                  <div className="rounded-2xl border border-amber-500/25 bg-amber-500/[0.04] p-2.5 space-y-2">
+                    <div className="flex items-center gap-1.5 px-1">
+                      <Pin className="w-3 h-3 text-amber-400" />
+                      <span className="text-[10px] uppercase tracking-wider font-semibold text-amber-300">
+                        Mis tareas pendientes ({fijadas.length})
+                      </span>
+                    </div>
+                    {fijadas.map(renderNota)}
+                  </div>
                 )}
-                {renderNota(original)}
+                {feedRestante}
               </>
             );
           })()}
