@@ -68,18 +68,18 @@ function NotaCard({ n, currentUserId, onDelete, onMarcarVista, onCambiarEstado }
   const tieneTarea = !!n.tarea_id;
 
   return (
-    <div className="rounded-2xl bg-white/[0.025] border border-white/[0.06] p-4 space-y-3">
+    <div className="rounded-2xl bg-white/[0.025] border border-white/[0.06] p-3.5 space-y-2.5">
       <div className="flex items-start gap-3">
-        <Avatar path={n.autor_avatar} nombre={n.autor_nombre} size={36} />
+        <Avatar path={n.autor_avatar} nombre={n.autor_nombre} size={32} />
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-sm font-semibold text-white">{n.autor_nombre || 'Usuario'}</span>
-            <span className="text-[11px] text-gray-500 flex items-center gap-1">
+            <span className="text-[12px] font-semibold text-white">{n.autor_nombre || 'Usuario'}</span>
+            <span className="text-[10px] text-gray-500 flex items-center gap-1">
               <Clock className="w-3 h-3" />{fmtFecha(n.created_at)}
             </span>
-            {n.editado && <span className="text-[10px] text-gray-600 italic">(editado)</span>}
+            {n.editado && <span className="text-[9px] text-gray-600 italic">(editado)</span>}
           </div>
-          <p className="text-sm text-gray-200 whitespace-pre-wrap break-words mt-1">{n.contenido}</p>
+          <p className="text-[12px] text-gray-200 whitespace-pre-wrap break-words mt-1">{n.contenido}</p>
           {n.audio_path && (
             <div className="mt-2">
               <AudioPlayer path={n.audio_path} />
@@ -98,12 +98,12 @@ function NotaCard({ n, currentUserId, onDelete, onMarcarVista, onCambiarEstado }
         <div className="rounded-xl bg-violet-500/[0.07] border border-violet-500/20 p-3 ml-12 space-y-2">
           <div className="flex items-center gap-2 flex-wrap">
             <ListTodo className="w-3.5 h-3.5 text-violet-400" />
-            <span className="text-xs font-bold text-violet-200">{n.tarea_titulo}</span>
-            <span className={`badge border text-[10px] ${ESTADO_TAREA_COLOR[n.tarea_estado || 'activa']}`}>
+            <span className="text-[11px] font-bold text-violet-200">{n.tarea_titulo}</span>
+            <span className={`badge border text-[9px] ${ESTADO_TAREA_COLOR[n.tarea_estado || 'activa']}`}>
               {ESTADO_TAREA_LABEL[n.tarea_estado || 'activa']}
             </span>
             {n.tarea_prioridad && n.tarea_prioridad !== 'sin_prioridad' && (
-              <span className={`text-[10px] px-1.5 py-0.5 rounded border ${
+              <span className={`text-[9px] px-1.5 py-0.5 rounded border ${
                 n.tarea_prioridad === 'alta'
                   ? 'bg-red-500/15 text-red-300 border-red-500/30'
                   : 'bg-amber-500/15 text-amber-300 border-amber-500/30'
@@ -113,9 +113,9 @@ function NotaCard({ n, currentUserId, onDelete, onMarcarVista, onCambiarEstado }
             )}
           </div>
           {n.tarea_descripcion && n.tarea_descripcion !== n.contenido && (
-            <p className="text-[11px] text-gray-300 whitespace-pre-wrap break-words border-l-2 border-violet-500/30 pl-2">{n.tarea_descripcion}</p>
+            <p className="text-[10px] text-gray-300 whitespace-pre-wrap break-words border-l-2 border-violet-500/30 pl-2">{n.tarea_descripcion}</p>
           )}
-          <div className="flex items-center gap-3 text-[11px] text-gray-400 flex-wrap">
+          <div className="flex items-center gap-3 text-[10px] text-gray-400 flex-wrap">
             <span className="flex items-center gap-1.5">
               <Avatar path={n.tarea_responsable_avatar} nombre={n.tarea_responsable_nombre} size={18} />
               <span className="text-gray-300">{n.tarea_responsable_nombre || '—'}</span>
