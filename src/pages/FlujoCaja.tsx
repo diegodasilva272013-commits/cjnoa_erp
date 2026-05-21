@@ -441,6 +441,8 @@ export default function FlujoCaja() {
         totalEgresosTransfer={totales.transferOut}
         totalEgresosEfectivo={totales.efectivoOut}
         efectivoSocioFinal={totales.ingEfectivoSocio}
+        egresosDetalle={egresos}
+        onRefrescar={cargarEgresosYMovs}
       />
 
       {/* Cards principales */}

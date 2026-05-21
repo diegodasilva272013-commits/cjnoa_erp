@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { SOCIOS_FINANZAS, type IngresoOperativo, type SocioFinanzas } from '../../types/finanzas';
 import { formatMoney } from '../../lib/financeFormat';
 
@@ -30,6 +30,10 @@ interface Props {
   totalEgresosEfectivo: number;
   // Efectivo final por socio (resumen de cobro)
   efectivoSocioFinal: Record<SocioFinanzas, number>;
+  // Lista cruda de egresos del periodo, para detalle expandible
+  egresosDetalle: import('../../types/finanzas').EgresoV2[];
+  // Forzar refresco manual
+  onRefrescar: () => void;
 }
 
 const SOCIO_COLOR: Record<SocioFinanzas, string> = {
@@ -46,8 +50,9 @@ export default function PlanillaMetricas({
   ingTransferGeneradoSocio, ingTransferRecibidoSocio, egTransferSocio, egEfectivoSocio,
   deltaTransferSocio, transferSocioNeto,
   egTransferSinPagador, egEfectivoSinPagador, totalEgresosTransfer, totalEgresosEfectivo,
-  efectivoSocioFinal,
+  efectivoSocioFinal, egresosDetalle, onRefrescar,
 }: Props) {
+  const [verDetalle, setVerDetalle] = useState(false);
   const metaPersonal = metaGrupal > 0 ? metaGrupal / 4 : 0;
 
   const porSocio = useMemo(() => {
@@ -215,7 +220,26 @@ export default function PlanillaMetricas({
               Por eso no se reparten en las filas por socio. Editá esos egresos en la página de <strong>Egresos</strong> y asigná quien efectivamente pagó para que aparezcan acá.
             </div>
           )}
+          <div className="flex items-center gap-2 pt-1">
+            <button
+              type="button"
+              onClick={onRefrescar}
+              className="px-2 py-1 rounded bg-white/5 border border-white/10 text-[10px] text-zinc-300 hover:bg-white/10"
+            >
+              ↻ Refrescar datos
+            </button>
+            <button
+              type="button"
+              onClick={() => setVerDetalle(v => !v)}
+              className="px-2 py-1 rounded bg-white/5 border border-white/10 text-[10px] text-zinc-300 hover:bg-white/10"
+            >
+              {verDetalle ? '▾ Ocultar detalle de egresos' : '▸ Ver detalle de egresos del periodo'}
+            </button>
+          </div>
         </div>
+        {verDetalle && (
+          <EgresosDetalle egresos={egresosDetalle} />
+        )}
       </div>
 
       {/* ─── Footer summary ─── */}
@@ -322,6 +346,78 @@ function SummaryCell({ label, value, tone, highlight }: {
     <div className={`rounded-xl border px-3 py-3 ${styles[tone]} ${highlight ? 'ring-1 ring-amber-400/40' : ''}`}>
       <div className="text-[10px] uppercase opacity-80 tracking-wider">{label}</div>
       <div className="text-base font-bold mt-1 font-mono">{value}</div>
+    </div>
+  );
+}
+
+function EgresosDetalle({ egresos }: { egresos: import('../../types/finanzas').EgresoV2[] }) {
+  // Agrupa por pagador (incluye "(sin pagador)") y ordena por fecha desc
+  const grupos = useMemo(() => {
+    const map = new Map<string, typeof egresos>();
+    for (const e of egresos) {
+      const k = e.pagador ?? '(sin pagador / Caja CJ)';
+      if (!map.has(k)) map.set(k, []);
+      map.get(k)!.push(e);
+    }
+    return Array.from(map.entries())
+      .map(([pagador, items]) => ({
+        pagador,
+        items: [...items].sort((a, b) => (a.fecha < b.fecha ? 1 : -1)),
+        total: items.reduce((s, e) => s + Number(e.monto || 0), 0),
+        totalTransfer: items.filter(e => e.modalidad === 'Transferencia').reduce((s, e) => s + Number(e.monto || 0), 0),
+        totalEfectivo: items.filter(e => e.modalidad === 'Efectivo').reduce((s, e) => s + Number(e.monto || 0), 0),
+      }))
+      .sort((a, b) => b.total - a.total);
+  }, [egresos]);
+
+  if (egresos.length === 0) {
+    return (
+      <div className="px-4 py-3 text-xs text-zinc-500 border-t border-white/10">
+        No hay egresos en el periodo.
+      </div>
+    );
+  }
+
+  return (
+    <div className="border-t border-white/10 bg-black/20 px-4 py-3 space-y-4">
+      <div className="text-[10px] text-zinc-400 uppercase tracking-wider">
+        Detalle de egresos del periodo (cada egreso, agrupado por pagador) — debe coincidir 1:1 con la página de Egresos
+      </div>
+      {grupos.map(g => (
+        <div key={g.pagador} className="rounded-lg border border-white/10 overflow-hidden">
+          <div className="flex items-center justify-between bg-white/[0.03] px-3 py-2 text-xs">
+            <div className="font-semibold text-zinc-200">{g.pagador}</div>
+            <div className="font-mono text-zinc-300">
+              Total: <span className="text-white font-bold">{formatMoney(g.total)}</span>
+              <span className="ml-3 text-zinc-500">Transfer: {formatMoney(g.totalTransfer)}</span>
+              <span className="ml-3 text-zinc-500">Efectivo: {formatMoney(g.totalEfectivo)}</span>
+              <span className="ml-3 text-zinc-500">({g.items.length} {g.items.length === 1 ? 'egreso' : 'egresos'})</span>
+            </div>
+          </div>
+          <table className="w-full text-[11px]">
+            <thead>
+              <tr className="bg-white/[0.02] text-zinc-500 uppercase text-[9px]">
+                <th className="px-3 py-1 text-left font-medium">Fecha</th>
+                <th className="px-3 py-1 text-left font-medium">Tipo</th>
+                <th className="px-3 py-1 text-left font-medium">Concepto</th>
+                <th className="px-3 py-1 text-left font-medium">Modalidad</th>
+                <th className="px-3 py-1 text-right font-medium">Monto</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-white/5">
+              {g.items.map(e => (
+                <tr key={e.id} className="hover:bg-white/[0.02]">
+                  <td className="px-3 py-1 font-mono text-zinc-400">{e.fecha}</td>
+                  <td className="px-3 py-1 text-zinc-300">{e.tipo}</td>
+                  <td className="px-3 py-1 text-zinc-300 truncate max-w-[260px]" title={e.concepto || ''}>{e.concepto || '—'}</td>
+                  <td className="px-3 py-1 text-zinc-400">{e.modalidad}</td>
+                  <td className="px-3 py-1 text-right font-mono text-white">{formatMoney(Number(e.monto || 0))}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ))}
     </div>
   );
 }
