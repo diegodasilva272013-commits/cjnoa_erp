@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { X, MessageSquare, ListChecks, Phone, MapPin, CreditCard, FileText, ExternalLink, Trash2, Check, Plus } from 'lucide-react';
+import { X, MessageSquare, ListChecks, Phone, MapPin, CreditCard, FileText, ExternalLink, Trash2, Check, Plus, Pencil } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useNotasFederales, useTareasFederales } from '../../hooks/useFederales';
 import {
@@ -13,9 +13,10 @@ import {
 interface Props {
   ficha: ClienteFederal;
   onClose: () => void;
+  onEdit?: () => void;
 }
 
-export default function FichaFederalDetalle({ ficha, onClose }: Props) {
+export default function FichaFederalDetalle({ ficha, onClose, onEdit }: Props) {
   const { user } = useAuth();
   const [tab, setTab] = useState<'datos' | 'seguimiento' | 'tareas'>('seguimiento');
 
@@ -60,9 +61,21 @@ export default function FichaFederalDetalle({ ficha, onClose }: Props) {
                 )}
               </div>
             </div>
-            <button onClick={onClose} className="text-gray-400 hover:text-white">
-              <X className="w-5 h-5" />
-            </button>
+            <div className="flex items-center gap-2">
+              {onEdit && (
+                <button
+                  onClick={onEdit}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-blue-500/15 text-blue-300 border border-blue-500/30 hover:bg-blue-500/25 hover:text-blue-200 transition-colors"
+                  title="Editar datos del caso"
+                >
+                  <Pencil className="w-3.5 h-3.5" />
+                  Editar
+                </button>
+              )}
+              <button onClick={onClose} className="text-gray-400 hover:text-white">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
           </div>
 
           {/* Tabs */}

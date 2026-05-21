@@ -199,6 +199,11 @@ export default function CasosFederales() {
         <FichaFederalDetalle
           ficha={fichaDetalle}
           onClose={() => setFichaDetalle(null)}
+          onEdit={() => {
+            setFichaEditando(fichaDetalle);
+            setFichaDetalle(null);
+            setModalAbierto(true);
+          }}
         />
       )}
     </div>
