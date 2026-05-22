@@ -120,7 +120,7 @@ export function useNotasFederales(clienteId: string | null) {
       const safeName = documento.file.name.replace(/[^\w.\-]+/g, '_');
       documento_path = `federales/${clienteId}/${Date.now()}-${safeName}`;
       const up = await supabase.storage
-        .from('documentos')
+        .from('federales-adjuntos')
         .upload(documento_path, documento.file, { contentType: documento.file.type, upsert: false });
       if (up.error) {
         showToast('No se pudo subir el documento: ' + up.error.message, 'error');
@@ -151,7 +151,7 @@ export function useNotasFederales(clienteId: string | null) {
       await supabase.storage.from('notas-voz').remove([n.audio_path]);
     }
     if (n?.documento_path) {
-      await supabase.storage.from('documentos').remove([n.documento_path]);
+      await supabase.storage.from('federales-adjuntos').remove([n.documento_path]);
     }
     const { error } = await supabase.from('clientes_federales_notas').delete().eq('id', id);
     if (error) { showToast('Error: ' + error.message, 'error'); return false; }
