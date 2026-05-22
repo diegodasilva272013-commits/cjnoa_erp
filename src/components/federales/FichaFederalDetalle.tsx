@@ -2,12 +2,15 @@ import { useEffect, useRef, useState } from 'react';
 import {
   X, MessageSquare, ListChecks, Phone, MapPin, CreditCard, FileText, ExternalLink,
   Trash2, Check, Plus, Pencil, Mic, MicOff, Square, Paperclip, FolderOpen, Download,
+  Users, ChevronDown as ChevDown, ChevronRight as ChevRight,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useNotasFederales, useTareasFederales } from '../../hooks/useFederales';
 import { useFederalesDocs } from '../../hooks/useFederalesDocs';
 import { supabase } from '../../lib/supabase';
 import ArchivosFederalPanel from './ArchivosFederalPanel';
+import { PasosFederalEditor, PasosFederalEditorLocal, PerfilLite } from './FederalesPasosEditor';
+import { notificarAsignacionPasoFederal } from '../../lib/tareaFederalPasosNotify';
 import {
   ClienteFederal,
   PIPELINE_FEDERAL_LABELS,
@@ -34,6 +37,18 @@ export default function FichaFederalDetalle({ ficha, onClose, onEdit }: Props) {
   const [nuevaNota, setNuevaNota] = useState('');
   const [nuevaTareaTitulo, setNuevaTareaTitulo] = useState('');
   const [tareaEdit, setTareaEdit] = useState<TareaFederal | null>(null);
+
+  // ── Pasos compartidos ──
+  const [perfiles, setPerfiles] = useState<PerfilLite[]>([]);
+  const [nuevaTareaPasos, setNuevaTareaPasos] = useState<{ descripcion: string; responsable_id: string }[]>([]);
+  const [mostrarPasosNueva, setMostrarPasosNueva] = useState(false);
+  const [pasosExpandidos, setPasosExpandidos] = useState<Record<string, boolean>>({});
+
+  useEffect(() => {
+    supabase.from('perfiles').select('id, nombre').eq('activo', true).order('nombre').then(({ data }) => {
+      if (data) setPerfiles(data as PerfilLite[]);
+    });
+  }, []);
 
   // ── Dictado (Web Speech API) ──
   const [dictando, setDictando] = useState(false);
@@ -120,13 +135,50 @@ export default function FichaFederalDetalle({ ficha, onClose, onEdit }: Props) {
 
   async function handleAddTarea() {
     if (!nuevaTareaTitulo.trim()) return;
-    const ok = await upsertTarea({
-      titulo: nuevaTareaTitulo.trim(),
-      estado: 'pendiente',
-      prioridad: 'sin_prioridad',
-      created_by: user?.id || null,
-    });
-    if (ok) setNuevaTareaTitulo('');
+    const titulo = nuevaTareaTitulo.trim();
+    // Insert tarea y obtener el id para persistir los pasos locales
+    const { data: inserted, error } = await supabase
+      .from('tareas_federales')
+      .insert({
+        cliente_fed_id: ficha.id,
+        titulo,
+        estado: 'pendiente',
+        prioridad: 'sin_prioridad',
+        created_by: user?.id || null,
+      })
+      .select('id')
+      .single();
+    if (error || !inserted) {
+      alert('No se pudo crear la tarea: ' + (error?.message || ''));
+      return;
+    }
+    const tareaId = (inserted as any).id as string;
+
+    const pasosValidos = nuevaTareaPasos
+      .map((p, idx) => ({ ...p, orden: idx + 1 }))
+      .filter(p => p.descripcion.trim().length > 0);
+    if (pasosValidos.length > 0) {
+      const rows = pasosValidos.map(p => ({
+        tarea_federal_id: tareaId,
+        orden: p.orden,
+        descripcion: p.descripcion.trim(),
+        responsable_id: p.responsable_id || null,
+      }));
+      const { error: e2 } = await supabase.from('tarea_federal_pasos').insert(rows);
+      if (e2) {
+        alert('Tarea creada pero fallaron los pasos: ' + e2.message);
+      } else if (user?.id) {
+        for (const p of pasosValidos) {
+          if (p.responsable_id) {
+            notificarAsignacionPasoFederal(tareaId, p.responsable_id, p.descripcion.trim(), user.id, '');
+          }
+        }
+      }
+    }
+
+    setNuevaTareaTitulo('');
+    setNuevaTareaPasos([]);
+    setMostrarPasosNueva(false);
   }
 
   return (
@@ -320,21 +372,42 @@ export default function FichaFederalDetalle({ ficha, onClose, onEdit }: Props) {
 
           {tab === 'tareas' && (
             <div className="space-y-3">
-              <div className="flex gap-2">
-                <input
-                  value={nuevaTareaTitulo}
-                  onChange={e => setNuevaTareaTitulo(e.target.value)}
-                  onKeyDown={e => { if (e.key === 'Enter') handleAddTarea(); }}
-                  placeholder="Nueva tarea..."
-                  className="flex-1 px-3 py-2 bg-gray-800/60 border border-gray-700 rounded text-sm text-white focus:border-blue-500 outline-none"
-                />
-                <button
-                  onClick={handleAddTarea}
-                  disabled={!nuevaTareaTitulo.trim()}
-                  className="px-3 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-40 text-white rounded text-sm font-semibold flex items-center gap-1"
-                >
-                  <Plus className="w-4 h-4" /> Agregar
-                </button>
+              <div className="space-y-2 bg-gray-800/30 border border-gray-700 rounded p-2">
+                <div className="flex gap-2">
+                  <input
+                    value={nuevaTareaTitulo}
+                    onChange={e => setNuevaTareaTitulo(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter' && !mostrarPasosNueva) handleAddTarea(); }}
+                    placeholder="Nueva tarea..."
+                    className="flex-1 px-3 py-2 bg-gray-900/60 border border-gray-700 rounded text-sm text-white focus:border-blue-500 outline-none"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setMostrarPasosNueva(v => !v)}
+                    className={`px-2.5 py-2 rounded text-xs font-semibold flex items-center gap-1 border transition-colors ${
+                      mostrarPasosNueva
+                        ? 'bg-violet-500/20 text-violet-200 border-violet-500/40'
+                        : 'bg-gray-800 text-gray-200 border-gray-700 hover:bg-gray-700'
+                    }`}
+                    title="Tarea compartida en varios pasos"
+                  >
+                    <Users className="w-3.5 h-3.5" /> Pasos
+                  </button>
+                  <button
+                    onClick={handleAddTarea}
+                    disabled={!nuevaTareaTitulo.trim()}
+                    className="px-3 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-40 text-white rounded text-sm font-semibold flex items-center gap-1"
+                  >
+                    <Plus className="w-4 h-4" /> Agregar
+                  </button>
+                </div>
+                {mostrarPasosNueva && (
+                  <PasosFederalEditorLocal
+                    pasos={nuevaTareaPasos}
+                    setPasos={setNuevaTareaPasos}
+                    perfiles={perfiles}
+                  />
+                )}
               </div>
 
               {tareas.length === 0
@@ -342,7 +415,8 @@ export default function FichaFederalDetalle({ ficha, onClose, onEdit }: Props) {
                 : (
                   <ul className="space-y-2">
                     {tareas.map(t => (
-                      <li key={t.id} className="bg-gray-800/40 border border-gray-700 rounded p-3 flex items-start gap-2">
+                      <li key={t.id} className="bg-gray-800/40 border border-gray-700 rounded p-3 space-y-2">
+                        <div className="flex items-start gap-2">
                         <button
                           onClick={() => toggleEstado(t)}
                           className={`mt-0.5 w-5 h-5 rounded border flex items-center justify-center transition-colors flex-shrink-0 ${
@@ -404,12 +478,24 @@ export default function FichaFederalDetalle({ ficha, onClose, onEdit }: Props) {
                           onAttached={async (next) => { await upsertTarea({ archivos: next }, t.id); }}
                         />
                         <button
+                          onClick={() => setPasosExpandidos(s => ({ ...s, [t.id]: !s[t.id] }))}
+                          className={`p-1 rounded ${pasosExpandidos[t.id] ? 'text-violet-300 bg-violet-500/15' : 'text-gray-400 hover:text-violet-300'}`}
+                          title="Pasos compartidos"
+                        >
+                          {pasosExpandidos[t.id] ? <ChevDown className="w-3.5 h-3.5" /> : <ChevRight className="w-3.5 h-3.5" />}
+                          <Users className="w-3 h-3 inline-block ml-0.5" />
+                        </button>
+                        <button
                           onClick={() => { if (confirm('¿Eliminar tarea?')) removeTarea(t.id); }}
                           className="text-red-400 hover:text-red-300"
                           title="Eliminar"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
                         </button>
+                        </div>
+                        {pasosExpandidos[t.id] && (
+                          <PasosFederalEditor tareaFederalId={t.id} perfiles={perfiles} />
+                        )}
                       </li>
                     ))}
                   </ul>
