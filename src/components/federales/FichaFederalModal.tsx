@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { X, Save, User, FileText, Phone, MapPin, CreditCard, Briefcase } from 'lucide-react';
+import { Save, User, Phone, MapPin, CreditCard, FileText, DollarSign, Briefcase } from 'lucide-react';
+import Modal from '../Modal';
 import {
   ClienteFederal,
   PipelineFederal,
@@ -18,9 +19,11 @@ interface Props {
 
 const SEXOS = ['HOMBRE', 'MUJER'] as const;
 
+// Layout y look replicados del modal provincial (CaseModal) — distinto contenido (datos federales).
 export default function FichaFederalModal({ ficha, onClose, onSave }: Props) {
-  const [tab, setTab] = useState<'datos' | 'cobro'>('datos');
   const [saving, setSaving] = useState(false);
+  const isEditing = !!ficha;
+
   const [form, setForm] = useState<Partial<ClienteFederal>>({
     apellido_nombre: '',
     cuil: '',
@@ -54,8 +57,7 @@ export default function FichaFederalModal({ ficha, onClose, onSave }: Props) {
   const toggleTipo = (t: TipoCasoFederal) => {
     const current = (form.tipo_caso || []) as TipoCasoFederal[];
     const has = current.includes(t);
-    const next = has ? current.filter(x => x !== t) : [...current, t];
-    upd('tipo_caso', next);
+    upd('tipo_caso', has ? current.filter(x => x !== t) : [...current, t]);
   };
 
   async function handleSubmit(e: React.FormEvent) {
@@ -64,7 +66,6 @@ export default function FichaFederalModal({ ficha, onClose, onSave }: Props) {
     setSaving(true);
     const payload: Partial<ClienteFederal> = {
       ...form,
-      // sanitiza vacíos a null para campos opcionales
       cuil: form.cuil || null,
       clave_social: form.clave_social || null,
       clave_fiscal: form.clave_fiscal || null,
@@ -87,253 +88,303 @@ export default function FichaFederalModal({ ficha, onClose, onSave }: Props) {
   }
 
   return (
-    <div className="fixed inset-0 z-[80] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
-      <div className="bg-gray-900 border border-gray-700 rounded-2xl w-full max-w-3xl max-h-[90vh] overflow-hidden flex flex-col">
-        {/* Header */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-700">
-          <div className="flex items-center gap-2">
-            <Briefcase className="w-5 h-5 text-blue-400" />
-            <h2 className="text-lg font-bold text-white">
-              {ficha ? 'Editar caso federal' : 'Nuevo caso federal'}
-            </h2>
+    <Modal
+      open
+      onClose={onClose}
+      title={isEditing ? 'Editar Caso Federal' : 'Nuevo Caso Federal'}
+      subtitle={
+        isEditing && ficha
+          ? `${ficha.apellido_nombre}${ficha.numero_expediente ? ` · Expte ${ficha.numero_expediente}` : ''}`
+          : 'Registrar un nuevo caso federal'
+      }
+      maxWidth="max-w-3xl"
+    >
+      <form onSubmit={handleSubmit} className="space-y-6">
+        {/* Datos del cliente */}
+        <Section title="Datos del Cliente">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <Field label="Apellido y Nombre" required>
+              <input
+                type="text"
+                value={form.apellido_nombre || ''}
+                onChange={e => upd('apellido_nombre', e.target.value)}
+                className="input-dark"
+                placeholder="Ej: Pérez Juan"
+                required
+              />
+            </Field>
+            <Field label="CUIL" icon={<CreditCard className="w-3.5 h-3.5" />}>
+              <input
+                type="text"
+                value={form.cuil || ''}
+                onChange={e => upd('cuil', e.target.value)}
+                className="input-dark"
+                placeholder="20-12345678-9"
+              />
+            </Field>
+            <Field label="Fecha de nacimiento">
+              <input
+                type="date"
+                value={form.fecha_nacimiento || ''}
+                onChange={e => upd('fecha_nacimiento', e.target.value || null)}
+                className="input-dark"
+              />
+            </Field>
+            <Field label="Sexo">
+              <select
+                value={form.sexo || ''}
+                onChange={e => upd('sexo', (e.target.value || null) as ClienteFederal['sexo'])}
+                className="select-dark"
+              >
+                <option value="">—</option>
+                {SEXOS.map(s => <option key={s} value={s}>{s}</option>)}
+              </select>
+            </Field>
+            <Field label="Teléfono" icon={<Phone className="w-3.5 h-3.5" />}>
+              <input
+                type="text"
+                value={form.telefono || ''}
+                onChange={e => upd('telefono', e.target.value)}
+                className="input-dark"
+                placeholder="Ej: 388-4001234"
+              />
+            </Field>
+            <Field label="Dirección" icon={<MapPin className="w-3.5 h-3.5" />}>
+              <input
+                type="text"
+                value={form.direccion || ''}
+                onChange={e => upd('direccion', e.target.value)}
+                className="input-dark"
+                placeholder="Calle, número, ciudad"
+              />
+            </Field>
           </div>
-          <button onClick={onClose} className="text-gray-400 hover:text-white">
-            <X className="w-5 h-5" />
-          </button>
-        </div>
+        </Section>
 
-        {/* Tabs */}
-        <div className="flex border-b border-gray-700 px-5">
-          <button
-            type="button"
-            onClick={() => setTab('datos')}
-            className={`px-4 py-2 text-sm font-semibold border-b-2 transition-colors ${
-              tab === 'datos' ? 'border-blue-400 text-blue-400' : 'border-transparent text-gray-400 hover:text-white'
-            }`}
-          >
-            <User className="w-4 h-4 inline mr-1" />
-            Datos personales
-          </button>
-          <button
-            type="button"
-            onClick={() => setTab('cobro')}
-            className={`px-4 py-2 text-sm font-semibold border-b-2 transition-colors ${
-              tab === 'cobro' ? 'border-blue-400 text-blue-400' : 'border-transparent text-gray-400 hover:text-white'
-            }`}
-          >
-            <FileText className="w-4 h-4 inline mr-1" />
-            Pipeline y cobro
-          </button>
-        </div>
+        {/* Credenciales / accesos */}
+        <Section title="Credenciales ANSES / AFIP">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <Field label="Clave Social">
+              <input
+                type="text"
+                value={form.clave_social || ''}
+                onChange={e => upd('clave_social', e.target.value)}
+                className="input-dark"
+                placeholder="Clave para mi.anses"
+              />
+            </Field>
+            <Field label="Clave Fiscal">
+              <input
+                type="text"
+                value={form.clave_fiscal || ''}
+                onChange={e => upd('clave_fiscal', e.target.value)}
+                className="input-dark"
+                placeholder="Clave fiscal AFIP"
+              />
+            </Field>
+          </div>
+        </Section>
 
-        <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-5 space-y-4">
-          {tab === 'datos' && (
-            <>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <Field label="Apellido y Nombre *" required>
-                  <input
-                    value={form.apellido_nombre || ''}
-                    onChange={e => upd('apellido_nombre', e.target.value)}
-                    className="input"
-                    required
-                  />
-                </Field>
-                <Field label="CUIL" icon={<CreditCard className="w-3.5 h-3.5" />}>
-                  <input
-                    value={form.cuil || ''}
-                    onChange={e => upd('cuil', e.target.value)}
-                    className="input"
-                    placeholder="20-12345678-9"
-                  />
-                </Field>
-                <Field label="Clave Social">
-                  <input value={form.clave_social || ''} onChange={e => upd('clave_social', e.target.value)} className="input" />
-                </Field>
-                <Field label="Clave Fiscal">
-                  <input value={form.clave_fiscal || ''} onChange={e => upd('clave_fiscal', e.target.value)} className="input" />
-                </Field>
-                <Field label="Fecha nacimiento">
-                  <input
-                    type="date"
-                    value={form.fecha_nacimiento || ''}
-                    onChange={e => upd('fecha_nacimiento', e.target.value || null)}
-                    className="input"
-                  />
-                </Field>
-                <Field label="Sexo">
-                  <select
-                    value={form.sexo || ''}
-                    onChange={e => upd('sexo', (e.target.value || null) as ClienteFederal['sexo'])}
-                    className="input"
+        {/* Información del caso */}
+        <Section title="Información del Caso">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <Field label="Número de expediente" icon={<FileText className="w-3.5 h-3.5" />}>
+              <input
+                type="text"
+                value={form.numero_expediente || ''}
+                onChange={e => upd('numero_expediente', e.target.value)}
+                className="input-dark"
+                placeholder="Ej: 12345/2026"
+              />
+            </Field>
+            <Field label="Pipeline" icon={<Briefcase className="w-3.5 h-3.5" />}>
+              <select
+                value={form.pipeline || 'activo'}
+                onChange={e => upd('pipeline', e.target.value as PipelineFederal)}
+                className="select-dark"
+              >
+                {PIPELINE_FEDERAL_ORDERED.map(p => (
+                  <option key={p} value={p}>{PIPELINE_FEDERAL_LABELS[p]}</option>
+                ))}
+              </select>
+            </Field>
+            <Field label="Captado por" icon={<User className="w-3.5 h-3.5" />}>
+              <input
+                type="text"
+                value={form.captado_por || ''}
+                onChange={e => upd('captado_por', e.target.value)}
+                className="input-dark"
+                placeholder="Nombre del captador"
+              />
+            </Field>
+            <Field label="Fecha último contacto">
+              <input
+                type="date"
+                value={form.fecha_ultimo_contacto || ''}
+                onChange={e => upd('fecha_ultimo_contacto', e.target.value || null)}
+                className="input-dark"
+              />
+            </Field>
+          </div>
+
+          <div className="mt-4">
+            <label className="block text-sm text-gray-400 mb-1.5">
+              Tipo de caso <span className="text-gray-600">(marcá los que apliquen)</span>
+            </label>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              {TIPO_CASO_FEDERAL_ORDERED.map(t => {
+                const checked = (form.tipo_caso || []).includes(t);
+                return (
+                  <label
+                    key={t}
+                    className={`flex items-center gap-2 px-3 py-2.5 rounded-xl border cursor-pointer transition-colors text-sm ${
+                      checked
+                        ? 'border-blue-400/60 bg-blue-500/10 text-blue-200'
+                        : 'border-white/[0.08] bg-white/[0.03] text-gray-300 hover:border-white/20'
+                    }`}
                   >
-                    <option value="">—</option>
-                    {SEXOS.map(s => <option key={s} value={s}>{s}</option>)}
-                  </select>
-                </Field>
-                <Field label="Teléfono" icon={<Phone className="w-3.5 h-3.5" />}>
-                  <input value={form.telefono || ''} onChange={e => upd('telefono', e.target.value)} className="input" />
-                </Field>
-                <Field label="Dirección" icon={<MapPin className="w-3.5 h-3.5" />}>
-                  <input value={form.direccion || ''} onChange={e => upd('direccion', e.target.value)} className="input" />
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={() => toggleTipo(t)}
+                      className="accent-blue-500"
+                    />
+                    {TIPO_CASO_FEDERAL_LABELS[t]}
+                  </label>
+                );
+              })}
+            </div>
+            {(form.tipo_caso || []).includes('otros') && (
+              <div className="mt-3">
+                <Field label="Otros (especificar)">
+                  <input
+                    type="text"
+                    value={form.tipo_caso_otros || ''}
+                    onChange={e => upd('tipo_caso_otros', e.target.value)}
+                    className="input-dark"
+                    placeholder="Detalle"
+                  />
                 </Field>
               </div>
-
-              {/* Específicos federal */}
-              <div className="border-t border-gray-700 pt-3 mt-2">
-                <h3 className="text-xs uppercase tracking-wider text-blue-400 font-bold mb-2">Datos del caso</h3>
-                <Field label="Número de expediente">
-                  <input
-                    value={form.numero_expediente || ''}
-                    onChange={e => upd('numero_expediente', e.target.value)}
-                    className="input"
-                    placeholder="Ej: 12345/2026"
-                  />
-                </Field>
-
-                <label className="block text-xs font-semibold text-gray-400 mt-3 mb-1">Tipo de caso (marcar los que apliquen)</label>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
-                  {TIPO_CASO_FEDERAL_ORDERED.map(t => {
-                    const checked = (form.tipo_caso || []).includes(t);
-                    return (
-                      <label
-                        key={t}
-                        className={`flex items-center gap-2 px-3 py-2 rounded border cursor-pointer transition-colors text-sm ${
-                          checked
-                            ? 'border-blue-400/60 bg-blue-500/10 text-blue-200'
-                            : 'border-gray-700 bg-gray-800/40 text-gray-300 hover:border-gray-600'
-                        }`}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={checked}
-                          onChange={() => toggleTipo(t)}
-                          className="accent-blue-500"
-                        />
-                        {TIPO_CASO_FEDERAL_LABELS[t]}
-                      </label>
-                    );
-                  })}
-                </div>
-
-                {(form.tipo_caso || []).includes('otros') && (
-                  <div className="mt-2">
-                    <Field label="Otros (especificar)">
-                      <input
-                        value={form.tipo_caso_otros || ''}
-                        onChange={e => upd('tipo_caso_otros', e.target.value)}
-                        className="input"
-                      />
-                    </Field>
-                  </div>
-                )}
-              </div>
-            </>
-          )}
-
-          {tab === 'cobro' && (
-            <>
-              <Field label="Pipeline">
-                <select
-                  value={form.pipeline || 'activo'}
-                  onChange={e => upd('pipeline', e.target.value as PipelineFederal)}
-                  className="input"
-                >
-                  {PIPELINE_FEDERAL_ORDERED.map(p => (
-                    <option key={p} value={p}>{PIPELINE_FEDERAL_LABELS[p]}</option>
-                  ))}
-                </select>
-              </Field>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <Field label="Cobro total ($)">
-                  <input
-                    type="number"
-                    value={form.cobro_total ?? 0}
-                    onChange={e => upd('cobro_total', Number(e.target.value))}
-                    className="input"
-                    min={0}
-                  />
-                </Field>
-                <Field label="Monto cobrado ($)">
-                  <input
-                    type="number"
-                    value={form.monto_cobrado ?? 0}
-                    onChange={e => upd('monto_cobrado', Number(e.target.value))}
-                    className="input"
-                    min={0}
-                  />
-                </Field>
-                <Field label="Captado por">
-                  <input value={form.captado_por || ''} onChange={e => upd('captado_por', e.target.value)} className="input" />
-                </Field>
-                <Field label="Fecha último contacto">
-                  <input
-                    type="date"
-                    value={form.fecha_ultimo_contacto || ''}
-                    onChange={e => upd('fecha_ultimo_contacto', e.target.value || null)}
-                    className="input"
-                  />
-                </Field>
-                <Field label="URL Drive">
-                  <input value={form.url_drive || ''} onChange={e => upd('url_drive', e.target.value)} className="input" />
-                </Field>
-              </div>
-              <Field label="Resumen / informe">
-                <textarea
-                  value={form.resumen_informe || ''}
-                  onChange={e => upd('resumen_informe', e.target.value)}
-                  className="input min-h-[80px]"
-                />
-              </Field>
-              <Field label="Conclusión">
-                <textarea
-                  value={form.conclusion || ''}
-                  onChange={e => upd('conclusion', e.target.value)}
-                  className="input min-h-[60px]"
-                />
-              </Field>
-              <Field label="Situación actual">
-                <textarea
-                  value={form.situacion_actual || ''}
-                  onChange={e => upd('situacion_actual', e.target.value)}
-                  className="input min-h-[60px]"
-                />
-              </Field>
-            </>
-          )}
-
-          {/* Footer */}
-          <div className="sticky bottom-0 -mx-5 -mb-5 px-5 py-3 bg-gray-900/95 border-t border-gray-700 flex justify-end gap-2">
-            <button type="button" onClick={onClose} className="px-3 py-1.5 text-sm rounded border border-gray-600 text-gray-300 hover:bg-gray-800">
-              Cancelar
-            </button>
-            <button
-              type="submit"
-              disabled={saving || !(form.apellido_nombre || '').trim()}
-              className="px-4 py-1.5 text-sm rounded bg-blue-600 hover:bg-blue-500 text-white font-semibold flex items-center gap-1.5 disabled:opacity-50"
-            >
-              <Save className="w-4 h-4" />
-              {ficha ? 'Guardar cambios' : 'Crear caso federal'}
-            </button>
+            )}
           </div>
-        </form>
-      </div>
 
-      {/* helper styles (Tailwind escapes) */}
-      <style>{`
-        .input { width: 100%; padding: 6px 10px; background: rgba(31,41,55,0.6); border: 1px solid rgb(55 65 81); border-radius: 6px; color: #fff; font-size: 13px; outline: none; }
-        .input:focus { border-color: rgb(59 130 246); }
-      `}</style>
+          <div className="mt-4">
+            <Field label="URL Drive del caso">
+              <input
+                type="url"
+                value={form.url_drive || ''}
+                onChange={e => upd('url_drive', e.target.value)}
+                className="input-dark"
+                placeholder="https://drive.google.com/..."
+              />
+            </Field>
+          </div>
+        </Section>
+
+        {/* Honorarios / cobro */}
+        <Section title="Honorarios">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <Field label="Cobro total" icon={<DollarSign className="w-3.5 h-3.5" />}>
+              <input
+                type="number"
+                value={form.cobro_total ?? 0}
+                onChange={e => upd('cobro_total', Number(e.target.value))}
+                className="input-dark"
+                min={0}
+                placeholder="0"
+              />
+            </Field>
+            <Field label="Monto cobrado" icon={<DollarSign className="w-3.5 h-3.5" />}>
+              <input
+                type="number"
+                value={form.monto_cobrado ?? 0}
+                onChange={e => upd('monto_cobrado', Number(e.target.value))}
+                className="input-dark"
+                min={0}
+                placeholder="0"
+              />
+            </Field>
+          </div>
+        </Section>
+
+        {/* Resumen y conclusiones */}
+        <Section title="Resumen y Seguimiento">
+          <div className="space-y-4">
+            <Field label="Resumen / informe">
+              <textarea
+                value={form.resumen_informe || ''}
+                onChange={e => upd('resumen_informe', e.target.value)}
+                className="input-dark min-h-[90px]"
+                placeholder="Síntesis del caso, antecedentes, posiciones, etc."
+              />
+            </Field>
+            <Field label="Conclusión">
+              <textarea
+                value={form.conclusion || ''}
+                onChange={e => upd('conclusion', e.target.value)}
+                className="input-dark min-h-[70px]"
+                placeholder="Diagnóstico y estrategia"
+              />
+            </Field>
+            <Field label="Situación actual">
+              <textarea
+                value={form.situacion_actual || ''}
+                onChange={e => upd('situacion_actual', e.target.value)}
+                className="input-dark min-h-[70px]"
+                placeholder="Dónde estamos hoy"
+              />
+            </Field>
+          </div>
+        </Section>
+
+        {/* Footer */}
+        <div className="flex items-center justify-end gap-2 pt-2 border-t border-white/5">
+          <button
+            type="button"
+            onClick={onClose}
+            className="btn-secondary text-sm"
+          >
+            Cancelar
+          </button>
+          <button
+            type="submit"
+            disabled={saving || !(form.apellido_nombre || '').trim()}
+            className="btn-primary text-sm flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            <Save className="w-4 h-4" />
+            {saving ? 'Guardando…' : isEditing ? 'Guardar cambios' : 'Crear caso federal'}
+          </button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+function Section({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <h3 className="text-sm font-semibold text-white/60 uppercase tracking-wider mb-3">{title}</h3>
+      {children}
     </div>
   );
 }
 
-function Field({ label, children, required, icon }: { label: string; children: React.ReactNode; required?: boolean; icon?: React.ReactNode }) {
+function Field({
+  label, required, icon, children,
+}: {
+  label: string;
+  required?: boolean;
+  icon?: React.ReactNode;
+  children: React.ReactNode;
+}) {
   return (
-    <label className="block">
-      <span className="text-xs font-semibold text-gray-400 mb-1 flex items-center gap-1">
-        {icon}{label}{required && <span className="text-red-400">*</span>}
-      </span>
+    <div>
+      <label className="block text-sm text-gray-400 mb-1.5 flex items-center gap-1.5">
+        {icon}
+        <span>{label}{required && <span className="text-red-400 ml-0.5">*</span>}</span>
+      </label>
       {children}
-    </label>
+    </div>
   );
 }

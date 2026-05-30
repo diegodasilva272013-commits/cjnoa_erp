@@ -36,6 +36,10 @@ export default function FichaFederalDetalle({ ficha, onClose, onEdit }: Props) {
 
   const [nuevaNota, setNuevaNota] = useState('');
   const [nuevaTareaTitulo, setNuevaTareaTitulo] = useState('');
+  const [nuevaTareaDescripcion, setNuevaTareaDescripcion] = useState('');
+  const [nuevaTareaResponsable, setNuevaTareaResponsable] = useState('');
+  const [nuevaTareaFechaLimite, setNuevaTareaFechaLimite] = useState('');
+  const [nuevaTareaPrioridad, setNuevaTareaPrioridad] = useState<'alta' | 'media' | 'sin_prioridad'>('sin_prioridad');
   const [tareaEdit, setTareaEdit] = useState<TareaFederal | null>(null);
 
   // ── Pasos compartidos ──
@@ -136,14 +140,19 @@ export default function FichaFederalDetalle({ ficha, onClose, onEdit }: Props) {
   async function handleAddTarea() {
     if (!nuevaTareaTitulo.trim()) return;
     const titulo = nuevaTareaTitulo.trim();
+    const responsablePerfil = perfiles.find(p => p.id === nuevaTareaResponsable) || null;
     // Insert tarea y obtener el id para persistir los pasos locales
     const { data: inserted, error } = await supabase
       .from('tareas_federales')
       .insert({
         cliente_fed_id: ficha.id,
         titulo,
+        descripcion: nuevaTareaDescripcion.trim() || null,
         estado: 'pendiente',
-        prioridad: 'sin_prioridad',
+        prioridad: nuevaTareaPrioridad,
+        fecha_limite: nuevaTareaFechaLimite || null,
+        responsable_id: responsablePerfil?.id || null,
+        responsable_nombre: responsablePerfil?.nombre || null,
         created_by: user?.id || null,
       })
       .select('id')
@@ -177,6 +186,10 @@ export default function FichaFederalDetalle({ ficha, onClose, onEdit }: Props) {
     }
 
     setNuevaTareaTitulo('');
+    setNuevaTareaDescripcion('');
+    setNuevaTareaResponsable('');
+    setNuevaTareaFechaLimite('');
+    setNuevaTareaPrioridad('sin_prioridad');
     setNuevaTareaPasos([]);
     setMostrarPasosNueva(false);
   }
@@ -377,8 +390,8 @@ export default function FichaFederalDetalle({ ficha, onClose, onEdit }: Props) {
                   <input
                     value={nuevaTareaTitulo}
                     onChange={e => setNuevaTareaTitulo(e.target.value)}
-                    onKeyDown={e => { if (e.key === 'Enter' && !mostrarPasosNueva) handleAddTarea(); }}
-                    placeholder="Nueva tarea..."
+                    onKeyDown={e => { if (e.key === 'Enter' && !mostrarPasosNueva && nuevaTareaResponsable) handleAddTarea(); }}
+                    placeholder="Título de la tarea..."
                     className="flex-1 px-3 py-2 bg-gray-900/60 border border-gray-700 rounded text-sm text-white focus:border-blue-500 outline-none"
                   />
                   <button
@@ -395,12 +408,59 @@ export default function FichaFederalDetalle({ ficha, onClose, onEdit }: Props) {
                   </button>
                   <button
                     onClick={handleAddTarea}
-                    disabled={!nuevaTareaTitulo.trim()}
-                    className="px-3 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-40 text-white rounded text-sm font-semibold flex items-center gap-1"
+                    disabled={!nuevaTareaTitulo.trim() || !nuevaTareaResponsable}
+                    title={!nuevaTareaResponsable ? 'Elegí un responsable' : 'Agregar tarea'}
+                    className="px-3 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded text-sm font-semibold flex items-center gap-1"
                   >
                     <Plus className="w-4 h-4" /> Agregar
                   </button>
                 </div>
+
+                <textarea
+                  value={nuevaTareaDescripcion}
+                  onChange={e => setNuevaTareaDescripcion(e.target.value)}
+                  placeholder="Descripción / instrucciones para el responsable (opcional)"
+                  rows={2}
+                  className="w-full px-3 py-2 bg-gray-900/60 border border-gray-700 rounded text-xs text-white placeholder-gray-500 focus:border-blue-500 outline-none resize-none"
+                />
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  <select
+                    value={nuevaTareaResponsable}
+                    onChange={e => setNuevaTareaResponsable(e.target.value)}
+                    className={`px-2 py-2 bg-gray-900/60 border rounded text-xs text-white focus:outline-none ${
+                      nuevaTareaResponsable ? 'border-gray-700 focus:border-blue-500' : 'border-amber-500/40 focus:border-amber-500'
+                    }`}
+                  >
+                    <option value="">Asignar a (socio / secretario)…</option>
+                    {perfiles.map(p => (
+                      <option key={p.id} value={p.id}>{p.nombre}</option>
+                    ))}
+                  </select>
+                  <input
+                    type="date"
+                    value={nuevaTareaFechaLimite}
+                    onChange={e => setNuevaTareaFechaLimite(e.target.value)}
+                    title="Fecha de vencimiento"
+                    className="px-2 py-2 bg-gray-900/60 border border-gray-700 rounded text-xs text-white focus:border-blue-500 outline-none"
+                  />
+                  <select
+                    value={nuevaTareaPrioridad}
+                    onChange={e => setNuevaTareaPrioridad(e.target.value as 'alta' | 'media' | 'sin_prioridad')}
+                    className="px-2 py-2 bg-gray-900/60 border border-gray-700 rounded text-xs text-white focus:border-blue-500 outline-none"
+                  >
+                    <option value="sin_prioridad">Sin prioridad</option>
+                    <option value="media">Prioridad media</option>
+                    <option value="alta">Prioridad alta</option>
+                  </select>
+                </div>
+
+                {!nuevaTareaResponsable && nuevaTareaTitulo.trim() && (
+                  <p className="text-[10px] text-amber-400/80 flex items-center gap-1 px-1">
+                    <Users className="w-3 h-3" /> Elegí un responsable para que vea la tarea en su panel.
+                  </p>
+                )}
+
                 {mostrarPasosNueva && (
                   <PasosFederalEditorLocal
                     pasos={nuevaTareaPasos}
@@ -452,7 +512,28 @@ export default function FichaFederalDetalle({ ficha, onClose, onEdit }: Props) {
                             </button>
                           )}
                           {t.fecha_limite && (
-                            <div className="text-[10px] text-amber-400 mt-0.5">Vence: {t.fecha_limite}</div>
+                            <div className="text-[10px] text-amber-400 mt-0.5 flex items-center gap-1">
+                              ⏰ Vence: {new Date(t.fecha_limite + 'T12:00:00').toLocaleDateString('es-AR', { day: '2-digit', month: 'short', year: 'numeric' })}
+                            </div>
+                          )}
+                          <div className="flex flex-wrap items-center gap-2 mt-1">
+                            {t.responsable_nombre && (
+                              <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-500/10 border border-blue-500/30 text-blue-200 flex items-center gap-1">
+                                <Users className="w-3 h-3" />{t.responsable_nombre}
+                              </span>
+                            )}
+                            {t.prioridad === 'alta' && (
+                              <span className="text-[10px] px-1.5 py-0.5 rounded bg-red-500/15 text-red-300 border border-red-500/30">Prioridad alta</span>
+                            )}
+                            {t.prioridad === 'media' && (
+                              <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-300 border border-amber-500/30">Prioridad media</span>
+                            )}
+                            {t.estado === 'completada' && (
+                              <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">Completada</span>
+                            )}
+                          </div>
+                          {t.descripcion && (
+                            <p className="text-[11px] text-gray-300 whitespace-pre-wrap mt-1 border-l-2 border-violet-500/30 pl-2">{t.descripcion}</p>
                           )}
                           {(t.archivos || []).length > 0 && (
                             <div className="mt-1.5 flex flex-wrap gap-1">
@@ -462,7 +543,7 @@ export default function FichaFederalDetalle({ ficha, onClose, onEdit }: Props) {
                                   path={a.url}
                                   nombre={a.nombre}
                                   onRemove={async () => {
-                                    await supabase.storage.from('documentos').remove([a.url]).catch(() => {});
+                                    await supabase.storage.from('federales-adjuntos').remove([a.url]).catch(() => {});
                                     const next = (t.archivos || []).filter((_, j) => j !== i);
                                     await upsertTarea({ archivos: next.length ? next : null }, t.id);
                                   }}
@@ -572,7 +653,7 @@ function AudioPlayer({ path }: { path: string }) {
 
 function NotaDocLink({ path, nombre }: { path: string; nombre: string }) {
   async function open() {
-    const { data, error } = await supabase.storage.from('documentos').createSignedUrl(path, 3600);
+    const { data, error } = await supabase.storage.from('federales-adjuntos').createSignedUrl(path, 3600);
     if (error || !data?.signedUrl) { alert('No se pudo abrir el documento'); return; }
     window.open(data.signedUrl, '_blank');
   }
@@ -590,7 +671,7 @@ function NotaDocLink({ path, nombre }: { path: string; nombre: string }) {
 
 function TareaArchivoChip({ path, nombre, onRemove }: { path: string; nombre: string; onRemove: () => void }) {
   async function open() {
-    const { data, error } = await supabase.storage.from('documentos').createSignedUrl(path, 3600);
+    const { data, error } = await supabase.storage.from('federales-adjuntos').createSignedUrl(path, 3600);
     if (error || !data?.signedUrl) { alert('No se pudo abrir el documento'); return; }
     window.open(data.signedUrl, '_blank');
   }
@@ -627,7 +708,7 @@ function TareaAttachButton({
     setBusy(true);
     const safeName = f.name.replace(/[^\w.\-]+/g, '_');
     const path = `federales/${clienteId}/tareas/${tareaId}/${Date.now()}-${safeName}`;
-    const up = await supabase.storage.from('documentos').upload(path, f, { contentType: f.type, upsert: false });
+    const up = await supabase.storage.from('federales-adjuntos').upload(path, f, { contentType: f.type, upsert: false });
     setBusy(false);
     if (up.error) { alert('No se pudo subir: ' + up.error.message); return; }
     await onAttached([...archivosActuales, { url: path, nombre: f.name }]);
