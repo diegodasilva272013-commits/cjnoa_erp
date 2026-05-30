@@ -28,7 +28,6 @@ interface Props {
 
 export default function FichaFederalDetalle({ ficha, onClose, onEdit }: Props) {
   const { user } = useAuth();
-  const [tab, setTab] = useState<'datos' | 'seguimiento' | 'tareas' | 'documentos'>('seguimiento');
 
   const { notas, add: addNota, remove: removeNota } = useNotasFederales(ficha.id);
   const { tareas, upsert: upsertTarea, remove: removeTarea, toggleEstado } = useTareasFederales(ficha.id);
@@ -195,105 +194,139 @@ export default function FichaFederalDetalle({ ficha, onClose, onEdit }: Props) {
   }
 
   return (
-    <div className="fixed inset-0 z-[75] bg-black/70 backdrop-blur-sm flex items-center justify-center p-2 sm:p-4">
-      <div className="bg-gray-900 border border-gray-700 rounded-2xl w-full max-w-4xl max-h-[95vh] overflow-hidden flex flex-col">
-        {/* Header */}
-        <div className="px-5 py-4 border-b border-gray-700">
-          <div className="flex items-start justify-between">
-            <div className="min-w-0">
-              <h2 className="text-lg sm:text-xl font-bold text-white truncate">{ficha.apellido_nombre}</h2>
-              <div className="flex flex-wrap items-center gap-2 mt-1">
-                <span className={`px-2 py-0.5 rounded text-[11px] font-semibold border ${PIPELINE_FEDERAL_COLORS[ficha.pipeline]}`}>
-                  {PIPELINE_FEDERAL_LABELS[ficha.pipeline]}
-                </span>
-                {ficha.numero_expediente && (
-                  <span className="text-xs text-gray-400">Expte: <span className="text-white font-mono">{ficha.numero_expediente}</span></span>
-                )}
-              </div>
+    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="modal-content sm:max-w-3xl">
+        {/* Header estilo provincial */}
+        <div className="shrink-0 px-5 sm:px-6 pt-4 pb-3 border-b border-white/[0.06] bg-gradient-to-br from-[#141418]/95 to-[#111115]/95">
+          <div className="flex items-center justify-between gap-2 mb-2 flex-wrap">
+            <div className="flex flex-wrap items-center gap-1.5 min-w-0">
+              <span className={`badge border ${PIPELINE_FEDERAL_COLORS[ficha.pipeline]}`}>
+                {PIPELINE_FEDERAL_LABELS[ficha.pipeline]}
+              </span>
+              <span className="badge border bg-blue-500/10 text-blue-300 border-blue-500/20">Federal</span>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5 ml-auto">
               {onEdit && (
                 <button
                   onClick={onEdit}
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-blue-500/15 text-blue-300 border border-blue-500/30 hover:bg-blue-500/25 hover:text-blue-200 transition-colors"
+                  className="px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors border bg-white/10 border-white/20 text-white hover:bg-white/15"
                   title="Editar datos del caso"
                 >
-                  <Pencil className="w-3.5 h-3.5" />
-                  Editar
+                  <Pencil className="w-3 h-3 inline mr-1" /> Editar
                 </button>
               )}
-              <button onClick={onClose} className="text-gray-400 hover:text-white">
-                <X className="w-5 h-5" />
+              <button
+                onClick={onClose}
+                className="w-7 h-7 flex items-center justify-center rounded-lg bg-white/5 hover:bg-red-500/20 hover:text-red-300 text-gray-400 transition-colors shrink-0"
+              >
+                <X className="w-4 h-4" />
               </button>
             </div>
           </div>
-
-          {/* Tabs */}
-          <div className="flex gap-1 mt-3 border-b border-gray-800 -mb-4">
-            {([
-              { id: 'datos', label: 'Datos', icon: <CreditCard className="w-3.5 h-3.5" /> },
-              { id: 'seguimiento', label: 'Seguimiento', icon: <MessageSquare className="w-3.5 h-3.5" /> },
-              { id: 'tareas', label: `Tareas (${tareas.length})`, icon: <ListChecks className="w-3.5 h-3.5" /> },
-              { id: 'documentos', label: `Documentos (${docs.length})`, icon: <FolderOpen className="w-3.5 h-3.5" /> },
-            ] as const).map(t => (
-              <button
-                key={t.id}
-                onClick={() => setTab(t.id)}
-                className={`px-3 py-2 text-xs font-semibold border-b-2 transition-colors flex items-center gap-1 ${
-                  tab === t.id ? 'border-blue-400 text-blue-400' : 'border-transparent text-gray-400 hover:text-white'
-                }`}
-              >
-                {t.icon}{t.label}
-              </button>
-            ))}
-          </div>
+          <h2 className="text-base font-bold text-white leading-tight">{ficha.apellido_nombre}</h2>
+          {ficha.numero_expediente && (
+            <p className="text-xs text-gray-500 font-mono mt-0.5">Expte: {ficha.numero_expediente}</p>
+          )}
         </div>
 
-        {/* Body */}
-        <div className="flex-1 overflow-y-auto p-5">
-          {tab === 'datos' && (
-            <div className="space-y-3 text-sm">
-              <Row label="CUIL" value={ficha.cuil} icon={<CreditCard className="w-3.5 h-3.5" />} />
-              <Row label="Teléfono" value={ficha.telefono} icon={<Phone className="w-3.5 h-3.5" />} />
-              <Row label="Dirección" value={ficha.direccion} icon={<MapPin className="w-3.5 h-3.5" />} />
-              <Row label="Clave social" value={ficha.clave_social} />
-              <Row label="Clave fiscal" value={ficha.clave_fiscal} />
-              <Row label="Fecha nacimiento" value={ficha.fecha_nacimiento} />
-              <Row label="Sexo" value={ficha.sexo} />
-              <Row label="Número expediente" value={ficha.numero_expediente} />
-              <div>
-                <div className="text-xs uppercase text-gray-500 font-bold mb-1">Tipo(s) de caso</div>
-                {(ficha.tipo_caso || []).length === 0
-                  ? <div className="text-gray-500 text-xs italic">Sin especificar</div>
-                  : (
-                    <div className="flex flex-wrap gap-1.5">
-                      {ficha.tipo_caso.map(t => (
-                        <span key={t} className="px-2 py-0.5 text-xs rounded border border-blue-500/30 bg-blue-500/10 text-blue-300">
-                          {TIPO_CASO_FEDERAL_LABELS[t]}{t === 'otros' && ficha.tipo_caso_otros ? `: ${ficha.tipo_caso_otros}` : ''}
-                        </span>
-                      ))}
-                    </div>
+        {/* Body single-scroll, estilo provincial */}
+        <div className="px-5 sm:px-6 py-5 space-y-4">
+          {/* Datos compactos */}
+          <div className="space-y-2">
+            <div className="grid grid-cols-3 gap-1.5 text-xs">
+              {ficha.captado_por && (
+                <div className="col-span-3 flex items-center gap-3 px-3 py-2 rounded-lg bg-white/[0.03] border border-white/[0.06]">
+                  <div className="w-7 h-7 rounded-full bg-gradient-to-br from-violet-500/30 to-violet-700/20 flex items-center justify-center text-violet-300 text-[10px] font-bold shrink-0">
+                    {(ficha.captado_por.split(' ').map(s => s[0]).join('').slice(0, 2) || '?').toUpperCase()}
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-[11px] font-semibold text-white truncate">{ficha.captado_por}</p>
+                    <p className="text-[10px] text-gray-500">Captado por</p>
+                  </div>
+                  {ficha.telefono && (
+                    <a href={`tel:${ficha.telefono}`} className="ml-auto shrink-0 text-[11px] text-emerald-400 hover:underline font-medium">
+                      <Phone className="w-3 h-3 inline mr-1" />{ficha.telefono}
+                    </a>
                   )}
-              </div>
-              <Row label="Captado por" value={ficha.captado_por} />
-              <Row label="Cobro total" value={ficha.cobro_total ? `$ ${ficha.cobro_total.toLocaleString('es-AR')}` : null} />
-              <Row label="Cobrado" value={ficha.monto_cobrado ? `$ ${ficha.monto_cobrado.toLocaleString('es-AR')}` : null} />
-              {ficha.url_drive && (
-                <div className="flex items-center gap-2">
-                  <FileText className="w-4 h-4 text-blue-400" />
-                  <a href={ficha.url_drive} target="_blank" rel="noreferrer"
-                     className="text-blue-400 hover:text-blue-300 text-sm flex items-center gap-1">
-                    Drive del caso <ExternalLink className="w-3 h-3" />
-                  </a>
                 </div>
               )}
-              {ficha.resumen_informe && <Block title="Resumen / informe" text={ficha.resumen_informe} />}
-              {ficha.conclusion && <Block title="Conclusión" text={ficha.conclusion} />}
-              {ficha.situacion_actual && <Block title="Situación actual" text={ficha.situacion_actual} />}
+              {([
+                ['CUIL', ficha.cuil, 'font-mono text-[10px]'],
+                ['Expediente', ficha.numero_expediente, 'font-mono text-[10px]'],
+                ['Sexo', ficha.sexo, ''],
+                ['Nacimiento', ficha.fecha_nacimiento, ''],
+                ['Dirección', ficha.direccion, 'col-span-2'],
+                ['Cobro total', ficha.cobro_total ? `$ ${ficha.cobro_total.toLocaleString('es-AR')}` : null, 'text-amber-400'],
+                ['Cobrado', ficha.monto_cobrado ? `$ ${ficha.monto_cobrado.toLocaleString('es-AR')}` : null, 'text-emerald-400'],
+                ['Clave social', ficha.clave_social, ''],
+                ['Clave fiscal', ficha.clave_fiscal, ''],
+              ] as [string, string | null | undefined, string][])
+                .filter(([, v]) => v)
+                .map(([label, val, cls]) => (
+                  <div key={label} className={`px-2.5 py-1.5 rounded-lg bg-white/[0.025] border border-white/[0.04] min-w-0 ${cls.includes('col-span') ? cls : ''}`}>
+                    <p className="text-[9px] text-gray-600 uppercase tracking-widest leading-none mb-0.5">{label}</p>
+                    <p className={`text-[11px] text-white font-medium truncate ${cls.includes('col-span') ? '' : cls}`} title={val ?? ''}>{val}</p>
+                  </div>
+                ))
+              }
+              {(ficha.tipo_caso || []).length > 0 && (
+                <div className="col-span-3 px-2.5 py-1.5 rounded-lg bg-white/[0.025] border border-white/[0.04]">
+                  <p className="text-[9px] text-gray-600 uppercase tracking-widest leading-none mb-1">Tipos de caso</p>
+                  <div className="flex flex-wrap gap-1">
+                    {ficha.tipo_caso.map(t => (
+                      <span key={t} className="px-1.5 py-0.5 text-[10px] rounded border border-blue-500/30 bg-blue-500/10 text-blue-300">
+                        {TIPO_CASO_FEDERAL_LABELS[t]}{t === 'otros' && ficha.tipo_caso_otros ? `: ${ficha.tipo_caso_otros}` : ''}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {ficha.url_drive && (
+                <a href={ficha.url_drive} target="_blank" rel="noopener noreferrer"
+                  className="col-span-3 flex items-center gap-2 px-3 py-1.5 rounded-lg bg-blue-500/10 border border-blue-500/20 text-blue-300 text-[11px] hover:bg-blue-500/20 transition-colors">
+                  <ExternalLink className="w-3 h-3 shrink-0" />Abrir carpeta en Drive
+                </a>
+              )}
             </div>
-          )}
 
-          {tab === 'seguimiento' && (
+            {ficha.resumen_informe && (
+              <details className="group" open>
+                <summary className="cursor-pointer list-none flex items-center justify-between px-2.5 py-1.5 rounded-lg bg-white/[0.025] border border-white/[0.04] hover:bg-white/[0.04] transition-colors">
+                  <p className="text-[9px] text-gray-500 uppercase tracking-widest font-semibold">Resumen / informe</p>
+                  <span className="text-[9px] text-gray-600 group-open:hidden">▾ expandir</span>
+                  <span className="text-[9px] text-gray-600 hidden group-open:inline">▴ colapsar</span>
+                </summary>
+                <div className="px-2.5 py-2 text-xs text-gray-300 whitespace-pre-wrap leading-relaxed max-h-36 overflow-y-auto bg-white/[0.015] rounded-b-lg border-x border-b border-white/[0.04]">{ficha.resumen_informe}</div>
+              </details>
+            )}
+            {ficha.conclusion && (
+              <details className="group">
+                <summary className="cursor-pointer list-none flex items-center justify-between px-2.5 py-1.5 rounded-lg bg-white/[0.025] border border-white/[0.04] hover:bg-white/[0.04] transition-colors">
+                  <p className="text-[9px] text-gray-500 uppercase tracking-widest font-semibold">Conclusión</p>
+                  <span className="text-[9px] text-gray-600 group-open:hidden">▾ expandir</span>
+                  <span className="text-[9px] text-gray-600 hidden group-open:inline">▴ colapsar</span>
+                </summary>
+                <div className="px-2.5 py-2 text-xs text-gray-300 whitespace-pre-wrap leading-relaxed max-h-36 overflow-y-auto bg-white/[0.015] rounded-b-lg border-x border-b border-white/[0.04]">{ficha.conclusion}</div>
+              </details>
+            )}
+            {ficha.situacion_actual && (
+              <details className="group">
+                <summary className="cursor-pointer list-none flex items-center justify-between px-2.5 py-1.5 rounded-lg bg-white/[0.025] border border-white/[0.04] hover:bg-white/[0.04] transition-colors">
+                  <p className="text-[9px] text-gray-500 uppercase tracking-widest font-semibold">Situación actual</p>
+                  <span className="text-[9px] text-gray-600 group-open:hidden">▾ expandir</span>
+                  <span className="text-[9px] text-gray-600 hidden group-open:inline">▴ colapsar</span>
+                </summary>
+                <div className="px-2.5 py-2 text-xs text-gray-300 whitespace-pre-wrap leading-relaxed max-h-36 overflow-y-auto bg-white/[0.015] rounded-b-lg border-x border-b border-white/[0.04]">{ficha.situacion_actual}</div>
+              </details>
+            )}
+          </div>
+
+          {/* Seguimiento */}
+          <div className="pt-3 border-t border-white/[0.06]">
+            <h3 className="text-xs uppercase tracking-widest text-gray-500 font-semibold mb-3 flex items-center gap-2">
+              <MessageSquare className="w-3.5 h-3.5" /> Seguimiento del caso
+            </h3>
+          {true && (
             <div className="space-y-3">
               <div className="space-y-2 bg-gray-800/30 border border-gray-700 rounded p-2">
                 <textarea
@@ -350,15 +383,6 @@ export default function FichaFederalDetalle({ ficha, onClose, onEdit }: Props) {
                     </button>
                   )}
 
-                  <button
-                    type="button"
-                    onClick={() => setTab('documentos')}
-                    className="px-2.5 py-1.5 rounded text-xs font-semibold flex items-center gap-1 border bg-gray-800 text-gray-200 border-gray-700 hover:bg-gray-700"
-                    title="Ir a documentos"
-                  >
-                    <FolderOpen className="w-3.5 h-3.5" /> Documentos
-                  </button>
-
                   <div className="flex-1" />
 
                   <button
@@ -383,7 +407,14 @@ export default function FichaFederalDetalle({ ficha, onClose, onEdit }: Props) {
             </div>
           )}
 
-          {tab === 'tareas' && (
+          </div>
+
+          {/* Tareas */}
+          <div className="pt-3 border-t border-white/[0.06]">
+            <h3 className="text-xs uppercase tracking-widest text-gray-500 font-semibold mb-3 flex items-center gap-2">
+              <ListChecks className="w-3.5 h-3.5" /> Tareas y delegación ({tareas.length})
+            </h3>
+          {true && (
             <div className="space-y-3">
               <div className="space-y-2 bg-gray-800/30 border border-gray-700 rounded p-2">
                 <div className="flex gap-2">
@@ -584,9 +615,17 @@ export default function FichaFederalDetalle({ ficha, onClose, onEdit }: Props) {
             </div>
           )}
 
-          {tab === 'documentos' && (
+          </div>
+
+          {/* Documentos */}
+          <div className="pt-3 border-t border-white/[0.06]">
             <ArchivosFederalPanel clienteId={ficha.id} />
-          )}
+          </div>
+
+          {/* Footer */}
+          <div className="flex items-center justify-end gap-2 pt-3 border-t border-white/[0.06]">
+            <button onClick={onClose} className="btn-secondary text-sm px-4">Cerrar</button>
+          </div>
         </div>
       </div>
     </div>
