@@ -23,7 +23,8 @@ export function useClientesFederales() {
 
   useEffect(() => {
     fetch();
-    const ch = supabase.channel('fed-clientes-rt')
+    const uniq = (globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`);
+    const ch = supabase.channel(`fed-clientes-rt-${uniq}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'clientes_federales' }, () => fetch())
       .subscribe();
     return () => { supabase.removeChannel(ch); };
@@ -87,7 +88,8 @@ export function useNotasFederales(clienteId: string | null) {
   useEffect(() => {
     fetch();
     if (!clienteId) return;
-    const ch = supabase.channel(`fed-notas-${clienteId}`)
+    const uniq = (globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`);
+    const ch = supabase.channel(`fed-notas-${clienteId}-${uniq}`)
       .on('postgres_changes',
         { event: '*', schema: 'public', table: 'clientes_federales_notas', filter: `cliente_fed_id=eq.${clienteId}` },
         () => fetch())
@@ -183,7 +185,8 @@ export function useTareasFederales(clienteId: string | null) {
   useEffect(() => {
     fetch();
     if (!clienteId) return;
-    const ch = supabase.channel(`fed-tareas-${clienteId}`)
+    const uniq = (globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`);
+    const ch = supabase.channel(`fed-tareas-${clienteId}-${uniq}`)
       .on('postgres_changes',
         { event: '*', schema: 'public', table: 'tareas_federales', filter: `cliente_fed_id=eq.${clienteId}` },
         () => fetch())

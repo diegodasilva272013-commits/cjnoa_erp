@@ -34,7 +34,12 @@ export function useFederalesDocs(clienteId: string | null) {
 
   useEffect(() => {
     if (!clienteId) return;
-    const ch = supabase.channel(`fed-docs-${clienteId}`)
+    // Channel name único por mount para evitar el error
+    // "cannot add postgres_changes callbacks after subscribe()" cuando
+    // dos instancias del hook se montan con el mismo clienteId (StrictMode
+    // o dos paneles abiertos a la vez).
+    const uniq = (globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`);
+    const ch = supabase.channel(`fed-docs-${clienteId}-${uniq}`)
       .on('postgres_changes',
         { event: '*', schema: 'public', table: 'clientes_federales_documentos', filter: `cliente_fed_id=eq.${clienteId}` },
         () => refetch())
