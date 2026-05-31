@@ -135,7 +135,7 @@ export default function CasosFederales() {
         </div>
 
         {/* Pipeline filter pills */}
-        <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
+        <div className="flex flex-wrap gap-2 pb-1">
           <button
             onClick={() => setFiltroPipelines(new Set())}
             className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-all whitespace-nowrap ${
