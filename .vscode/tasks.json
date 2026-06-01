@@ -66,7 +66,7 @@
 			"args": [
 				"commit",
 				"-m",
-				"fix(sql): NOTIFY pgrst reload schema al final de migration_federales_tareas_unificadas"
+				"fix(federales): no insertar responsable_nombre en public.tareas (la columna solo existe en tareas_federales)"
 			]
 		},
 		{
@@ -77,7 +77,7 @@
 				"commit",
 				"--amend",
 				"-m",
-				"fix(sql): NOTIFY pgrst reload schema al final de migration_federales_tareas_unificadas"
+				"fix(federales): no insertar responsable_nombre en public.tareas (la columna solo existe en tareas_federales)"
 			]
 		}
 	]

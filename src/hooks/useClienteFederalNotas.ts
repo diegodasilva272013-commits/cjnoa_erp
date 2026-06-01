@@ -101,13 +101,17 @@ export function useClienteFederalNotas(clienteId: string | null) {
       if (up.error) { console.error('[audio upload]', up.error); audio_path = null; }
     }
 
-    // Resolver nombre del responsable para guardarlo desnormalizado
-    let responsable_nombre: string | null = null;
+    // Resolver nombre del responsable: en public.tareas NO hay columna
+    // responsable_nombre (eso vive solo en tareas_federales). Lo dejamos
+    // resolver por la vista tareas_completas_v2 via JOIN con perfiles.
+    // (Se mantiene el lookup por si en el futuro se necesita para algo.)
+    let _responsable_nombre: string | null = null;
     if (params.responsableId) {
       const { data: perfil } = await supabase
         .from('perfiles').select('nombre').eq('id', params.responsableId).maybeSingle();
-      responsable_nombre = (perfil as any)?.nombre ?? null;
+      _responsable_nombre = (perfil as any)?.nombre ?? null;
     }
+    void _responsable_nombre;
 
     // 1) crear tarea en public.tareas (unica fuente de verdad)
     const { data: tareaIns, error: errTarea } = await supabase
@@ -117,7 +121,6 @@ export function useClienteFederalNotas(clienteId: string | null) {
         titulo: params.tareaTitulo.trim() || params.contenido.slice(0, 80),
         descripcion: params.descripcion?.trim() || params.contenido.trim(),
         responsable_id: params.responsableId || null,
-        responsable_nombre,
         fecha_limite: params.fechaLimite,
         prioridad: params.prioridad ?? 'sin_prioridad',
         cargo_hora: params.cargoHora?.trim() || null,
