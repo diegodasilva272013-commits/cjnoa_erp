@@ -406,8 +406,8 @@ export default function FlujoCaja() {
           <PeriodoSelector periodo={periodoFin} />
           <button
             onClick={calcularReparto}
-            disabled={calculandoReparto || !esMesCompleto}
-            title={esMesCompleto ? 'Calcular reparto del mes' : 'Elegí un mes completo para calcular el reparto'}
+            disabled={calculandoReparto}
+            title={`Calcular reparto del mes ${periodo}`}
             className="px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-sm text-white flex items-center gap-2 disabled:opacity-50"
           >
             {calculandoReparto ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Calculator className="w-4 h-4" />}
@@ -415,12 +415,14 @@ export default function FlujoCaja() {
           </button>
           <button
             onClick={handleCerrarMes}
-            disabled={cerrando || !esMesCompleto}
+            disabled={cerrando}
             className={`px-3 py-2 rounded-lg text-sm text-white flex items-center gap-2 disabled:opacity-50 ${yaCerrado ? 'bg-amber-600 hover:bg-amber-500' : 'bg-violet-600 hover:bg-violet-500'}`}
-            title={!esMesCompleto ? 'Elegí un mes completo para cerrar' : (yaCerrado ? 'Sobrescribir cierre existente' : 'Archivar mes en Historial')}
+            title={esMesCompleto
+              ? (yaCerrado ? `Sobrescribir cierre de ${periodo}` : `Archivar ${periodo} en Historial`)
+              : `El rango actual no es un mes completo — se cerrará el mes ${periodo}`}
           >
             {cerrando ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Archive className="w-4 h-4" />}
-            {yaCerrado ? `Re-cerrar ${periodo}` : 'Cerrar mes'}
+            {yaCerrado ? `Re-cerrar ${periodo}` : `Cerrar ${periodo}`}
           </button>
         </div>
       </header>
