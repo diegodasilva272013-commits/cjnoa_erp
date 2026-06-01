@@ -75,7 +75,7 @@ export default function Tareas() {
   }, [searchParams, tareas, setSearchParams]);
 
   useEffect(() => {
-    supabase.from('perfiles').select('id, nombre, rol').eq('activo', true).then(({ data }) => {
+    supabase.from('perfiles').select('id, nombre, rol').or('activo.is.null,activo.eq.true').then(({ data }) => {
       if (data) setPerfiles(data as PerfilLite[]);
     });
   }, []);

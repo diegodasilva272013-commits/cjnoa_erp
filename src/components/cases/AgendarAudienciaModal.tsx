@@ -25,7 +25,7 @@ export default function AgendarAudienciaModal({ casoGeneralId, casoTitulo, onClo
   const [guardando, setGuardando] = useState(false);
 
   useEffect(() => {
-    supabase.from('perfiles').select('id, nombre').eq('activo', true).then(({ data }) => {
+    supabase.from('perfiles').select('id, nombre').or('activo.is.null,activo.eq.true').then(({ data }) => {
       if (data) setPerfiles(data as PerfilLite[]);
     });
   }, []);

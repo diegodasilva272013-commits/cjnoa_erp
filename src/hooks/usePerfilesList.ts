@@ -20,7 +20,8 @@ export function usePerfilesList() {
       const { data } = await supabase
         .from('perfiles')
         .select('id, nombre, avatar_url, rol, activo')
-        .eq('activo', true)
+        // alineado con backend (COALESCE(activo,true)): tratamos NULL como activo
+        .or('activo.is.null,activo.eq.true')
         .order('nombre');
       if (mounted && data) setPerfiles(data as PerfilLite[]);
       if (mounted) setLoading(false);

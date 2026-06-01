@@ -49,7 +49,7 @@ export default function FichaFederalDetalle({ ficha, onClose, onEdit }: Props) {
   const [pasosExpandidos, setPasosExpandidos] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
-    supabase.from('perfiles').select('id, nombre').eq('activo', true).order('nombre').then(({ data }) => {
+    supabase.from('perfiles').select('id, nombre').or('activo.is.null,activo.eq.true').order('nombre').then(({ data }) => {
       if (data) setPerfiles(data as PerfilLite[]);
     });
   }, []);

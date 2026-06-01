@@ -66,7 +66,7 @@
 			"args": [
 				"commit",
 				"-m",
-				"feat(federales): tareas unificadas en public.tareas - notificaciones, MiDia y Control de Tareas tratan a federales y provinciales por igual"
+				"fix(perfiles): usuarios con activo=NULL ahora aparecen en selectores - Melani y otros legacy ya pueden recibir y autoasignarse tareas"
 			]
 		},
 		{
@@ -77,7 +77,7 @@
 				"commit",
 				"--amend",
 				"-m",
-				"feat(federales): tareas unificadas en public.tareas - notificaciones, MiDia y Control de Tareas tratan a federales y provinciales por igual"
+				"fix(perfiles): usuarios con activo=NULL ahora aparecen en selectores - Melani y otros legacy ya pueden recibir y autoasignarse tareas"
 			]
 		}
 	]

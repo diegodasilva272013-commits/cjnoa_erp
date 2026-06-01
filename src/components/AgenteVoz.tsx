@@ -666,7 +666,7 @@ function arrayBufferToBase64(buffer: ArrayBuffer): string {
 }
 
 async function armarContexto(userId: string | undefined, nombre: string, rol: string) {
-  const equipoQ = supabase.from('perfiles').select('id, nombre, rol').eq('activo', true).limit(50);
+  const equipoQ = supabase.from('perfiles').select('id, nombre, rol').or('activo.is.null,activo.eq.true').limit(50);
   const casosQ = supabase.from('casos_generales').select('id, titulo, expediente').eq('archivado', false).order('updated_at', { ascending: false }).limit(50);
   const previsQ = supabase.from('clientes_previsional').select('id, apellido_nombre, pipeline').order('updated_at', { ascending: false }).limit(30);
   const tareasQ = supabase.from('tareas')
