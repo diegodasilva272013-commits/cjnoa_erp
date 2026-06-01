@@ -73,7 +73,7 @@ BEGIN
     FROM perfiles WHERE id = COALESCE(NEW.created_by, NEW.updated_by);
 
   IF NEW.cliente_federal_id IS NOT NULL THEN
-    SELECT nombre_apellido INTO v_caso_titulo
+    SELECT apellido_nombre INTO v_caso_titulo
       FROM clientes_federales WHERE id = NEW.cliente_federal_id;
     v_link := '/casos-federales?caso=' || NEW.cliente_federal_id;
   ELSE
@@ -122,7 +122,7 @@ BEGIN
     SELECT nombre INTO v_asignado_nombre FROM perfiles WHERE id = NEW.responsable_id;
 
     IF NEW.cliente_federal_id IS NOT NULL THEN
-      SELECT nombre_apellido INTO v_caso_titulo
+      SELECT apellido_nombre INTO v_caso_titulo
         FROM clientes_federales WHERE id = NEW.cliente_federal_id;
       v_link := '/casos-federales?caso=' || NEW.cliente_federal_id;
     ELSIF NEW.caso_general_id IS NOT NULL THEN
@@ -220,7 +220,7 @@ SELECT
   c.expediente           AS expediente_caso,
   cg.titulo              AS caso_general_titulo,
   cg.expediente          AS caso_general_expediente,
-  cf.nombre_apellido     AS cliente_federal_nombre,
+  cf.apellido_nombre     AS cliente_federal_nombre,
   cf.tipo_caso           AS cliente_federal_tipo,
   p_resp.nombre          AS responsable_nombre,
   p_resp.avatar_url      AS responsable_avatar,

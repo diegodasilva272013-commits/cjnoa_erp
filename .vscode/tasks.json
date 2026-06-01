@@ -66,7 +66,7 @@
 			"args": [
 				"commit",
 				"-m",
-				"fix(perfiles): usuarios con activo=NULL ahora aparecen en selectores - Melani y otros legacy ya pueden recibir y autoasignarse tareas"
+				"fix(sql): clientes_federales.apellido_nombre (no nombre_apellido) en migration_federales_tareas_unificadas"
 			]
 		},
 		{
@@ -77,7 +77,7 @@
 				"commit",
 				"--amend",
 				"-m",
-				"fix(perfiles): usuarios con activo=NULL ahora aparecen en selectores - Melani y otros legacy ya pueden recibir y autoasignarse tareas"
+				"fix(sql): clientes_federales.apellido_nombre (no nombre_apellido) en migration_federales_tareas_unificadas"
 			]
 		}
 	]
