@@ -1,8 +1,10 @@
 // ============================================================================
 // useClienteFederalNotas
 // ----------------------------------------------------------------------------
-// Hook ESPEJO de useCasoGeneralNotas pero alimentado por las tablas
-// federales (clientes_federales_notas, tareas_federales, tarea_federal_pasos).
+// Hook ESPEJO de useCasoGeneralNotas. La nota vive en clientes_federales_notas
+// pero la TAREA asociada vive en public.tareas (con cliente_federal_id), igual
+// que las tareas provinciales. Asi disparan los mismos triggers de
+// notificacion y aparecen en Mi Dia, Control de Tareas y la pagina de Tareas.
 //
 // Devuelve EXACTAMENTE la misma API publica que useCasoGeneralNotas:
 //   { notas, loading, refetch, migrationError,
@@ -30,7 +32,7 @@ export function useClienteFederalNotas(clienteId: string | null) {
       .order('created_at', { ascending: false });
     if (error) {
       if (error.code === '42P01' || /does not exist/i.test(error.message)) {
-        setMigrationError('Falta correr la migración SQL en Supabase: supabase/migration_federales_seguimiento_paridad.sql');
+        setMigrationError('Falta correr las migraciones SQL en Supabase: migration_federales_seguimiento_paridad.sql + migration_federales_tareas_unificadas.sql');
       } else {
         setMigrationError(error.message);
       }
@@ -52,7 +54,7 @@ export function useClienteFederalNotas(clienteId: string | null) {
         { event: '*', schema: 'public', table: 'clientes_federales_notas', filter: `cliente_fed_id=eq.${clienteId}` },
         () => fetchNotas())
       .on('postgres_changes',
-        { event: 'UPDATE', schema: 'public', table: 'tareas_federales' },
+        { event: '*', schema: 'public', table: 'tareas', filter: `cliente_federal_id=eq.${clienteId}` },
         () => fetchNotas())
       .subscribe();
     return () => { supabase.removeChannel(ch); };
@@ -107,11 +109,11 @@ export function useClienteFederalNotas(clienteId: string | null) {
       responsable_nombre = (perfil as any)?.nombre ?? null;
     }
 
-    // 1) crear tarea federal
+    // 1) crear tarea en public.tareas (unica fuente de verdad)
     const { data: tareaIns, error: errTarea } = await supabase
-      .from('tareas_federales')
+      .from('tareas')
       .insert({
-        cliente_fed_id: clienteId,
+        cliente_federal_id: clienteId,
         titulo: params.tareaTitulo.trim() || params.contenido.slice(0, 80),
         descripcion: params.descripcion?.trim() || params.contenido.trim(),
         responsable_id: params.responsableId || null,
@@ -128,21 +130,21 @@ export function useClienteFederalNotas(clienteId: string | null) {
       .select('id')
       .single();
     if (errTarea || !tareaIns) {
-      console.error('[tareas_federales insert]', errTarea);
+      console.error('[tareas insert federal]', errTarea);
       return { ok: false, error: errTarea?.message || 'No se pudo crear la tarea' };
     }
 
-    // 1.b) pasos compartidos
+    // 1.b) pasos compartidos (misma tabla que tareas provinciales)
     const pasosValidos = (params.pasos || []).filter(p => p.descripcion.trim());
     if (pasosValidos.length > 0) {
       const rows = pasosValidos.map((p, i) => ({
-        tarea_federal_id: tareaIns.id,
+        tarea_id: tareaIns.id,
         orden: i + 1,
         descripcion: p.descripcion.trim(),
         responsable_id: p.responsable_id || null,
       }));
-      const { error: errPasos } = await supabase.from('tarea_federal_pasos').insert(rows);
-      if (errPasos) console.error('[tarea_federal_pasos insert]', errPasos);
+      const { error: errPasos } = await supabase.from('tarea_pasos').insert(rows);
+      if (errPasos) console.error('[tarea_pasos insert]', errPasos);
     }
 
     // 2) crear nota apuntando a la tarea
@@ -170,7 +172,7 @@ export function useClienteFederalNotas(clienteId: string | null) {
 
   async function marcarTareaVista(tareaId: string): Promise<boolean> {
     const { error } = await supabase
-      .from('tareas_federales')
+      .from('tareas')
       .update({ visto_por_asignado: true, visto_at: new Date().toISOString() })
       .eq('id', tareaId);
     if (error) { console.error(error); return false; }
@@ -181,7 +183,7 @@ export function useClienteFederalNotas(clienteId: string | null) {
   async function cambiarEstadoTarea(tareaId: string, estado: EstadoTareaFlujo, userId: string): Promise<boolean> {
     const updates: Record<string, unknown> = { estado, updated_by: userId };
     if (estado === 'finalizada') updates.fecha_completada = new Date().toISOString();
-    const { error } = await supabase.from('tareas_federales').update(updates).eq('id', tareaId);
+    const { error } = await supabase.from('tareas').update(updates).eq('id', tareaId);
     if (error) { console.error(error); return false; }
     await fetchNotas();
     return true;

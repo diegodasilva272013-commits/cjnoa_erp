@@ -58,6 +58,27 @@
 				"add",
 				"-A"
 			]
+		},
+		{
+			"label": "noaerp-git-commit",
+			"type": "shell",
+			"command": "git",
+			"args": [
+				"commit",
+				"-m",
+				"feat(federales): tareas unificadas en public.tareas - notificaciones, MiDia y Control de Tareas tratan a federales y provinciales por igual"
+			]
+		},
+		{
+			"label": "noaerp-git-amend",
+			"type": "shell",
+			"command": "git",
+			"args": [
+				"commit",
+				"--amend",
+				"-m",
+				"feat(federales): tareas unificadas en public.tareas - notificaciones, MiDia y Control de Tareas tratan a federales y provinciales por igual"
+			]
 		}
 	]
 }

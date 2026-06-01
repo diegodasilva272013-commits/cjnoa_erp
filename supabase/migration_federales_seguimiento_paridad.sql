@@ -32,18 +32,20 @@ ALTER TABLE public.tareas_federales
   ADD COLUMN IF NOT EXISTS updated_by         uuid;
 
 -- 2) Ampliar el CHECK de estado (admite ambos flujos) ----------------------
+-- Drop de cualquier check existente sobre la columna estado (cualquier nombre)
 DO $$
 DECLARE
-  v_conname text;
+  r record;
 BEGIN
-  SELECT conname INTO v_conname
-  FROM pg_constraint
-  WHERE conrelid = 'public.tareas_federales'::regclass
-    AND contype  = 'c'
-    AND pg_get_constraintdef(oid) ILIKE '%estado%IN%';
-  IF v_conname IS NOT NULL THEN
-    EXECUTE format('ALTER TABLE public.tareas_federales DROP CONSTRAINT %I', v_conname);
-  END IF;
+  FOR r IN
+    SELECT conname
+    FROM pg_constraint
+    WHERE conrelid = 'public.tareas_federales'::regclass
+      AND contype  = 'c'
+      AND pg_get_constraintdef(oid) ILIKE '%estado%'
+  LOOP
+    EXECUTE format('ALTER TABLE public.tareas_federales DROP CONSTRAINT %I', r.conname);
+  END LOOP;
 END $$;
 
 ALTER TABLE public.tareas_federales
