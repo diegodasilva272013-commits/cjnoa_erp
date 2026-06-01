@@ -77,7 +77,7 @@
 				"commit",
 				"--amend",
 				"-m",
-				"chore(sql): migracion puntual para mover 16 casos de seguimiento a casos federales"
+				"fix(sql): v3 mover 16 casos a federales en una sola sentencia (sin TEMP TABLE, compat Supabase SQL Editor)"
 			]
 		}
 	]
