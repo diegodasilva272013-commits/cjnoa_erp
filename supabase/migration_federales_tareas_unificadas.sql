@@ -234,4 +234,8 @@ LEFT JOIN public.clientes_federales cf       ON cf.id = t.cliente_federal_id
 LEFT JOIN public.perfiles           p_resp   ON p_resp.id   = t.responsable_id
 LEFT JOIN public.perfiles           p_create ON p_create.id = t.created_by;
 
+-- 6) Refrescar el schema cache de PostgREST para que la API exponga ya
+--    cliente_federal_id / related_cliente_federal_id sin tener que reiniciar.
+NOTIFY pgrst, 'reload schema';
+
 -- ─── FIN ───────────────────────────────────────────────────────────────────

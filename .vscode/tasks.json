@@ -66,7 +66,7 @@
 			"args": [
 				"commit",
 				"-m",
-				"fix(sql): clientes_federales.apellido_nombre (no nombre_apellido) en migration_federales_tareas_unificadas"
+				"fix(sql): NOTIFY pgrst reload schema al final de migration_federales_tareas_unificadas"
 			]
 		},
 		{
@@ -77,7 +77,7 @@
 				"commit",
 				"--amend",
 				"-m",
-				"fix(sql): clientes_federales.apellido_nombre (no nombre_apellido) en migration_federales_tareas_unificadas"
+				"fix(sql): NOTIFY pgrst reload schema al final de migration_federales_tareas_unificadas"
 			]
 		}
 	]
