@@ -13,6 +13,8 @@ import { formatMoney } from '../lib/financeFormat';
 import Modal from '../components/Modal';
 import FinanceMiniCharts from '../components/finance/FinanceMiniCharts';
 import PlanillaMetricas from '../components/finance/PlanillaMetricas';
+import PeriodoSelector from '../components/finance/PeriodoSelector';
+import { usePeriodoFinanciero } from '../hooks/usePeriodoFinanciero';
 
 // Período YYYY-MM en horario local (evita corrimientos UTC en el límite de medianoche)
 const periodoActual = () => {
@@ -22,23 +24,33 @@ const periodoActual = () => {
   return `${y}-${m}`;
 };
 
-// Retrocede N meses sobre un período YYYY-MM
-function restarMeses(periodo: string, n: number): string {
-  const [y, m] = periodo.split('-').map(Number);
-  const d = new Date(y, m - 1 - n, 1);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-}
-
-function nombreMesPeriodo(periodo: string): string {
-  const [y, m] = periodo.split('-').map(Number);
-  return new Date(y, m - 1, 1).toLocaleDateString('es-AR', { month: 'long', year: 'numeric' });
-}
-
 export default function FlujoCaja() {
   const { items, loading } = useIngresosOperativos();
   const { items: cierres, cerrarMes } = useCierresMes();
   const { showToast } = useToast();
-  const [periodo, setPeriodo] = useState(periodoActual());
+
+  // Selector de período reutilizable (mismo que Ingresos/Egresos).
+  const periodoFin = usePeriodoFinanciero('flujo-caja', 'mes_actual');
+
+  // ¿El rango actual corresponde exactamente a UN mes calendario completo?
+  // Las funciones mensuales (cierre, meta, etiqueta YYYY-MM) solo aplican en ese caso.
+  const esMesCompleto = useMemo(() => {
+    if (!periodoFin.desde || !periodoFin.hasta) return false;
+    const [yD, mD, dD] = periodoFin.desde.split('-');
+    const [yH, mH, dH] = periodoFin.hasta.split('-');
+    if (yD !== yH || mD !== mH) return false;
+    if (dD !== '01') return false;
+    const ultimoDia = new Date(Number(yH), Number(mH), 0).getDate();
+    return Number(dH) === ultimoDia;
+  }, [periodoFin.desde, periodoFin.hasta]);
+
+  // YYYY-MM derivado para cierres / meta. Si el rango no es un mes completo,
+  // cae al mes actual como fallback (la UI deshabilita las acciones mensuales).
+  const periodo = useMemo(
+    () => (esMesCompleto ? periodoFin.desde.slice(0, 7) : periodoActual()),
+    [esMesCompleto, periodoFin.desde],
+  );
+
   const [meta, setMeta] = useState<number>(0);
   const [metaInput, setMetaInput] = useState<string>('');
   const [guardandoMeta, setGuardandoMeta] = useState(false);
@@ -50,34 +62,23 @@ export default function FlujoCaja() {
   const [cerrando, setCerrando] = useState(false);
   const yaCerrado = cierres.some(c => c.periodo === periodo);
 
-  // Cargar egresos del periodo
+  // Cargar egresos y movimientos del rango activo
   const cargarEgresosYMovs = useCallback(async () => {
-    const [y, m] = periodo.split('-').map(Number);
-    const inicio = `${periodo}-01`;
-    const finExclusivo = m === 12
-      ? `${y + 1}-01-01`
-      : `${y}-${String(m + 1).padStart(2, '0')}-01`;
-    // Egresos: SIN tope superior, para que coincida con el filtro por defecto
-    // de la p\u00e1gina de Egresos (desde = inicio de mes, hasta = vac\u00edo).
-    // Esto incluye egresos con fecha futura (sueldos/vencimientos adelantados)
-    // que el usuario ya considera del per\u00edodo.
-    const { data, error } = await supabase
-      .from('egresos_v2')
-      .select('*')
-      .gte('fecha', inicio)
-      .order('fecha', { ascending: false });
+    const { desde, hasta } = periodoFin;
+    let qEg = supabase.from('egresos_v2').select('*').order('fecha', { ascending: false });
+    if (desde) qEg = qEg.gte('fecha', desde);
+    if (hasta) qEg = qEg.lte('fecha', hasta);
+    const { data, error } = await qEg;
     if (error) { showToast('Error al cargar egresos: ' + error.message, 'error'); return; }
     setEgresos((data || []) as EgresoV2[]);
 
-    const { data: movs, error: errMov } = await supabase
-      .from('movimientos_caja')
-      .select('*')
-      .gte('fecha', inicio)
-      .lt('fecha', finExclusivo)
-      .order('fecha', { ascending: false });
+    let qMov = supabase.from('movimientos_caja').select('*').order('fecha', { ascending: false });
+    if (desde) qMov = qMov.gte('fecha', desde);
+    if (hasta) qMov = qMov.lte('fecha', hasta);
+    const { data: movs, error: errMov } = await qMov;
     if (errMov) { showToast('Error al cargar cambios: ' + errMov.message, 'error'); return; }
     setMovimientos((movs || []) as MovimientoCaja[]);
-  }, [periodo, showToast]);
+  }, [periodoFin.desde, periodoFin.hasta, showToast]);
 
   useEffect(() => { cargarEgresosYMovs(); }, [cargarEgresosYMovs]);
 
@@ -107,8 +108,12 @@ export default function FlujoCaja() {
   }, [periodo]);
 
   const ingresosPeriodo = useMemo(
-    () => items.filter((i: IngresoOperativo) => i.fecha.startsWith(periodo)),
-    [items, periodo],
+    () => items.filter((i: IngresoOperativo) => {
+      if (periodoFin.desde && i.fecha < periodoFin.desde) return false;
+      if (periodoFin.hasta && i.fecha > periodoFin.hasta) return false;
+      return true;
+    }),
+    [items, periodoFin.desde, periodoFin.hasta],
   );
 
   const totales = useMemo(() => {
@@ -395,18 +400,14 @@ export default function FlujoCaja() {
       <header className="flex items-center justify-between gap-4 flex-wrap">
         <div>
           <h1 className="text-2xl font-bold text-white">Tablero financiero</h1>
-          <p className="text-sm text-zinc-400 mt-1">Resumen del periodo y reparto sugerido entre los 4 socios.</p>
+          <p className="text-sm text-zinc-400 mt-1">Resumen del período y reparto sugerido entre los 4 socios.</p>
         </div>
-        <div className="flex items-center gap-2">
-          <input
-            type="month"
-            value={periodo}
-            onChange={e => setPeriodo(e.target.value)}
-            className="px-3 py-2 rounded-lg bg-black/40 border border-white/10 text-sm text-white"
-          />
+        <div className="flex items-center gap-2 flex-wrap">
+          <PeriodoSelector periodo={periodoFin} />
           <button
             onClick={calcularReparto}
-            disabled={calculandoReparto}
+            disabled={calculandoReparto || !esMesCompleto}
+            title={esMesCompleto ? 'Calcular reparto del mes' : 'Elegí un mes completo para calcular el reparto'}
             className="px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-sm text-white flex items-center gap-2 disabled:opacity-50"
           >
             {calculandoReparto ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Calculator className="w-4 h-4" />}
@@ -414,9 +415,9 @@ export default function FlujoCaja() {
           </button>
           <button
             onClick={handleCerrarMes}
-            disabled={cerrando}
+            disabled={cerrando || !esMesCompleto}
             className={`px-3 py-2 rounded-lg text-sm text-white flex items-center gap-2 disabled:opacity-50 ${yaCerrado ? 'bg-amber-600 hover:bg-amber-500' : 'bg-violet-600 hover:bg-violet-500'}`}
-            title={yaCerrado ? 'Sobrescribir cierre existente' : 'Archivar mes en Historial'}
+            title={!esMesCompleto ? 'Elegí un mes completo para cerrar' : (yaCerrado ? 'Sobrescribir cierre existente' : 'Archivar mes en Historial')}
           >
             {cerrando ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Archive className="w-4 h-4" />}
             {yaCerrado ? `Re-cerrar ${periodo}` : 'Cerrar mes'}
@@ -424,13 +425,13 @@ export default function FlujoCaja() {
         </div>
       </header>
 
-      {/* Aviso si el per\u00edodo seleccionado no tiene ingresos cargados */}
+      {/* Aviso si el período seleccionado no tiene ingresos cargados */}
       {!loading && ingresosPeriodo.length === 0 && (
         <div className="rounded-xl border border-amber-500/30 bg-amber-500/[0.06] p-4 flex items-start gap-3">
           <Inbox className="w-5 h-5 text-amber-300 mt-0.5 shrink-0" />
           <div className="flex-1 space-y-2">
             <div className="text-sm text-amber-100 font-medium">
-              Sin ingresos en {nombreMesPeriodo(periodo)}
+              Sin ingresos en {periodoFin.label}
             </div>
             <div className="text-xs text-amber-200/80">
               {yaCerrado
@@ -440,21 +441,21 @@ export default function FlujoCaja() {
             <div className="flex flex-wrap gap-2 pt-1">
               <button
                 type="button"
-                onClick={() => setPeriodo(restarMeses(periodo, 1))}
+                onClick={() => periodoFin.setPreset('mes_anterior')}
                 className="px-2.5 py-1 rounded-md text-xs bg-amber-500/15 border border-amber-500/40 text-amber-100 hover:bg-amber-500/25"
               >
-                Ver {nombreMesPeriodo(restarMeses(periodo, 1))}
+                Ver mes anterior
               </button>
               <button
                 type="button"
-                onClick={() => setPeriodo(restarMeses(periodo, 3))}
+                onClick={() => periodoFin.setPreset('ultimos_90')}
                 className="px-2.5 py-1 rounded-md text-xs bg-amber-500/15 border border-amber-500/40 text-amber-100 hover:bg-amber-500/25"
               >
-                Ver {nombreMesPeriodo(restarMeses(periodo, 3))}
+                Últimos 90 días
               </button>
               <button
                 type="button"
-                onClick={() => setPeriodo(periodoActual())}
+                onClick={() => periodoFin.setPreset('mes_actual')}
                 className="px-2.5 py-1 rounded-md text-xs bg-white/[0.04] border border-white/10 text-zinc-200 hover:bg-white/[0.08]"
               >
                 Volver al mes actual

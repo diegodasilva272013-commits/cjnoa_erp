@@ -12,7 +12,7 @@ export const TIPOS_CLIENTE = ['Nuevo', 'Viejo'] as const;
 export type TipoClienteIngreso = typeof TIPOS_CLIENTE[number];
 
 export const RAMAS = [
-  'Jubilaciones', 'UCAP', 'Reajuste', 'Reajuste Art 9',
+  'Jubilaciones', 'UCAP', 'Reajuste', 'Reajuste Art 9', 'Reajuste Imp Gan',
   'Sucesorios', 'Reales', 'Familia', 'Otros',
 ] as const;
 export type RamaLegal = typeof RAMAS[number];

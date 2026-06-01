@@ -77,7 +77,7 @@
 				"commit",
 				"--amend",
 				"-m",
-				"feat(federales): nuevo estado 'informe' en pipeline (sql + tipos + kanban)"
+				"feat(finanzas): PeriodoSelector en Flujo de Caja + rama Reajuste Imp Gan"
 			]
 		}
 	]
