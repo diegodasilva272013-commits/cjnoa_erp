@@ -31,6 +31,33 @@
 				"add",
 				"-A"
 			]
+		},
+		{
+			"label": "noaerp-git-commit",
+			"type": "shell",
+			"command": "git",
+			"args": [
+				"commit",
+				"-m",
+				"feat(finanzas): selector de periodo reutilizable + empty-state inteligente + cierre de mes mas seguro"
+			]
+		},
+		{
+			"label": "noaerp-git-push",
+			"type": "shell",
+			"command": "git",
+			"args": [
+				"push"
+			]
+		},
+		{
+			"label": "noaerp-git-add",
+			"type": "shell",
+			"command": "git",
+			"args": [
+				"add",
+				"-A"
+			]
 		}
 	]
 }

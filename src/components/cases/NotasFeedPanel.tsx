@@ -10,6 +10,7 @@ import {
   useCasoGeneralNotas, ESTADOS_TAREA_FLUJO, ESTADO_TAREA_LABEL,
   ESTADO_TAREA_COLOR, EstadoTareaFlujo, CasoGeneralNota,
 } from '../../hooks/useCasoGeneralNotas';
+import { useClienteFederalNotas } from '../../hooks/useClienteFederalNotas';
 import { usePerfilesList } from '../../hooks/usePerfilesList';
 import { useAvatarUrl } from '../../hooks/useAvatarUrl';
 import { supabase } from '../../lib/supabase';
@@ -172,14 +173,16 @@ function NotaCard({ n, currentUserId, onDelete, onMarcarVista, onCambiarEstado }
   );
 }
 
-export default function NotasFeedPanel({ casoId }: { casoId: string }) {
+export default function NotasFeedPanel({ casoId, variant = 'general' }: { casoId: string; variant?: 'general' | 'federal' }) {
   const { user } = useAuth();
   const { showToast } = useToast();
   const { perfiles } = usePerfilesList();
+  const hookGeneral = useCasoGeneralNotas(variant === 'general' ? casoId : null);
+  const hookFederal = useClienteFederalNotas(variant === 'federal' ? casoId : null);
   const {
     notas, loading, agregarNota, agregarNotaConTarea, eliminarNota,
     marcarTareaVista, cambiarEstadoTarea, migrationError,
-  } = useCasoGeneralNotas(casoId);
+  } = variant === 'federal' ? hookFederal : hookGeneral;
 
   const [contenido, setContenido] = useState('');
   const [conTarea, setConTarea] = useState(false);

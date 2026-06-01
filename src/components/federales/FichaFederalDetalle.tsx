@@ -9,6 +9,7 @@ import { useNotasFederales, useTareasFederales } from '../../hooks/useFederales'
 import { useFederalesDocs } from '../../hooks/useFederalesDocs';
 import { supabase } from '../../lib/supabase';
 import ArchivosFederalPanel from './ArchivosFederalPanel';
+import NotasFeedPanel from '../cases/NotasFeedPanel';
 import { PasosFederalEditor, PasosFederalEditorLocal, PerfilLite } from './FederalesPasosEditor';
 import { notificarAsignacionPasoFederal } from '../../lib/tareaFederalPasosNotify';
 import {
@@ -321,7 +322,13 @@ export default function FichaFederalDetalle({ ficha, onClose, onEdit }: Props) {
             )}
           </div>
 
-          {/* Seguimiento */}
+          {/* Seguimiento (panel unificado, mismo componente que casos provinciales) */}
+          <div className="pt-3 border-t border-white/[0.06]">
+            <NotasFeedPanel casoId={ficha.id} variant="federal" />
+          </div>
+
+          {/* Bloques legacy ocultos: el panel unificado reemplaza Notas + Tareas */}
+          {false && (<>
           <div className="pt-3 border-t border-white/[0.06]">
             <h3 className="text-xs uppercase tracking-widest text-gray-500 font-semibold mb-3 flex items-center gap-2">
               <MessageSquare className="w-3.5 h-3.5" /> Seguimiento del caso
@@ -616,6 +623,7 @@ export default function FichaFederalDetalle({ ficha, onClose, onEdit }: Props) {
           )}
 
           </div>
+          </>)}
 
           {/* Documentos */}
           <div className="pt-3 border-t border-white/[0.06]">
