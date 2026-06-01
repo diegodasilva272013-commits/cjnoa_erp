@@ -77,7 +77,7 @@
 				"commit",
 				"--amend",
 				"-m",
-				"fix(sql): v3 mover 16 casos a federales en una sola sentencia (sin TEMP TABLE, compat Supabase SQL Editor)"
+				"feat(federales): nuevo estado 'informe' en pipeline (sql + tipos + kanban)"
 			]
 		}
 	]

@@ -8,6 +8,7 @@ export type PipelineFederal =
   | 'esperando_audiencia'
   | 'esperando_sentencia'
   | 'analisis_sin_directivas'
+  | 'informe'
   | 'en_ejecucion'
   | 'seguimiento'
   | 'archivado';
@@ -104,6 +105,7 @@ export const PIPELINE_FEDERAL_ORDERED: PipelineFederal[] = [
   'esperando_audiencia',
   'esperando_sentencia',
   'analisis_sin_directivas',
+  'informe',
   'en_ejecucion',
   'seguimiento',
   'archivado',
@@ -114,6 +116,7 @@ export const PIPELINE_FEDERAL_LABELS: Record<PipelineFederal, string> = {
   esperando_audiencia: 'Esperando audiencia',
   esperando_sentencia: 'Esperando sentencia',
   analisis_sin_directivas: 'En análisis sin directivas',
+  informe: 'Informe',
   en_ejecucion: 'En ejecución',
   seguimiento: 'Seguimiento',
   archivado: 'Archivado',
@@ -124,6 +127,7 @@ export const PIPELINE_FEDERAL_COLORS: Record<PipelineFederal, string> = {
   esperando_audiencia: 'bg-blue-500/10 text-blue-400 border-blue-500/20',
   esperando_sentencia: 'bg-violet-500/10 text-violet-400 border-violet-500/20',
   analisis_sin_directivas: 'bg-amber-500/10 text-amber-400 border-amber-500/20',
+  informe: 'bg-fuchsia-500/10 text-fuchsia-400 border-fuchsia-500/20',
   en_ejecucion: 'bg-cyan-500/10 text-cyan-400 border-cyan-500/20',
   seguimiento: 'bg-sky-500/10 text-sky-400 border-sky-500/20',
   archivado: 'bg-gray-500/10 text-gray-400 border-gray-500/20',

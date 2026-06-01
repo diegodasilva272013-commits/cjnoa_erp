@@ -371,6 +371,7 @@ function pipelineDot(p: PipelineFederal): string {
     case 'esperando_audiencia': return 'bg-blue-500';
     case 'esperando_sentencia': return 'bg-violet-500';
     case 'analisis_sin_directivas': return 'bg-amber-500';
+    case 'informe': return 'bg-fuchsia-500';
     case 'en_ejecucion': return 'bg-cyan-500';
     case 'seguimiento': return 'bg-sky-500';
     case 'archivado': return 'bg-gray-500';
