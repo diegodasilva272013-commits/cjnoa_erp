@@ -34,6 +34,12 @@ ALTER TABLE public.tareas
 CREATE INDEX IF NOT EXISTS ix_tareas_cliente_federal
   ON public.tareas (cliente_federal_id);
 
+-- 1.b) responsable_nombre desnormalizado (compat: la tabla tareas_federales
+--      lo tenia; algun bundle viejo del frontend puede mandarlo. Lo aceptamos
+--      como opcional para que el insert nunca rompa por columna desconocida.)
+ALTER TABLE public.tareas
+  ADD COLUMN IF NOT EXISTS responsable_nombre text;
+
 -- 2) related_cliente_federal_id en notificaciones_app ----------------------
 ALTER TABLE public.notificaciones_app
   ADD COLUMN IF NOT EXISTS related_cliente_federal_id uuid

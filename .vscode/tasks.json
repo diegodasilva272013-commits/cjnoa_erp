@@ -66,7 +66,7 @@
 			"args": [
 				"commit",
 				"-m",
-				"fix(federales): no insertar responsable_nombre en public.tareas (la columna solo existe en tareas_federales)"
+				"fix(sql): agregar responsable_nombre defensivo a public.tareas en v2 (compat con bundle viejo)"
 			]
 		},
 		{
@@ -77,7 +77,7 @@
 				"commit",
 				"--amend",
 				"-m",
-				"fix(federales): no insertar responsable_nombre en public.tareas (la columna solo existe en tareas_federales)"
+				"fix(sql): agregar responsable_nombre defensivo a public.tareas en v2 (compat con bundle viejo)"
 			]
 		}
 	]
