@@ -246,25 +246,7 @@ export default function Tareas() {
           perfiles={perfiles}
           onClose={() => { setModalOpen(false); setSelected(null); }}
           onSave={async (t, pasosNuevos) => {
-            // Si el usuario es procurador y está editando una tarea existente,
-            // el backend (trigger tareas_before_update_gate) sólo permite tocar
-            // los campos de "avance". Filtramos el payload para no enviar
-            // titulo/caso/responsable/prioridad/fecha_limite/cargo_hora/descripcion
-            // (que aunque "no cambien" pueden diferir por coerción de tipos y
-            // disparar el RAISE EXCEPTION).
-            const esProcurador = perfil?.rol === 'procurador';
-            let payload: any = t;
-            if (esProcurador && t.id) {
-              payload = {
-                id: t.id,
-                culminacion: t.culminacion ?? null,
-                observaciones_demora: t.observaciones_demora ?? null,
-                estado: t.estado,
-                adjunto_path: t.adjunto_path ?? null,
-                adjunto_nombre: t.adjunto_nombre ?? null,
-              };
-            }
-            const saved = await upsert(payload, user?.id || '');
+            const saved = await upsert(t, user?.id || '');
             if (!saved) return;
             // Si era una tarea nueva y trajo pasos locales, los insertamos ahora
             const tareaId = (saved as any)?.id || t.id;

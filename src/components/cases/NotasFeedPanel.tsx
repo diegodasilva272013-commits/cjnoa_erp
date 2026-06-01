@@ -2,7 +2,7 @@ import { useState, useMemo, useRef, useEffect } from 'react';
 import {
   MessageSquare, Send, Clock, User as UserIcon, Trash2, CheckCircle2,
   ListTodo, Calendar, Eye, ChevronDown, AlertCircle, Mic, MicOff, Square,
-  Gavel, X as XIcon, MapPin, Users, Plus, Pin,
+  Gavel, X as XIcon, MapPin, Users, Plus,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
@@ -68,18 +68,18 @@ function NotaCard({ n, currentUserId, onDelete, onMarcarVista, onCambiarEstado }
   const tieneTarea = !!n.tarea_id;
 
   return (
-    <div className="rounded-2xl bg-white/[0.025] border border-white/[0.06] p-3.5 space-y-2.5">
+    <div className="rounded-2xl bg-white/[0.025] border border-white/[0.06] p-4 space-y-3">
       <div className="flex items-start gap-3">
-        <Avatar path={n.autor_avatar} nombre={n.autor_nombre} size={32} />
+        <Avatar path={n.autor_avatar} nombre={n.autor_nombre} size={36} />
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-[12px] font-semibold text-white">{n.autor_nombre || 'Usuario'}</span>
-            <span className="text-[10px] text-gray-500 flex items-center gap-1">
+            <span className="text-sm font-semibold text-white">{n.autor_nombre || 'Usuario'}</span>
+            <span className="text-[11px] text-gray-500 flex items-center gap-1">
               <Clock className="w-3 h-3" />{fmtFecha(n.created_at)}
             </span>
-            {n.editado && <span className="text-[9px] text-gray-600 italic">(editado)</span>}
+            {n.editado && <span className="text-[10px] text-gray-600 italic">(editado)</span>}
           </div>
-          <p className="text-[12px] text-gray-200 whitespace-pre-wrap break-words mt-1">{n.contenido}</p>
+          <p className="text-sm text-gray-200 whitespace-pre-wrap break-words mt-1">{n.contenido}</p>
           {n.audio_path && (
             <div className="mt-2">
               <AudioPlayer path={n.audio_path} />
@@ -98,12 +98,12 @@ function NotaCard({ n, currentUserId, onDelete, onMarcarVista, onCambiarEstado }
         <div className="rounded-xl bg-violet-500/[0.07] border border-violet-500/20 p-3 ml-12 space-y-2">
           <div className="flex items-center gap-2 flex-wrap">
             <ListTodo className="w-3.5 h-3.5 text-violet-400" />
-            <span className="text-[11px] font-bold text-violet-200">{n.tarea_titulo}</span>
-            <span className={`badge border text-[9px] ${ESTADO_TAREA_COLOR[n.tarea_estado || 'activa']}`}>
+            <span className="text-xs font-bold text-violet-200">{n.tarea_titulo}</span>
+            <span className={`badge border text-[10px] ${ESTADO_TAREA_COLOR[n.tarea_estado || 'activa']}`}>
               {ESTADO_TAREA_LABEL[n.tarea_estado || 'activa']}
             </span>
             {n.tarea_prioridad && n.tarea_prioridad !== 'sin_prioridad' && (
-              <span className={`text-[9px] px-1.5 py-0.5 rounded border ${
+              <span className={`text-[10px] px-1.5 py-0.5 rounded border ${
                 n.tarea_prioridad === 'alta'
                   ? 'bg-red-500/15 text-red-300 border-red-500/30'
                   : 'bg-amber-500/15 text-amber-300 border-amber-500/30'
@@ -113,9 +113,9 @@ function NotaCard({ n, currentUserId, onDelete, onMarcarVista, onCambiarEstado }
             )}
           </div>
           {n.tarea_descripcion && n.tarea_descripcion !== n.contenido && (
-            <p className="text-[10px] text-gray-300 whitespace-pre-wrap break-words border-l-2 border-violet-500/30 pl-2">{n.tarea_descripcion}</p>
+            <p className="text-[11px] text-gray-300 whitespace-pre-wrap break-words border-l-2 border-violet-500/30 pl-2">{n.tarea_descripcion}</p>
           )}
-          <div className="flex items-center gap-3 text-[10px] text-gray-400 flex-wrap">
+          <div className="flex items-center gap-3 text-[11px] text-gray-400 flex-wrap">
             <span className="flex items-center gap-1.5">
               <Avatar path={n.tarea_responsable_avatar} nombre={n.tarea_responsable_nombre} size={18} />
               <span className="text-gray-300">{n.tarea_responsable_nombre || '—'}</span>
@@ -202,7 +202,6 @@ export default function NotasFeedPanel({ casoId }: { casoId: string }) {
   const [audAbogadoId, setAudAbogadoId] = useState('');
   const [audNotas, setAudNotas] = useState('');
   const [audGuardando, setAudGuardando] = useState(false);
-  const [mostrarAnteriores, setMostrarAnteriores] = useState(false);
 
   async function handleAgendarAudiencia() {
     if (!user?.id || !audFecha) {
@@ -635,105 +634,16 @@ export default function NotasFeedPanel({ casoId }: { casoId: string }) {
         </div>
       ) : (
         <div className="space-y-3 group">
-          {(() => {
-            const currentUid = user?.id || null;
-            const renderNota = (n: CasoGeneralNota) => (
-              <NotaCard
-                key={n.id}
-                n={n}
-                currentUserId={currentUid}
-                onDelete={handleEliminar}
-                onMarcarVista={handleMarcarVista}
-                onCambiarEstado={handleCambiarEstado}
-              />
-            );
-
-            // ── Tareas fijadas arriba ──
-            // Cualquier nota con tarea NO finalizada queda fijada arriba,
-            // donde el responsable es el usuario actual.
-            // Cuando el usuario marca su tarea como finalizada, ésta deja
-            // de aparecer fijada para él y vuelve al hilo normal de seguimiento.
-            const esTareaPendiente = (n: CasoGeneralNota) =>
-              !!n.tarea_id
-              && n.tarea_estado !== 'finalizada'
-              && n.tarea_estado !== 'completada'
-              && !!currentUid
-              && n.tarea_responsable_id === currentUid;
-
-            const fijadas = notas.filter(esTareaPendiente);
-            const fijadasIds = new Set(fijadas.map(n => n.id));
-            const restantes = notas.filter(n => !fijadasIds.has(n.id));
-
-            // ── Colapso del hilo restante ──
-            // notas vienen ordenadas desc (más nueva primero).
-            // Mostramos la más nueva arriba, la más antigua abajo,
-            // y colapsamos las del medio detrás de un botón.
-            const total = restantes.length;
-            const COLAPSAR_DESDE = 3;
-
-            let feedRestante: JSX.Element | JSX.Element[];
-            if (total === 0) {
-              feedRestante = (
-                <div className="text-center py-6 rounded-2xl border border-dashed border-white/10">
-                  <p className="text-[11px] text-gray-500">Sin más mensajes en el hilo.</p>
-                </div>
-              );
-            } else if (total < COLAPSAR_DESDE) {
-              feedRestante = restantes.map(renderNota);
-            } else {
-              const nuevas = restantes.slice(0, 1);
-              const medio = restantes.slice(1, total - 1);
-              const original = restantes[total - 1];
-              const ocultas = medio.length;
-              feedRestante = (
-                <>
-                  {nuevas.map(renderNota)}
-                  {ocultas > 0 && (
-                    mostrarAnteriores ? (
-                      <>
-                        <button
-                          type="button"
-                          onClick={() => setMostrarAnteriores(false)}
-                          className="w-full flex items-center justify-center gap-1.5 py-2 rounded-xl border border-dashed border-white/10 text-[11px] text-gray-400 hover:text-white hover:border-white/20 transition-colors"
-                        >
-                          <ChevronDown className="w-3.5 h-3.5 rotate-180" />
-                          Ocultar {ocultas} {ocultas === 1 ? 'mensaje intermedio' : 'mensajes intermedios'}
-                        </button>
-                        {medio.map(renderNota)}
-                      </>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={() => setMostrarAnteriores(true)}
-                        className="w-full flex items-center justify-center gap-1.5 py-2 rounded-xl border border-dashed border-white/10 text-[11px] text-gray-400 hover:text-white hover:border-white/20 transition-colors"
-                      >
-                        <ChevronDown className="w-3.5 h-3.5" />
-                        Mostrar {ocultas} {ocultas === 1 ? 'mensaje anterior' : 'mensajes anteriores'}
-                      </button>
-                    )
-                  )}
-                  {renderNota(original)}
-                </>
-              );
-            }
-
-            return (
-              <>
-                {fijadas.length > 0 && (
-                  <div className="rounded-2xl border border-amber-500/25 bg-amber-500/[0.04] p-2.5 space-y-2">
-                    <div className="flex items-center gap-1.5 px-1">
-                      <Pin className="w-3 h-3 text-amber-400" />
-                      <span className="text-[10px] uppercase tracking-wider font-semibold text-amber-300">
-                        Mis tareas pendientes ({fijadas.length})
-                      </span>
-                    </div>
-                    {fijadas.map(renderNota)}
-                  </div>
-                )}
-                {feedRestante}
-              </>
-            );
-          })()}
+          {notas.map(n => (
+            <NotaCard
+              key={n.id}
+              n={n}
+              currentUserId={user?.id || null}
+              onDelete={handleEliminar}
+              onMarcarVista={handleMarcarVista}
+              onCambiarEstado={handleCambiarEstado}
+            />
+          ))}
         </div>
       )}
 

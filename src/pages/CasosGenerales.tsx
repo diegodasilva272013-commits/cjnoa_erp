@@ -20,6 +20,7 @@ import ArchivosCasoGeneralPanel from '../components/cases/ArchivosCasoGeneralPan
 // ─── Estado constants (same pattern as PIPELINE_COLORS in previsional) ─────────
 const ESTADOS_ORDERED = [
   'activos',
+  'federales',
   'esperando audiencia',
   'esperando sentencias',
   'complicacion judicial/analisis',
@@ -31,6 +32,7 @@ type EstadoCaso = typeof ESTADOS_ORDERED[number];
 
 const ESTADO_LABELS: Record<string, string> = {
   'activos':                             'Activo',
+  'federales':                           'Federal',
   'esperando audiencia':                 'Esperando audiencia',
   'esperando sentencias':                'Esperando sentencia',
   'complicacion judicial/analisis':      'En análisis',
@@ -43,6 +45,7 @@ const ESTADO_LABELS: Record<string, string> = {
 // "bg-X/10 text-X border-X/20" — matches FichasList PIPELINE_COLORS pattern
 const ESTADO_COLORS: Record<string, string> = {
   'activos':                             'bg-emerald-500/10 text-emerald-400 border-emerald-500/20',
+  'federales':                           'bg-blue-500/10 text-blue-400 border-blue-500/20',
   'esperando audiencia':                 'bg-cyan-500/10 text-cyan-400 border-cyan-500/20',
   'esperando sentencias':                'bg-amber-500/10 text-amber-400 border-amber-500/20',
   'complicacion judicial/analisis':      'bg-orange-500/10 text-orange-400 border-orange-500/20',
@@ -54,6 +57,7 @@ const ESTADO_COLORS: Record<string, string> = {
 
 const ESTADO_DOT: Record<string, string> = {
   'activos':                             'bg-emerald-500',
+  'federales':                           'bg-blue-500',
   'esperando audiencia':                 'bg-cyan-500',
   'esperando sentencias':                'bg-amber-500',
   'complicacion judicial/analisis':      'bg-orange-500',
@@ -65,6 +69,7 @@ const ESTADO_DOT: Record<string, string> = {
 
 const KANBAN_BORDER: Record<string, string> = {
   'activos':                             'border-t-emerald-500',
+  'federales':                           'border-t-blue-500',
   'esperando audiencia':                 'border-t-cyan-500',
   'esperando sentencias':                'border-t-amber-500',
   'complicacion judicial/analisis':      'border-t-orange-500',
@@ -77,6 +82,7 @@ const KANBAN_BORDER: Record<string, string> = {
 
 const KANBAN_BADGE: Record<string, string> = {
   'activos':                             'bg-emerald-500/10 text-emerald-400',
+  'federales':                           'bg-blue-500/10 text-blue-400',
   'esperando audiencia':                 'bg-cyan-500/10 text-cyan-400',
   'esperando sentencias':                'bg-amber-500/10 text-amber-400',
   'complicacion judicial/analisis':      'bg-orange-500/10 text-orange-400',
@@ -229,15 +235,16 @@ function normEstado(v: string): string {
   if (!raw) return 'activos';
   // normalize: lowercase, strip accents, strip emoji/symbols, collapse spaces
   const s = raw.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^\w\s/]/g, ' ').replace(/\s+/g, ' ').trim();
-  // 1. exact match (handles 'activos', etc.)
+  // 1. exact match (handles 'activos', 'federales', etc.)
   const exact = ESTADOS_ORDERED.find(k =>
     k.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^\w\s/]/g, ' ').replace(/\s+/g, ' ').trim() === s
   );
   if (exact) return exact;
-  // 2. singular forms: 'activo' → 'activos'
+  // 2. singular forms: 'activo' → 'activos', 'federal' → 'federales'
   const withS = ESTADOS_ORDERED.find(k => k.normalize('NFD').replace(/[\u0300-\u036f]/g,'').startsWith(s));
   if (withS) return withS;
   // 3. fuzzy keyword matching
+  if (s.includes('federal')) return 'federales';
   if (s.includes('audiencia')) return 'esperando audiencia';
   if (s.includes('espera') || s.includes('sentencia')) return 'esperando sentencias';
   if (s.includes('complic') || s.includes('judicial') || s.includes('analisis')) return 'complicacion judicial/analisis';

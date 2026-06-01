@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, useCallback } from 'react';
-import { Calculator, RefreshCw, Archive } from 'lucide-react';
+import { Calculator, RefreshCw, Archive, Inbox } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useIngresosOperativos } from '../hooks/useIngresosOperativos';
 import { useCierresMes } from '../hooks/useCierresMes';
@@ -14,7 +14,25 @@ import Modal from '../components/Modal';
 import FinanceMiniCharts from '../components/finance/FinanceMiniCharts';
 import PlanillaMetricas from '../components/finance/PlanillaMetricas';
 
-const periodoActual = () => new Date().toISOString().slice(0, 7); // YYYY-MM
+// Período YYYY-MM en horario local (evita corrimientos UTC en el límite de medianoche)
+const periodoActual = () => {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  return `${y}-${m}`;
+};
+
+// Retrocede N meses sobre un período YYYY-MM
+function restarMeses(periodo: string, n: number): string {
+  const [y, m] = periodo.split('-').map(Number);
+  const d = new Date(y, m - 1 - n, 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function nombreMesPeriodo(periodo: string): string {
+  const [y, m] = periodo.split('-').map(Number);
+  return new Date(y, m - 1, 1).toLocaleDateString('es-AR', { month: 'long', year: 'numeric' });
+}
 
 export default function FlujoCaja() {
   const { items, loading } = useIngresosOperativos();
@@ -330,7 +348,25 @@ export default function FlujoCaja() {
           meta_recaudacion: meta,
         },
       };
-      await cerrarMes(periodo, snapshot);
+      // Guardar snapshot ANTES de cualquier borrado. Si falla, abortar.
+      try {
+        await cerrarMes(periodo, snapshot);
+      } catch (errCierre: any) {
+        showToast(`No se pudo archivar el cierre, no se borró nada: ${errCierre?.message || errCierre}`, 'error');
+        return;
+      }
+
+      // Verificación defensiva: confirmar que el snapshot quedó persistido
+      // antes de borrar nada. Si no aparece, abortamos el limpiado.
+      const { data: cierreOk, error: errCheck } = await supabase
+        .from('cierres_mes_finanzas')
+        .select('periodo')
+        .eq('periodo', periodo)
+        .maybeSingle();
+      if (errCheck || !cierreOk) {
+        showToast('El snapshot no se encuentra en la base, se aborta la limpieza del período.', 'error');
+        return;
+      }
 
       // Borrar los registros del periodo para arrancar el mes siguiente en 0.
       // Los datos quedan archivados en el snapshot del cierre.
@@ -387,6 +423,46 @@ export default function FlujoCaja() {
           </button>
         </div>
       </header>
+
+      {/* Aviso si el per\u00edodo seleccionado no tiene ingresos cargados */}
+      {!loading && ingresosPeriodo.length === 0 && (
+        <div className="rounded-xl border border-amber-500/30 bg-amber-500/[0.06] p-4 flex items-start gap-3">
+          <Inbox className="w-5 h-5 text-amber-300 mt-0.5 shrink-0" />
+          <div className="flex-1 space-y-2">
+            <div className="text-sm text-amber-100 font-medium">
+              Sin ingresos en {nombreMesPeriodo(periodo)}
+            </div>
+            <div className="text-xs text-amber-200/80">
+              {yaCerrado
+                ? 'Este mes ya fue cerrado: los datos viven en Historial. Probá otro período para ver los activos.'
+                : 'Los datos siguen en la base. Probá otro período para verlos.'}
+            </div>
+            <div className="flex flex-wrap gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => setPeriodo(restarMeses(periodo, 1))}
+                className="px-2.5 py-1 rounded-md text-xs bg-amber-500/15 border border-amber-500/40 text-amber-100 hover:bg-amber-500/25"
+              >
+                Ver {nombreMesPeriodo(restarMeses(periodo, 1))}
+              </button>
+              <button
+                type="button"
+                onClick={() => setPeriodo(restarMeses(periodo, 3))}
+                className="px-2.5 py-1 rounded-md text-xs bg-amber-500/15 border border-amber-500/40 text-amber-100 hover:bg-amber-500/25"
+              >
+                Ver {nombreMesPeriodo(restarMeses(periodo, 3))}
+              </button>
+              <button
+                type="button"
+                onClick={() => setPeriodo(periodoActual())}
+                className="px-2.5 py-1 rounded-md text-xs bg-white/[0.04] border border-white/10 text-zinc-200 hover:bg-white/[0.08]"
+              >
+                Volver al mes actual
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Meta + semáforo */}
       <div className={`rounded-xl border p-4 ${colorSem}`}>

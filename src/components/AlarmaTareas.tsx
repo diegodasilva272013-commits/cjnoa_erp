@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router-dom';
 import { AlertTriangle, X, ExternalLink, Volume2 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
-import { showOSNotification } from '../lib/notify';
 
 interface AlarmaTarea {
   id: string;
@@ -65,28 +64,14 @@ export default function AlarmaTareas() {
     if (mostradasRef.current.has(n.id)) return;
     mostradasRef.current.add(n.id);
     guardarMostradas(mostradasRef.current);
-    let reemplazo = false;
-    setCola(prev => {
-      // Dedupe: si ya hay una alarma para la misma tarea (related_id), la reemplazamos
-      // por la más nueva para evitar acumular ventanas repetidas.
-      const key = n.related_id || n.id;
-      const previas = prev.filter(x => (x.related_id || x.id) === key);
-      reemplazo = previas.length > 0;
-      const filtered = prev.filter(x => (x.related_id || x.id) !== key);
-      // Marcar las anteriores como leídas en DB para que no vuelvan a saltar
-      previas.forEach(p => {
-        supabase.from('notificaciones_app')
-          .update({ leida: true, leida_at: new Date().toISOString() })
-          .eq('id', p.id)
-          .then(() => {});
-      });
-      return [...filtered, n];
-    });
-    // Sólo beep + notificación de SO si es una alarma realmente nueva (no un reemplazo)
-    if (!reemplazo) {
-      reproducirBeep();
-      void showOSNotification(n.titulo, { body: n.mensaje || '', tag: n.related_id || n.id });
-    }
+    setCola(prev => [...prev, n]);
+    reproducirBeep();
+    // Notificacion del SO si esta permitida (silencioso si no)
+    try {
+      if ('Notification' in window && Notification.permission === 'granted') {
+        new Notification(n.titulo, { body: n.mensaje || '', tag: n.id });
+      }
+    } catch { /* noop */ }
   }
 
   // Pedir permiso de notificacion del SO una vez
@@ -188,48 +173,12 @@ export default function AlarmaTareas() {
     else navigate('/control-tareas');
   }
 
-  // Auto-cierre suave (sin sonido al cerrar) para tipos "informativos".
-  // Vencidas / próximas / escritos quedan hasta que el usuario las descarte.
-  useEffect(() => {
-    if (cola.length === 0) return;
-    const timers: ReturnType<typeof setTimeout>[] = [];
-    cola.forEach(n => {
-      const informativa = n.tipo === 'tarea_paso_siguiente'
-        || n.tipo === 'tarea_paso_asignado'
-        || n.tipo === 'tarea_compartida_completa'
-        || n.tipo === 'tarea_asignada';
-      if (informativa) {
-        timers.push(setTimeout(() => cerrar(n.id), 12000));
-      }
-    });
-    return () => { timers.forEach(clearTimeout); };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cola]);
-
   if (cola.length === 0) return null;
 
-  // Mostramos sólo las 3 más recientes; el resto se contabiliza en un pill.
-  const MAX_VISIBLES = 3;
-  const visibles = cola.slice(-MAX_VISIBLES).reverse();
-  const ocultas = Math.max(0, cola.length - MAX_VISIBLES);
-
   return (
-    <div className="fixed inset-0 z-[100] pointer-events-none flex items-start justify-end p-3 sm:p-4">
-      <div className="flex flex-col gap-2 w-full max-w-xs pointer-events-auto">
-        {ocultas > 0 && (
-          <button
-            type="button"
-            onClick={() => {
-              const restantes = cola.slice(0, cola.length - MAX_VISIBLES);
-              restantes.forEach(n => cerrar(n.id));
-            }}
-            className="self-end text-[10px] px-2 py-1 rounded-full bg-white/5 border border-white/10 text-gray-300 hover:text-white hover:bg-white/10"
-            title="Descartar las más antiguas"
-          >
-            +{ocultas} más · descartar
-          </button>
-        )}
-        {visibles.map(n => {
+    <div className="fixed inset-0 z-[100] pointer-events-none flex items-start justify-end p-4 sm:p-6">
+      <div className="flex flex-col gap-3 w-full max-w-sm pointer-events-auto">
+        {cola.map(n => {
           const esVencida = n.tipo === 'tarea_vencida';
           const esEscrito = n.tipo === 'presentar_escrito';
           const esVerificar = n.tipo === 'verificar_escrito';
@@ -239,34 +188,34 @@ export default function AlarmaTareas() {
             <div
               key={n.id}
               role="alertdialog"
-              className={`rounded-xl border shadow-lg backdrop-blur-md px-3 py-2 animate-fade-in ${
+              className={`rounded-2xl border-2 shadow-2xl backdrop-blur-md p-4 animate-fade-in ${
                 esFinalizada
-                  ? 'bg-emerald-500/15 border-emerald-400/50'
+                  ? 'bg-emerald-500/20 border-emerald-400/70 shadow-emerald-500/40'
                   : esPaso
-                  ? 'bg-sky-500/12 border-sky-500/45'
+                  ? 'bg-sky-500/15 border-sky-500/60 shadow-sky-500/30'
                   : esVerificar
-                  ? 'bg-amber-500/12 border-amber-500/45'
+                  ? 'bg-amber-500/15 border-amber-500/60 shadow-amber-500/30'
                   : esEscrito
-                  ? 'bg-emerald-500/12 border-emerald-500/45'
+                  ? 'bg-emerald-500/15 border-emerald-500/60 shadow-emerald-500/30'
                   : esVencida
-                  ? 'bg-red-500/15 border-red-500/55'
-                  : 'bg-orange-500/12 border-orange-500/45'
+                  ? 'bg-red-500/15 border-red-500/60 shadow-red-500/30'
+                  : 'bg-orange-500/15 border-orange-500/60 shadow-orange-500/30'
               }`}
-              style={{ animation: 'fade-in 0.25s ease-out' }}
+              style={{ animation: 'fade-in 0.3s ease-out, pulse 2s ease-in-out infinite' }}
             >
-              <div className="flex items-start gap-2">
-                <div className={`w-6 h-6 rounded-lg flex items-center justify-center flex-shrink-0 text-sm ${
-                  esFinalizada ? 'bg-emerald-500/30 text-emerald-50' :
-                  esPaso ? 'bg-sky-500/25 text-sky-100' :
-                  esVerificar ? 'bg-amber-500/25 text-amber-100' :
-                  esEscrito ? 'bg-emerald-500/25 text-emerald-100' :
-                  esVencida ? 'bg-red-500/25 text-red-200' : 'bg-orange-500/25 text-orange-200'
+              <div className="flex items-start gap-3">
+                <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${
+                  esFinalizada ? 'bg-emerald-500/40 text-emerald-50 text-xl' :
+                  esPaso ? 'bg-sky-500/30 text-sky-100 text-xl' :
+                  esVerificar ? 'bg-amber-500/30 text-amber-100' :
+                  esEscrito ? 'bg-emerald-500/30 text-emerald-100' :
+                  esVencida ? 'bg-red-500/30 text-red-200' : 'bg-orange-500/30 text-orange-200'
                 }`}>
-                  {esFinalizada ? <span>🎉</span> : esPaso ? <span>⚡</span> : <AlertTriangle className="w-3.5 h-3.5" />}
+                  {esFinalizada ? <span>🎉</span> : esPaso ? <span>⚡</span> : <AlertTriangle className="w-5 h-5" />}
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-start justify-between gap-2">
-                    <h4 className={`text-[12px] font-semibold leading-snug line-clamp-2 ${
+                    <h4 className={`text-sm font-bold ${
                       esFinalizada ? 'text-emerald-50' :
                       esPaso ? 'text-sky-100' :
                       esVerificar ? 'text-amber-100' :
@@ -276,42 +225,42 @@ export default function AlarmaTareas() {
                     </h4>
                     <button
                       onClick={() => cerrar(n.id)}
-                      className="text-gray-400 hover:text-white p-0.5 -mt-0.5 -mr-0.5 flex-shrink-0"
+                      className="text-gray-400 hover:text-white p-0.5 -mt-1 -mr-1"
                       title="Cerrar"
                     >
-                      <X className="w-3.5 h-3.5" />
+                      <X className="w-4 h-4" />
                     </button>
                   </div>
                   {n.mensaje && (
-                    <p className="text-[10.5px] text-gray-300 mt-0.5 leading-snug line-clamp-2">{n.mensaje}</p>
+                    <p className="text-[12px] text-gray-200 mt-1 leading-relaxed">{n.mensaje}</p>
                   )}
-                  <div className="flex items-center gap-1.5 mt-1.5">
+                  <div className="flex items-center gap-2 mt-3">
                     <button
                       onClick={() => abrir(n)}
-                      className={`text-[10px] font-semibold px-2 py-0.5 rounded-md flex items-center gap-1 ${
+                      className={`text-[11px] font-semibold px-3 py-1.5 rounded-lg flex items-center gap-1.5 ${
                         esFinalizada
-                          ? 'bg-emerald-500/80 hover:bg-emerald-400 text-white'
+                          ? 'bg-emerald-500 hover:bg-emerald-400 text-white'
                           : esPaso
-                          ? 'bg-sky-500/80 hover:bg-sky-400 text-white'
+                          ? 'bg-sky-500 hover:bg-sky-400 text-white'
                           : esVerificar
-                          ? 'bg-amber-500/80 hover:bg-amber-400 text-white'
+                          ? 'bg-amber-500 hover:bg-amber-400 text-white'
                           : esEscrito
-                          ? 'bg-emerald-500/80 hover:bg-emerald-400 text-white'
+                          ? 'bg-emerald-500 hover:bg-emerald-400 text-white'
                           : esVencida
-                          ? 'bg-red-500/80 hover:bg-red-400 text-white'
-                          : 'bg-orange-500/80 hover:bg-orange-400 text-white'
+                          ? 'bg-red-500 hover:bg-red-400 text-white'
+                          : 'bg-orange-500 hover:bg-orange-400 text-white'
                       }`}
                     >
-                      <ExternalLink className="w-2.5 h-2.5" /> {esFinalizada ? 'Seguimiento' : esPaso ? 'Mi Día' : esVerificar ? 'Verificar' : esEscrito ? 'Escrito' : 'Ver'}
+                      <ExternalLink className="w-3 h-3" /> {esFinalizada ? 'Ver seguimiento' : esPaso ? 'Ir a Mi Día' : esVerificar ? 'Verificar caso' : esEscrito ? 'Presentar escrito' : 'Ver tarea'}
                     </button>
                     <button
                       onClick={() => cerrar(n.id)}
-                      className="text-[10px] text-gray-400 hover:text-white px-1.5 py-0.5"
+                      className="text-[11px] text-gray-300 hover:text-white px-3 py-1.5"
                     >
-                      Cerrar
+                      Descartar
                     </button>
-                    <span className="ml-auto text-[9px] text-gray-500 flex items-center gap-0.5">
-                      <Volume2 className="w-2.5 h-2.5" />
+                    <span className="ml-auto text-[10px] text-gray-400 flex items-center gap-1">
+                      <Volume2 className="w-3 h-3" /> alarma
                     </span>
                   </div>
                 </div>

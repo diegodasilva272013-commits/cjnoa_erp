@@ -71,7 +71,7 @@ export default function ControlTareas() {
     // Estrategia: leer SIEMPRE de tareas_completas_v2 (que ya existe y trae todas las tareas
     // con joins a casos / casos_generales / perfiles) y computar estado_tiempo en cliente.
     // Esto evita depender de la vista control_tareas_v.
-    const [{ data, error }, prevRes, fedRes] = await Promise.all([
+    const [{ data, error }, prevRes] = await Promise.all([
       supabase
         .from('tareas_completas_v2')
         .select('*')
@@ -81,11 +81,6 @@ export default function ControlTareas() {
       supabase
         .from('tareas_previsional')
         .select('id, titulo, descripcion, estado, prioridad, fecha_limite, cargo_hora, responsable_id, responsable_nombre, fecha_completada, created_at, cliente_prev_id, clientes_prev:cliente_prev_id(apellido_nombre)')
-        .order('fecha_limite', { ascending: true, nullsFirst: false }),
-      // Tareas federales (módulo Federales)
-      supabase
-        .from('tareas_federales')
-        .select('id, titulo, descripcion, estado, prioridad, fecha_limite, responsable_id, responsable_nombre, fecha_completada, created_at, cliente_fed_id, clientes_federales:cliente_fed_id(apellido_nombre, numero_expediente)')
         .order('fecha_limite', { ascending: true, nullsFirst: false }),
     ]);
 
@@ -173,34 +168,7 @@ export default function ControlTareas() {
         };
       });
 
-    // Mergear tareas federales
-    const fedsRaw = (fedRes?.data as any[]) || [];
-    const federalesMapped: ControlTarea[] = fedsRaw.map(f => {
-      const { et, dr } = computeEstadoTiempo(f.estado, f.fecha_limite);
-      const cliente = (f as any).clientes_federales || {};
-      return {
-        id: `fed-${f.id}`,
-        titulo: `[Federal] ${f.titulo}`,
-        estado: f.estado === 'completada' ? 'completada' : 'en_curso',
-        prioridad: f.prioridad,
-        fecha_limite: f.fecha_limite,
-        cargo_hora: null,
-        responsable_id: f.responsable_id,
-        responsable_nombre: f.responsable_nombre,
-        responsable_avatar: null,
-        caso_general_id: null,
-        caso_general_titulo: null,
-        caso_general_expediente: null,
-        cliente_nombre: cliente.apellido_nombre || null,
-        expediente_caso: cliente.numero_expediente || null,
-        estado_tiempo: et,
-        dias_restantes: dr,
-        created_at: f.created_at,
-        fecha_completada: f.fecha_completada,
-      };
-    });
-
-    setTareas([...mapped, ...previsionalesMapped, ...federalesMapped]);
+    setTareas([...mapped, ...previsionalesMapped]);
     setLoading(false);
   }
 
@@ -210,7 +178,6 @@ export default function ControlTareas() {
     const ch = supabase.channel('control-tareas')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'tareas' }, () => load())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'tareas_previsional' }, () => load())
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'tareas_federales' }, () => load())
       .subscribe();
     return () => { supabase.removeChannel(ch); };
   }, []);

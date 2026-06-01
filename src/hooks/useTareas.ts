@@ -50,16 +50,7 @@ export function useTareas() {
   const upsert = useCallback(async (t: Partial<Tarea>, userId: string) => {
     const payload: any = { ...t, updated_by: userId, updated_at: new Date().toISOString() };
     if (!t.id) payload.created_by = userId;
-    // Si es update parcial (tiene id), usamos UPDATE para no requerir columnas NOT NULL
-    let data: any = null, error: any = null;
-    if (t.id) {
-      const { id, ...rest } = payload;
-      const r = await supabase.from('tareas').update(rest).eq('id', id).select().single();
-      data = r.data; error = r.error;
-    } else {
-      const r = await supabase.from('tareas').upsert(payload).select().single();
-      data = r.data; error = r.error;
-    }
+    const { data, error } = await supabase.from('tareas').upsert(payload).select().single();
     if (error) { showToast('Error al guardar tarea: ' + error.message, 'error'); return false as const; }
     showToast(t.id ? 'Tarea actualizada' : 'Tarea creada', 'success');
     fetch();

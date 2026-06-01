@@ -1,0 +1,36 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "noaerp-build",
+			"type": "shell",
+			"command": "npm",
+			"args": [
+				"run",
+				"build"
+			],
+			"problemMatcher": [
+				"$tsc"
+			],
+			"group": "build"
+		},
+		{
+			"label": "noaerp-gitpush",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-Command",
+				"git add -A; git commit -m 'feat(finanzas): selector de periodo reutilizable + empty-state inteligente + cierre de mes mas seguro'; git push"
+			]
+		},
+		{
+			"label": "noaerp-git-add",
+			"type": "shell",
+			"command": "git",
+			"args": [
+				"add",
+				"-A"
+			]
+		}
+	]
+}

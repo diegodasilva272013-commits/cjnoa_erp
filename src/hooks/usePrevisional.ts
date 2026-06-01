@@ -189,20 +189,18 @@ export function useTareasPrevisional(filtroResponsable?: string) {
     return () => { supabase.removeChannel(ch); };
   }, [fetch]);
 
-  const upsert = async (data: Partial<TareaPrevisional>, id?: string): Promise<string | null> => {
+  const upsert = async (data: Partial<TareaPrevisional>, id?: string) => {
     if (id) {
       const { error } = await supabase.from('tareas_previsional').update({ ...data, updated_at: new Date().toISOString() }).eq('id', id);
-      if (error) { showToast('Error: ' + error.message, 'error'); return null; }
+      if (error) { showToast('Error: ' + error.message, 'error'); return false; }
       showToast('Tarea actualizada', 'success');
-      await fetch();
-      return id;
     } else {
-      const { data: ins, error } = await supabase.from('tareas_previsional').insert(data).select('id').single();
-      if (error || !ins) { showToast('Error: ' + (error?.message || 'no se pudo crear'), 'error'); return null; }
+      const { error } = await supabase.from('tareas_previsional').insert(data);
+      if (error) { showToast('Error: ' + error.message, 'error'); return false; }
       showToast('Tarea creada', 'success');
-      await fetch();
-      return ins.id as string;
     }
+    await fetch();
+    return true;
   };
 
   const completar = async (id: string, userId: string) => {
