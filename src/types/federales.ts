@@ -9,6 +9,10 @@ export type PipelineFederal =
   | 'esperando_sentencia'
   | 'analisis_sin_directivas'
   | 'informe'
+  | 'informe_control'
+  | 'control_demanda'
+  | 'apelacion_activo'
+  | 'cautelar_otorgada'
   | 'en_ejecucion'
   | 'seguimiento'
   | 'archivado';
@@ -100,23 +104,32 @@ export interface TareaFederal {
 }
 
 // ── Constantes UI ──
+// Orden visible en el Kanban (de izquierda a derecha).
 export const PIPELINE_FEDERAL_ORDERED: PipelineFederal[] = [
-  'activo',
-  'esperando_audiencia',
-  'esperando_sentencia',
-  'analisis_sin_directivas',
   'informe',
+  'informe_control',
+  'esperando_sentencia',     // label: "Cierre Llamada"
+  'analisis_sin_directivas', // label: "Armado Demanda"
+  'control_demanda',
+  'activo',
+  'esperando_audiencia',     // label: "Esperando Sentencia"
+  'apelacion_activo',
   'en_ejecucion',
   'seguimiento',
+  'cautelar_otorgada',
   'archivado',
 ];
 
 export const PIPELINE_FEDERAL_LABELS: Record<PipelineFederal, string> = {
   activo: 'Activo',
-  esperando_audiencia: 'Esperando audiencia',
-  esperando_sentencia: 'Esperando sentencia',
-  analisis_sin_directivas: 'En análisis sin directivas',
+  esperando_audiencia: 'Esperando Sentencia',
+  esperando_sentencia: 'Cierre Llamada',
+  analisis_sin_directivas: 'Armado Demanda',
   informe: 'Informe',
+  informe_control: 'Informe Control',
+  control_demanda: 'Control Demanda',
+  apelacion_activo: 'Apelación Activo',
+  cautelar_otorgada: 'Cautelar Otorgada',
   en_ejecucion: 'En ejecución',
   seguimiento: 'Seguimiento',
   archivado: 'Archivado',
@@ -128,6 +141,10 @@ export const PIPELINE_FEDERAL_COLORS: Record<PipelineFederal, string> = {
   esperando_sentencia: 'bg-violet-500/10 text-violet-400 border-violet-500/20',
   analisis_sin_directivas: 'bg-amber-500/10 text-amber-400 border-amber-500/20',
   informe: 'bg-fuchsia-500/10 text-fuchsia-400 border-fuchsia-500/20',
+  informe_control: 'bg-pink-500/10 text-pink-400 border-pink-500/20',
+  control_demanda: 'bg-orange-500/10 text-orange-400 border-orange-500/20',
+  apelacion_activo: 'bg-teal-500/10 text-teal-400 border-teal-500/20',
+  cautelar_otorgada: 'bg-lime-500/10 text-lime-400 border-lime-500/20',
   en_ejecucion: 'bg-cyan-500/10 text-cyan-400 border-cyan-500/20',
   seguimiento: 'bg-sky-500/10 text-sky-400 border-sky-500/20',
   archivado: 'bg-gray-500/10 text-gray-400 border-gray-500/20',

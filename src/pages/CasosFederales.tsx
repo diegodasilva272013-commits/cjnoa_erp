@@ -367,13 +367,17 @@ function VistaTabla({
 // ─────────────────────────── Kanban ────────────────────────────────────────
 function pipelineDot(p: PipelineFederal): string {
   switch (p) {
-    case 'activo': return 'bg-emerald-500';
-    case 'esperando_audiencia': return 'bg-blue-500';
+    case 'informe': return 'bg-fuchsia-500';
+    case 'informe_control': return 'bg-pink-500';
     case 'esperando_sentencia': return 'bg-violet-500';
     case 'analisis_sin_directivas': return 'bg-amber-500';
-    case 'informe': return 'bg-fuchsia-500';
+    case 'control_demanda': return 'bg-orange-500';
+    case 'activo': return 'bg-emerald-500';
+    case 'esperando_audiencia': return 'bg-blue-500';
+    case 'apelacion_activo': return 'bg-teal-500';
     case 'en_ejecucion': return 'bg-cyan-500';
     case 'seguimiento': return 'bg-sky-500';
+    case 'cautelar_otorgada': return 'bg-lime-500';
     case 'archivado': return 'bg-gray-500';
     default: return 'bg-gray-500';
   }
