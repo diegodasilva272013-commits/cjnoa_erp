@@ -1,7 +1,8 @@
 import { useMemo, useRef } from 'react';
-import { Menu, LogOut, User, Camera, Search } from 'lucide-react';
+import { Menu, LogOut, User, Camera, Search, Sun, Moon } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
+import { useTheme } from '../context/ThemeContext';
 import { supabase } from '../lib/supabase';
 import { useAvatarUrl } from '../hooks/useAvatarUrl';
 import { ROLES, Rol } from '../types/database';
@@ -15,6 +16,7 @@ interface TopbarProps {
 export default function Topbar({ onMenuClick }: TopbarProps) {
   const { user, perfil, signOut, refetchPerfil } = useAuth();
   const { showToast } = useToast();
+  const { theme, toggleTheme } = useTheme();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const rolLabel = ROLES.find(r => r.value === perfil?.rol)?.label || perfil?.rol || 'Usuario';
   const avatarUrl = useAvatarUrl(perfil?.avatar_url);
@@ -74,6 +76,13 @@ export default function Topbar({ onMenuClick }: TopbarProps) {
           </button>
           <NotificacionesBellApp />
           <NotificationBell />
+          <button
+            onClick={toggleTheme}
+            className="p-2.5 text-gray-500 hover:text-yellow-400 rounded-xl hover:bg-yellow-500/10 transition-all duration-200 min-w-[40px] min-h-[40px] flex items-center justify-center"
+            title={theme === 'dark' ? 'Cambiar a modo claro' : 'Cambiar a modo oscuro'}
+          >
+            {theme === 'dark' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+          </button>
           <div className="flex items-center gap-2 sm:gap-3 px-2 sm:px-4 py-1.5 sm:py-2 rounded-xl bg-white/[0.03] border border-white/[0.06]">
             <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={handleAvatarUpload} />
             <button

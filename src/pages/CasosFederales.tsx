@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from 'react';
-import { Plus, Search, Trash2, Briefcase, Phone, Check, Copy, ChevronRight, Filter, FileText, Pencil } from 'lucide-react';
+import { Plus, Search, Trash2, Briefcase, Phone, Check, Copy, ChevronRight, Filter, FileText, Pencil, CopyPlus } from 'lucide-react';
 import { useClientesFederales } from '../hooks/useFederales';
 import FichaFederalModal from '../components/federales/FichaFederalModal';
 import FichaFederalDetalle from '../components/federales/FichaFederalDetalle';
@@ -89,6 +89,37 @@ export default function CasosFederales() {
   function abrirNuevo() { setFichaEditando(null); setModalAbierto(true); }
   function abrirEditar(c: ClienteFederal) {
     setFichaEditando(c);
+    setFichaDetalle(null);
+    setModalAbierto(true);
+  }
+  function abrirDuplicar(c: ClienteFederal) {
+    // Copia los datos personales del cliente pero resetea los campos del caso nuevo
+    setFichaEditando({
+      apellido_nombre: c.apellido_nombre,
+      cuil: c.cuil,
+      clave_social: c.clave_social,
+      clave_fiscal: c.clave_fiscal,
+      fecha_nacimiento: c.fecha_nacimiento,
+      sexo: c.sexo,
+      direccion: c.direccion,
+      telefono: c.telefono,
+      captado_por: c.captado_por,
+      tipo_caso: c.tipo_caso ? [...c.tipo_caso] : [],
+      tipo_caso_otros: c.tipo_caso_otros,
+      pipeline: 'activo',
+      pipeline_fecha_ingreso: null,
+      numero_expediente: null,
+      cobro_total: 0,
+      monto_cobrado: 0,
+      situacion_actual: null,
+      fecha_ultimo_contacto: null,
+      url_drive: null,
+      resumen_informe: null,
+      conclusion: null,
+      caso_id: null,
+      cliente_id: null,
+      visible_para: null,
+    } as ClienteFederal);
     setFichaDetalle(null);
     setModalAbierto(true);
   }
@@ -185,6 +216,7 @@ export default function CasosFederales() {
           toggleSort={toggleSort}
           onSelect={setFichaDetalle}
           onEdit={abrirEditar}
+          onDuplicar={abrirDuplicar}
           copiado={copiado}
           copiar={copiar}
           confirmDel={confirmDel}
@@ -210,6 +242,11 @@ export default function CasosFederales() {
             setFichaDetalle(null);
             setModalAbierto(true);
           }}
+          onDuplicar={() => {
+            const base = fichaDetalle;
+            setFichaDetalle(null);
+            abrirDuplicar(base);
+          }}
         />
       )}
     </div>
@@ -233,7 +270,7 @@ function SortHeader({ k, label, sortKey, sortDir, onClick, className = '' }: {
 }
 
 function VistaTabla({
-  items, sortKey, sortDir, toggleSort, onSelect, onEdit, copiado, copiar, confirmDel, handleDel,
+  items, sortKey, sortDir, toggleSort, onSelect, onEdit, onDuplicar, copiado, copiar, confirmDel, handleDel,
 }: {
   items: ClienteFederal[];
   sortKey: SortKey;
@@ -241,6 +278,7 @@ function VistaTabla({
   toggleSort: (k: SortKey) => void;
   onSelect: (c: ClienteFederal) => void;
   onEdit: (c: ClienteFederal) => void;
+  onDuplicar: (c: ClienteFederal) => void;
   copiado: string | null;
   copiar: (e: React.MouseEvent, txt: string, id: string) => void;
   confirmDel: string | null;
@@ -346,6 +384,13 @@ function VistaTabla({
                       <Pencil className="w-3.5 h-3.5" />
                     </button>
                     <button
+                      onClick={e => { e.stopPropagation(); onDuplicar(c); }}
+                      title="Duplicar ficha (nuevo caso con mismos datos personales)"
+                      className="p-1.5 rounded-lg transition-colors text-gray-600 hover:text-violet-400 hover:bg-violet-500/10"
+                    >
+                      <CopyPlus className="w-3.5 h-3.5" />
+                    </button>
+                    <button
                       onClick={e => handleDel(e, c)}
                       title={confirmDel === c.id ? 'Click otra vez para eliminar' : 'Eliminar'}
                       className={`p-1.5 rounded-lg transition-colors ${confirmDel === c.id ? 'bg-red-500/20 text-red-400' : 'text-gray-600 hover:text-red-400 hover:bg-red-500/10'}`}
@@ -367,17 +412,13 @@ function VistaTabla({
 // ─────────────────────────── Kanban ────────────────────────────────────────
 function pipelineDot(p: PipelineFederal): string {
   switch (p) {
-    case 'informe': return 'bg-fuchsia-500';
-    case 'informe_control': return 'bg-pink-500';
-    case 'esperando_sentencia': return 'bg-violet-500';
-    case 'analisis_sin_directivas': return 'bg-amber-500';
-    case 'control_demanda': return 'bg-orange-500';
     case 'activo': return 'bg-emerald-500';
     case 'esperando_audiencia': return 'bg-blue-500';
-    case 'apelacion_activo': return 'bg-teal-500';
+    case 'esperando_sentencia': return 'bg-violet-500';
+    case 'analisis_sin_directivas': return 'bg-amber-500';
+    case 'informe': return 'bg-fuchsia-500';
     case 'en_ejecucion': return 'bg-cyan-500';
     case 'seguimiento': return 'bg-sky-500';
-    case 'cautelar_otorgada': return 'bg-lime-500';
     case 'archivado': return 'bg-gray-500';
     default: return 'bg-gray-500';
   }

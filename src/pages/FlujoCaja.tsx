@@ -44,12 +44,15 @@ export default function FlujoCaja() {
     return Number(dH) === ultimoDia;
   }, [periodoFin.desde, periodoFin.hasta]);
 
-  // YYYY-MM derivado para cierres / meta. Si el rango no es un mes completo,
-  // cae al mes actual como fallback (la UI deshabilita las acciones mensuales).
-  const periodo = useMemo(
-    () => (esMesCompleto ? periodoFin.desde.slice(0, 7) : periodoActual()),
-    [esMesCompleto, periodoFin.desde],
-  );
+  // Clave para cierres_mes_finanzas.
+  // - Mes completo: "YYYY-MM"
+  // - Rango personalizado: "YYYY-MM-DD_YYYY-MM-DD"
+  // - Sin rango: fallback al mes actual (no debería llegar a cerrar en ese estado)
+  const periodo = useMemo(() => {
+    if (esMesCompleto) return periodoFin.desde.slice(0, 7);
+    if (periodoFin.desde && periodoFin.hasta) return `${periodoFin.desde}_${periodoFin.hasta}`;
+    return periodoActual();
+  }, [esMesCompleto, periodoFin.desde, periodoFin.hasta]);
 
   const [meta, setMeta] = useState<number>(0);
   const [metaInput, setMetaInput] = useState<string>('');
@@ -276,24 +279,29 @@ export default function FlujoCaja() {
   }
 
   async function handleCerrarMes() {
+    const rangLabel = periodoFin.label;
     if (yaCerrado) {
-      const ok = window.confirm(`El mes ${periodo} ya estaba cerrado. ¿Sobrescribir el snapshot con los datos actuales?`);
+      const ok = window.confirm(`El período "${rangLabel}" ya fue cerrado. ¿Sobrescribir el snapshot con los datos actuales?`);
       if (!ok) return;
     } else {
-      const ok = window.confirm(`Cerrar el mes ${periodo}?\n\n• Se guardará un snapshot completo en Historial.\n• Se BORRARÁN los ingresos, egresos y cambios del periodo de las tablas activas.\n• El próximo mes arranca en 0.\n\nLos datos siguen accesibles desde Historial.`);
+      const ok = window.confirm(`Cerrar el período "${rangLabel}"?\n\n• Se guardará un snapshot completo en Historial.\n• Se BORRARÁN los ingresos, egresos y cambios de ese rango de las tablas activas.\n\nLos datos siguen accesibles desde Historial.`);
       if (!ok) return;
     }
     setCerrando(true);
     try {
+      // Usar el rango exacto seleccionado (no mes calendario)
+      const inicio = periodoFin.desde;
+      const hasta = periodoFin.hasta;
+      if (!inicio || !hasta) {
+        showToast('Seleccioná un rango con fecha inicio y fin para cerrar', 'error');
+        return;
+      }
       // Cargar gastos de fondos del periodo (gastos sobre fondos en custodia)
-      const [y, mm] = periodo.split('-').map(Number);
-      const inicio = `${periodo}-01`;
-      const finExclusivo = mm === 12 ? `${y + 1}-01-01` : `${y}-${String(mm + 1).padStart(2, '0')}-01`;
       const { data: fondosMov } = await supabase
         .from('fondos_movimientos')
         .select('id, fondo_id, fecha, nombre_gasto, monto, observaciones')
         .gte('fecha', inicio)
-        .lt('fecha', finExclusivo)
+        .lte('fecha', hasta)
         .order('fecha', { ascending: false });
 
       // Conteos extra
@@ -373,17 +381,17 @@ export default function FlujoCaja() {
         return;
       }
 
-      // Borrar los registros del periodo para arrancar el mes siguiente en 0.
+      // Borrar los registros del rango exacto seleccionado.
       // Los datos quedan archivados en el snapshot del cierre.
       const [delIng, delEg, delMov] = await Promise.all([
-        supabase.from('ingresos_operativos').delete().gte('fecha', inicio).lt('fecha', finExclusivo),
-        supabase.from('egresos_v2').delete().gte('fecha', inicio).lt('fecha', finExclusivo),
-        supabase.from('movimientos_caja').delete().gte('fecha', inicio).lt('fecha', finExclusivo),
+        supabase.from('ingresos_operativos').delete().gte('fecha', inicio).lte('fecha', hasta),
+        supabase.from('egresos_v2').delete().gte('fecha', inicio).lte('fecha', hasta),
+        supabase.from('movimientos_caja').delete().gte('fecha', inicio).lte('fecha', hasta),
       ]);
       if (delIng.error || delEg.error || delMov.error) {
         showToast(`Cierre archivado pero hubo un error al limpiar: ${delIng.error?.message || delEg.error?.message || delMov.error?.message}`, 'error');
       } else {
-        showToast(`Mes ${periodo} cerrado, archivado y reseteado a 0`, 'success');
+        showToast(`Período "${rangLabel}" cerrado y archivado`, 'success');
       }
       // Refrescar datos en pantalla
       setEgresos([]);
@@ -415,14 +423,14 @@ export default function FlujoCaja() {
           </button>
           <button
             onClick={handleCerrarMes}
-            disabled={cerrando}
+            disabled={cerrando || !periodoFin.desde || !periodoFin.hasta}
             className={`px-3 py-2 rounded-lg text-sm text-white flex items-center gap-2 disabled:opacity-50 ${yaCerrado ? 'bg-amber-600 hover:bg-amber-500' : 'bg-violet-600 hover:bg-violet-500'}`}
-            title={esMesCompleto
-              ? (yaCerrado ? `Sobrescribir cierre de ${periodo}` : `Archivar ${periodo} en Historial`)
-              : `El rango actual no es un mes completo — se cerrará el mes ${periodo}`}
+            title={yaCerrado
+              ? `Sobrescribir cierre de ${periodoFin.label}`
+              : `Archivar "${periodoFin.label}" en Historial`}
           >
             {cerrando ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Archive className="w-4 h-4" />}
-            {yaCerrado ? `Re-cerrar ${periodo}` : `Cerrar ${periodo}`}
+            {yaCerrado ? 'Re-cerrar' : 'Cerrar'} {esMesCompleto ? periodo : 'rango'}
           </button>
         </div>
       </header>

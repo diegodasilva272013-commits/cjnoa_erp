@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import {
   X, MessageSquare, ListChecks, Phone, MapPin, CreditCard, FileText, ExternalLink,
   Trash2, Check, Plus, Pencil, Mic, MicOff, Square, Paperclip, FolderOpen, Download,
-  Users, ChevronDown as ChevDown, ChevronRight as ChevRight,
+  Users, ChevronDown as ChevDown, ChevronRight as ChevRight, CopyPlus,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useNotasFederales, useTareasFederales } from '../../hooks/useFederales';
@@ -25,9 +25,10 @@ interface Props {
   ficha: ClienteFederal;
   onClose: () => void;
   onEdit?: () => void;
+  onDuplicar?: () => void;
 }
 
-export default function FichaFederalDetalle({ ficha, onClose, onEdit }: Props) {
+export default function FichaFederalDetalle({ ficha, onClose, onEdit, onDuplicar }: Props) {
   const { user } = useAuth();
 
   const { notas, add: addNota, remove: removeNota } = useNotasFederales(ficha.id);
@@ -207,6 +208,15 @@ export default function FichaFederalDetalle({ ficha, onClose, onEdit }: Props) {
               <span className="badge border bg-blue-500/10 text-blue-300 border-blue-500/20">Federal</span>
             </div>
             <div className="flex items-center gap-1.5 ml-auto">
+              {onDuplicar && (
+                <button
+                  onClick={onDuplicar}
+                  className="px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors border bg-violet-500/10 border-violet-500/30 text-violet-300 hover:bg-violet-500/20"
+                  title="Duplicar ficha: crea un caso nuevo con los datos personales de este cliente"
+                >
+                  <CopyPlus className="w-3 h-3 inline mr-1" /> Duplicar
+                </button>
+              )}
               {onEdit && (
                 <button
                   onClick={onEdit}

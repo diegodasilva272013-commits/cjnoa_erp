@@ -1,12 +1,11 @@
 import { useEffect, useMemo, useState, useRef } from 'react';
-import { useSearchParams } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
-import { ChevronLeft, ChevronRight, RefreshCw, Link as LinkIcon, Unlink, ExternalLink, Gavel, CalendarClock, Briefcase, Plus, X, Image as ImageIcon, Sparkles, Trash2, Mic, MicOff } from 'lucide-react';
+import { ChevronLeft, ChevronRight, RefreshCw, Gavel, CalendarClock, Briefcase, Plus, X, Image as ImageIcon, Sparkles, Trash2, Mic, MicOff, FileUp } from 'lucide-react';
 
 type EventoCal = {
   id: string;
-  source: 'audiencia_general' | 'consulta' | 'audiencia_legal' | 'gcal' | 'interno';
+  source: 'audiencia_general' | 'consulta' | 'audiencia_legal' | 'interno';
   fecha: Date;
   titulo: string;
   subtitulo?: string;
@@ -37,13 +36,10 @@ function buildGrid(monthDate: Date) {
 
 export default function Calendario() {
   const { user } = useAuth();
-  const [params, setParams] = useSearchParams();
   const [cursor, setCursor] = useState(() => new Date());
   const [eventos, setEventos] = useState<EventoCal[]>([]);
   const [loading, setLoading] = useState(false);
-  const [conectado, setConectado] = useState<{ google_email?: string; conectado_at?: string } | null>(null);
   const [diaSeleccionado, setDiaSeleccionado] = useState<string | null>(null);
-  const [syncing, setSyncing] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [busquedaGlobal, setBusquedaGlobal] = useState('');
   const [resultadosBusqueda, setResultadosBusqueda] = useState<Array<{ id: string; titulo: string; subtitulo: string; fecha: Date; source: string }>>([]);
@@ -54,16 +50,17 @@ export default function Calendario() {
     todoElDia: boolean; guardando: boolean;
   }>(null);
 
-  // Estado para subir fotos y extraer turnos con IA
+  // Estado para subir fotos/PDF y extraer turnos con IA
   type TurnoExtraido = {
     titulo: string; fecha: string; hora: string;
     ubicacion: string; descripcion: string; persona: string;
     cuil?: string; oficina?: string; numero_solicitud?: string;
     incluir: boolean; creado?: boolean; error?: string;
   };
+  type ArchivoModal = { name: string; dataUrl: string; tipo: 'imagen' | 'pdf' };
   const [iaModal, setIaModal] = useState<null | {
     fase: 'subir' | 'analizando' | 'revisar' | 'creando';
-    archivos: { name: string; dataUrl: string }[];
+    archivos: ArchivoModal[];
     turnos: TurnoExtraido[];
     log: string;
   }>(null);
@@ -124,35 +121,7 @@ export default function Calendario() {
         return;
       }
 
-      // 2) Si Google Calendar está conectado, además se sincroniza.
-      let msgFinal = '✅ Evento agendado en el sistema.';
-      if (conectado) {
-        try {
-          const r = await fetch('/api/google/create-event', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              user_id: user.id,
-              summary: nuevoEvento.titulo,
-              description: nuevoEvento.descripcion,
-              location: nuevoEvento.ubicacion,
-              start: startDate.toISOString(),
-              end: endDate.toISOString(),
-              allDay: nuevoEvento.todoElDia,
-            }),
-          });
-          const j = await r.json();
-          if (j.ok && j.event_id && insertado?.id) {
-            await supabase.from('eventos_internos').update({ google_event_id: j.event_id }).eq('id', insertado.id);
-            msgFinal = '✅ Evento agendado y sincronizado con Google Calendar.';
-          } else if (!j.ok) {
-            msgFinal = '✅ Evento agendado en el sistema (no se pudo sync a Google: ' + (j.error || 'error') + ').';
-          }
-        } catch (e: any) {
-          msgFinal = '✅ Evento agendado en el sistema (no se pudo sync a Google: ' + (e?.message || 'error') + ').';
-        }
-      }
-
-      setMsg(msgFinal);
+      setMsg('✅ Evento agendado.');
       setNuevoEvento(null);
       // refrescar la grilla forzando un re-fetch (cambia un dummy en cursor)
       setCursor(new Date(cursor));
@@ -249,34 +218,52 @@ export default function Calendario() {
 
   async function onSelectFiles(files: FileList | null) {
     if (!iaModal || !files || files.length === 0) return;
-    const arr: { name: string; dataUrl: string }[] = [];
+    const arr: ArchivoModal[] = [];
     for (const f of Array.from(files)) {
-      if (!f.type.startsWith('image/')) continue;
+      const esPdf = f.type === 'application/pdf' || f.name.toLowerCase().endsWith('.pdf');
+      if (!f.type.startsWith('image/') && !esPdf) continue;
       const dataUrl = await new Promise<string>((resolve, reject) => {
         const reader = new FileReader();
         reader.onload = () => resolve(reader.result as string);
         reader.onerror = reject;
         reader.readAsDataURL(f);
       });
-      arr.push({ name: f.name, dataUrl });
+      arr.push({ name: f.name, dataUrl, tipo: esPdf ? 'pdf' : 'imagen' });
     }
     setIaModal({ ...iaModal, archivos: [...iaModal.archivos, ...arr] });
   }
 
   async function analizarConIA() {
     if (!iaModal || iaModal.archivos.length === 0) return;
-    setIaModal({ ...iaModal, fase: 'analizando', log: 'Analizando imágenes con IA…' });
+    setIaModal({ ...iaModal, fase: 'analizando', log: 'Analizando archivos con IA…' });
     try {
-      const r = await fetch('/api/google/extract-turnos', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ images: iaModal.archivos.map(a => a.dataUrl) }),
-      });
-      const j = await r.json();
-      if (!r.ok || !Array.isArray(j.turnos)) {
-        setIaModal({ ...iaModal, fase: 'subir', log: '❌ Error: ' + (j.error || 'no se pudieron leer los turnos') });
-        return;
+      const todasLasRaw: any[] = [];
+
+      // Procesar imágenes
+      const imagenes = iaModal.archivos.filter(a => a.tipo === 'imagen');
+      if (imagenes.length > 0) {
+        const r = await fetch('/api/google/extract-turnos', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ images: imagenes.map(a => a.dataUrl) }),
+        });
+        const j = await r.json();
+        if (r.ok && Array.isArray(j.turnos)) todasLasRaw.push(...j.turnos);
       }
-      const turnos: TurnoExtraido[] = j.turnos.map((t: any) => ({
+
+      // Procesar PDFs
+      const pdfs = iaModal.archivos.filter(a => a.tipo === 'pdf');
+      for (const pdf of pdfs) {
+        const base64 = pdf.dataUrl.split(',')[1] || pdf.dataUrl;
+        const r = await fetch('/api/extract-pdf', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ pdf_base64: base64, nombre: pdf.name }),
+        });
+        const j = await r.json();
+        if (r.ok && Array.isArray(j.turnos)) todasLasRaw.push(...j.turnos);
+        else if (!r.ok) todasLasRaw.push({ titulo: `Error en ${pdf.name}`, fecha: '', hora: '', error: j.error || 'fallo' });
+      }
+
+      const turnos: TurnoExtraido[] = todasLasRaw.map((t: any) => ({
         titulo: t.titulo || '',
         fecha: t.fecha || '',
         hora: t.hora || '10:00',
@@ -294,11 +281,8 @@ export default function Calendario() {
     }
   }
 
-  async function crearTurnosEnGoogle() {
-    if (!iaModal || !user || !conectado) {
-      setMsg('Conectá Google Calendar primero.');
-      return;
-    }
+  async function crearTurnosEnSistema() {
+    if (!iaModal || !user) return;
     setIaModal({ ...iaModal, fase: 'creando', log: 'Creando eventos…' });
     const turnos = [...iaModal.turnos];
     let ok = 0, fail = 0;
@@ -309,56 +293,31 @@ export default function Calendario() {
         const startISO = `${t.fecha}T${(t.hora || '10:00')}:00`;
         const startDate = new Date(startISO);
         const endDate = new Date(startDate.getTime() + 60 * 60_000);
-        const r = await fetch('/api/google/create-event', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            user_id: user.id,
-            summary: t.titulo || `Turno ${t.persona || ''}`.trim(),
-            description: [t.persona && `Titular: ${t.persona}`, t.cuil && `CUIL: ${t.cuil}`, t.numero_solicitud && `Nº solicitud: ${t.numero_solicitud}`, t.descripcion]
-              .filter(Boolean).join('\n'),
-            location: t.ubicacion || t.oficina || '',
-            start: startDate.toISOString(),
-            end: endDate.toISOString(),
-            allDay: false,
-          }),
+        const { error } = await supabase.from('eventos_internos').insert({
+          user_id: user.id,
+          titulo: (t.titulo || `Turno ${t.persona || ''}`).trim() || 'Turno',
+          descripcion: [
+            t.persona && `Titular: ${t.persona}`,
+            t.cuil && `CUIL: ${t.cuil}`,
+            t.numero_solicitud && `Nº solicitud: ${t.numero_solicitud}`,
+            t.descripcion,
+          ].filter(Boolean).join('\n') || null,
+          ubicacion: t.ubicacion || t.oficina || null,
+          fecha_inicio: startDate.toISOString(),
+          fecha_fin: endDate.toISOString(),
+          todo_el_dia: false,
         });
-        const j = await r.json();
-        if (j.ok) { turnos[i] = { ...t, creado: true }; ok++; }
-        else { turnos[i] = { ...t, error: j.error || 'fallo' }; fail++; }
+        if (!error) { turnos[i] = { ...t, creado: true }; ok++; }
+        else { turnos[i] = { ...t, error: error.message }; fail++; }
       } catch (e: any) {
         turnos[i] = { ...t, error: e?.message || 'error' };
         fail++;
       }
     }
-    setIaModal({ ...iaModal, fase: 'revisar', turnos, log: `Listo: ${ok} creados${fail ? `, ${fail} con error` : ''}.` });
-    setMsg(`✅ ${ok} turno(s) agregado(s) al Google Calendar.`);
+    setIaModal({ ...iaModal, fase: 'revisar', turnos, log: `Listo: ${ok} creado(s)${fail ? `, ${fail} con error` : ''}.` });
+    setMsg(`✅ ${ok} turno(s) agregado(s) al calendario.`);
     setCursor(new Date(cursor));
   }
-
-  // Mensaje desde callback
-  useEffect(() => {
-    if (params.get('connected') === '1') {
-      setMsg('✅ Google Calendar conectado correctamente.');
-      params.delete('connected');
-      setParams(params, { replace: true });
-    }
-    const err = params.get('google_error');
-    if (err) {
-      setMsg('❌ Error conectando Google: ' + err);
-      params.delete('google_error');
-      setParams(params, { replace: true });
-    }
-  }, []);
-
-  // Estado de conexion Google
-  useEffect(() => {
-    if (!user) return;
-    supabase.from('google_oauth_tokens')
-      .select('google_email, conectado_at')
-      .eq('user_id', user.id)
-      .maybeSingle()
-      .then(({ data }) => setConectado(data || null));
-  }, [user, msg]);
 
   // Cargar eventos del mes visible
   useEffect(() => {
@@ -375,8 +334,6 @@ export default function Calendario() {
       supabase.from('audiencias_general_completas')
         .select('*')
         .gte('fecha', startISO).lte('fecha', endISO),
-      // Cargamos TODAS las consultas (la tabla es chica) para que nunca quede nada
-      // fuera por un filtro de rango/fecha; el render por dia las ubica solo en su celda.
       supabase.from('consultas_agendadas')
         .select('*')
         .order('fecha_consulta', { ascending: false })
@@ -384,21 +341,14 @@ export default function Calendario() {
       supabase.from('audiencias')
         .select('*')
         .gte('fecha', startISO).lte('fecha', endISO),
-      // Eventos directos del Google Calendar del usuario (si esta conectado)
-      conectado && user
-        ? fetch(`/api/google/list-events?user_id=${encodeURIComponent(user.id)}&timeMin=${encodeURIComponent(startISO)}&timeMax=${encodeURIComponent(endISO)}`)
-            .then(r => r.json()).catch(() => ({ events: [] }))
-        : Promise.resolve({ events: [] as any[] }),
-      // Eventos internos del sistema (no requieren Google)
       supabase.from('eventos_internos')
         .select('*')
         .gte('fecha_inicio', startISO).lte('fecha_inicio', endISO),
-    ]).then(([ag, cs, al, gc, ei]) => {
+    ]).then(([ag, cs, al, ei]) => {
       if (!alive) return;
-      // Surface RLS / query errors al usuario para no fallar silencioso
       const errs: string[] = [];
       if ((ag as any)?.error) errs.push('Audiencias: ' + (ag as any).error.message);
-      if ((cs as any)?.error) errs.push('Consultas (agendamiento): ' + (cs as any).error.message);
+      if ((cs as any)?.error) errs.push('Consultas: ' + (cs as any).error.message);
       if ((al as any)?.error) errs.push('Audiencias casos: ' + (al as any).error.message);
       if ((ei as any)?.error && !((ei as any).error.message || '').includes('does not exist'))
         errs.push('Eventos internos: ' + (ei as any).error.message);
@@ -406,90 +356,51 @@ export default function Calendario() {
       const out: EventoCal[] = [];
       (ag.data || []).forEach((r: any) => {
         out.push({
-          id: 'ag-' + r.id,
-          source: 'audiencia_general',
+          id: 'ag-' + r.id, source: 'audiencia_general',
           fecha: new Date(r.fecha),
           titulo: `Audiencia${r.tipo ? ' ' + r.tipo : ''}`,
           subtitulo: r.caso_general_titulo || r.cliente_nombre || r.juzgado || '',
-          color: 'border-orange-400/40',
-          bg: 'bg-orange-500/15 text-orange-200',
-          raw: r,
+          color: 'border-orange-400/40', bg: 'bg-orange-500/15 text-orange-200', raw: r,
         });
       });
       (cs.data || []).forEach((r: any) => {
-        // Sanitizar: fecha_consulta puede venir como 'YYYY-MM-DD' o 'YYYY-MM-DDTHH:mm:ss+00:00'
         const fechaStr = String(r.fecha_consulta || '').slice(0, 10);
         const horaStr = String(r.hora_consulta || '10:00').slice(0, 5);
         if (!fechaStr || !/^\d{4}-\d{2}-\d{2}$/.test(fechaStr)) return;
         const [y, mo, da] = fechaStr.split('-').map(Number);
         const [hh, mm] = horaStr.split(':').map(Number);
-        const d = new Date(y, mo - 1, da, hh || 10, mm || 0, 0);
         out.push({
-          id: 'cs-' + r.id,
-          source: 'consulta',
-          fecha: d,
+          id: 'cs-' + r.id, source: 'consulta',
+          fecha: new Date(y, mo - 1, da, hh || 10, mm || 0, 0),
           titulo: `Consulta ${r.cliente_nombre || ''}`,
           subtitulo: r.detalle_consulta || r.telefono || '',
-          color: 'border-violet-400/40',
-          bg: 'bg-violet-500/15 text-violet-200',
-          raw: r,
+          color: 'border-violet-400/40', bg: 'bg-violet-500/15 text-violet-200', raw: r,
         });
       });
       (al.data || []).forEach((r: any) => {
         out.push({
-          id: 'al-' + r.id,
-          source: 'audiencia_legal',
+          id: 'al-' + r.id, source: 'audiencia_legal',
           fecha: new Date(r.fecha),
           titulo: r.titulo || 'Audiencia',
           subtitulo: r.juzgado || r.descripcion || '',
-          color: 'border-sky-400/40',
-          bg: 'bg-sky-500/15 text-sky-200',
-          raw: r,
+          color: 'border-sky-400/40', bg: 'bg-sky-500/15 text-sky-200', raw: r,
         });
       });
-      // Eventos de Google Calendar (excluye los que ya creamos nosotros para no duplicar)
-      const idsLocales = new Set(
-        (ag.data || [])
-          .map((r: any) => r.google_event_id)
-          .filter(Boolean)
-      );
-      // Tambien excluir los google_event_id de eventos internos sincronizados
-      ((ei as any)?.data || []).forEach((r: any) => {
-        if (r.google_event_id) idsLocales.add(r.google_event_id);
-      });
-      ((gc as any).events || []).forEach((e: any) => {
-        if (!e.start) return;
-        if (idsLocales.has(e.id)) return;
-        out.push({
-          id: 'gc-' + e.id,
-          source: 'gcal',
-          fecha: new Date(e.start),
-          titulo: e.summary || '(sin título)',
-          subtitulo: e.location || e.description || '',
-          color: 'border-emerald-400/40',
-          bg: 'bg-emerald-500/15 text-emerald-200',
-          raw: e,
-        });
-      });
-      // Eventos internos del sistema
       ((ei as any)?.data || []).forEach((r: any) => {
         out.push({
-          id: 'ei-' + r.id,
-          source: 'interno',
+          id: 'ei-' + r.id, source: 'interno',
           fecha: new Date(r.fecha_inicio),
           titulo: r.titulo || '(sin título)',
           subtitulo: r.ubicacion || r.descripcion || '',
-          color: 'border-pink-400/40',
-          bg: 'bg-pink-500/15 text-pink-200',
-          raw: r,
+          color: 'border-pink-400/40', bg: 'bg-pink-500/15 text-pink-200', raw: r,
         });
       });
-      setEventos(out.sort((a,b) => a.fecha.getTime() - b.fecha.getTime()));
+      setEventos(out.sort((a, b) => a.fecha.getTime() - b.fecha.getTime()));
       setLoading(false);
     });
 
     return () => { alive = false; };
-  }, [cursor, conectado, user]);
+  }, [cursor, user]);
 
   const grid = useMemo(() => buildGrid(cursor), [cursor]);
   const eventosPorDia = useMemo(() => {
@@ -502,22 +413,6 @@ export default function Calendario() {
     });
     return m;
   }, [eventos]);
-
-  async function conectarGoogle() {
-    if (!user) return;
-    const r = await fetch(`/api/google/auth-url?user_id=${encodeURIComponent(user.id)}`);
-    const j = await r.json();
-    if (j.url) window.location.href = j.url;
-    else setMsg('❌ No se pudo iniciar OAuth: ' + (j.error || ''));
-  }
-
-  async function desconectarGoogle() {
-    if (!user) return;
-    if (!confirm('¿Desconectar Google Calendar? Las audiencias ya sincronizadas NO se borrarán de tu calendario.')) return;
-    await supabase.from('google_oauth_tokens').delete().eq('user_id', user.id);
-    setConectado(null);
-    setMsg('Google Calendar desconectado.');
-  }
 
   async function buscarGlobal() {
     const q = busquedaGlobal.trim();
@@ -590,25 +485,6 @@ export default function Calendario() {
     setBusquedaGlobal('');
   }
 
-  async function sincronizarMes() {
-    if (!conectado) { setMsg('Primero conectá Google Calendar.'); return; }
-    setSyncing(true); setMsg(null);
-    let ok = 0, fail = 0;
-    for (const e of eventos) {
-      if (e.source === 'audiencia_legal') continue; // no sincronizamos las legales por ahora
-      try {
-        const r = await fetch('/api/google/sync-audiencia', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ audiencia_id: e.raw.id, source: e.source === 'consulta' ? 'consulta' : 'audiencia' }),
-        });
-        const j = await r.json();
-        if (j.ok || j.skipped) ok++; else fail++;
-      } catch { fail++; }
-    }
-    setSyncing(false);
-    setMsg(`Sincronización completa: ${ok} OK${fail ? `, ${fail} con error` : ''}.`);
-  }
-
   const seleccion = diaSeleccionado ? (eventosPorDia.get(diaSeleccionado) || []) : [];
   const hoyKey = fmtKey(new Date());
 
@@ -630,27 +506,11 @@ export default function Calendario() {
             title="Subir fotos de turnos y agendar automáticamente con IA">
             <Sparkles className="w-3.5 h-3.5" /> Subir turnos con IA
           </button>
-          {conectado ? (
-            <>
-              <span className="px-3 py-2 text-xs rounded-lg bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 flex items-center gap-2">
-                <LinkIcon className="w-3.5 h-3.5" /> Google: {conectado.google_email || 'conectado'}
-              </span>
-              <button onClick={sincronizarMes} disabled={syncing}
-                className="px-3 py-2 text-xs rounded-lg bg-white/5 hover:bg-white/10 text-white border border-white/10 flex items-center gap-2 disabled:opacity-50">
-                <RefreshCw className={`w-3.5 h-3.5 ${syncing ? 'animate-spin' : ''}`} />
-                Sincronizar mes
-              </button>
-              <button onClick={desconectarGoogle}
-                className="px-3 py-2 text-xs rounded-lg bg-white/5 hover:bg-red-500/10 text-red-300 border border-white/10 flex items-center gap-2">
-                <Unlink className="w-3.5 h-3.5" /> Desconectar
-              </button>
-            </>
-          ) : (
-            <button onClick={conectarGoogle}
-              className="px-3 py-2 text-xs rounded-lg bg-white text-black hover:bg-gray-100 flex items-center gap-2 font-medium">
-              <LinkIcon className="w-3.5 h-3.5" /> Conectar Google Calendar
-            </button>
-          )}
+          <button onClick={abrirSubirFotos}
+            className="px-3 py-2 text-xs rounded-lg bg-sky-500/15 hover:bg-sky-500/25 text-sky-200 border border-sky-500/30 flex items-center gap-2"
+            title="Subir PDF de agenda (ANSES, juzgado, etc.) y agendar automáticamente">
+            <FileUp className="w-3.5 h-3.5" /> Subir PDF agenda
+          </button>
         </div>
       </header>
 
@@ -662,8 +522,7 @@ export default function Calendario() {
         Cargados: {eventos.filter(e => e.source === 'consulta').length} consultas ·{' '}
         {eventos.filter(e => e.source === 'audiencia_general').length} audiencias generales ·{' '}
         {eventos.filter(e => e.source === 'audiencia_legal').length} audiencias casos ·{' '}
-        {eventos.filter(e => e.source === 'interno').length} eventos internos ·{' '}
-        {eventos.filter(e => e.source === 'gcal').length} de Google
+        {eventos.filter(e => e.source === 'interno').length} eventos internos
       </div>
 
       <div className="flex items-center justify-between gap-2">
@@ -689,7 +548,6 @@ export default function Calendario() {
         <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-violet-500/60" /> Consultas</span>
         <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-sky-500/60" /> Audiencias (casos legales)</span>
         <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-pink-500/60" /> Eventos del sistema</span>
-        <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-emerald-500/60" /> Google Calendar</span>
       </div>
 
       {/* Búsqueda global de eventos (salta al mes correcto) */}
@@ -794,7 +652,7 @@ export default function Calendario() {
               <button
                 onClick={() => abrirNuevoEvento(diaSeleccionado)}
                 className="text-xs px-2.5 py-1.5 rounded-md bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-200 border border-emerald-500/30 flex items-center gap-1"
-                title={conectado ? 'Crear evento (sistema + Google Calendar)' : 'Crear evento en el sistema (sin Google Calendar)'}
+                title="Crear evento"
               >
                 <Plus className="w-3.5 h-3.5" /> Nuevo evento
               </button>
@@ -822,32 +680,6 @@ export default function Calendario() {
                       {e.raw.notas && <div className="text-xs text-gray-300 mt-1 whitespace-pre-wrap">{e.raw.notas}</div>}
                       {e.raw.observaciones && <div className="text-xs text-gray-300 mt-1 whitespace-pre-wrap">{e.raw.observaciones}</div>}
                     </div>
-                    {e.source === 'audiencia_general' && conectado && (
-                      <button
-                        onClick={async () => {
-                          setMsg('Sincronizando…');
-                          const r = await fetch('/api/google/sync-audiencia', {
-                            method: 'POST', headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ audiencia_id: e.raw.id }),
-                          });
-                          const j = await r.json();
-                          setMsg(j.ok ? '✅ Sincronizado' : ('❌ ' + (j.error || 'fallo')));
-                        }}
-                        className="text-xs px-2 py-1 rounded-md bg-white/5 hover:bg-white/10 text-white border border-white/10 flex items-center gap-1"
-                      >
-                        <RefreshCw className="w-3 h-3" /> Sync
-                      </button>
-                    )}
-                    {e.raw.google_event_id && (
-                      <a
-                        href={`https://calendar.google.com/calendar/event?eid=${e.raw.google_event_id}`}
-                        target="_blank" rel="noreferrer"
-                        className="text-xs px-2 py-1 rounded-md bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border border-emerald-500/30 flex items-center gap-1"
-                        title="Abrir en Google Calendar"
-                      >
-                        <ExternalLink className="w-3 h-3" />
-                      </a>
-                    )}
                     {e.source === 'interno' && (
                       <button
                         onClick={async () => {
@@ -894,29 +726,6 @@ export default function Calendario() {
                         }}
                         className="text-xs px-2 py-1 rounded-md bg-white/5 hover:bg-red-500/10 text-gray-400 hover:text-red-300 border border-white/10 flex items-center gap-1"
                         title="Eliminar"
-                      >
-                        <Trash2 className="w-3 h-3" />
-                      </button>
-                    )}
-                    {e.source === 'gcal' && conectado && user && (
-                      <button
-                        onClick={async () => {
-                          if (!confirm('¿Eliminar este evento de Google Calendar?')) return;
-                          try {
-                            const r = await fetch('/api/google/delete-event', {
-                              method: 'POST', headers: { 'Content-Type': 'application/json' },
-                              body: JSON.stringify({ user_id: user.id, event_id: e.raw.id }),
-                            });
-                            const j = await r.json();
-                            if (!j.ok) { setMsg('❌ ' + (j.error || 'no se pudo eliminar de Google')); return; }
-                            setMsg('🗑️ Eliminado de Google Calendar.');
-                            setCursor(new Date(cursor));
-                          } catch (err: any) {
-                            setMsg('❌ ' + (err?.message || 'error'));
-                          }
-                        }}
-                        className="text-xs px-2 py-1 rounded-md bg-white/5 hover:bg-red-500/10 text-gray-400 hover:text-red-300 border border-white/10 flex items-center gap-1"
-                        title="Eliminar de Google Calendar"
                       >
                         <Trash2 className="w-3 h-3" />
                       </button>
@@ -983,7 +792,7 @@ export default function Calendario() {
                 <div className="text-xs text-gray-300 italic bg-white/5 rounded-md p-3 border border-white/10">
                   "{voiceModal.transcripcion}"
                 </div>
-                <p className="text-xs text-gray-400">Revisá los datos en el formulario y guardalo en Google Calendar.</p>
+                <p className="text-xs text-gray-400">Revisá los datos en el formulario y guardalos.</p>
                 <button onClick={cerrarVoz}
                   className="px-4 py-2 text-sm rounded-lg bg-emerald-500 text-black font-medium">
                   Ver evento
@@ -1015,12 +824,6 @@ export default function Calendario() {
               <h3 className="text-white font-semibold flex items-center gap-2"><Plus className="w-4 h-4 text-emerald-300" /> Nuevo evento</h3>
               <button onClick={() => setNuevoEvento(null)} disabled={nuevoEvento.guardando} className="text-gray-400 hover:text-white"><X className="w-4 h-4" /></button>
             </div>
-
-            {!conectado && (
-              <div className="text-xs px-3 py-2 rounded-md bg-blue-500/10 text-blue-200 border border-blue-500/30">
-                Se va a guardar solo en el sistema interno. Si conectás Google Calendar también se sincroniza ahí.
-              </div>
-            )}
 
             <div className="space-y-3 text-sm">
               <div>
@@ -1098,7 +901,7 @@ export default function Calendario() {
               <button onClick={guardarNuevoEvento} disabled={nuevoEvento.guardando}
                 className="px-3 py-2 text-xs rounded-md bg-emerald-500 hover:bg-emerald-400 text-black font-medium disabled:opacity-50 flex items-center gap-1.5">
                 {nuevoEvento.guardando && <RefreshCw className="w-3 h-3 animate-spin" />}
-                {conectado ? 'Crear (sistema + Google Calendar)' : 'Crear evento'}
+                Crear evento
               </button>
             </div>
           </div>
@@ -1116,23 +919,20 @@ export default function Calendario() {
                 className="text-gray-400 hover:text-white"><X className="w-4 h-4" /></button>
             </div>
 
-            {!conectado && (
-              <div className="text-xs px-3 py-2 rounded-md bg-amber-500/10 text-amber-200 border border-amber-500/30">
-                Necesitás conectar Google Calendar para que los turnos se guarden ahí.
-              </div>
-            )}
-
             {iaModal.fase === 'subir' && (
               <div className="space-y-3">
                 <p className="text-sm text-gray-300">
-                  Subí las fotos / capturas de los turnos (ANSES, juzgados, citas, etc.). La IA va a leer
-                  fecha, hora, persona, oficina y crear los eventos en tu Google Calendar.
+                  Subí fotos, capturas o PDFs de turnos (ANSES, juzgados, citas, etc.). La IA extrae
+                  fecha, hora, persona y oficina para crear los eventos en el calendario.
                 </p>
                 <label className="block border-2 border-dashed border-white/15 hover:border-fuchsia-400/40 rounded-xl p-6 text-center cursor-pointer transition">
-                  <ImageIcon className="w-8 h-8 text-gray-500 mx-auto mb-2" />
-                  <div className="text-sm text-gray-300">Hacé click para elegir imágenes (podés subir varias)</div>
-                  <div className="text-[11px] text-gray-500 mt-1">JPG / PNG / WEBP</div>
-                  <input type="file" accept="image/*" multiple className="hidden"
+                  <div className="flex justify-center gap-3 mb-2">
+                    <ImageIcon className="w-7 h-7 text-gray-500" />
+                    <FileUp className="w-7 h-7 text-sky-500/70" />
+                  </div>
+                  <div className="text-sm text-gray-300">Hacé click para elegir imágenes o PDFs (podés subir varios)</div>
+                  <div className="text-[11px] text-gray-500 mt-1">JPG / PNG / WEBP · PDF</div>
+                  <input type="file" accept="image/*,.pdf" multiple className="hidden"
                     onChange={(e) => onSelectFiles(e.target.files)} />
                 </label>
 
@@ -1140,7 +940,14 @@ export default function Calendario() {
                   <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                     {iaModal.archivos.map((a, i) => (
                       <div key={i} className="relative group rounded-lg overflow-hidden border border-white/10 bg-black/30">
-                        <img src={a.dataUrl} alt={a.name} className="w-full h-32 object-cover" />
+                        {a.tipo === 'pdf' ? (
+                          <div className="w-full h-32 flex flex-col items-center justify-center gap-1 bg-sky-500/5">
+                            <FileUp className="w-8 h-8 text-sky-400/70" />
+                            <span className="text-[10px] text-sky-300 px-2 text-center truncate w-full text-center">PDF</span>
+                          </div>
+                        ) : (
+                          <img src={a.dataUrl} alt={a.name} className="w-full h-32 object-cover" />
+                        )}
                         <button
                           onClick={() => setIaModal({ ...iaModal, archivos: iaModal.archivos.filter((_, j) => j !== i) })}
                           className="absolute top-1 right-1 p-1 rounded-md bg-black/70 text-red-300 opacity-0 group-hover:opacity-100 transition"
@@ -1169,14 +976,14 @@ export default function Calendario() {
             {iaModal.fase === 'analizando' && (
               <div className="py-10 flex flex-col items-center gap-3 text-gray-300">
                 <RefreshCw className="w-8 h-8 animate-spin text-fuchsia-400" />
-                <div className="text-sm">Leyendo {iaModal.archivos.length} imagen(es) con IA…</div>
+                <div className="text-sm">Analizando {iaModal.archivos.length} archivo(s) con IA…</div>
               </div>
             )}
 
             {(iaModal.fase === 'revisar' || iaModal.fase === 'creando') && (
               <div className="space-y-3">
                 {iaModal.log && <div className="text-xs text-emerald-300">{iaModal.log}</div>}
-                <p className="text-xs text-gray-400">Revisá los datos extraídos. Podés editar o desmarcar antes de crearlos en Google Calendar.</p>
+                <p className="text-xs text-gray-400">Revisá los datos extraídos. Podés editar o desmarcar antes de agendar.</p>
 
                 <div className="space-y-2">
                   {iaModal.turnos.map((t, i) => (
@@ -1221,7 +1028,7 @@ export default function Calendario() {
                               className="w-full px-2 py-1 rounded bg-white/5 border border-white/10 text-white text-sm disabled:opacity-60 resize-none" />
                           </div>
                           {t.error && <div className="sm:col-span-2 text-xs text-red-300">❌ {t.error}</div>}
-                          {t.creado && <div className="sm:col-span-2 text-xs text-emerald-300">✅ Creado en Google Calendar</div>}
+                          {t.creado && <div className="sm:col-span-2 text-xs text-emerald-300">✅ Creado en el calendario</div>}
                         </div>
                       </div>
                     </div>
@@ -1233,11 +1040,11 @@ export default function Calendario() {
                     className="px-3 py-2 text-xs rounded-md bg-white/5 hover:bg-white/10 text-gray-300 border border-white/10">
                     ← Subir más
                   </button>
-                  <button onClick={crearTurnosEnGoogle}
-                    disabled={iaModal.fase === 'creando' || !conectado || iaModal.turnos.every(t => !t.incluir || t.creado)}
+                  <button onClick={crearTurnosEnSistema}
+                    disabled={iaModal.fase === 'creando' || iaModal.turnos.every(t => !t.incluir || t.creado)}
                     className="px-3 py-2 text-xs rounded-md bg-emerald-500 hover:bg-emerald-400 text-black font-medium disabled:opacity-50 flex items-center gap-1.5">
                     {iaModal.fase === 'creando' && <RefreshCw className="w-3 h-3 animate-spin" />}
-                    Crear {iaModal.turnos.filter(t => t.incluir && !t.creado).length} en Google Calendar
+                    Agendar {iaModal.turnos.filter(t => t.incluir && !t.creado).length} evento(s)
                   </button>
                 </div>
               </div>
