@@ -49,10 +49,10 @@ export default function Sidebar({ open, onClose }: SidebarProps) {
     `flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-medium transition-all duration-200 group ${
       isActive
         ? theme === 'light'
-          ? 'bg-slate-900 text-white shadow-sm'
+          ? 'bg-emerald-500 text-[#ffffff] shadow-md'
           : 'bg-white/[0.08] text-white border border-white/10 nav-active-glow'
         : theme === 'light'
-          ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-100 hover:translate-x-1'
+          ? 'text-slate-500 hover:text-slate-800 hover:bg-emerald-50'
           : 'text-gray-500 hover:text-gray-200 hover:bg-white/[0.04] hover:translate-x-1'
     }`;
 
@@ -71,7 +71,7 @@ export default function Sidebar({ open, onClose }: SidebarProps) {
 
       {/* Sidebar */}
       <aside
-        className={`fixed top-0 left-0 z-50 h-screen w-[260px] backdrop-blur-xl flex flex-col transition-transform duration-300 lg:translate-x-0 ${open ? 'translate-x-0' : '-translate-x-full'} ${theme === 'light' ? 'bg-white/95 border-r border-black/[0.08]' : 'bg-[#0c0c0e]/95 border-r border-white/[0.06]'}`}
+        className={`fixed top-0 left-0 z-50 h-screen w-[260px] backdrop-blur-xl flex flex-col transition-transform duration-300 lg:translate-x-0 ${open ? 'translate-x-0' : '-translate-x-full'} ${theme === 'light' ? 'bg-white border-r border-black/[0.06] shadow-xl shadow-black/[0.08]' : 'bg-[#0c0c0e]/95 border-r border-white/[0.06]'}`}
       >
         {/* Header */}
         <div className={`flex items-center justify-between px-5 py-4 border-b ${theme === 'light' ? 'border-black/[0.08]' : 'border-white/[0.06]'}`}>

@@ -489,6 +489,21 @@ html.light [class~="nav-active-glow"] {
   box-shadow: inset 3px 0 0 rgba(0,0,0,0.25), 0 0 10px rgba(0,0,0,0.03) !important;
 }
 
+/* ── Proteger texto/iconos dentro del pill activo emerald ── */
+html.light [class~="bg-emerald-500"] [class~="text-white"],
+html.light [class~="bg-emerald-500"] svg,
+html.light [class~="bg-emerald-600"] [class~="text-white"],
+html.light [class~="bg-emerald-600"] svg { color: #ffffff !important; }
+
+/* ── Hover emerald (nav items) ── */
+html.light [class~="hover:bg-emerald-50"]:hover { background-color: #ecfdf5 !important; }
+
+/* ── Acento esmeralda: no tocar estos colores en light mode ── */
+html.light [class~="text-emerald-500"] { color: #10b981 !important; }
+html.light [class~="text-emerald-600"] { color: #059669 !important; }
+html.light [class~="bg-emerald-500"]   { background-color: #10b981 !important; }
+html.light [class~="bg-emerald-400"]   { background-color: #34d399 !important; }
+
 /* ── Divisores / separadores ── */
 html.light [class~="divide-white/10"] > * + * { border-color: rgba(0,0,0,0.08) !important; }
 
