@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { usePermisos } from '../hooks/usePermisos';
 import { useChatNotifications } from '../context/ChatNotificationsContext';
+import { useTheme } from '../context/ThemeContext';
 
 /**
  * Bottom navigation bar — visible only on mobile (hidden on lg+).
@@ -18,6 +19,7 @@ export default function BottomNav() {
   const { permisos } = usePermisos();
   const navigate = useNavigate();
   const { unreadTotal } = useChatNotifications();
+  const { theme } = useTheme();
 
   const itemClass = (isActive: boolean) =>
     `flex flex-col items-center gap-0.5 flex-1 py-2 relative transition-colors duration-200 ${
@@ -26,10 +28,7 @@ export default function BottomNav() {
 
   return (
     <nav
-      className="fixed bottom-0 left-0 right-0 z-40 lg:hidden
-                 bg-[#0c0c0e]/95 backdrop-blur-xl
-                 border-t border-white/[0.06]
-                 flex items-stretch"
+      className={`fixed bottom-0 left-0 right-0 z-40 lg:hidden backdrop-blur-xl flex items-stretch ${theme === 'light' ? 'bg-white/95 border-t border-black/[0.08]' : 'bg-[#0c0c0e]/95 border-t border-white/[0.06]'}`}
       style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
     >
       {/* Dashboard */}

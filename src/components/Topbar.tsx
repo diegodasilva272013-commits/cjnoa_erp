@@ -53,7 +53,7 @@ export default function Topbar({ onMenuClick }: TopbarProps) {
   }
 
   return (
-    <header className="sticky top-0 z-30 bg-[#0a0a0a]/80 backdrop-blur-xl border-b border-white/[0.06]">
+    <header className={`sticky top-0 z-30 backdrop-blur-xl border-b ${theme === 'light' ? 'bg-white/85 border-black/[0.08]' : 'bg-[#0a0a0a]/80 border-white/[0.06]'}`}>
       <div className="flex items-center justify-between px-3 sm:px-6 py-2 sm:py-3">
         <button
           onClick={onMenuClick}

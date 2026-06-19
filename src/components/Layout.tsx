@@ -7,13 +7,15 @@ import CommandPalette from './CommandPalette';
 import AlarmaTareas from './AlarmaTareas';
 // import AgenteVoz from './AgenteVoz'; // desactivado temporalmente
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
+import { useTheme } from '../context/ThemeContext';
 
 export default function Layout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const { theme } = useTheme();
   useKeyboardShortcuts();
 
   return (
-    <div className="min-h-screen bg-[#0a0a0a]">
+    <div className={`min-h-screen ${theme === 'light' ? 'bg-slate-100' : 'bg-[#0a0a0a]'}`}>
       <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
       <CommandPalette />
       <AlarmaTareas />
