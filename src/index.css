@@ -324,17 +324,17 @@
 
 /* Tema claro */
 html.light {
-  --bg-app: #f1f5f9;
+  --bg-app: #dde3ed;
   --bg-card: #ffffff;
-  --bg-surface: #f8fafc;
+  --bg-surface: #f0f3f8;
   --text-primary: #0f172a;
   --text-secondary: #64748b;
-  --border-col: rgba(0,0,0,0.09);
+  --border-col: rgba(0,0,0,0.10);
 }
 
 /* ── Tema claro: body y scrollbars ── */
 html.light body {
-  background-color: #f1f5f9 !important;
+  background-color: #dde3ed !important;
   color: #0f172a !important;
 }
 html.light * { scrollbar-color: #cbd5e1 transparent; }
@@ -344,33 +344,33 @@ html.light select option { background: #ffffff; color: #0f172a; }
 /* ── Fondos oscuros hardcodeados → claros con ELEVACIÓN ──
    Nota: [class~="x"] es selector de palabra (igual que .x pero sin escaping) */
 
-/* Página principal */
+/* Página principal — fondo azul-gris para que las tarjetas blancas "floten" */
 html.light [class~="bg-[#0a0a0a]"],
-html.light [class~="bg-[#0b0b0d]"] { background-color: #f1f5f9 !important; }
-html.light [class~="bg-[#0a0a0a]/80"] { background-color: rgba(241,245,249,0.9) !important; }
+html.light [class~="bg-[#0b0b0d]"] { background-color: #dde3ed !important; }
+html.light [class~="bg-[#0a0a0a]/80"] { background-color: rgba(221,227,237,0.92) !important; }
 
-/* Tarjetas principales — blanco + sombra real para crear elevación */
+/* Tarjetas principales — blancas con sombra fuerte para crear profundidad real */
 html.light [class~="bg-[#0c0c0e]"],
 html.light [class~="bg-[#0d0d10]"],
 html.light [class~="bg-[#0f0f11]"],
 html.light [class~="bg-[#101012]"],
 html.light [class~="bg-[#111113]"] {
   background-color: #ffffff !important;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.06), 0 4px 16px rgba(0,0,0,0.06) !important;
+  box-shadow: 0 0 0 1px rgba(0,0,0,0.07), 0 2px 8px rgba(0,0,0,0.10), 0 8px 32px rgba(0,0,0,0.08) !important;
 }
-html.light [class~="bg-[#0c0c0e]/95"] { background-color: rgba(255,255,255,0.97) !important; }
+html.light [class~="bg-[#0c0c0e]/95"] { background-color: rgba(255,255,255,0.98) !important; }
 
-/* Fondos secundarios ligeramente distintos al blanco */
+/* Fondos secundarios */
 html.light [class~="bg-[#141414]"],
 html.light [class~="bg-[#141418]"],
 html.light [class~="bg-[#111115]"],
-html.light [class~="bg-[#1a1a2e]"] { background-color: #f8fafc !important; }
+html.light [class~="bg-[#1a1a2e]"] { background-color: #f4f6fa !important; }
 
-/* ── Glass card — elevación premium ── */
+/* ── Glass card — sombra bien visible, elevación premium ── */
 html.light [class~="glass-card"] {
   background: #ffffff !important;
   border-color: rgba(0,0,0,0.07) !important;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.07), 0 8px 24px rgba(0,0,0,0.05) !important;
+  box-shadow: 0 0 0 1px rgba(0,0,0,0.07), 0 4px 12px rgba(0,0,0,0.10), 0 12px 36px rgba(0,0,0,0.07) !important;
 }
 
 /* ── Fondos semitransparentes: los pequeños (rows, hover states) → gris muy suave

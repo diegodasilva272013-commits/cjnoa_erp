@@ -15,7 +15,7 @@ export default function Layout() {
   useKeyboardShortcuts();
 
   return (
-    <div className={`min-h-screen ${theme === 'light' ? 'bg-slate-100' : 'bg-[#0a0a0a]'}`}>
+    <div className={`min-h-screen ${theme === 'light' ? 'bg-[#dde3ed]' : 'bg-[#0a0a0a]'}`}>
       <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
       <CommandPalette />
       <AlarmaTareas />

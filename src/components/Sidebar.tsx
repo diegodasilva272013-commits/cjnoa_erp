@@ -49,10 +49,10 @@ export default function Sidebar({ open, onClose }: SidebarProps) {
     `flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-medium transition-all duration-200 group ${
       isActive
         ? theme === 'light'
-          ? 'bg-black/[0.06] text-slate-900 border border-black/10 nav-active-glow'
+          ? 'bg-slate-900 text-white shadow-sm'
           : 'bg-white/[0.08] text-white border border-white/10 nav-active-glow'
         : theme === 'light'
-          ? 'text-slate-500 hover:text-slate-900 hover:bg-black/[0.05] hover:translate-x-1'
+          ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-100 hover:translate-x-1'
           : 'text-gray-500 hover:text-gray-200 hover:bg-white/[0.04] hover:translate-x-1'
     }`;
 
@@ -82,7 +82,7 @@ export default function Sidebar({ open, onClose }: SidebarProps) {
               className="w-9 h-9 rounded-lg object-cover border border-white/10 animate-scale-in hover:scale-110 transition-transform duration-300"
             />
             <div>
-              <h2 className="text-sm font-bold text-white tracking-wide">CJ NOA</h2>
+              <h2 className={`text-sm font-bold tracking-wide ${theme === 'light' ? 'text-slate-900' : 'text-white'}`}>CJ NOA</h2>
               <p className="text-[10px] text-gray-600 uppercase tracking-widest">Gestión</p>
             </div>
           </div>
@@ -276,10 +276,10 @@ export default function Sidebar({ open, onClose }: SidebarProps) {
         </nav>
 
         {/* Footer */}
-        <div className="px-5 py-4 border-t border-white/[0.06]">
+        <div className={`px-5 py-4 border-t ${theme === 'light' ? 'border-black/[0.08]' : 'border-white/[0.06]'}`}>
           <button
             onClick={() => { navigate('/perfil'); onClose(); }}
-            className="w-full flex items-center gap-3 rounded-xl p-1.5 hover:bg-white/[0.04] transition-colors text-left"
+            className={`w-full flex items-center gap-3 rounded-xl p-1.5 transition-colors text-left ${theme === 'light' ? 'hover:bg-slate-100' : 'hover:bg-white/[0.04]'}`}
           >
             <div className="w-8 h-8 rounded-lg overflow-hidden flex-shrink-0">
               {perfil?.avatar_url && avatarUrl ? (
@@ -291,8 +291,8 @@ export default function Sidebar({ open, onClose }: SidebarProps) {
               )}
             </div>
             <div className="min-w-0 flex-1">
-              <p className="text-xs font-medium text-white truncate">{perfil?.nombre || 'Usuario'}</p>
-              <p className="text-[10px] text-gray-600">Ver perfil · v1.0</p>
+              <p className={`text-xs font-medium truncate ${theme === 'light' ? 'text-slate-900' : 'text-white'}`}>{perfil?.nombre || 'Usuario'}</p>
+              <p className="text-[10px] text-gray-500">Ver perfil · v1.0</p>
             </div>
           </button>
         </div>
