@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
-import { ChevronLeft, ChevronRight, RefreshCw, Gavel, CalendarClock, Briefcase, Plus, X, Image as ImageIcon, Sparkles, Trash2, Mic, MicOff, FileUp } from 'lucide-react';
+import { ChevronLeft, ChevronRight, RefreshCw, Gavel, CalendarClock, Briefcase, Plus, X, Image as ImageIcon, Sparkles, Trash2, Mic, MicOff, FileUp, Eye, Pencil } from 'lucide-react';
+import { pdfDataUrlAImagenes } from '../lib/pdfToImages';
 
 type EventoCal = {
   id: string;
@@ -36,6 +38,7 @@ function buildGrid(monthDate: Date) {
 
 export default function Calendario() {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [cursor, setCursor] = useState(() => new Date());
   const [eventos, setEventos] = useState<EventoCal[]>([]);
   const [loading, setLoading] = useState(false);
@@ -49,6 +52,65 @@ export default function Calendario() {
     titulo: string; descripcion: string; ubicacion: string;
     todoElDia: boolean; guardando: boolean;
   }>(null);
+
+  // Ver detalle / editar un evento del calendario (cualquier fuente)
+  const [detalleEvento, setDetalleEvento] = useState<EventoCal | null>(null);
+  const [editandoEvento, setEditandoEvento] = useState(false);
+  const [formEdicion, setFormEdicion] = useState<{
+    titulo: string; fecha: string; hora: string; duracion: number;
+    ubicacion: string; descripcion: string; todoElDia: boolean;
+  } | null>(null);
+  const [guardandoEdicion, setGuardandoEdicion] = useState(false);
+
+  function abrirDetalle(e: EventoCal) {
+    setDetalleEvento(e);
+    setEditandoEvento(false);
+  }
+
+  function empezarEdicionInterno(e: EventoCal) {
+    const inicio = new Date(e.raw.fecha_inicio);
+    const fin = e.raw.fecha_fin ? new Date(e.raw.fecha_fin) : null;
+    const duracionMin = fin ? Math.max(15, Math.round((fin.getTime() - inicio.getTime()) / 60000)) : 60;
+    setFormEdicion({
+      titulo: e.raw.titulo || '',
+      fecha: fmtKey(inicio),
+      hora: `${String(inicio.getHours()).padStart(2, '0')}:${String(inicio.getMinutes()).padStart(2, '0')}`,
+      duracion: duracionMin,
+      ubicacion: e.raw.ubicacion || '',
+      descripcion: e.raw.descripcion || '',
+      todoElDia: !!e.raw.todo_el_dia,
+    });
+    setEditandoEvento(true);
+  }
+
+  async function guardarEdicionInterno() {
+    if (!detalleEvento || !formEdicion) return;
+    if (!formEdicion.titulo.trim()) { setMsg('Poné un título al evento.'); return; }
+    setGuardandoEdicion(true);
+    try {
+      const startISO = formEdicion.todoElDia
+        ? `${formEdicion.fecha}T00:00:00`
+        : `${formEdicion.fecha}T${formEdicion.hora}:00`;
+      const startDate = new Date(startISO);
+      const endDate = new Date(startDate.getTime() + Math.max(15, formEdicion.duracion) * 60_000);
+      const { error } = await supabase.from('eventos_internos').update({
+        titulo: formEdicion.titulo,
+        descripcion: formEdicion.descripcion || null,
+        ubicacion: formEdicion.ubicacion || null,
+        fecha_inicio: startDate.toISOString(),
+        fecha_fin: endDate.toISOString(),
+        todo_el_dia: formEdicion.todoElDia,
+      }).eq('id', detalleEvento.raw.id);
+      if (error) { setMsg('❌ No se pudo guardar: ' + error.message); return; }
+      setMsg('✅ Evento actualizado.');
+      setDetalleEvento(null);
+      setEditandoEvento(false);
+      setFormEdicion(null);
+      setCursor(new Date(cursor));
+    } finally {
+      setGuardandoEdicion(false);
+    }
+  }
 
   // Estado para subir fotos/PDF y extraer turnos con IA
   type TurnoExtraido = {
@@ -239,29 +301,39 @@ export default function Calendario() {
     try {
       const todasLasRaw: any[] = [];
 
-      // Procesar imágenes
-      const imagenes = iaModal.archivos.filter(a => a.tipo === 'imagen');
-      if (imagenes.length > 0) {
-        const r = await fetch('/api/google/extract-turnos', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ images: imagenes.map(a => a.dataUrl) }),
-        });
-        const j = await r.json();
-        if (r.ok && Array.isArray(j.turnos)) todasLasRaw.push(...j.turnos);
+      // Imágenes directas + páginas de PDF convertidas a imagen (mismo pipeline
+      // de visión para ambos casos: /api/google/extract-turnos, que ya funciona bien).
+      const todasLasImagenes: string[] = [];
+      const pdfsConError: string[] = [];
+
+      for (const a of iaModal.archivos) {
+        if (a.tipo === 'imagen') {
+          todasLasImagenes.push(a.dataUrl);
+        } else {
+          try {
+            setIaModal(m => m ? { ...m, log: `Convirtiendo ${a.name} a imágenes…` } : m);
+            const paginas = await pdfDataUrlAImagenes(a.dataUrl);
+            if (paginas.length === 0) pdfsConError.push(a.name);
+            todasLasImagenes.push(...paginas);
+          } catch (e: any) {
+            pdfsConError.push(a.name);
+          }
+        }
       }
 
-      // Procesar PDFs
-      const pdfs = iaModal.archivos.filter(a => a.tipo === 'pdf');
-      for (const pdf of pdfs) {
-        const base64 = pdf.dataUrl.split(',')[1] || pdf.dataUrl;
-        const r = await fetch('/api/extract-pdf', {
+      if (todasLasImagenes.length > 0) {
+        setIaModal(m => m ? { ...m, log: `Analizando ${todasLasImagenes.length} página(s) con IA…` } : m);
+        const r = await fetch('/api/google/extract-turnos', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ pdf_base64: base64, nombre: pdf.name }),
+          body: JSON.stringify({ images: todasLasImagenes }),
         });
         const j = await r.json();
         if (r.ok && Array.isArray(j.turnos)) todasLasRaw.push(...j.turnos);
-        else if (!r.ok) todasLasRaw.push({ titulo: `Error en ${pdf.name}`, fecha: '', hora: '', error: j.error || 'fallo' });
+        else if (!r.ok) todasLasRaw.push({ titulo: 'Error al analizar', fecha: '', hora: '', error: j.error || 'fallo' });
       }
+      pdfsConError.forEach(nombre => {
+        todasLasRaw.push({ titulo: `Error en ${nombre}`, fecha: '', hora: '', error: 'No se pudo leer el PDF (¿está protegido o corrupto?)' });
+      });
 
       const turnos: TurnoExtraido[] = todasLasRaw.map((t: any) => ({
         titulo: t.titulo || '',
@@ -664,7 +736,10 @@ export default function Calendario() {
           ) : (
             <ul className="space-y-2">
               {seleccion.map(e => (
-                <li key={e.id} className={`p-3 rounded-lg border ${e.color} ${e.bg.replace('text-','text-white ')} bg-white/[0.02]`}>
+                <li key={e.id}
+                  onClick={() => abrirDetalle(e)}
+                  className={`p-3 rounded-lg border ${e.color} ${e.bg.replace('text-','text-white ')} bg-white/[0.02] cursor-pointer hover:bg-white/[0.05] transition-colors`}
+                >
                   <div className="flex items-start gap-2">
                     {e.source === 'audiencia_general' && <Briefcase className="w-4 h-4 mt-0.5 text-orange-300" />}
                     {e.source === 'consulta' && <CalendarClock className="w-4 h-4 mt-0.5 text-violet-300" />}
@@ -677,12 +752,20 @@ export default function Calendario() {
                         {e.fecha.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}
                         {e.raw.juzgado && ` · ${e.raw.juzgado}`}
                       </div>
-                      {e.raw.notas && <div className="text-xs text-gray-300 mt-1 whitespace-pre-wrap">{e.raw.notas}</div>}
-                      {e.raw.observaciones && <div className="text-xs text-gray-300 mt-1 whitespace-pre-wrap">{e.raw.observaciones}</div>}
+                      {e.raw.notas && <div className="text-xs text-gray-300 mt-1 line-clamp-2">{e.raw.notas}</div>}
+                      {e.raw.observaciones && <div className="text-xs text-gray-300 mt-1 line-clamp-2">{e.raw.observaciones}</div>}
                     </div>
+                    <button
+                      onClick={(ev) => { ev.stopPropagation(); abrirDetalle(e); }}
+                      className="text-xs px-2 py-1 rounded-md bg-white/5 hover:bg-white/10 text-gray-400 hover:text-white border border-white/10 flex items-center gap-1"
+                      title="Ver detalle"
+                    >
+                      <Eye className="w-3 h-3" />
+                    </button>
                     {e.source === 'interno' && (
                       <button
-                        onClick={async () => {
+                        onClick={async (ev) => {
+                          ev.stopPropagation();
                           if (!confirm('¿Eliminar este evento del sistema?')) return;
                           const { error } = await supabase.from('eventos_internos').delete().eq('id', e.raw.id);
                           if (error) { setMsg('❌ ' + error.message); return; }
@@ -697,7 +780,8 @@ export default function Calendario() {
                     )}
                     {(e.source === 'audiencia_general' || e.source === 'audiencia_legal' || e.source === 'consulta') && (
                       <button
-                        onClick={async () => {
+                        onClick={async (ev) => {
+                          ev.stopPropagation();
                           const labels: Record<string, string> = {
                             audiencia_general: 'audiencia',
                             audiencia_legal: 'audiencia del caso',
@@ -907,6 +991,156 @@ export default function Calendario() {
           </div>
         </div>
       )}
+      {/* Modal Ver detalle / Editar evento */}
+      {detalleEvento && (
+        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4"
+          onClick={() => { if (!guardandoEdicion) { setDetalleEvento(null); setEditandoEvento(false); setFormEdicion(null); } }}>
+          <div className="w-full max-w-lg rounded-2xl bg-[#0c0c0e] border border-white/10 p-5 space-y-4 max-h-[85vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between">
+              <h3 className="text-white font-semibold flex items-center gap-2">
+                {editandoEvento ? <><Pencil className="w-4 h-4 text-emerald-300" /> Editar evento</> : <><Eye className="w-4 h-4 text-sky-300" /> Detalle del evento</>}
+              </h3>
+              <button onClick={() => { setDetalleEvento(null); setEditandoEvento(false); setFormEdicion(null); }} disabled={guardandoEdicion}
+                className="text-gray-400 hover:text-white"><X className="w-4 h-4" /></button>
+            </div>
+
+            {!editandoEvento && (
+              <div className="space-y-3 text-sm">
+                <div>
+                  <div className="text-[11px] uppercase tracking-wider text-gray-500">Título</div>
+                  <div className="text-white font-medium mt-0.5">{detalleEvento.titulo}</div>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <div className="text-[11px] uppercase tracking-wider text-gray-500">Fecha</div>
+                    <div className="text-gray-200 mt-0.5">{detalleEvento.fecha.toLocaleDateString('es-AR', { day: '2-digit', month: 'long', year: 'numeric' })}</div>
+                  </div>
+                  <div>
+                    <div className="text-[11px] uppercase tracking-wider text-gray-500">Hora</div>
+                    <div className="text-gray-200 mt-0.5">{detalleEvento.fecha.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}</div>
+                  </div>
+                </div>
+                {(detalleEvento.raw.ubicacion || detalleEvento.raw.juzgado) && (
+                  <div>
+                    <div className="text-[11px] uppercase tracking-wider text-gray-500">Ubicación</div>
+                    <div className="text-gray-200 mt-0.5">{detalleEvento.raw.ubicacion || detalleEvento.raw.juzgado}</div>
+                  </div>
+                )}
+                {detalleEvento.raw.abogado_nombre && (
+                  <div>
+                    <div className="text-[11px] uppercase tracking-wider text-gray-500">Abogado a cargo</div>
+                    <div className="text-gray-200 mt-0.5">{detalleEvento.raw.abogado_nombre}</div>
+                  </div>
+                )}
+                {detalleEvento.raw.telefono && (
+                  <div>
+                    <div className="text-[11px] uppercase tracking-wider text-gray-500">Teléfono</div>
+                    <div className="text-gray-200 mt-0.5">{detalleEvento.raw.telefono}</div>
+                  </div>
+                )}
+                {/* Texto completo, sin truncar: descripción / notas / observaciones (según la fuente) */}
+                {(detalleEvento.raw.descripcion || detalleEvento.raw.notas || detalleEvento.raw.detalle_consulta || detalleEvento.raw.observaciones) && (
+                  <div>
+                    <div className="text-[11px] uppercase tracking-wider text-gray-500">Observaciones / detalle</div>
+                    <div className="text-gray-200 mt-1 whitespace-pre-wrap bg-white/5 rounded-lg p-3 border border-white/10">
+                      {[detalleEvento.raw.descripcion, detalleEvento.raw.notas, detalleEvento.raw.detalle_consulta, detalleEvento.raw.observaciones]
+                        .filter(Boolean).join('\n\n')}
+                    </div>
+                  </div>
+                )}
+
+                <div className="flex flex-wrap justify-end gap-2 pt-2">
+                  {detalleEvento.source === 'interno' && (
+                    <button onClick={() => empezarEdicionInterno(detalleEvento)}
+                      className="px-3 py-2 text-xs rounded-md bg-emerald-500 hover:bg-emerald-400 text-black font-medium flex items-center gap-1.5">
+                      <Pencil className="w-3.5 h-3.5" /> Editar
+                    </button>
+                  )}
+                  {detalleEvento.source === 'consulta' && (
+                    <button onClick={() => navigate(`/agendamiento-consultas?openId=${detalleEvento.raw.id}`)}
+                      className="px-3 py-2 text-xs rounded-md bg-violet-500 hover:bg-violet-400 text-white font-medium flex items-center gap-1.5">
+                      <Pencil className="w-3.5 h-3.5" /> Editar en Agendamiento
+                    </button>
+                  )}
+                  {detalleEvento.source === 'audiencia_general' && (
+                    <button onClick={() => navigate(`/audiencias?openId=${detalleEvento.raw.id}`)}
+                      className="px-3 py-2 text-xs rounded-md bg-orange-500 hover:bg-orange-400 text-black font-medium flex items-center gap-1.5">
+                      <Pencil className="w-3.5 h-3.5" /> Editar en Audiencias
+                    </button>
+                  )}
+                  {detalleEvento.source === 'audiencia_legal' && (
+                    <span className="text-[11px] text-gray-500 self-center">Se edita desde la ficha del caso en Previsional.</span>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {editandoEvento && formEdicion && (
+              <div className="space-y-3 text-sm">
+                <div>
+                  <label className="text-[11px] uppercase tracking-wider text-gray-500">Título</label>
+                  <input value={formEdicion.titulo}
+                    onChange={(e) => setFormEdicion({ ...formEdicion, titulo: e.target.value })}
+                    className="w-full mt-1 px-3 py-2 rounded-md bg-white/5 border border-white/10 text-white focus:outline-none focus:border-white/30" />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-[11px] uppercase tracking-wider text-gray-500">Fecha</label>
+                    <input type="date" value={formEdicion.fecha}
+                      onChange={(e) => setFormEdicion({ ...formEdicion, fecha: e.target.value })}
+                      className="w-full mt-1 px-3 py-2 rounded-md bg-white/5 border border-white/10 text-white focus:outline-none focus:border-white/30" />
+                  </div>
+                  {!formEdicion.todoElDia && (
+                    <div>
+                      <label className="text-[11px] uppercase tracking-wider text-gray-500">Hora</label>
+                      <input type="time" value={formEdicion.hora}
+                        onChange={(e) => setFormEdicion({ ...formEdicion, hora: e.target.value })}
+                        className="w-full mt-1 px-3 py-2 rounded-md bg-white/5 border border-white/10 text-white focus:outline-none focus:border-white/30" />
+                    </div>
+                  )}
+                </div>
+                {!formEdicion.todoElDia && (
+                  <div>
+                    <label className="text-[11px] uppercase tracking-wider text-gray-500">Duración (minutos)</label>
+                    <input type="number" min={15} step={15} value={formEdicion.duracion}
+                      onChange={(e) => setFormEdicion({ ...formEdicion, duracion: parseInt(e.target.value) || 60 })}
+                      className="w-full mt-1 px-3 py-2 rounded-md bg-white/5 border border-white/10 text-white focus:outline-none focus:border-white/30" />
+                  </div>
+                )}
+                <label className="flex items-center gap-2 text-xs text-gray-300">
+                  <input type="checkbox" checked={formEdicion.todoElDia}
+                    onChange={(e) => setFormEdicion({ ...formEdicion, todoElDia: e.target.checked })} />
+                  Evento de todo el día
+                </label>
+                <div>
+                  <label className="text-[11px] uppercase tracking-wider text-gray-500">Ubicación</label>
+                  <input value={formEdicion.ubicacion}
+                    onChange={(e) => setFormEdicion({ ...formEdicion, ubicacion: e.target.value })}
+                    className="w-full mt-1 px-3 py-2 rounded-md bg-white/5 border border-white/10 text-white focus:outline-none focus:border-white/30" />
+                </div>
+                <div>
+                  <label className="text-[11px] uppercase tracking-wider text-gray-500">Observaciones</label>
+                  <textarea value={formEdicion.descripcion} rows={4}
+                    onChange={(e) => setFormEdicion({ ...formEdicion, descripcion: e.target.value })}
+                    className="w-full mt-1 px-3 py-2 rounded-md bg-white/5 border border-white/10 text-white focus:outline-none focus:border-white/30 resize-none" />
+                </div>
+                <div className="flex justify-end gap-2 pt-2">
+                  <button onClick={() => setEditandoEvento(false)} disabled={guardandoEdicion}
+                    className="px-3 py-2 text-xs rounded-md bg-white/5 hover:bg-white/10 text-gray-300 border border-white/10">
+                    Cancelar
+                  </button>
+                  <button onClick={guardarEdicionInterno} disabled={guardandoEdicion}
+                    className="px-3 py-2 text-xs rounded-md bg-emerald-500 hover:bg-emerald-400 text-black font-medium disabled:opacity-50 flex items-center gap-1.5">
+                    {guardandoEdicion && <RefreshCw className="w-3 h-3 animate-spin" />}
+                    Guardar cambios
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Modal IA: subir fotos -> turnos */}
       {iaModal && (
         <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => iaModal.fase !== 'analizando' && iaModal.fase !== 'creando' && setIaModal(null)}>
