@@ -51,6 +51,9 @@ export interface IngresoOperativo {
   updated_at: string;
   created_by: string | null;
   updated_by: string | null;
+  // Periodo del cierre que archivó esta fila (null = todavía activa/sin cerrar).
+  // El cierre NUNCA borra filas: solo las marca acá. Ver Historial > Reabrir mes.
+  cierre_periodo: string | null;
 }
 
 export interface FondoCliente {
@@ -92,6 +95,7 @@ export interface EgresoV2 {
   observaciones: string | null;
   created_at: string;
   updated_at: string;
+  cierre_periodo: string | null;
 }
 
 export interface MovimientoCaja {
@@ -104,6 +108,7 @@ export interface MovimientoCaja {
   tipo_destino: ModalidadPago;
   observaciones: string | null;
   created_at: string;
+  cierre_periodo: string | null;
 }
 
 export interface CuentaSocio {
