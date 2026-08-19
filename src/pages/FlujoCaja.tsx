@@ -284,7 +284,7 @@ export default function FlujoCaja() {
       const ok = window.confirm(`El período "${rangLabel}" ya fue cerrado. ¿Sobrescribir el snapshot con los datos actuales?`);
       if (!ok) return;
     } else {
-      const ok = window.confirm(`Cerrar el período "${rangLabel}"?\n\n• Se guardará un snapshot completo en Historial.\n• Se BORRARÁN los ingresos, egresos y cambios de ese rango de las tablas activas.\n\nLos datos siguen accesibles desde Historial.`);
+      const ok = window.confirm(`Cerrar el período "${rangLabel}"?\n\n• Se guardará un snapshot completo en Historial.\n• Los ingresos, egresos y cambios de ese rango quedan marcados como cerrados (NO se borran de la base).\n\nSeguís pudiendo verlos y buscarlos desde Historial → Buscar por rango, y "Reabrir mes" los vuelve a poner activos.`);
       if (!ok) return;
     }
     setCerrando(true);
@@ -381,21 +381,22 @@ export default function FlujoCaja() {
         return;
       }
 
-      // Borrar los registros del rango exacto seleccionado.
-      // Los datos quedan archivados en el snapshot del cierre.
-      const [delIng, delEg, delMov] = await Promise.all([
-        supabase.from('ingresos_operativos').delete().gte('fecha', inicio).lte('fecha', hasta),
-        supabase.from('egresos_v2').delete().gte('fecha', inicio).lte('fecha', hasta),
-        supabase.from('movimientos_caja').delete().gte('fecha', inicio).lte('fecha', hasta),
+      // Marcar (NO borrar) los registros del rango exacto seleccionado como
+      // pertenecientes a este cierre. Los datos siguen físicamente en la
+      // base — nunca se pierden — y quedan disponibles vía Historial →
+      // Buscar por rango o reapareciendo activos si se reabre el mes.
+      const [updIng, updEg, updMov] = await Promise.all([
+        supabase.from('ingresos_operativos').update({ cierre_periodo: periodo }).gte('fecha', inicio).lte('fecha', hasta),
+        supabase.from('egresos_v2').update({ cierre_periodo: periodo }).gte('fecha', inicio).lte('fecha', hasta),
+        supabase.from('movimientos_caja').update({ cierre_periodo: periodo }).gte('fecha', inicio).lte('fecha', hasta),
       ]);
-      if (delIng.error || delEg.error || delMov.error) {
-        showToast(`Cierre archivado pero hubo un error al limpiar: ${delIng.error?.message || delEg.error?.message || delMov.error?.message}`, 'error');
+      if (updIng.error || updEg.error || updMov.error) {
+        showToast(`Cierre archivado pero hubo un error al marcar los registros: ${updIng.error?.message || updEg.error?.message || updMov.error?.message}`, 'error');
       } else {
-        showToast(`Período "${rangLabel}" cerrado y archivado`, 'success');
+        showToast(`Período "${rangLabel}" cerrado y archivado (los datos no se borraron, quedaron marcados)`, 'success');
       }
       // Refrescar datos en pantalla
-      setEgresos([]);
-      setMovimientos([]);
+      cargarEgresosYMovs();
     } catch (err: any) {
       showToast(err?.message || 'Error al cerrar mes', 'error');
     } finally {

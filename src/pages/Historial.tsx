@@ -107,7 +107,7 @@ export default function Historial() {
     if (!confirmDel) return;
     try {
       await eliminar(confirmDel.id);
-      showToast(`Cierre ${confirmDel.periodo} reabierto. Los datos siguen en Ingresos/Egresos.`, 'success');
+      showToast(`Cierre ${confirmDel.periodo} reabierto. Los datos volvieron a estar activos en Ingresos/Egresos/Flujo de Caja.`, 'success');
       setConfirmDel(null);
     } catch (err: any) {
       showToast(err?.message || 'Error', 'error');
@@ -242,7 +242,7 @@ export default function Historial() {
               <AlertTriangle className="w-5 h-5 text-amber-400 flex-shrink-0 mt-0.5" />
               <div className="text-sm text-amber-200">
                 Vas a borrar el snapshot del cierre <strong>{confirmDel.periodo}</strong>. <br />
-                <strong>OJO:</strong> los datos del periodo ya fueron borrados de las tablas activas al hacer el cierre. Si eliminás este snapshot, perdés esa información para siempre. Sólo hacelo si tenés que rehacer todo el mes desde cero.
+                Los ingresos, egresos y cambios de ese período vuelven a estar activos y editables en Ingresos/Egresos/Flujo de Caja (nunca se borraron de la base). Lo que se pierde es el reporte congelado — si necesitás volver a cerrar el período, vas a tener que hacerlo de nuevo desde Flujo de Caja.
               </div>
             </div>
             <div className="flex justify-end gap-2">
