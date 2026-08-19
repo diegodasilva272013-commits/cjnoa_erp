@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, useCallback } from 'react';
-import { Plus, Pencil, Search, Download, Trash2 } from 'lucide-react';
+import { Plus, Pencil, Search, Download, Trash2, Upload } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
@@ -15,6 +15,7 @@ import EmptyPeriodHint from '../components/finance/EmptyPeriodHint';
 import { usePeriodoFinanciero } from '../hooks/usePeriodoFinanciero';
 import { formatMoney } from '../lib/financeFormat';
 import { exportToExcel } from '../lib/exportExcel';
+import ImportarExcelModal from '../components/finance/ImportarExcelModal';
 
 function hoyLocalISO(): string {
   const d = new Date();
@@ -66,6 +67,7 @@ export default function Egresos() {
   const [items, setItems] = useState<EgresoV2[]>([]);
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
+  const [importModalOpen, setImportModalOpen] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const [form, setForm] = useState<FormState>(FORM_VACIO);
   const [saving, setSaving] = useState(false);
@@ -249,11 +251,16 @@ export default function Egresos() {
           <button onClick={exportar} className="px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-sm text-white hover:bg-white/10 flex items-center gap-2">
             <Download className="w-4 h-4" /> Excel
           </button>
+          <button onClick={() => setImportModalOpen(true)} className="px-3 py-2 rounded-lg bg-sky-600/80 hover:bg-sky-500 text-sm text-white flex items-center gap-2" title="Cargar egresos de meses anteriores desde un Excel">
+            <Upload className="w-4 h-4" /> Importar Excel
+          </button>
           <button onClick={abrirNuevo} className="px-3 py-2 rounded-lg bg-rose-600 hover:bg-rose-500 text-sm text-white flex items-center gap-2">
             <Plus className="w-4 h-4" /> Nuevo egreso
           </button>
         </div>
       </header>
+
+      <ImportarExcelModal target="egresos" open={importModalOpen} onClose={() => setImportModalOpen(false)} onImportado={cargar} />
 
       {/* Métricas */}
       <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
