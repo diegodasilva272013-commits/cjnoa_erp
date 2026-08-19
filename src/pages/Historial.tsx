@@ -1,11 +1,12 @@
 import { useMemo, useState } from 'react';
-import { Archive, Eye, Trash2, Calendar, AlertTriangle } from 'lucide-react';
+import { Archive, Eye, Trash2, Calendar, AlertTriangle, Search, X, Database, Archive as ArchiveIcon } from 'lucide-react';
 import { useCierresMes, type CierreMes } from '../hooks/useCierresMes';
 import { useToast } from '../context/ToastContext';
 import { formatMoney } from '../lib/financeFormat';
 import Modal from '../components/Modal';
 import FinanceMiniCharts from '../components/finance/FinanceMiniCharts';
 import { SOCIOS_FINANZAS, type SocioFinanzas } from '../types/finanzas';
+import { supabase } from '../lib/supabase';
 
 type Tone = 'sky' | 'violet' | 'amber' | 'rose' | 'emerald';
 const SOCIO_TONE: Record<SocioFinanzas, Tone> = { Rodri: 'sky', Noe: 'violet', Ale: 'amber', Fabri: 'rose' };
@@ -17,11 +18,90 @@ const TONE_BG: Record<Tone, string> = {
   emerald: 'bg-emerald-500/10 border-emerald-500/30 text-emerald-200',
 };
 
+type OrigenDato = 'activo' | `archivado:${string}`;
+type FilaRango = { origen: OrigenDato; [k: string]: any };
+type ResultadoRango = {
+  desde: string; hasta: string;
+  ingresos: FilaRango[]; egresos: FilaRango[]; movimientos: FilaRango[];
+  periodosArchivadosTocados: string[];
+};
+
+// Trae TODO lo que haya en el rango [desde, hasta], sin importar si el
+// periodo ya fue cerrado o sigue activo: junta las tablas activas
+// (ingresos_operativos, egresos_v2, movimientos_caja) con lo que esté
+// archivado dentro de los snapshots de cierres_mes_finanzas, y lo
+// devuelve como una sola lista por tipo, marcando el origen de cada fila.
+async function buscarDatosPorRango(desde: string, hasta: string): Promise<ResultadoRango> {
+  const [ing, eg, mov, cierres] = await Promise.all([
+    supabase.from('ingresos_operativos').select('*').gte('fecha', desde).lte('fecha', hasta),
+    supabase.from('egresos_v2').select('*').gte('fecha', desde).lte('fecha', hasta),
+    supabase.from('movimientos_caja').select('*').gte('fecha', desde).lte('fecha', hasta),
+    supabase.from('cierres_mes_finanzas').select('periodo, snapshot'),
+  ]);
+  if (ing.error) throw ing.error;
+  if (eg.error) throw eg.error;
+  if (mov.error) throw mov.error;
+  if (cierres.error) throw cierres.error;
+
+  const idsActivos = { ing: new Set<string>(), eg: new Set<string>(), mov: new Set<string>() };
+  const ingresos: FilaRango[] = (ing.data || []).map((r: any) => { idsActivos.ing.add(r.id); return { ...r, origen: 'activo' as OrigenDato }; });
+  const egresos: FilaRango[] = (eg.data || []).map((r: any) => { idsActivos.eg.add(r.id); return { ...r, origen: 'activo' as OrigenDato }; });
+  const movimientos: FilaRango[] = (mov.data || []).map((r: any) => { idsActivos.mov.add(r.id); return { ...r, origen: 'activo' as OrigenDato }; });
+
+  const periodosArchivadosTocados = new Set<string>();
+  for (const c of (cierres.data || [])) {
+    const snap = (c as any).snapshot || {};
+    const enRango = (fecha: string) => fecha >= desde && fecha <= hasta;
+    (snap.ingresos || []).forEach((r: any) => {
+      if (enRango(r.fecha) && !idsActivos.ing.has(r.id)) {
+        ingresos.push({ ...r, origen: `archivado:${(c as any).periodo}` });
+        periodosArchivadosTocados.add((c as any).periodo);
+      }
+    });
+    (snap.egresos || []).forEach((r: any) => {
+      if (enRango(r.fecha) && !idsActivos.eg.has(r.id)) {
+        egresos.push({ ...r, origen: `archivado:${(c as any).periodo}` });
+        periodosArchivadosTocados.add((c as any).periodo);
+      }
+    });
+    (snap.movimientos || []).forEach((r: any) => {
+      if (enRango(r.fecha) && !idsActivos.mov.has(r.id)) {
+        movimientos.push({ ...r, origen: `archivado:${(c as any).periodo}` });
+        periodosArchivadosTocados.add((c as any).periodo);
+      }
+    });
+  }
+
+  ingresos.sort((a, b) => String(a.fecha).localeCompare(b.fecha));
+  egresos.sort((a, b) => String(a.fecha).localeCompare(b.fecha));
+  movimientos.sort((a, b) => String(a.fecha).localeCompare(b.fecha));
+
+  return { desde, hasta, ingresos, egresos, movimientos, periodosArchivadosTocados: Array.from(periodosArchivadosTocados) };
+}
+
 export default function Historial() {
   const { items, loading, eliminar } = useCierresMes();
   const { showToast } = useToast();
   const [verCierre, setVerCierre] = useState<CierreMes | null>(null);
   const [confirmDel, setConfirmDel] = useState<CierreMes | null>(null);
+  const [rangoDesde, setRangoDesde] = useState('');
+  const [rangoHasta, setRangoHasta] = useState('');
+  const [buscandoRango, setBuscandoRango] = useState(false);
+  const [resultadoRango, setResultadoRango] = useState<ResultadoRango | null>(null);
+
+  async function handleBuscarRango() {
+    if (!rangoDesde || !rangoHasta) { showToast('Elegí fecha desde y hasta', 'error'); return; }
+    if (rangoDesde > rangoHasta) { showToast('La fecha "desde" no puede ser posterior a "hasta"', 'error'); return; }
+    setBuscandoRango(true);
+    try {
+      const r = await buscarDatosPorRango(rangoDesde, rangoHasta);
+      setResultadoRango(r);
+    } catch (err: any) {
+      showToast(err?.message || 'Error al buscar', 'error');
+    } finally {
+      setBuscandoRango(false);
+    }
+  }
 
   async function handleEliminar() {
     if (!confirmDel) return;
@@ -45,6 +125,47 @@ export default function Historial() {
           Reportes mensuales archivados. Los datos quedan congelados al momento del cierre.
         </p>
       </header>
+
+      {/* Buscador por rango de fechas: junta datos activos + archivados en cierres */}
+      <div className="rounded-xl border border-sky-500/30 bg-sky-500/5 p-4 space-y-3">
+        <div className="flex items-center gap-2">
+          <Search className="w-4 h-4 text-sky-300" />
+          <h2 className="text-sm font-semibold text-sky-200">Buscar datos por rango de fechas</h2>
+        </div>
+        <p className="text-xs text-zinc-400">
+          Elegí cualquier "desde" y "hasta" (pueden cruzar meses ya cerrados). Te muestra ingresos,
+          egresos y cambios de caja de ese rango, sea que estén activos o ya archivados en un cierre.
+        </p>
+        <div className="flex flex-wrap items-end gap-2">
+          <div>
+            <label className="text-[10px] uppercase tracking-wider text-zinc-500">Desde</label>
+            <input type="date" value={rangoDesde} onChange={e => setRangoDesde(e.target.value)}
+              className="block mt-1 px-3 py-2 rounded-lg bg-black/30 border border-white/10 text-white text-sm" />
+          </div>
+          <div>
+            <label className="text-[10px] uppercase tracking-wider text-zinc-500">Hasta</label>
+            <input type="date" value={rangoHasta} onChange={e => setRangoHasta(e.target.value)}
+              className="block mt-1 px-3 py-2 rounded-lg bg-black/30 border border-white/10 text-white text-sm" />
+          </div>
+          <button
+            onClick={handleBuscarRango}
+            disabled={buscandoRango}
+            className="px-4 py-2 rounded-lg bg-sky-600 hover:bg-sky-500 text-sm text-white flex items-center gap-2 disabled:opacity-50"
+          >
+            <Search className="w-4 h-4" /> {buscandoRango ? 'Buscando…' : 'Ver datos'}
+          </button>
+          {resultadoRango && (
+            <button
+              onClick={() => { setResultadoRango(null); setRangoDesde(''); setRangoHasta(''); }}
+              className="px-3 py-2 rounded-lg bg-white/5 hover:bg-white/10 text-sm text-zinc-300 flex items-center gap-1.5"
+            >
+              <X className="w-3.5 h-3.5" /> Limpiar
+            </button>
+          )}
+        </div>
+
+        {resultadoRango && <ResultadoRangoView resultado={resultadoRango} />}
+      </div>
 
       {loading ? (
         <div className="p-8 text-center text-sm text-zinc-400">Cargando…</div>
@@ -316,6 +437,64 @@ function DetalleCierre({ cierre }: { cierre: CierreMes }) {
         <SimpleTable title={`Gastos sobre fondos en custodia (${fondosMov.length})`} rows={fondosMov.map(f => [
           f.fecha, f.nombre_gasto, formatMoney(Number(f.monto)), f.observaciones || '—',
         ])} headers={['Fecha', 'Concepto', 'Monto', 'Obs.']} />
+      )}
+    </div>
+  );
+}
+
+function ResultadoRangoView({ resultado }: { resultado: ResultadoRango }) {
+  const { ingresos, egresos, movimientos, periodosArchivadosTocados } = resultado;
+
+  const totalIngresos = ingresos.reduce((s, i) => s + Number(i.monto || 0), 0);
+  const totalEgresos = egresos.reduce((s, e) => s + Number(e.monto || 0), 0);
+  const neto = totalIngresos - totalEgresos;
+  const cantActivos = ingresos.filter(i => i.origen === 'activo').length
+    + egresos.filter(e => e.origen === 'activo').length
+    + movimientos.filter(m => m.origen === 'activo').length;
+  const cantArchivados = ingresos.length + egresos.length + movimientos.length - cantActivos;
+
+  const labelOrigen = (origen: OrigenDato) => origen === 'activo' ? 'Activo' : `Cerrado ${origen.replace('archivado:', '')}`;
+
+  return (
+    <div className="space-y-4 pt-2">
+      <div className="flex flex-wrap items-center gap-2 text-[11px]">
+        <span className="px-2 py-1 rounded-md bg-emerald-500/10 border border-emerald-500/30 text-emerald-200 flex items-center gap-1">
+          <Database className="w-3 h-3" /> {cantActivos} registro(s) activos
+        </span>
+        <span className="px-2 py-1 rounded-md bg-violet-500/10 border border-violet-500/30 text-violet-200 flex items-center gap-1">
+          <ArchiveIcon className="w-3 h-3" /> {cantArchivados} registro(s) en cierres archivados
+          {periodosArchivadosTocados.length > 0 && ` (${periodosArchivadosTocados.join(', ')})`}
+        </span>
+      </div>
+
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+        <Stat label={`Ingresos (${ingresos.length})`} value={formatMoney(totalIngresos)} tone="emerald" />
+        <Stat label={`Egresos (${egresos.length})`} value={formatMoney(totalEgresos)} tone="rose" />
+        <Stat label="Neto" value={formatMoney(neto)} tone={neto >= 0 ? 'emerald' : 'rose'} />
+        <Stat label={`Cambios de caja`} value={String(movimientos.length)} tone="amber" />
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+        <SimpleTable title={`Ingresos (${ingresos.length})`} rows={ingresos.map(i => [
+          i.fecha, i.cliente_nombre, i.doctor_cobra,
+          i.modalidad === 'Transferencia' ? `${i.modalidad} → ${i.receptor_transfer || '-'}` : i.modalidad,
+          i.rama, i.concepto, formatMoney(Number(i.monto)), labelOrigen(i.origen), i.observaciones || '—',
+        ])} headers={['Fecha', 'Cliente', 'Doctor', 'Modalidad', 'Rama', 'Concepto', 'Monto', 'Origen', 'Obs.']} />
+        <SimpleTable title={`Egresos (${egresos.length})`} rows={egresos.map(e => [
+          e.fecha, e.tipo, e.concepto, e.pagador || 'Caja CJ', e.modalidad,
+          formatMoney(Number(e.monto)), labelOrigen(e.origen), e.observaciones || '—',
+        ])} headers={['Fecha', 'Tipo', 'Concepto', 'Pagador', 'Modalidad', 'Monto', 'Origen', 'Obs.']} />
+      </div>
+
+      {movimientos.length > 0 && (
+        <SimpleTable title={`Cambios de caja (${movimientos.length})`} rows={movimientos.map(m => [
+          m.fecha, m.socio_origen, m.tipo_origen, '→', m.socio_destino, m.tipo_destino,
+          formatMoney(Number(m.monto)), labelOrigen(m.origen), m.observaciones || '—',
+        ])} headers={['Fecha', 'Origen', 'Entrega', '', 'Destino', 'Recibe', 'Monto', 'De dónde', 'Obs.']} />
+      )}
+
+      {ingresos.length === 0 && egresos.length === 0 && movimientos.length === 0 && (
+        <div className="text-center py-6 text-sm text-zinc-500">Sin datos en ese rango (ni activos ni archivados).</div>
       )}
     </div>
   );
