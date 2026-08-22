@@ -11,21 +11,9 @@ import {
 } from '../../hooks/useClientesPrevisionalNotas';
 import { usePerfilesList } from '../../hooks/usePerfilesList';
 import { useAvatarUrl } from '../../hooks/useAvatarUrl';
+import { fmtFechaHoraExacta as fmtFecha } from '../../lib/dateFormat';
 
 type Prioridad = 'alta' | 'media' | 'sin_prioridad';
-
-function fmtFecha(iso: string): string {
-  const d = new Date(iso);
-  const diff = Date.now() - d.getTime();
-  const min = Math.floor(diff / 60000);
-  if (min < 1) return 'ahora';
-  if (min < 60) return `hace ${min} min`;
-  const h = Math.floor(min / 60);
-  if (h < 24) return `hace ${h} h`;
-  const days = Math.floor(h / 24);
-  if (days < 7) return `hace ${days} d`;
-  return d.toLocaleDateString('es-AR', { day: '2-digit', month: 'short', year: 'numeric' });
-}
 
 function Avatar({ path, nombre, size = 32 }: { path: string | null; nombre: string | null; size?: number }) {
   const url = useAvatarUrl(path);
