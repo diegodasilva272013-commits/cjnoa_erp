@@ -1,4 +1,5 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { Plus, Search, Trash2, Briefcase, Phone, Check, Copy, ChevronRight, Filter, FileText, Pencil, CopyPlus } from 'lucide-react';
 import { useClientesFederales } from '../hooks/useFederales';
 import FichaFederalModal from '../components/federales/FichaFederalModal';
@@ -33,6 +34,15 @@ export default function CasosFederales() {
   const [fichaEditando, setFichaEditando] = useState<ClienteFederal | null>(null);
   const [fichaDetalle, setFichaDetalle] = useState<ClienteFederal | null>(null);
   const [sortKey, setSortKey] = useState<SortKey>('apellido_nombre');
+  const [searchParams] = useSearchParams();
+
+  // Auto-abrir la ficha cuando se navega desde otro módulo (ej: Tareas → "Ver caso")
+  useEffect(() => {
+    const casoId = searchParams.get('caso');
+    if (!casoId || clientes.length === 0) return;
+    const target = clientes.find(c => c.id === casoId);
+    if (target) setFichaDetalle(target);
+  }, [clientes, searchParams]);
   const [sortDir, setSortDir] = useState<SortDir>('asc');
   const [confirmDel, setConfirmDel] = useState<string | null>(null);
   const [copiado, setCopiado] = useState<string | null>(null);

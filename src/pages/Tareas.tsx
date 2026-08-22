@@ -1,15 +1,17 @@
 import { useState, useMemo, useEffect } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, useNavigate } from 'react-router-dom';
 import {
   Plus, Search, ListTodo, Columns3, Calendar as CalendarIcon,
   Clock, CheckCircle, AlertTriangle, Trash2, User, X, Paperclip,
   Filter, Edit2, FileDown, Briefcase, FileText, ArrowRight, Eye,
-  ExternalLink, Users, ChevronUp, ChevronDown, GripVertical,
+  ExternalLink, Users, ChevronUp, ChevronDown, GripVertical, Gavel,
 } from 'lucide-react';
 import { useTareas, uploadTareaAdjunto, getTareaAdjuntoUrl } from '../hooks/useTareas';
 import { useTareaPasos, useTareasConPasos, TareaPaso } from '../hooks/useTareaPasos';
 import { useCases } from '../hooks/useCases';
 import { useCasosGenerales } from '../hooks/useCasosGenerales';
+import { useClientesFederales } from '../hooks/useFederales';
+import { PIPELINE_FEDERAL_LABELS, TIPO_CASO_FEDERAL_LABELS } from '../types/federales';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import { supabase } from '../lib/supabase';
@@ -39,9 +41,11 @@ interface PerfilLite { id: string; nombre: string; rol: string }
 
 export default function Tareas() {
   const { user, perfil } = useAuth();
+  const navigate = useNavigate();
   const { tareas, loading, upsert, completar, reabrir, archivar } = useTareas();
   const { casos } = useCases();
   const { casos: casosGenerales } = useCasosGenerales();
+  const { clientes: clientesFederales } = useClientesFederales();
   const [perfiles, setPerfiles] = useState<PerfilLite[]>([]);
 
   const esAdmin = perfil?.rol === 'admin' || perfil?.rol === 'socio';
@@ -221,7 +225,10 @@ export default function Tareas() {
         </div>
       ) : view === 'lista' ? (
         <ListaView tareas={filtered} onOpen={t => { setSelected(t); setModalOpen(true); }}
-          onOpenCaso={(type, id) => setDrawerCaso({ type, id })}
+          onOpenCaso={(type, id) => {
+            if (type === 'federal') { navigate(`/casos-federales?caso=${id}`); return; }
+            setDrawerCaso({ type, id });
+          }}
           onCompletar={id => completar(id, user?.id || '')}
           onReabrir={id => reabrir(id, user?.id || '')}
           onArchivar={handleArchivar} confirmDel={confirmDel} isVencida={isVencida} />
@@ -243,6 +250,7 @@ export default function Tareas() {
           tarea={selected}
           casos={casos}
           casosGenerales={casosGenerales}
+          clientesFederales={clientesFederales}
           perfiles={perfiles}
           onClose={() => { setModalOpen(false); setSelected(null); }}
           onSave={async (t, pasosNuevos) => {
@@ -302,28 +310,35 @@ function MiniAvatar({ path, nombre, size = 24 }: { path?: string | null; nombre?
 // ============================================
 function CasoInfoBar({ t, onOpenCaso }: {
   t: TareaCompleta;
-  onOpenCaso?: (type: 'general' | 'legal', id: string) => void;
+  onOpenCaso?: (type: 'general' | 'legal' | 'federal', id: string) => void;
 }) {
   const hasCasoGeneral = !!t.caso_general_id;
   const hasCaso = !!t.caso_id;
-  if (!hasCasoGeneral && !hasCaso) return null;
+  const hasFederal = !!t.cliente_federal_id;
+  if (!hasCasoGeneral && !hasCaso && !hasFederal) return null;
   const palette = hasCasoGeneral
     ? { bg: 'bg-violet-500/[0.08]', hover: 'hover:bg-violet-500/[0.15]', border: 'border-violet-500/30', icon: 'text-violet-300', text: 'text-violet-100', mono: 'text-violet-400/80' }
+    : hasFederal
+    ? { bg: 'bg-sky-500/[0.08]', hover: 'hover:bg-sky-500/[0.15]', border: 'border-sky-500/30', icon: 'text-sky-300', text: 'text-sky-100', mono: 'text-sky-400/80' }
     : { bg: 'bg-emerald-500/[0.08]', hover: 'hover:bg-emerald-500/[0.15]', border: 'border-emerald-500/30', icon: 'text-emerald-300', text: 'text-emerald-100', mono: 'text-emerald-400/80' };
+  const tipo = hasCasoGeneral ? 'general' : hasFederal ? 'federal' : 'legal';
+  const id = hasCasoGeneral ? t.caso_general_id : hasFederal ? t.cliente_federal_id : t.caso_id;
+  const titulo = hasCasoGeneral ? t.caso_general_titulo : hasFederal ? t.cliente_federal_nombre : t.cliente_nombre;
+  const expediente = hasCasoGeneral ? t.caso_general_expediente : hasFederal ? t.cliente_federal_expediente : t.expediente_caso;
   return (
     <button type="button"
       onClick={e => {
         e.stopPropagation();
-        if (onOpenCaso) onOpenCaso(hasCasoGeneral ? 'general' : 'legal', (hasCasoGeneral ? t.caso_general_id : t.caso_id) as string);
+        if (onOpenCaso) onOpenCaso(tipo, id as string);
       }}
       className={`mt-2.5 w-full flex items-center gap-2 px-3 py-2 rounded-xl border transition-all ${palette.bg} ${palette.hover} ${palette.border} text-[11px] text-left group`}
       title="Ver detalle completo del caso">
-      {hasCasoGeneral ? <Briefcase className={`w-3.5 h-3.5 flex-shrink-0 ${palette.icon}`} /> : <FileText className={`w-3.5 h-3.5 flex-shrink-0 ${palette.icon}`} />}
-      <span className={`font-semibold truncate ${palette.text}`}>
-        {hasCasoGeneral ? t.caso_general_titulo : t.cliente_nombre}
-      </span>
-      {(hasCasoGeneral ? t.caso_general_expediente : t.expediente_caso) && (
-        <span className={`font-mono text-[10px] truncate ${palette.mono}`}>· {hasCasoGeneral ? t.caso_general_expediente : t.expediente_caso}</span>
+      {hasCasoGeneral ? <Briefcase className={`w-3.5 h-3.5 flex-shrink-0 ${palette.icon}`} />
+        : hasFederal ? <Gavel className={`w-3.5 h-3.5 flex-shrink-0 ${palette.icon}`} />
+        : <FileText className={`w-3.5 h-3.5 flex-shrink-0 ${palette.icon}`} />}
+      <span className={`font-semibold truncate ${palette.text}`}>{titulo}</span>
+      {expediente && (
+        <span className={`font-mono text-[10px] truncate ${palette.mono}`}>· {expediente}</span>
       )}
       <span className={`ml-auto text-[10px] ${palette.mono} opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1 flex-shrink-0`}>
         Ver caso <ArrowRight className="w-3 h-3" />
@@ -337,7 +352,7 @@ function CasoInfoBar({ t, onOpenCaso }: {
 // ============================================
 function ListaView({ tareas, onOpen, onOpenCaso, onCompletar, onReabrir, onArchivar, confirmDel, isVencida }: {
   tareas: TareaCompleta[]; onOpen: (t: TareaCompleta) => void;
-  onOpenCaso: (type: 'general' | 'legal', id: string) => void;
+  onOpenCaso: (type: 'general' | 'legal' | 'federal', id: string) => void;
   onCompletar: (id: string) => void; onReabrir: (id: string) => void;
   onArchivar: (t: TareaCompleta) => void; confirmDel: string | null;
   isVencida: (t: TareaCompleta) => boolean;
@@ -481,10 +496,12 @@ function KanbanView({ tareas, onOpen, isVencida }: {
                 <div key={t.id} onClick={() => onOpen(t)}
                   className={`glass-card p-3 cursor-pointer hover:bg-white/[0.04] transition-all ${isVencida(t) ? 'border-red-500/30' : ''}`}>
                   <h4 className="text-xs font-semibold text-white mb-1 line-clamp-2">{t.titulo}</h4>
-                  {(t.caso_general_titulo || t.cliente_nombre) && (
+                  {(t.caso_general_titulo || t.cliente_federal_nombre || t.cliente_nombre) && (
                     <p className="text-[10px] truncate flex items-center gap-1">
                       {t.caso_general_titulo
                         ? <><Briefcase className="w-2.5 h-2.5 text-violet-400" /> <span className="text-violet-300">{t.caso_general_titulo}</span></>
+                        : t.cliente_federal_nombre
+                        ? <><Gavel className="w-2.5 h-2.5 text-sky-400" /> <span className="text-sky-300">{t.cliente_federal_nombre}</span></>
                         : <><FileText className="w-2.5 h-2.5 text-emerald-400" /> <span className="text-emerald-300">{t.cliente_nombre}</span></>}
                     </p>
                   )}
@@ -659,6 +676,8 @@ function ResponsableView({ tareas, perfiles, onOpen, isVencida }: {
                       <span className={`text-xs truncate ${t.estado === 'completada' ? 'text-gray-500 line-through' : 'text-white'}`}>{t.titulo}</span>
                       {t.caso_general_titulo
                         ? <span className="text-[10px] text-violet-300 truncate flex items-center gap-1"><Briefcase className="w-2.5 h-2.5" /> {t.caso_general_titulo}</span>
+                        : t.cliente_federal_nombre
+                        ? <span className="text-[10px] text-sky-300 truncate flex items-center gap-1"><Gavel className="w-2.5 h-2.5" /> {t.cliente_federal_nombre}</span>
                         : t.cliente_nombre && <span className="text-[10px] text-emerald-300/80 truncate flex items-center gap-1"><FileText className="w-2.5 h-2.5" /> {t.cliente_nombre}</span>}
                       {t.cargo_hora && <span className="text-[10px] text-orange-300 flex-shrink-0">⏰ {t.cargo_hora}</span>}
                     </div>
@@ -680,10 +699,11 @@ function ResponsableView({ tareas, perfiles, onOpen, isVencida }: {
 // ============================================
 // TareaModal
 // ============================================
-function TareaModal({ tarea, casos, casosGenerales, perfiles, onClose, onSave }: {
+function TareaModal({ tarea, casos, casosGenerales, clientesFederales, perfiles, onClose, onSave }: {
   tarea: TareaCompleta | null;
   casos: any[];
   casosGenerales: any[];
+  clientesFederales: any[];
   perfiles: PerfilLite[];
   onClose: () => void;
   onSave: (t: any, pasosNuevos?: { descripcion: string; responsable_id: string }[]) => void;
@@ -693,6 +713,7 @@ function TareaModal({ tarea, casos, casosGenerales, perfiles, onClose, onSave }:
     titulo: tarea?.titulo || '',
     caso_id: tarea?.caso_id || '',
     caso_general_id: tarea?.caso_general_id || '',
+    cliente_federal_id: tarea?.cliente_federal_id || '',
     descripcion: tarea?.descripcion || '',
     culminacion: tarea?.culminacion || '',
     cargo_hora: tarea?.cargo_hora || '',
@@ -734,6 +755,7 @@ function TareaModal({ tarea, casos, casosGenerales, perfiles, onClose, onSave }:
       ...form,
       caso_id: form.caso_id || null,
       caso_general_id: form.caso_general_id || null,
+      cliente_federal_id: form.cliente_federal_id || null,
       responsable_id: form.responsable_id || null,
       fecha_limite: form.fecha_limite || null,
       cargo_hora_favor: form.cargo_hora_favor.trim() || null,
@@ -746,12 +768,16 @@ function TareaModal({ tarea, casos, casosGenerales, perfiles, onClose, onSave }:
       const c = casosGenerales.find((x: any) => x.id === form.caso_general_id);
       return c ? { tipo: 'general' as const, data: c } : null;
     }
+    if (form.cliente_federal_id) {
+      const c = clientesFederales.find((x: any) => x.id === form.cliente_federal_id);
+      return c ? { tipo: 'federal' as const, data: c } : null;
+    }
     if (form.caso_id) {
       const c = casos.find((x: any) => x.id === form.caso_id);
       return c ? { tipo: 'legal' as const, data: c } : null;
     }
     return null;
-  }, [form.caso_id, form.caso_general_id, casos, casosGenerales]);
+  }, [form.caso_id, form.caso_general_id, form.cliente_federal_id, casos, casosGenerales, clientesFederales]);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
@@ -776,7 +802,7 @@ function TareaModal({ tarea, casos, casosGenerales, perfiles, onClose, onSave }:
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
             <label className="text-[10px] text-gray-500 uppercase tracking-wider flex items-center gap-1"><FileText className="w-3 h-3 text-emerald-400" /> Cliente / Caso legal</label>
-            <select value={form.caso_id} onChange={e => setForm(s => ({ ...s, caso_id: e.target.value, caso_general_id: e.target.value ? '' : s.caso_general_id }))} className="select-dark text-sm mt-1">
+            <select value={form.caso_id} onChange={e => setForm(s => ({ ...s, caso_id: e.target.value, caso_general_id: e.target.value ? '' : s.caso_general_id, cliente_federal_id: e.target.value ? '' : s.cliente_federal_id }))} className="select-dark text-sm mt-1">
               <option value="">— Sin vincular —</option>
               {casos.map((c: any) => (
                 <option key={c.id} value={c.id}>{c.nombre_apellido} {c.expediente ? `· ${c.expediente}` : ''}</option>
@@ -784,11 +810,20 @@ function TareaModal({ tarea, casos, casosGenerales, perfiles, onClose, onSave }:
             </select>
           </div>
           <div>
-            <label className="text-[10px] text-gray-500 uppercase tracking-wider flex items-center gap-1"><Briefcase className="w-3 h-3 text-violet-400" /> Caso general</label>
-            <select value={form.caso_general_id} onChange={e => setForm(s => ({ ...s, caso_general_id: e.target.value, caso_id: e.target.value ? '' : s.caso_id }))} className="select-dark text-sm mt-1">
+            <label className="text-[10px] text-gray-500 uppercase tracking-wider flex items-center gap-1"><Briefcase className="w-3 h-3 text-violet-400" /> Caso general (Provincial)</label>
+            <select value={form.caso_general_id} onChange={e => setForm(s => ({ ...s, caso_general_id: e.target.value, caso_id: e.target.value ? '' : s.caso_id, cliente_federal_id: e.target.value ? '' : s.cliente_federal_id }))} className="select-dark text-sm mt-1">
               <option value="">— Sin vincular —</option>
               {casosGenerales.filter((c: any) => !c.archivado).map((c: any) => (
                 <option key={c.id} value={c.id}>{c.titulo}{c.expediente ? ` · ${c.expediente}` : ''}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="text-[10px] text-gray-500 uppercase tracking-wider flex items-center gap-1"><Gavel className="w-3 h-3 text-sky-400" /> Caso Federal</label>
+            <select value={form.cliente_federal_id} onChange={e => setForm(s => ({ ...s, cliente_federal_id: e.target.value, caso_id: e.target.value ? '' : s.caso_id, caso_general_id: e.target.value ? '' : s.caso_general_id }))} className="select-dark text-sm mt-1">
+              <option value="">— Sin vincular —</option>
+              {clientesFederales.map((c: any) => (
+                <option key={c.id} value={c.id}>{c.apellido_nombre}{c.numero_expediente ? ` · ${c.numero_expediente}` : ''}</option>
               ))}
             </select>
           </div>
@@ -945,12 +980,16 @@ function TareaModal({ tarea, casos, casosGenerales, perfiles, onClose, onSave }:
 // ============================================
 // CasoInlineInfo — panel resumen del caso dentro del modal
 // ============================================
-function CasoInlineInfo({ tipo, caso }: { tipo: 'general' | 'legal'; caso: any }) {
+function CasoInlineInfo({ tipo, caso }: { tipo: 'general' | 'legal' | 'federal'; caso: any }) {
   const palette = tipo === 'general'
     ? { bg: 'bg-violet-500/[0.08]', border: 'border-violet-500/30', text: 'text-violet-200', label: 'text-violet-400', icon: Briefcase, tag: 'Caso general' }
+    : tipo === 'federal'
+    ? { bg: 'bg-sky-500/[0.08]', border: 'border-sky-500/30', text: 'text-sky-200', label: 'text-sky-400', icon: Gavel, tag: 'Caso Federal' }
     : { bg: 'bg-emerald-500/[0.08]', border: 'border-emerald-500/30', text: 'text-emerald-200', label: 'text-emerald-400', icon: FileText, tag: 'Caso legal' };
   const Icon = palette.icon;
   const fmt = (d: string | null | undefined) => d ? new Date(d).toLocaleDateString('es-AR', { day: '2-digit', month: 'short', year: 'numeric' }) : null;
+  const expedienteCaso = tipo === 'federal' ? caso.numero_expediente : caso.expediente;
+  const titulo = tipo === 'general' ? caso.titulo : tipo === 'federal' ? caso.apellido_nombre : caso.nombre_apellido;
 
   const fields = tipo === 'general'
     ? [
@@ -962,6 +1001,15 @@ function CasoInlineInfo({ tipo, caso }: { tipo: 'general' | 'legal'; caso: any }
         { label: 'Vencimiento', val: fmt(caso.vencimiento) },
         { label: 'Estadísticas', val: caso.estadisticas_estado },
         { label: 'Radicado', val: caso.radicado },
+      ]
+    : tipo === 'federal'
+    ? [
+        { label: 'Expediente', val: caso.numero_expediente, mono: true },
+        { label: 'Tipo', val: (caso.tipo_caso || []).map((t: string) => TIPO_CASO_FEDERAL_LABELS[t as keyof typeof TIPO_CASO_FEDERAL_LABELS] || t).join(', ') },
+        { label: 'Pipeline', val: PIPELINE_FEDERAL_LABELS[caso.pipeline as keyof typeof PIPELINE_FEDERAL_LABELS] || caso.pipeline },
+        { label: 'CUIL', val: caso.cuil },
+        { label: 'Situación actual', val: caso.situacion_actual },
+        { label: 'Último contacto', val: fmt(caso.fecha_ultimo_contacto) },
       ]
     : [
         { label: 'Cliente', val: caso.nombre_apellido },
@@ -978,8 +1026,8 @@ function CasoInlineInfo({ tipo, caso }: { tipo: 'general' | 'legal'; caso: any }
       <div className="flex items-center gap-2">
         <Icon className={`w-4 h-4 ${palette.label}`} />
         <span className={`text-[10px] uppercase tracking-widest font-semibold ${palette.label}`}>{palette.tag}</span>
-        <span className={`text-sm font-bold ${palette.text} truncate`}>{tipo === 'general' ? caso.titulo : caso.nombre_apellido}</span>
-        {caso.expediente && <span className={`text-[10px] font-mono ${palette.label} ml-auto`}>{caso.expediente}</span>}
+        <span className={`text-sm font-bold ${palette.text} truncate`}>{titulo}</span>
+        {expedienteCaso && <span className={`text-[10px] font-mono ${palette.label} ml-auto`}>{expedienteCaso}</span>}
       </div>
       {visibles.length > 0 && (
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
@@ -1555,10 +1603,12 @@ function CompartidasView({ tareas, tareasConPasos, currentUserId, onOpen }: {
                 <h4 className={`text-sm font-semibold truncate ${completa ? 'text-gray-400 line-through' : 'text-white group-hover:text-violet-200'}`}>
                   {tarea.titulo}
                 </h4>
-                {(tarea.caso_general_titulo || tarea.cliente_nombre) && (
+                {(tarea.caso_general_titulo || tarea.cliente_federal_nombre || tarea.cliente_nombre) && (
                   <p className="text-[10px] text-gray-500 truncate flex items-center gap-1 mt-0.5">
                     {tarea.caso_general_titulo
                       ? <><Briefcase className="w-2.5 h-2.5 text-violet-400" /> <span className="text-violet-300">{tarea.caso_general_titulo}</span></>
+                      : tarea.cliente_federal_nombre
+                      ? <><Gavel className="w-2.5 h-2.5 text-sky-400" /> <span className="text-sky-300">{tarea.cliente_federal_nombre}</span></>
                       : <><FileText className="w-2.5 h-2.5 text-emerald-400" /> <span className="text-emerald-300">{tarea.cliente_nombre}</span></>}
                   </p>
                 )}
