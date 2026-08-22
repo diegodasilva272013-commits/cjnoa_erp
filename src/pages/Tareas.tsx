@@ -231,7 +231,8 @@ export default function Tareas() {
           }}
           onCompletar={id => completar(id, user?.id || '')}
           onReabrir={id => reabrir(id, user?.id || '')}
-          onArchivar={handleArchivar} confirmDel={confirmDel} isVencida={isVencida} />
+          onArchivar={handleArchivar} confirmDel={confirmDel} isVencida={isVencida}
+          clientesFederales={clientesFederales} />
       ) : view === 'kanban' ? (
         <KanbanView tareas={filtered} onOpen={t => { setSelected(t); setModalOpen(true); }} isVencida={isVencida} />
       ) : view === 'calendario' ? (
@@ -308,9 +309,10 @@ function MiniAvatar({ path, nombre, size = 24 }: { path?: string | null; nombre?
 // ============================================
 // CasoInfoBar (clickable -> abre drawer con todo el caso)
 // ============================================
-function CasoInfoBar({ t, onOpenCaso }: {
+function CasoInfoBar({ t, onOpenCaso, clientesFederales }: {
   t: TareaCompleta;
   onOpenCaso?: (type: 'general' | 'legal' | 'federal', id: string) => void;
+  clientesFederales?: any[];
 }) {
   const hasCasoGeneral = !!t.caso_general_id;
   const hasCaso = !!t.caso_id;
@@ -324,7 +326,10 @@ function CasoInfoBar({ t, onOpenCaso }: {
   const tipo = hasCasoGeneral ? 'general' : hasFederal ? 'federal' : 'legal';
   const id = hasCasoGeneral ? t.caso_general_id : hasFederal ? t.cliente_federal_id : t.caso_id;
   const titulo = hasCasoGeneral ? t.caso_general_titulo : hasFederal ? t.cliente_federal_nombre : t.cliente_nombre;
-  const expediente = hasCasoGeneral ? t.caso_general_expediente : hasFederal ? t.cliente_federal_expediente : t.expediente_caso;
+  // El expediente del cliente federal se busca en la lista ya cargada en el
+  // frontend (no depende de que la vista SQL exponga la columna).
+  const clienteFederal = hasFederal ? (clientesFederales || []).find((c: any) => c.id === t.cliente_federal_id) : null;
+  const expediente = hasCasoGeneral ? t.caso_general_expediente : hasFederal ? (clienteFederal?.numero_expediente || null) : t.expediente_caso;
   return (
     <button type="button"
       onClick={e => {
@@ -350,12 +355,13 @@ function CasoInfoBar({ t, onOpenCaso }: {
 // ============================================
 // ListaView
 // ============================================
-function ListaView({ tareas, onOpen, onOpenCaso, onCompletar, onReabrir, onArchivar, confirmDel, isVencida }: {
+function ListaView({ tareas, onOpen, onOpenCaso, onCompletar, onReabrir, onArchivar, confirmDel, isVencida, clientesFederales }: {
   tareas: TareaCompleta[]; onOpen: (t: TareaCompleta) => void;
   onOpenCaso: (type: 'general' | 'legal' | 'federal', id: string) => void;
   onCompletar: (id: string) => void; onReabrir: (id: string) => void;
   onArchivar: (t: TareaCompleta) => void; confirmDel: string | null;
   isVencida: (t: TareaCompleta) => boolean;
+  clientesFederales?: any[];
 }) {
   if (tareas.length === 0) {
     return (
@@ -403,7 +409,7 @@ function ListaView({ tareas, onOpen, onOpenCaso, onCompletar, onReabrir, onArchi
           </div>
 
           {/* Row 2: caso info bar (full width, color según tipo) */}
-          <CasoInfoBar t={t} onOpenCaso={onOpenCaso} />
+          <CasoInfoBar t={t} onOpenCaso={onOpenCaso} clientesFederales={clientesFederales} />
 
           {/* Row 3: grid simétrico  [personas]  [chips meta]  */}
           <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3 items-center">
