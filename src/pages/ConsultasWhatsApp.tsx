@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { supabase } from '../lib/supabase';
 
 type Mensaje = { from: 'cliente' | 'agente'; texto: string; at: string };
 
@@ -63,7 +64,12 @@ function relativeTime(iso: string) {
 }
 
 async function fetchConsultas(): Promise<Consulta[]> {
-  const res = await fetch('/api/consultas-whatsapp');
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) throw new Error('No hay sesión activa');
+
+  const res = await fetch('/api/consultas-whatsapp', {
+    headers: { Authorization: `Bearer ${session.access_token}` },
+  });
   const body = await res.json();
   if (!res.ok) throw new Error(body?.error ?? `Error ${res.status}`);
   return (body?.data as Consulta[]) ?? [];
