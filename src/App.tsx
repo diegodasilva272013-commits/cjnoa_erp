@@ -33,6 +33,7 @@ const CargosHora = lazyWithRetry(() => import('./pages/CargosHora'));
 const ControlTareas = lazyWithRetry(() => import('./pages/ControlTareas'));
 const MiDia = lazyWithRetry(() => import('./pages/MiDia'));
 const Chat = lazyWithRetry(() => import('./pages/Chat'));
+const ConsultasWhatsApp = lazyWithRetry(() => import('./pages/ConsultasWhatsApp'));
 
 function ProtectedRoute({ modulo, children }: { modulo: 'dashboard' | 'casos' | 'finanzas' | 'equipo' | 'agenda' | 'previsional' | 'honorarios'; children: React.ReactNode }) {
   const { canSee } = usePermisos();
@@ -92,6 +93,7 @@ export default function App() {
           <Route path="/control-tareas" element={<ControlTareas />} />
           <Route path="/mi-dia" element={<MiDia />} />
           <Route path="/chat" element={<Chat />} />
+          <Route path="/consultas-whatsapp" element={<ConsultasWhatsApp />} />
           <Route path="/honorarios" element={<ProtectedRoute modulo="honorarios"><Honorarios /></ProtectedRoute>} />
           <Route path="/ingresos" element={<ProtectedRoute modulo="finanzas"><Ingresos /></ProtectedRoute>} />
           <Route path="/egresos" element={<ProtectedRoute modulo="finanzas"><Egresos /></ProtectedRoute>} />

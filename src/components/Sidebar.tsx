@@ -24,6 +24,7 @@ import {
   Scale,
   Target,
   MessageCircle,
+  Bot,
 } from 'lucide-react';
 import { usePermisos } from '../hooks/usePermisos';
 import { useAuth } from '../context/AuthContext';
@@ -161,6 +162,12 @@ export default function Sidebar({ open, onClose }: SidebarProps) {
               )}
             </NavLink>
           )}
+
+          {/* Consultas WhatsApp (agente IA) */}
+          <NavLink to="/consultas-whatsapp" onClick={onClose} className={({ isActive }) => linkClass(isActive)}>
+            <Bot className="w-5 h-5" />
+            Consultas WhatsApp
+          </NavLink>
 
           {/* Audiencias */}
           {permisos.audiencias && (
