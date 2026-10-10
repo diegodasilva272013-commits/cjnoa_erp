@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { createHmac } from 'node:crypto';
 import {
-  aMin, telefonoClave, historialDe, bloquesDelDia, firmaValida, huecosLibres, localDe, resolverProfesional, diaSemanaISO, fechaValida,
+  aMin, limpiarSecreto, telefonoClave, historialDe, bloquesDelDia, firmaValida, huecosLibres, localDe, resolverProfesional, diaSemanaISO, fechaValida,
   type Bloque,
 } from '../../api/turnos/[accion]';
 
@@ -113,5 +113,14 @@ describe('api/turnos · historialDe', () => {
   it('cliente nuevo o sin teléfono: vacío y no recurrente', async () => {
     expect((await historialDe(db, '5491100000000')).es_recurrente).toBe('false');
     expect((await historialDe(db, undefined)).tiene_historial).toBe('false');
+  });
+});
+
+describe('api/turnos · limpiarSecreto', () => {
+  it('ignora espacios, saltos de línea y comillas', () => {
+    expect(limpiarSecreto('abc-123\n')).toBe('abc-123');
+    expect(limpiarSecreto('  "abc-123" ')).toBe('abc-123');
+    expect(limpiarSecreto("'abc-123'")).toBe('abc-123');
+    expect(limpiarSecreto('abc-123')).toBe('abc-123');
   });
 });
