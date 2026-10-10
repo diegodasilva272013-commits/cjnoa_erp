@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import { ChevronLeft, ChevronRight, RefreshCw, Gavel, CalendarClock, Briefcase, Plus, X, Image as ImageIcon, Sparkles, Trash2, Mic, MicOff, FileUp, Eye, Pencil } from 'lucide-react';
 import { pdfDataUrlAImagenes } from '../lib/pdfToImages';
+import DisponibilidadModal, { profesionalDePerfil } from '../components/calendario/DisponibilidadModal';
 
 type EventoCal = {
   id: string;
@@ -37,7 +38,11 @@ function buildGrid(monthDate: Date) {
 }
 
 export default function Calendario() {
-  const { user } = useAuth();
+  const { user, perfil } = useAuth();
+  // Solo Alejandro y Fabricio cargan su disponibilidad para el agente de IA.
+  const profesionalAgenda = profesionalDePerfil(perfil?.nombre);
+  const [dispOpen, setDispOpen] = useState(false);
+  const [convDetalle, setConvDetalle] = useState<{ mensajes: { from: string; texto: string }[]; resumen: string | null; audioUrl: string | null } | null>(null);
   const navigate = useNavigate();
   const [cursor, setCursor] = useState(() => new Date());
   const [eventos, setEventos] = useState<EventoCal[]>([]);
@@ -65,6 +70,22 @@ export default function Calendario() {
   function abrirDetalle(e: EventoCal) {
     setDetalleEvento(e);
     setEditandoEvento(false);
+    setConvDetalle(null);
+    // Turnos agendados por el agente: traer la conversación (transcripción + audio) vinculada.
+    const convId = e.source === 'consulta' ? e.raw?.conversation_id : null;
+    if (convId) {
+      supabase.from('conversaciones_whatsapp')
+        .select('mensajes, resumen, audio_path').eq('conversation_id', convId).maybeSingle()
+        .then(async ({ data }) => {
+          if (!data) return;
+          let audioUrl: string | null = null;
+          if (data.audio_path) {
+            const { data: u } = await supabase.storage.from('conversaciones-audio').createSignedUrl(data.audio_path, 3600);
+            audioUrl = u?.signedUrl ?? null;
+          }
+          setConvDetalle({ mensajes: (data.mensajes as any[]) ?? [], resumen: data.resumen ?? null, audioUrl });
+        });
+    }
   }
 
   function empezarEdicionInterno(e: EventoCal) {
@@ -568,6 +589,13 @@ export default function Calendario() {
           <p className="text-sm text-gray-500">Audiencias, consultas y eventos en una sola vista.</p>
         </div>
         <div className="flex flex-wrap gap-2">
+          {profesionalAgenda && perfil && (
+            <button onClick={() => setDispOpen(true)}
+              className="px-3 py-2 text-xs rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-200 border border-emerald-500/30 flex items-center gap-2"
+              title="Cargar los horarios en los que el agente de IA puede agendarte consultas">
+              <CalendarClock className="w-3.5 h-3.5" /> Mi disponibilidad
+            </button>
+          )}
           <button onClick={iniciarGrabacion}
             className="px-3 py-2 text-xs rounded-lg bg-rose-500/15 hover:bg-rose-500/25 text-rose-200 border border-rose-500/30 flex items-center gap-2"
             title="Dictar evento por voz">
@@ -1049,6 +1077,27 @@ export default function Calendario() {
                   </div>
                 )}
 
+                {detalleEvento.source === 'consulta' && detalleEvento.raw.conversation_id && (
+                  <div>
+                    <div className="text-[11px] uppercase tracking-wider text-gray-500">Conversación con el agente</div>
+                    {!convDetalle ? (
+                      <div className="text-gray-500 mt-1 text-xs">Todavía no llegó la transcripción de esta conversación.</div>
+                    ) : (
+                      <div className="mt-1 space-y-2">
+                        {convDetalle.audioUrl && <audio controls src={convDetalle.audioUrl} className="w-full h-8" />}
+                        {convDetalle.resumen && <div className="text-gray-300 text-xs">{convDetalle.resumen}</div>}
+                        <div className="max-h-56 overflow-y-auto space-y-1.5 bg-white/5 rounded-lg p-3 border border-white/10">
+                          {convDetalle.mensajes.map((m, i) => (
+                            <div key={i} className={`text-xs ${m.from === 'cliente' ? 'text-sky-200' : 'text-gray-200'}`}>
+                              <span className="text-gray-500">{m.from === 'cliente' ? 'Cliente' : 'Agente'}: </span>{m.texto}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 <div className="flex flex-wrap justify-end gap-2 pt-2">
                   {detalleEvento.source === 'interno' && (
                     <button onClick={() => empezarEdicionInterno(detalleEvento)}
@@ -1285,6 +1334,9 @@ export default function Calendario() {
             )}
           </div>
         </div>
+      )}
+      {dispOpen && profesionalAgenda && perfil && (
+        <DisponibilidadModal profesional={profesionalAgenda} perfilId={perfil.id} onClose={() => setDispOpen(false)} />
       )}
     </div>
   );
