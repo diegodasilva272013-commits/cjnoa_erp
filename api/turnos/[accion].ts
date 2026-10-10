@@ -150,7 +150,9 @@ async function ocupadosDelDia(db: Db, prof: Profesional, fecha: string): Promise
 
   for (const r of (cons.data ?? []) as any[]) {
     const m = aMin(r.hora_consulta);
-    if (m !== null && nombreEs(r.abogado_asignado, prof)) out.push({ desde: m, hasta: m + CONSULTA_EXISTENTE_MIN });
+    // Turno cargado a mano sin abogado asignado: por las dudas bloquea a ambos (evita doble reserva).
+    const sinAbogado = !normalizar(r.abogado_asignado);
+    if (m !== null && (sinAbogado || nombreEs(r.abogado_asignado, prof))) out.push({ desde: m, hasta: m + CONSULTA_EXISTENTE_MIN });
   }
   for (const r of (aud.data ?? []) as any[]) {
     const l = localDe(r.fecha);
