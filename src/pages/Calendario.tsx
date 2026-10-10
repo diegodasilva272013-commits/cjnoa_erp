@@ -39,7 +39,7 @@ function buildGrid(monthDate: Date) {
 
 export default function Calendario() {
   const { user, perfil } = useAuth();
-  // Solo Alejandro y Fabricio cargan su disponibilidad para el agente de IA.
+  // Alejandro y Fabricio cargan su disponibilidad para el agente de IA; el administrador ve y carga la de ambos.
   const profesionalAgenda = profesionalDePerfil(perfil?.nombre);
   const [dispOpen, setDispOpen] = useState(false);
   const [convDetalle, setConvDetalle] = useState<{ mensajes: { from: string; texto: string }[]; resumen: string | null; audioUrl: string | null } | null>(null);
@@ -589,7 +589,7 @@ export default function Calendario() {
           <p className="text-sm text-gray-500">Audiencias, consultas y eventos en una sola vista.</p>
         </div>
         <div className="flex flex-wrap gap-2">
-          {profesionalAgenda && perfil && (
+          {(profesionalAgenda || perfil?.rol === 'admin') && perfil && (
             <button onClick={() => setDispOpen(true)}
               className="px-3 py-2 text-xs rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-200 border border-emerald-500/30 flex items-center gap-2"
               title="Cargar los horarios en los que el agente de IA puede agendarte consultas">
@@ -1335,8 +1335,8 @@ export default function Calendario() {
           </div>
         </div>
       )}
-      {dispOpen && profesionalAgenda && perfil && (
-        <DisponibilidadModal profesional={profesionalAgenda} perfilId={perfil.id} onClose={() => setDispOpen(false)} />
+      {dispOpen && perfil && (profesionalAgenda || perfil.rol === 'admin') && (
+        <DisponibilidadModal profesionalPropio={profesionalAgenda} perfilId={perfil.id} esAdmin={perfil.rol === 'admin'} onClose={() => setDispOpen(false)} />
       )}
     </div>
   );

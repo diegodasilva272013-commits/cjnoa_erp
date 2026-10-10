@@ -26,8 +26,10 @@ const DIAS = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', '
 const hhmm = (t: string) => t.slice(0, 5);
 
 export default function DisponibilidadModal({
-  profesional, perfilId, onClose,
-}: { profesional: ProfesionalAgenda; perfilId: string; onClose: () => void }) {
+  profesionalPropio, perfilId, esAdmin, onClose,
+}: { profesionalPropio: ProfesionalAgenda | null; perfilId: string; esAdmin: boolean; onClose: () => void }) {
+  // Alejandro/Fabricio cargan lo suyo; el administrador elige de quién y ve ambos.
+  const [profesional, setProfesional] = useState<ProfesionalAgenda>(profesionalPropio ?? 'Alejandro');
   const [bloques, setBloques] = useState<Bloque[]>([]);
   const [tipo, setTipo] = useState<'semanal' | 'fecha'>('semanal');
   const [dia, setDia] = useState(1);
@@ -42,13 +44,13 @@ export default function DisponibilidadModal({
     const { data, error } = await supabase
       .from('disponibilidad_horarios')
       .select('id, dia_semana, fecha, hora_desde, hora_hasta, duracion_min')
-      .eq('perfil_id', perfilId)
+      .eq('profesional', profesional)
       .order('dia_semana', { nullsFirst: false })
       .order('fecha')
       .order('hora_desde');
     if (error) setMsg('No se pudieron cargar los horarios: ' + error.message);
     else setBloques((data ?? []) as Bloque[]);
-  }, [perfilId]);
+  }, [profesional]);
 
   useEffect(() => { cargar(); }, [cargar]);
 
@@ -58,9 +60,17 @@ export default function DisponibilidadModal({
     if (tipo === 'fecha' && !fecha) return setMsg('Elegí la fecha.');
     if ((timeToMin(hasta) - timeToMin(desde)) < duracion) return setMsg('El tramo es más corto que la duración del turno.');
     setGuardando(true);
+    // El dueño del horario es el perfil del profesional (si lo carga el admin, se busca su perfil).
+    let dueno = perfilId;
+    if (profesional !== profesionalPropio) {
+      const { data: perfs } = await supabase.from('perfiles').select('id, nombre').ilike('nombre', `%${profesional}%`);
+      const perfil = (perfs ?? []).find(p => profesionalDePerfil(p.nombre) === profesional);
+      if (!perfil) { setGuardando(false); return setMsg(`No hay un usuario de ${profesional} en el sistema para asociarle el horario.`); }
+      dueno = perfil.id;
+    }
     const { error } = await supabase.from('disponibilidad_horarios').insert({
       profesional,
-      perfil_id: perfilId,
+      perfil_id: dueno,
       dia_semana: tipo === 'semanal' ? dia : null,
       fecha: tipo === 'fecha' ? fecha : null,
       hora_desde: desde,
@@ -86,13 +96,24 @@ export default function DisponibilidadModal({
       <div className="w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-xl border border-white/10 bg-[#0a0a0a] p-5 space-y-4" onClick={e => e.stopPropagation()}>
         <div className="flex items-start justify-between">
           <div>
-            <h3 className="text-white font-semibold">Mi disponibilidad · {profesional}</h3>
+            <h3 className="text-white font-semibold">Disponibilidad · {profesional}</h3>
             <p className="text-xs text-gray-500 mt-1">
               El agente de IA ofrece estos horarios y agenda solo en lo que esté libre. Para fraccionar el día, cargá varios tramos.
             </p>
           </div>
           <button onClick={onClose} className="text-gray-500 hover:text-white"><X className="w-4 h-4" /></button>
         </div>
+
+        {esAdmin && (
+          <div className="flex gap-2">
+            {PROFESIONALES_AGENDA.map(p => (
+              <button key={p} onClick={() => setProfesional(p)}
+                className={`px-3 py-1.5 text-xs rounded-md border ${p === profesional ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-200' : 'bg-white/5 border-white/10 text-gray-400'}`}>
+                {p}
+              </button>
+            ))}
+          </div>
+        )}
 
         <div className="grid grid-cols-2 gap-3">
           <div>
