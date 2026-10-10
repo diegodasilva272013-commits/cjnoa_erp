@@ -6,7 +6,7 @@
 --   1) disponibilidad_horarios : tiempos libres que cargan Alejandro / Fabricio
 --   2) conversaciones_whatsapp : transcripción + audio que manda el post-call
 --   3) consultas_agendadas.conversation_id / origen  (vínculo, sin copiar datos)
--- Es idempotente: se puede correr más de una vez.
+-- Sin DROP/DELETE/TRUNCATE: solo crea lo que falta (IF NOT EXISTS). Se puede correr más de una vez.
 -- ============================================================================
 
 -- 1) Disponibilidad ----------------------------------------------------------
@@ -29,38 +29,50 @@ CREATE INDEX IF NOT EXISTS idx_disponibilidad_prof ON public.disponibilidad_hora
 
 ALTER TABLE public.disponibilidad_horarios ENABLE ROW LEVEL SECURITY;
 
-DROP POLICY IF EXISTS disp_select ON public.disponibilidad_horarios;
-DROP POLICY IF EXISTS disp_insert ON public.disponibilidad_horarios;
-DROP POLICY IF EXISTS disp_update ON public.disponibilidad_horarios;
-DROP POLICY IF EXISTS disp_delete ON public.disponibilidad_horarios;
 
 -- Leer: cualquier perfil (el calendario lo muestra). Escribir: SOLO el dueño,
 -- y solo si su perfil es Alejandro o Fabricio (el nombre del perfil contiene
 -- el nombre del profesional, igual que resolveOperationalSocio en el front).
-CREATE POLICY disp_select ON public.disponibilidad_horarios
+DO $pol$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname='public' AND tablename='disponibilidad_horarios' AND policyname='disp_select') THEN
+    EXECUTE $q$CREATE POLICY disp_select ON public.disponibilidad_horarios
   FOR SELECT TO authenticated
-  USING (EXISTS (SELECT 1 FROM public.perfiles p WHERE p.id = auth.uid()));
+  USING (EXISTS (SELECT 1 FROM public.perfiles p WHERE p.id = auth.uid()))$q$;
+  END IF;
+END $pol$;
 
-CREATE POLICY disp_insert ON public.disponibilidad_horarios
+DO $pol$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname='public' AND tablename='disponibilidad_horarios' AND policyname='disp_insert') THEN
+    EXECUTE $q$CREATE POLICY disp_insert ON public.disponibilidad_horarios
   FOR INSERT TO authenticated
   WITH CHECK (
     perfil_id = auth.uid()
     AND EXISTS (SELECT 1 FROM public.perfiles p
                 WHERE p.id = auth.uid() AND p.nombre ILIKE '%' || profesional || '%')
-  );
+  )$q$;
+  END IF;
+END $pol$;
 
-CREATE POLICY disp_update ON public.disponibilidad_horarios
+DO $pol$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname='public' AND tablename='disponibilidad_horarios' AND policyname='disp_update') THEN
+    EXECUTE $q$CREATE POLICY disp_update ON public.disponibilidad_horarios
   FOR UPDATE TO authenticated
   USING (perfil_id = auth.uid())
   WITH CHECK (
     perfil_id = auth.uid()
     AND EXISTS (SELECT 1 FROM public.perfiles p
                 WHERE p.id = auth.uid() AND p.nombre ILIKE '%' || profesional || '%')
-  );
+  )$q$;
+  END IF;
+END $pol$;
 
-CREATE POLICY disp_delete ON public.disponibilidad_horarios
+DO $pol$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname='public' AND tablename='disponibilidad_horarios' AND policyname='disp_delete') THEN
+    EXECUTE $q$CREATE POLICY disp_delete ON public.disponibilidad_horarios
   FOR DELETE TO authenticated
-  USING (perfil_id = auth.uid());
+  USING (perfil_id = auth.uid())$q$;
+  END IF;
+END $pol$;
 
 -- 2) Conversaciones (una fila por conversation_id de ElevenLabs) -------------
 CREATE TABLE IF NOT EXISTS public.conversaciones_whatsapp (
@@ -80,10 +92,13 @@ CREATE INDEX IF NOT EXISTS idx_conv_wa_updated ON public.conversaciones_whatsapp
 ALTER TABLE public.conversaciones_whatsapp ENABLE ROW LEVEL SECURITY;
 
 -- Solo lectura para usuarios del ERP. Escribe únicamente el webhook (service role).
-DROP POLICY IF EXISTS conv_wa_select ON public.conversaciones_whatsapp;
-CREATE POLICY conv_wa_select ON public.conversaciones_whatsapp
+DO $pol$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname='public' AND tablename='conversaciones_whatsapp' AND policyname='conv_wa_select') THEN
+    EXECUTE $q$CREATE POLICY conv_wa_select ON public.conversaciones_whatsapp
   FOR SELECT TO authenticated
-  USING (EXISTS (SELECT 1 FROM public.perfiles p WHERE p.id = auth.uid()));
+  USING (EXISTS (SELECT 1 FROM public.perfiles p WHERE p.id = auth.uid()))$q$;
+  END IF;
+END $pol$;
 
 -- 3) Vínculo con el agendamiento existente ------------------------------------
 ALTER TABLE public.consultas_agendadas
@@ -102,11 +117,14 @@ INSERT INTO storage.buckets (id, name, public)
 VALUES ('conversaciones-audio', 'conversaciones-audio', false)
 ON CONFLICT (id) DO NOTHING;
 
-DROP POLICY IF EXISTS conv_audio_select ON storage.objects;
-CREATE POLICY conv_audio_select ON storage.objects
+DO $pol$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname='storage' AND tablename='objects' AND policyname='conv_audio_select') THEN
+    EXECUTE $q$CREATE POLICY conv_audio_select ON storage.objects
   FOR SELECT TO authenticated
   USING (bucket_id = 'conversaciones-audio'
-         AND EXISTS (SELECT 1 FROM public.perfiles p WHERE p.id = auth.uid()));
+         AND EXISTS (SELECT 1 FROM public.perfiles p WHERE p.id = auth.uid()))$q$;
+  END IF;
+END $pol$;
 
 -- 5) Realtime ------------------------------------------------------------------
 DO $$
