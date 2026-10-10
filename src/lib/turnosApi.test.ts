@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { createHmac } from 'node:crypto';
 import {
-  aMin, bloquesDelDia, firmaValida, huecosLibres, localDe, resolverProfesional, diaSemanaISO, fechaValida,
+  aMin, telefonoClave, historialDe, bloquesDelDia, firmaValida, huecosLibres, localDe, resolverProfesional, diaSemanaISO, fechaValida,
   type Bloque,
 } from '../../api/turnos/[accion]';
 
@@ -59,6 +59,18 @@ describe('api/turnos · disponibilidad', () => {
   });
 });
 
+describe('api/turnos · historial', () => {
+  it('une formatos distintos del mismo teléfono', () => {
+    expect(telefonoClave('+54 9 388 486-7965')).toBe(telefonoClave('5493884867965'));
+    expect(telefonoClave('5493884867965')).toBe('3884867965');
+  });
+  it('descarta teléfonos inválidos o vacíos', () => {
+    expect(telefonoClave('')).toBe('');
+    expect(telefonoClave(null)).toBe('');
+    expect(telefonoClave('12345')).toBe('');
+  });
+});
+
 describe('api/turnos · firma post-call', () => {
   const secret = 'whsec_test';
   const body = '{"type":"post_call_transcription"}';
@@ -70,4 +82,36 @@ describe('api/turnos · firma post-call', () => {
   it('rechaza cuerpo alterado', () => expect(firmaValida(secret, `t=${t},v0=${v0}`, body + ' ', now)).toBe(false));
   it('rechaza firma vieja', () => expect(firmaValida(secret, `t=${t - 4000},v0=${v0}`, body, now)).toBe(false));
   it('rechaza header vacío', () => expect(firmaValida(secret, '', body, now)).toBe(false));
+});
+
+function dbFalsa(tablas: Record<string, any[]>) {
+  const q = (rows: any[]) => {
+    const o: any = { not: () => o, order: () => o, limit: () => Promise.resolve({ data: rows, error: null }) };
+    return o;
+  };
+  return { from: (t: string) => ({ select: () => q(tablas[t] ?? []) }) } as any;
+}
+
+describe('api/turnos · historialDe', () => {
+  const db = dbFalsa({
+    consultas_agendadas: [
+      { cliente_nombre: 'Juan Pérez', telefono: '+54 9 388 486-7965', fecha_consulta: '2026-10-20', hora_consulta: '10:30:00', abogado_asignado: 'Alejandro', detalle_consulta: 'Previsional', reserva_pagada: true },
+      { cliente_nombre: 'Otro', telefono: '5493884111111', fecha_consulta: '2026-10-21', hora_consulta: '09:00:00', abogado_asignado: 'Fabricio', detalle_consulta: null, reserva_pagada: false },
+    ],
+    conversaciones_whatsapp: [{ nombre: 'Juan', telefono: '5493884867965', resumen: 'Envió recibo de sueldo', updated_at: '2026-10-09T10:00:00Z' }],
+  });
+
+  it('cliente conocido: nombre, recurrente e historial en texto', async () => {
+    const h = await historialDe(db, '5493884867965');
+    expect(h.es_recurrente).toBe('true');
+    expect(h.cliente_nombre).toBe('Juan Pérez');
+    expect(h.cliente_historial).toContain('Turno 20/10/2026 10:30 con Alejandro por "Previsional" (reserva pagada)');
+    expect(h.cliente_historial).toContain('Envió recibo de sueldo');
+    expect(h.cliente_historial).not.toContain('Fabricio');
+  });
+
+  it('cliente nuevo o sin teléfono: vacío y no recurrente', async () => {
+    expect((await historialDe(db, '5491100000000')).es_recurrente).toBe('false');
+    expect((await historialDe(db, undefined)).tiene_historial).toBe('false');
+  });
 });
