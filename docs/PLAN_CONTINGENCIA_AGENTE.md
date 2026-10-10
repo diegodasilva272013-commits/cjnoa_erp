@@ -8,7 +8,7 @@ se queda sin saldo, falla, o si una herramienta del ERP no responde.
 | # | Falla | Síntoma | Cómo se detecta |
 |---|---|---|---|
 | R1 | ElevenLabs sin saldo/créditos | El agente deja de contestar en silencio | Alerta de consumo de ElevenLabs (email); control diario (sección 5) |
-| R2 | Caída o lentitud de ElevenLabs / del modelo | Respuestas lentas o ausentes | Control diario; reclamos de clientes |
+| R2 | Caída o lentitud de ElevenLabs / del modelo | Respuestas lentas o ausentes | Control diario; reclamos de clientes → activar Capa 4 |
 | R3 | Una herramienta del ERP falla (401, 500, timeout) | El agente no puede ver horarios o agendar | Conversaciones con la marca "Sin turno agendado" en `/consultas-whatsapp` |
 | R4 | Caída de Vercel/Supabase | Todo el ERP y las herramientas | Estado de Vercel/Supabase; control diario |
 
@@ -47,12 +47,36 @@ Una persona asignada (y un suplente) revisa cada mañana:
 
 Si el agente no responde (R1/R2): el responsable contesta manualmente desde el WhatsApp del estudio y avisa al dueño de la cuenta de ElevenLabs.
 
-## 6. Capa 4 — Agente de respaldo independiente (no construido, requiere decisión)
+## 6. Capa 4 — Agente de respaldo automático (construido, inactivo hasta activarlo)
 
-Para que el número siga atendiendo aunque ElevenLabs esté caído hace falta un segundo agente que no dependa de ElevenLabs:
-recibir los mensajes de WhatsApp por la API de Meta en el ERP, responder con otro proveedor de modelo de lenguaje y usar los mismos endpoints
-(`/api/turnos/...`). Requiere credenciales de la API de WhatsApp de Meta y cambiar el destino del webhook del número,
-por lo que **no se hace sin autorización expresa**. Se activaría de forma manual (un cambio de webhook) en caso de caída prolongada.
+Un segundo agente que atiende WhatsApp **sin ElevenLabs**: recibe los mensajes de Meta en
+`https://cjnoa-erp.vercel.app/api/turnos/respaldo`, responde con un modelo de lenguaje (Anthropic) siguiendo el mismo
+prompt del agente, y usa las mismas herramientas del ERP (historial, disponibilidad, agendar). Las conversaciones
+quedan en `/consultas-whatsapp` y los turnos en `/calendario`, igual que siempre.
+Si el modelo o el envío fallan, igual contesta un mensaje seguro («un integrante del equipo le responde a la brevedad»)
+y deja la conversación registrada.
+
+**Variables a cargar en Vercel** (mientras falten, la ruta no hace nada):
+
+| Variable | Qué es |
+|---|---|
+| `WHATSAPP_VERIFY_TOKEN` | Texto inventado; el mismo se pone en Meta al configurar el webhook |
+| `META_APP_SECRET` | App Secret de la app de Meta (valida que los mensajes vengan de Meta) |
+| `WHATSAPP_TOKEN` | Token permanente de la API de WhatsApp Cloud |
+| `WHATSAPP_PHONE_ID` | ID del número de teléfono en la API de WhatsApp |
+| `ANTHROPIC_API_KEY` | Clave de la API del modelo de respaldo |
+| `RESPALDO_PROMPT` | El system prompt del agente (se pega completo acá, no en el repo, porque trae datos bancarios y teléfonos) |
+| `RESPALDO_MODELO` | Opcional. Por defecto `claude-haiku-5-5` |
+
+**Cómo se activa (cuando ElevenLabs falla):** en Meta for Developers → la app → WhatsApp → Configuración → Webhook,
+cambiar la URL a `https://cjnoa-erp.vercel.app/api/turnos/respaldo` con el `WHATSAPP_VERIFY_TOKEN`.
+**Para volver:** poner de nuevo la URL anterior. Es un cambio de un minuto y reversible.
+
+**Antes de depender de esto hay que confirmar** que el número de WhatsApp está conectado a una app de Meta cuyo
+webhook controla el estudio. Si la integración de WhatsApp de ElevenLabs administra el webhook por su cuenta, este paso
+no se puede hacer sin ellos; en ese caso hay que migrar el número a una app propia de Meta.
+
+**Limitaciones:** no entiende audios ni imágenes (le avisa al cliente y sigue por escrito) y responde solo texto.
 
 ## 7. Pendientes de configuración detectados en la bitácora de ElevenLabs
 
