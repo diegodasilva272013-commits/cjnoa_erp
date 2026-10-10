@@ -46,6 +46,12 @@ export function nombreEs(nombre: string | null | undefined, prof: Profesional) {
   return normalizar(nombre).includes(normalizar(prof));
 }
 
+/** Últimos 10 dígitos de un teléfono (ignora +, espacios, guiones y prefijos 54/9). */
+export function telefonoClave(v: unknown) {
+  const d = String(v ?? '').replace(/\D/g, '');
+  return d.length >= 8 ? d.slice(-10) : '';
+}
+
 export function aMin(hhmm: string | null | undefined): number | null {
   const m = /^(\d{1,2}):(\d{2})/.exec(String(hhmm ?? ''));
   if (!m) return null;
@@ -229,7 +235,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return await postCall(req, res, db, raw);
     }
 
-    if (accion !== 'disponibles' && accion !== 'agendar') return res.status(404).json({ error: 'Ruta inexistente' });
+    if (!['disponibles', 'agendar', 'historial', 'inicio'].includes(accion)) return res.status(404).json({ error: 'Ruta inexistente' });
 
     const secret = process.env.TURNOS_AGENTE_SECRET;
     if (!secret) return res.status(500).json({ error: 'Falta TURNOS_AGENTE_SECRET' });
@@ -239,7 +245,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (req.method !== 'GET') return res.status(405).json({ error: 'Método no permitido' });
       return await disponibles(req, res, db);
     }
+    if (accion === 'historial') {
+      if (req.method !== 'GET') return res.status(405).json({ error: 'Método no permitido' });
+      return res.status(200).json(await historialDe(db, req.query.telefono));
+    }
     if (req.method !== 'POST') return res.status(405).json({ error: 'Método no permitido' });
+    if (accion === 'inicio') return await inicio(res, db, raw);
     return await agendar(res, db, raw);
   } catch (e) {
     console.error('[turnos]', accion, e);
@@ -372,4 +383,51 @@ async function postCall(req: VercelRequest, res: VercelResponse, db: Db, raw: st
     }
   }
   return res.status(200).send('OK');
+}
+
+/** Historial del cliente a partir de lo que ya existe (turnos + conversaciones), buscado por teléfono. */
+export async function historialDe(db: Db, telefono: unknown) {
+  const clave = telefonoClave(telefono);
+  const vacio = { tiene_historial: 'false', es_recurrente: 'false', cliente_nombre: '', cliente_historial: '' };
+  if (!clave) return vacio;
+
+  const [cons, convs] = await Promise.all([
+    db.from('consultas_agendadas')
+      .select('cliente_nombre, telefono, fecha_consulta, hora_consulta, abogado_asignado, detalle_consulta, reserva_pagada')
+      .not('telefono', 'is', null).order('fecha_consulta', { ascending: false }).limit(2000),
+    db.from('conversaciones_whatsapp')
+      .select('nombre, telefono, resumen, updated_at')
+      .not('telefono', 'is', null).order('updated_at', { ascending: false }).limit(500),
+  ]);
+  if (cons.error) throw new Error(`historial consultas: ${cons.error.message}`);
+  if (convs.error) throw new Error(`historial conversaciones: ${convs.error.message}`);
+
+  const turnos = ((cons.data ?? []) as any[]).filter(r => telefonoClave(r.telefono) === clave);
+  const charlas = ((convs.data ?? []) as any[]).filter(r => telefonoClave(r.telefono) === clave);
+  if (!turnos.length && !charlas.length) return vacio;
+
+  const nombre = turnos[0]?.cliente_nombre || charlas.find(c => c.nombre)?.nombre || '';
+  const partes: string[] = [];
+  for (const t of turnos.slice(0, 3)) {
+    const f = String(t.fecha_consulta).split('-').reverse().join('/');
+    partes.push(`Turno ${f}${t.hora_consulta ? ' ' + String(t.hora_consulta).slice(0, 5) : ''}${t.abogado_asignado ? ' con ' + t.abogado_asignado : ''}`
+      + `${t.detalle_consulta ? ` por "${t.detalle_consulta}"` : ''} (${t.reserva_pagada ? 'reserva pagada' : 'reserva sin pagar'})`);
+  }
+  const resumen = charlas.find(c => c.resumen)?.resumen;
+  if (resumen) partes.push(`Última conversación: ${String(resumen).slice(0, 500)}`);
+
+  return {
+    tiene_historial: 'true',
+    es_recurrente: 'true',
+    cliente_nombre: String(nombre),
+    cliente_historial: partes.join('. '),
+  };
+}
+
+/** Pre-call webhook de ElevenLabs: devuelve el historial como dynamic_variables al iniciar la conversación. */
+async function inicio(res: VercelResponse, db: Db, raw: string) {
+  let b: any = {};
+  try { b = JSON.parse(raw || '{}'); } catch { /* sin cuerpo */ }
+  const h = await historialDe(db, b?.caller_id ?? b?.telefono);
+  return res.status(200).json({ type: 'conversation_initiation_client_data', dynamic_variables: h });
 }
