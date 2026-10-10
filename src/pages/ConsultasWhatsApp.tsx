@@ -186,6 +186,11 @@ export default function ConsultasWhatsApp() {
                   <span className="mt-0.5 block truncate text-xs text-gray-500">
                     {preview || 'Sin mensaje registrado'}
                   </span>
+                  {!turnos.some((t) => t.conversation_id === c.conversation_id) && (
+                    <span className="mt-1 inline-block rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] text-amber-300">
+                      Sin turno agendado
+                    </span>
+                  )}
                 </span>
               </button>
             );

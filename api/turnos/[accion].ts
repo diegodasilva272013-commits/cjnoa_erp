@@ -324,7 +324,8 @@ async function agendar(res: VercelResponse, db: Db, raw: string) {
     monto_a_cancelar: 0,
     reserva_pagada: pago,
     reserva_modalidad: modalidad,
-    observaciones: 'Agendado por el agente de IA',
+    observaciones: ['Agendado por el agente de IA', /^(presencial|virtual)$/.test(modalidadIn) ? `Modalidad: ${modalidadIn === 'virtual' ? 'Virtual' : 'Presencial'}` : '']
+      .filter(Boolean).join(' · '),
     conversation_id: s(p.conversation_id) || null,
     origen: 'agente',
   }).select('id').single();
