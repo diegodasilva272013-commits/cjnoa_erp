@@ -9,6 +9,7 @@ import { createHmac, timingSafeEqual } from 'node:crypto';
  *   GET  /api/turnos/disponibles?profesional=Alejandro&fecha=2026-10-20
  *   POST /api/turnos/agendar
  *   POST /api/turnos/post-call      (webhook de ElevenLabs: transcripción + audio)
+ *   GET/POST /api/turnos/respaldo   (agente de respaldo de WhatsApp, ver más abajo; inactivo hasta activarlo)
  *
  * disponibles/agendar: header `Authorization: Bearer <TURNOS_AGENTE_SECRET>` (o `x-api-key`).
  * post-call: firma HMAC de ElevenLabs con ELEVENLABS_WEBHOOK_SECRET.
@@ -241,6 +242,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return await postCall(req, res, db, raw);
     }
 
+    if (accion === 'respaldo') return await respaldo(req, res, db, raw);
+
     if (!['disponibles', 'agendar', 'historial', 'inicio'].includes(accion)) return res.status(404).json({ error: 'Ruta inexistente' });
 
     const secret = process.env.TURNOS_AGENTE_SECRET;
@@ -264,15 +267,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 }
 
-async function disponibles(req: VercelRequest, res: VercelResponse, db: Db) {
-  const prof = resolverProfesional(req.query.profesional);
-  if (!prof) return res.status(400).json({ error: 'profesional debe ser Alejandro o Fabricio' });
-  const fecha = req.query.fecha ? String(req.query.fecha) : null;
-  if (fecha && !fechaValida(fecha)) return res.status(400).json({ error: 'fecha debe ser YYYY-MM-DD' });
+type Resp = { code: number; body: any };
+
+export async function disponibilidadDe(db: Db, profesional: unknown, fechaIn: unknown): Promise<Resp> {
+  const prof = resolverProfesional(profesional);
+  if (!prof) return { code: 400, body: { error: 'profesional debe ser Alejandro o Fabricio' } };
+  const fecha = fechaIn ? String(fechaIn) : null;
+  if (fecha && !fechaValida(fecha)) return { code: 400, body: { error: 'fecha debe ser YYYY-MM-DD' } };
 
   const bloques = await bloquesDe(db, prof);
   if (fecha) {
-    return res.status(200).json({ profesional: prof, fecha, horarios_disponibles: await libresDelDia(db, prof, fecha, bloques) });
+    return { code: 200, body: { profesional: prof, fecha, horarios_disponibles: await libresDelDia(db, prof, fecha, bloques) } };
   }
 
   // Sin fecha: próximos días con lugar, para que el agente pueda ofrecer opciones.
@@ -283,27 +288,37 @@ async function disponibles(req: VercelRequest, res: VercelResponse, db: Db) {
     const libres = await libresDelDia(db, prof, f, bloques);
     if (libres.length) dias.push({ fecha: f, horarios_disponibles: libres });
   }
-  return res.status(200).json({ profesional: prof, proximos_dias: dias });
+  return { code: 200, body: { profesional: prof, proximos_dias: dias } };
+}
+
+async function disponibles(req: VercelRequest, res: VercelResponse, db: Db) {
+  const r = await disponibilidadDe(db, req.query.profesional, req.query.fecha);
+  return res.status(r.code).json(r.body);
 }
 
 async function agendar(res: VercelResponse, db: Db, raw: string) {
   let b: Record<string, unknown>;
   try { b = JSON.parse(raw || '{}'); } catch { return res.status(400).json({ error: 'JSON inválido' }); }
   const p = (b.parameters && typeof b.parameters === 'object' ? b.parameters : b) as Record<string, unknown>;
+  const r = await crearTurno(db, p);
+  return res.status(r.code).json(r.body);
+}
+
+export async function crearTurno(db: Db, p: Record<string, unknown>): Promise<Resp> {
   const s = (v: unknown) => (v === undefined || v === null ? '' : String(v).trim());
 
   const prof = resolverProfesional(p.profesional);
   const nombre = s(p.nombre), apellido = s(p.apellido), fecha = s(p.fecha);
   const hMin = aMin(s(p.hora));
-  if (!prof) return res.status(400).json({ error: 'profesional debe ser Alejandro o Fabricio' });
-  if (!nombre) return res.status(400).json({ error: 'Falta nombre' });
-  if (!fechaValida(fecha)) return res.status(400).json({ error: 'fecha debe ser YYYY-MM-DD' });
-  if (hMin === null) return res.status(400).json({ error: 'hora debe ser HH:MM' });
+  if (!prof) return { code: 400, body: { error: 'profesional debe ser Alejandro o Fabricio' } };
+  if (!nombre) return { code: 400, body: { error: 'Falta nombre' } };
+  if (!fechaValida(fecha)) return { code: 400, body: { error: 'fecha debe ser YYYY-MM-DD' } };
+  if (hMin === null) return { code: 400, body: { error: 'hora debe ser HH:MM' } };
   const hora = aHHMM(hMin);
 
   const libres = await libresDelDia(db, prof, fecha);
   if (!libres.includes(hora)) {
-    return res.status(409).json({ status: 'conflict', mensaje: 'Ese horario ya no está disponible', horarios_disponibles: libres });
+    return { code: 409, body: { status: 'conflict', mensaje: 'Ese horario ya no está disponible', horarios_disponibles: libres } };
   }
 
   const pago = p.pago === true || p.pago === 'true' || p.pago_reserva === true || p.pago_reserva === 'true';
@@ -332,15 +347,18 @@ async function agendar(res: VercelResponse, db: Db, raw: string) {
 
   if (error) {
     if (error.code === '23505') {
-      return res.status(409).json({ status: 'conflict', mensaje: 'Ese horario acaba de ser tomado', horarios_disponibles: await libresDelDia(db, prof, fecha) });
+      return { code: 409, body: { status: 'conflict', mensaje: 'Ese horario acaba de ser tomado', horarios_disponibles: await libresDelDia(db, prof, fecha) } };
     }
     throw new Error(`insert consulta: ${error.message}`);
   }
-  return res.status(200).json({
-    status: 'success',
-    mensaje: `Turno agendado con ${prof} el ${fecha} a las ${hora}`,
-    turno: { id: data.id, profesional: prof, fecha, hora },
-  });
+  return {
+    code: 200,
+    body: {
+      status: 'success',
+      mensaje: `Turno agendado con ${prof} el ${fecha} a las ${hora}`,
+      turno: { id: data.id, profesional: prof, fecha, hora },
+    },
+  };
 }
 
 async function postCall(req: VercelRequest, res: VercelResponse, db: Db, raw: string) {
@@ -437,4 +455,266 @@ async function inicio(res: VercelResponse, db: Db, raw: string) {
   try { b = JSON.parse(raw || '{}'); } catch { /* sin cuerpo */ }
   const h = await historialDe(db, b?.caller_id ?? b?.telefono);
   return res.status(200).json({ type: 'conversation_initiation_client_data', dynamic_variables: h });
+}
+
+// =====================================================================================
+// AGENTE DE RESPALDO (WhatsApp ↔ modelo de lenguaje, sin ElevenLabs)
+//
+//   GET/POST /api/turnos/respaldo   (webhook de WhatsApp Cloud API de Meta)
+//
+// Está INACTIVO mientras Meta no apunte su webhook acá. Si ElevenLabs falla o se queda sin
+// saldo, se cambia la URL del webhook de la app de Meta a esta ruta y el agente sigue
+// atendiendo con las mismas reglas y las mismas herramientas (historial, disponibilidad,
+// agendar) y las conversaciones quedan en /consultas-whatsapp igual que siempre.
+//
+// Variables de entorno (Vercel): WHATSAPP_VERIFY_TOKEN, META_APP_SECRET, WHATSAPP_TOKEN,
+// WHATSAPP_PHONE_ID, ANTHROPIC_API_KEY, RESPALDO_PROMPT (el system prompt del agente).
+// Opcionales: RESPALDO_MODELO (default claude-haiku-5-5).
+// =====================================================================================
+
+const GRAPH_URL = 'https://graph.facebook.com/v20.0';
+const MODELO_DEFAULT = 'claude-haiku-5-5';
+const MAX_VUELTAS_HERRAMIENTAS = 5;
+const MAX_MENSAJES_CONTEXTO = 24;
+const MSG_SIN_RESPUESTA = 'Gracias por escribir al Centro Jurídico NOA. En este momento no podemos atenderlo automáticamente, pero un integrante del equipo le responde a la brevedad.';
+
+export type MsgEntrante = { id: string; from: string; nombre: string | null; texto: string; esTexto: boolean };
+export type MsgGuardado = { from: 'cliente' | 'agente'; texto: string; t?: number | null; wid?: string };
+type BloqueLLM = { type: string; [k: string]: any };
+type MsgLLM = { role: 'user' | 'assistant'; content: string | BloqueLLM[] };
+
+/** Meta firma el cuerpo con `X-Hub-Signature-256: sha256=<hex>` usando el App Secret. */
+export function firmaMetaValida(appSecret: string, header: string, raw: string) {
+  const m = /^sha256=([0-9a-f]+)$/i.exec(header.trim());
+  if (!m) return false;
+  return iguales(createHmac('sha256', appSecret).update(raw).digest('hex'), m[1].toLowerCase());
+}
+
+/** Mensajes entrantes de un payload de WhatsApp Cloud API. Lo que no es texto se deja marcado. */
+export function extraerMensajes(payload: any): MsgEntrante[] {
+  const out: MsgEntrante[] = [];
+  for (const entry of payload?.entry ?? []) {
+    for (const change of entry?.changes ?? []) {
+      const v = change?.value;
+      const nombres: Record<string, string> = {};
+      for (const c of v?.contacts ?? []) if (c?.wa_id) nombres[c.wa_id] = c?.profile?.name ?? '';
+      for (const m of v?.messages ?? []) {
+        if (!m?.id || !m?.from) continue;
+        const esTexto = m.type === 'text' && typeof m.text?.body === 'string';
+        out.push({
+          id: String(m.id),
+          from: String(m.from),
+          nombre: nombres[m.from] || null,
+          esTexto,
+          texto: esTexto ? String(m.text.body) : `[El cliente envió un mensaje de tipo "${m.type ?? 'desconocido'}" que no puedo leer]`,
+        });
+      }
+    }
+  }
+  return out;
+}
+
+/** Historial guardado → mensajes para el modelo: últimos N, alternando roles y empezando por el cliente. */
+export function aMensajesLLM(guardados: MsgGuardado[], max = MAX_MENSAJES_CONTEXTO): MsgLLM[] {
+  const out: MsgLLM[] = [];
+  for (const g of guardados.slice(-max)) {
+    const role: 'user' | 'assistant' = g.from === 'cliente' ? 'user' : 'assistant';
+    const prev = out[out.length - 1];
+    if (prev && prev.role === role) prev.content = `${prev.content as string}\n${g.texto}`;
+    else out.push({ role, content: g.texto });
+  }
+  while (out.length && out[0].role !== 'user') out.shift();
+  return out;
+}
+
+export const HERRAMIENTAS_LLM = [
+  {
+    name: 'consultar_disponibilidad',
+    description: 'Horarios libres de Alejandro o Fabricio. Usala SIEMPRE antes de ofrecer un turno. Sin fecha devuelve los próximos días con lugar.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        profesional: { type: 'string', enum: ['alejandro', 'fabricio'] },
+        fecha: { type: 'string', description: 'YYYY-MM-DD (opcional)' },
+      },
+      required: ['profesional'],
+    },
+  },
+  {
+    name: 'agendar_turno',
+    description: 'Registra el turno en el ERP. Usala solo cuando el cliente confirmó día y hora ofrecidos por consultar_disponibilidad. No confirmes el turno al cliente si no devuelve status "success".',
+    input_schema: {
+      type: 'object',
+      properties: {
+        profesional: { type: 'string', enum: ['alejandro', 'fabricio'] },
+        nombre: { type: 'string' },
+        apellido: { type: 'string' },
+        fecha: { type: 'string', description: 'YYYY-MM-DD' },
+        hora: { type: 'string', description: 'HH:MM' },
+        tema: { type: 'string' },
+        modalidad: { type: 'string', description: 'Presencial o Virtual' },
+        pago: { type: 'boolean', description: 'true SOLO si el cliente ya envió el comprobante de la seña' },
+        monto_reserva: { type: 'number' },
+      },
+      required: ['profesional', 'nombre', 'fecha', 'hora'],
+    },
+  },
+];
+
+export type Deps = {
+  db: Db;
+  llm: (system: string, mensajes: MsgLLM[]) => Promise<{ stop_reason: string; content: BloqueLLM[] }>;
+  enviar: (to: string, texto: string) => Promise<void>;
+  ejecutar: (nombre: string, input: any, ctx: { telefono: string; conversationId: string }) => Promise<unknown>;
+  prompt: string;
+  ahora?: () => Date;
+};
+
+export async function ejecutarHerramienta(db: Db, nombre: string, input: any, ctx: { telefono: string; conversationId: string }) {
+  if (nombre === 'consultar_disponibilidad') return (await disponibilidadDe(db, input?.profesional, input?.fecha)).body;
+  if (nombre === 'agendar_turno') {
+    // El teléfono y la conversación salen de WhatsApp, no de lo que diga el modelo.
+    return (await crearTurno(db, { ...input, telefono: ctx.telefono, conversation_id: ctx.conversationId })).body;
+  }
+  return { error: `Herramienta desconocida: ${nombre}` };
+}
+
+function sistema(prompt: string, hist: Awaited<ReturnType<typeof historialDe>>, ahora: Date) {
+  const l = localDe(ahora);
+  const dias = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
+  const dow = new Date(`${l.fecha}T12:00:00Z`).getUTCDay();
+  return [
+    prompt,
+    '',
+    '--- CONTEXTO DE ESTA CONVERSACIÓN (lo agrega el sistema) ---',
+    `Hoy es ${dias[dow]} ${l.fecha}, hora ${aHHMM(l.min)} (Jujuy). Los turnos solo se ofrecen en fechas futuras.`,
+    `{{cliente_nombre}}: ${hist.cliente_nombre}`,
+    `{{es_recurrente}}: ${hist.es_recurrente}`,
+    `{{tiene_historial}}: ${hist.tiene_historial}`,
+    `{{cliente_historial}}: ${hist.cliente_historial}`,
+    'Usá las herramientas para disponibilidad y agenda. Respondé siempre en texto plano, corto, sin markdown.',
+  ].join('\n');
+}
+
+/** Procesa un mensaje entrante: arma contexto, deja al modelo usar herramientas, contesta y guarda la conversación. */
+export async function procesarMensaje(deps: Deps, m: MsgEntrante) {
+  const { db } = deps;
+  const conversationId = `respaldo-${m.from}`;
+  const ahora = (deps.ahora ?? (() => new Date()))();
+
+  const { data: fila, error: eLeer } = await db.from('conversaciones_whatsapp')
+    .select('mensajes, nombre').eq('conversation_id', conversationId).maybeSingle();
+  if (eLeer) throw new Error(`leer conversación: ${eLeer.message}`);
+  const previos: MsgGuardado[] = Array.isArray(fila?.mensajes) ? (fila!.mensajes as MsgGuardado[]) : [];
+  if (previos.some(x => x.wid === m.id)) return 'duplicado'; // Meta reintenta entregas
+
+  const hist = await historialDe(db, m.from).catch(() => ({ tiene_historial: 'false', es_recurrente: 'false', cliente_nombre: '', cliente_historial: '' }));
+  const mensajes: MsgLLM[] = aMensajesLLM([...previos, { from: 'cliente', texto: m.texto }]);
+
+  let respuesta = '';
+  try {
+    for (let i = 0; i < MAX_VUELTAS_HERRAMIENTAS; i++) {
+      const r = await deps.llm(sistema(deps.prompt, hist, ahora), mensajes);
+      if (r.stop_reason !== 'tool_use') {
+        respuesta = r.content.filter(b => b.type === 'text').map(b => String(b.text)).join('\n').trim();
+        break;
+      }
+      mensajes.push({ role: 'assistant', content: r.content });
+      const resultados: BloqueLLM[] = [];
+      for (const b of r.content.filter(x => x.type === 'tool_use')) {
+        let out: unknown;
+        try { out = await deps.ejecutar(b.name, b.input, { telefono: m.from, conversationId }); }
+        catch (e) { out = { error: e instanceof Error ? e.message : 'falló la herramienta' }; }
+        resultados.push({ type: 'tool_result', tool_use_id: b.id, content: JSON.stringify(out) });
+      }
+      mensajes.push({ role: 'user', content: resultados });
+    }
+  } catch (e) {
+    console.error('[respaldo] modelo', e);
+  }
+  if (!respuesta) respuesta = MSG_SIN_RESPUESTA; // nunca dejamos al cliente sin respuesta
+
+  let enviado = true;
+  try { await deps.enviar(m.from, respuesta); } catch (e) { enviado = false; console.error('[respaldo] envío', e); }
+
+  const t = ahora.toISOString();
+  const guardados: MsgGuardado[] = [
+    ...previos,
+    { from: 'cliente', texto: m.texto, wid: m.id },
+    { from: 'agente', texto: enviado ? respuesta : `[NO ENVIADO] ${respuesta}` },
+  ];
+  const { error } = await db.from('conversaciones_whatsapp').upsert({
+    conversation_id: conversationId,
+    telefono: m.from,
+    nombre: m.nombre ?? fila?.nombre ?? (hist.cliente_nombre || null),
+    mensajes: guardados,
+    updated_at: t,
+  }, { onConflict: 'conversation_id' });
+  if (error) throw new Error(`guardar conversación: ${error.message}`);
+  return enviado ? 'ok' : 'no_enviado';
+}
+
+async function llamarModelo(system: string, mensajes: MsgLLM[]) {
+  const key = limpiarSecreto(process.env.ANTHROPIC_API_KEY ?? '');
+  const r = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-api-key': key, 'anthropic-version': '2023-06-01' },
+    body: JSON.stringify({
+      model: limpiarSecreto(process.env.RESPALDO_MODELO ?? '') || MODELO_DEFAULT,
+      max_tokens: 500,
+      temperature: 0.25,
+      system,
+      messages: mensajes,
+      tools: HERRAMIENTAS_LLM,
+    }),
+  });
+  if (!r.ok) throw new Error(`modelo ${r.status}: ${(await r.text()).slice(0, 200)}`);
+  return (await r.json()) as { stop_reason: string; content: BloqueLLM[] };
+}
+
+async function enviarWhatsApp(to: string, texto: string) {
+  const r = await fetch(`${GRAPH_URL}/${limpiarSecreto(process.env.WHATSAPP_PHONE_ID ?? '')}/messages`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${limpiarSecreto(process.env.WHATSAPP_TOKEN ?? '')}` },
+    body: JSON.stringify({ messaging_product: 'whatsapp', to, type: 'text', text: { body: texto.slice(0, 3800) } }),
+  });
+  if (!r.ok) throw new Error(`whatsapp ${r.status}: ${(await r.text()).slice(0, 200)}`);
+}
+
+async function respaldo(req: VercelRequest, res: VercelResponse, db: Db, raw: string) {
+  const env = (k: string) => limpiarSecreto(process.env[k] ?? '');
+
+  // Verificación inicial del webhook (Meta)
+  if (req.method === 'GET') {
+    const verify = env('WHATSAPP_VERIFY_TOKEN');
+    if (!verify) return res.status(500).json({ error: 'Falta WHATSAPP_VERIFY_TOKEN' });
+    if (req.query['hub.mode'] === 'subscribe' && iguales(String(req.query['hub.verify_token'] ?? ''), verify)) {
+      return res.status(200).send(String(req.query['hub.challenge'] ?? ''));
+    }
+    return res.status(403).json({ error: 'Verificación inválida' });
+  }
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Método no permitido' });
+
+  const faltan = ['META_APP_SECRET', 'WHATSAPP_TOKEN', 'WHATSAPP_PHONE_ID', 'ANTHROPIC_API_KEY', 'RESPALDO_PROMPT'].filter(k => !env(k));
+  if (faltan.length) return res.status(500).json({ error: `Faltan variables: ${faltan.join(', ')}` });
+  if (!firmaMetaValida(env('META_APP_SECRET'), String(req.headers['x-hub-signature-256'] ?? ''), raw)) {
+    return res.status(401).json({ error: 'Firma inválida' });
+  }
+
+  let payload: any;
+  try { payload = JSON.parse(raw); } catch { return res.status(400).json({ error: 'JSON inválido' }); }
+
+  const deps: Deps = {
+    db,
+    llm: llamarModelo,
+    enviar: enviarWhatsApp,
+    ejecutar: (n, i, c) => ejecutarHerramienta(db, n, i, c),
+    prompt: env('RESPALDO_PROMPT'),
+  };
+  // Secuencial: un mismo cliente puede mandar varios mensajes seguidos y el contexto debe respetar el orden.
+  for (const m of extraerMensajes(payload)) {
+    try { await procesarMensaje(deps, m); }
+    catch (e) { console.error('[respaldo] mensaje', m.id, e); }
+  }
+  return res.status(200).send('OK'); // siempre 200 para que Meta no reintente en bucle
 }
