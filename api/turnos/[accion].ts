@@ -203,10 +203,16 @@ function iguales(a: string, b: string) {
   return x.length === y.length && timingSafeEqual(x, y);
 }
 
-function autorizadoAgente(req: VercelRequest, secret: string) {
+/** Valores pegados en Vercel suelen traer espacios, saltos de línea o comillas de más. */
+export function limpiarSecreto(v: string) {
+  return v.trim().replace(/^["']|["']$/g, '').trim();
+}
+
+function autorizadoAgente(req: VercelRequest, secretCrudo: string) {
+  const secret = limpiarSecreto(secretCrudo);
   const h = String(req.headers.authorization ?? '');
   const token = h.startsWith('Bearer ') ? h.slice(7) : String(req.headers['x-api-key'] ?? '');
-  return token.length > 0 && iguales(token, secret);
+  return token.length > 0 && iguales(token.trim(), secret);
 }
 
 /** Firma de ElevenLabs: header `elevenlabs-signature: t=<ts>,v0=<hex>` = HMAC-SHA256(secret, `${ts}.${body}`). */
@@ -340,7 +346,7 @@ async function postCall(req: VercelRequest, res: VercelResponse, db: Db, raw: st
   const secret = process.env.ELEVENLABS_WEBHOOK_SECRET;
   if (!secret) return res.status(500).json({ error: 'Falta ELEVENLABS_WEBHOOK_SECRET' });
   const firma = String(req.headers['elevenlabs-signature'] ?? '');
-  if (!firmaValida(secret, firma, raw)) return res.status(401).json({ error: 'Firma inválida' });
+  if (!firmaValida(limpiarSecreto(secret), firma, raw)) return res.status(401).json({ error: 'Firma inválida' });
 
   let ev: any;
   try { ev = JSON.parse(raw); } catch { return res.status(400).json({ error: 'JSON inválido' }); }
