@@ -65,8 +65,9 @@ export default function DisponibilidadModal({
     if (profesional !== profesionalPropio) {
       const { data: perfs } = await supabase.from('perfiles').select('id, nombre').ilike('nombre', `%${profesional}%`);
       const perfil = (perfs ?? []).find(p => profesionalDePerfil(p.nombre) === profesional);
-      if (!perfil) { setGuardando(false); return setMsg(`No hay un usuario de ${profesional} en el sistema para asociarle el horario.`); }
-      dueno = perfil.id;
+      // Si ningún perfil se llama como el profesional, lo carga el admin a su nombre: el agente lee por `profesional`, no por dueño.
+      if (!perfil && !esAdmin) { setGuardando(false); return setMsg(`No hay un usuario de ${profesional} en el sistema para asociarle el horario.`); }
+      if (perfil) dueno = perfil.id;
     }
     const { error } = await supabase.from('disponibilidad_horarios').insert({
       profesional,
