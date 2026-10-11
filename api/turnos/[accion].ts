@@ -8,6 +8,7 @@ import { createHmac, timingSafeEqual } from 'node:crypto';
  *
  *   GET  /api/turnos/disponibles?profesional=Alejandro&fecha=2026-10-20
  *   POST /api/turnos/agendar
+ *   POST /api/turnos/registrar      (tool del agente: registra cada mensaje en el momento + lead)
  *   POST /api/turnos/post-call      (webhook de ElevenLabs: transcripción + audio)
  *   GET/POST /api/turnos/respaldo   (agente de respaldo de WhatsApp, ver más abajo; inactivo hasta activarlo)
  *
@@ -244,7 +245,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     if (accion === 'respaldo') return await respaldo(req, res, db, raw);
 
-    if (!['disponibles', 'agendar', 'historial', 'inicio'].includes(accion)) return res.status(404).json({ error: 'Ruta inexistente' });
+    if (!['disponibles', 'agendar', 'historial', 'inicio', 'registrar'].includes(accion)) return res.status(404).json({ error: 'Ruta inexistente' });
 
     const secret = process.env.TURNOS_AGENTE_SECRET;
     if (!secret) return res.status(500).json({ error: 'Falta TURNOS_AGENTE_SECRET' });
@@ -260,6 +261,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
     if (req.method !== 'POST') return res.status(405).json({ error: 'Método no permitido' });
     if (accion === 'inicio') return await inicio(res, db, raw);
+    if (accion === 'registrar') {
+      let b: Record<string, unknown> = {};
+      try { b = JSON.parse(raw || '{}'); } catch { return res.status(400).json({ registrado: false, error: 'JSON inválido' }); }
+      const r = await registrarMensaje(db, (b.parameters && typeof b.parameters === 'object' ? b.parameters : b) as Record<string, unknown>);
+      return res.status(r.code).json(r.body);
+    }
     return await agendar(res, db, raw);
   } catch (e) {
     console.error('[turnos]', accion, e);
@@ -351,6 +358,8 @@ export async function crearTurno(db: Db, p: Record<string, unknown>): Promise<Re
     }
     throw new Error(`insert consulta: ${error.message}`);
   }
+  // El lead de esta persona pasa a "Agendado" (si el teléfono sirve para identificarlo).
+  await upsertLeadSeguro(db, s(p.telefono), { nombre, apellido: apellido || undefined, requiere_turno: true, resumen: s(p.tema ?? p.detalle) || undefined });
   return {
     code: 200,
     body: {
@@ -359,6 +368,34 @@ export async function crearTurno(db: Db, p: Record<string, unknown>): Promise<Re
       turno: { id: data.id, profesional: prof, fecha, hora },
     },
   };
+}
+
+/** Guarda la conversación completa que manda ElevenLabs al terminar y actualiza el lead con su Data Collection. */
+export async function guardarTranscripcion(db: Db, conversationId: string, data: any) {
+  const mensajes = (Array.isArray(data.transcript) ? data.transcript : [])
+    .filter((m: any) => typeof m?.message === 'string' && m.message.trim())
+    .map((m: any) => ({
+      from: m.role === 'user' ? 'cliente' : 'agente',
+      texto: String(m.message).trim(),
+      t: typeof m.time_in_call_secs === 'number' ? m.time_in_call_secs : null,
+    }));
+  const vars = data.conversation_initiation_client_data?.dynamic_variables ?? {};
+  const reco = data.analysis?.data_collection_results ?? {};
+  const telefono = vars.system__caller_id ?? vars.telefono ?? data.metadata?.phone_call?.external_number ?? reco.telefono?.value ?? null;
+  const nombre = vars.nombre ?? reco.nombre?.value ?? reco.nombre_consultante?.value ?? null;
+
+// Solo se escriben los datos que llegaron: un post-call sin teléfono no debe borrar el que ya registró la herramienta.
+  const fila: Record<string, unknown> = { conversation_id: conversationId, mensajes, updated_at: new Date().toISOString() };
+  if (telefono) fila.telefono = String(telefono);
+  if (nombre) fila.nombre = String(nombre);
+  if (data.analysis?.transcript_summary) fila.resumen = data.analysis.transcript_summary;
+  const { error } = await db.from('conversaciones_whatsapp').upsert(fila, { onConflict: 'conversation_id' });
+  if (error) throw new Error(`conversaciones: ${error.message}`);
+
+  // Lead: Data Collection del agente (todo lo desconocido se guarda en datos) + resumen de la conversación.
+  const campos = camposDeLead(Object.fromEntries(Object.entries(reco).map(([k, v]) => [k, v])));
+  if (data.analysis?.transcript_summary && !campos.resumen) campos.resumen = String(data.analysis.transcript_summary);
+  await upsertLeadSeguro(db, telefono, campos);
 }
 
 async function postCall(req: VercelRequest, res: VercelResponse, db: Db, raw: string) {
@@ -373,27 +410,7 @@ async function postCall(req: VercelRequest, res: VercelResponse, db: Db, raw: st
   const conversationId = typeof data.conversation_id === 'string' ? data.conversation_id : null;
 
   if (ev?.type === 'post_call_transcription' && conversationId) {
-    const mensajes = (Array.isArray(data.transcript) ? data.transcript : [])
-      .filter((m: any) => typeof m?.message === 'string' && m.message.trim())
-      .map((m: any) => ({
-        from: m.role === 'user' ? 'cliente' : 'agente',
-        texto: String(m.message).trim(),
-        t: typeof m.time_in_call_secs === 'number' ? m.time_in_call_secs : null,
-      }));
-    const vars = data.conversation_initiation_client_data?.dynamic_variables ?? {};
-    const reco = data.analysis?.data_collection_results ?? {};
-    const telefono = vars.system__caller_id ?? vars.telefono ?? data.metadata?.phone_call?.external_number ?? reco.telefono?.value ?? null;
-    const nombre = vars.nombre ?? reco.nombre?.value ?? reco.nombre_consultante?.value ?? null;
-
-    const { error } = await db.from('conversaciones_whatsapp').upsert({
-      conversation_id: conversationId,
-      telefono: telefono ? String(telefono) : null,
-      nombre: nombre ? String(nombre) : null,
-      resumen: data.analysis?.transcript_summary ?? null,
-      mensajes,
-      updated_at: new Date().toISOString(),
-    }, { onConflict: 'conversation_id' });
-    if (error) throw new Error(`conversaciones: ${error.message}`);
+    await guardarTranscripcion(db, conversationId, data);
   } else if (ev?.type === 'post_call_audio' && conversationId) {
     const b64 = data.full_audio ?? data.audio;
     if (typeof b64 === 'string' && b64) {
@@ -449,12 +466,192 @@ export async function historialDe(db: Db, telefono: unknown) {
   };
 }
 
+/** Herramienta del agente: registra cada intercambio en el momento (no espera al post-llamada) y actualiza el lead. */
+export async function registrarMensaje(db: Db, p: Record<string, unknown>): Promise<Resp> {
+  const str = (v: unknown) => textoLimpio(v);
+  const telefono = str(p.telefono_cliente ?? p.telefono);
+  const clave = telefonoClave(telefono);
+  const conversationId = str(p.conversation_id) || (clave ? `tel-${clave}` : '');
+  if (!conversationId) return { code: 400, body: { registrado: false, error: 'Falta conversation_id o telefono_cliente' } };
+
+  const { data: fila, error: eLeer } = await db.from('conversaciones_whatsapp').select('mensajes, nombre').eq('conversation_id', conversationId).maybeSingle();
+  if (eLeer) throw new Error(`registrar leer: ${eLeer.message}`);
+  const previos: MsgGuardado[] = Array.isArray((fila as any)?.mensajes) ? (fila as any).mensajes : [];
+
+  const nuevos: MsgGuardado[] = [];
+  const delCliente = str(p.mensaje), delAgente = str(p.respuesta_agente ?? p.agente_respuesta ?? p.respuesta);
+  if (delCliente) nuevos.push({ from: 'cliente', texto: delCliente });
+  if (delAgente) nuevos.push({ from: 'agente', texto: delAgente });
+  // Reintento de la herramienta: si lo último ya es exactamente esto, no se duplica.
+  const ult = previos.slice(-nuevos.length);
+  const repetido = nuevos.length > 0 && ult.length === nuevos.length && ult.every((u, i) => u.from === nuevos[i].from && u.texto === nuevos[i].texto);
+
+  const campos = camposDeLead(p);
+  const nombreCompleto = [campos.nombre, campos.apellido].filter(Boolean).join(' ');
+  const upd: Record<string, unknown> = { conversation_id: conversationId, mensajes: repetido ? previos : [...previos, ...nuevos], updated_at: new Date().toISOString() };
+  if (telefono) upd.telefono = telefono;
+  if (nombreCompleto) upd.nombre = nombreCompleto;
+  if (campos.resumen) upd.resumen = campos.resumen;
+  const { error } = await db.from('conversaciones_whatsapp').upsert(upd, { onConflict: 'conversation_id' });
+  if (error) throw new Error(`registrar guardar: ${error.message}`);
+
+  if (telefono) await upsertLeadSeguro(db, telefono, campos);
+  return { code: 200, body: { registrado: true, conversation_id: conversationId } };
+}
+
 /** Pre-call webhook de ElevenLabs: devuelve el historial como dynamic_variables al iniciar la conversación. */
 async function inicio(res: VercelResponse, db: Db, raw: string) {
   let b: any = {};
   try { b = JSON.parse(raw || '{}'); } catch { /* sin cuerpo */ }
   const h = await historialDe(db, b?.caller_id ?? b?.telefono);
   return res.status(200).json({ type: 'conversation_initiation_client_data', dynamic_variables: h });
+}
+
+// =====================================================================================
+// LEADS DE CAMPAÑAS: cada persona que escribe queda registrada (una fila por teléfono)
+// =====================================================================================
+
+export type CamposLead = {
+  nombre?: string; apellido?: string; email?: string; dni_cuil?: string; localidad?: string;
+  campana?: string; mensaje_inicial?: string; rama?: string; tipo_tramite?: string; calificacion?: string;
+  resumen?: string; requiere_turno?: boolean; datos?: Record<string, unknown>;
+};
+
+/** Nunca se guardan claves ni contraseñas (p. ej. la clave de ANSES): quedan solo en la transcripción. */
+const CLAVE_SENSIBLE = /clave|password|contrasen|pass\b/;
+
+const ALIAS: Record<string, string[]> = {
+  nombre: ['nombre', 'nombre_consultante', 'nombre_cliente'],
+  apellido: ['apellido', 'apellido_cliente'],
+  email: ['email', 'mail', 'correo', 'correo_electronico'],
+  dni_cuil: ['dni_o_cuil', 'dni', 'cuil', 'cuil_dni', 'dni_cuil'],
+  localidad: ['localidad', 'ciudad'],
+  campana: ['campana', 'campaign', 'palabra_clave'],
+  mensaje_inicial: ['mensaje_inicial', 'primer_mensaje'],
+  rama: ['rama_consulta', 'rama'],
+  tipo_tramite: ['tipo_tramite_previsional', 'tipo_tramite', 'tramite'],
+  calificacion: ['calificacion'],
+  resumen: ['resumen', 'resumen_caso'],
+};
+const CLAVES_TELEFONO = ['telefono', 'telefono_cliente', 'caller_id', 'system__caller_id'];
+
+/** ElevenLabs entrega cada dato de Data Collection como {value, ...}; las herramientas, como texto plano. */
+function valorPlano(v: unknown): unknown {
+  if (v && typeof v === 'object' && !Array.isArray(v) && 'value' in (v as object)) return (v as { value: unknown }).value;
+  return v;
+}
+function textoLimpio(v: unknown): string {
+  const x = valorPlano(v);
+  if (x === undefined || x === null) return '';
+  const t = String(x).trim();
+  return /^(null|undefined|n\/a|ninguno|no especificado)$/i.test(t) ? '' : t;
+}
+
+export function calificacionCanonica(v: string): string {
+  const n = normalizar(v);
+  if (!n) return '';
+  if (n.includes('fuera')) return 'fuera_avatar';
+  if (n.includes('alto')) return 'alto_valor';
+  if (n.includes('estandar') || n.includes('standard')) return 'estandar';
+  return '';
+}
+
+/** Convierte lo que manda el agente (herramienta o Data Collection) en campos del lead. Lo desconocido va a `datos`. */
+export function camposDeLead(origen: Record<string, unknown>): CamposLead {
+  const out: CamposLead = {};
+  const usadas = new Set<string>([...CLAVES_TELEFONO]);
+  for (const [campo, alias] of Object.entries(ALIAS)) {
+    for (const a of alias) {
+      usadas.add(a);
+      const t = textoLimpio(origen[a]);
+      if (t && !(out as Record<string, unknown>)[campo]) (out as Record<string, unknown>)[campo] = t;
+    }
+  }
+  if (out.calificacion) out.calificacion = calificacionCanonica(out.calificacion) || undefined;
+
+  const rt = valorPlano(origen.requiere_turno);
+  usadas.add('requiere_turno');
+  if (typeof rt === 'boolean') out.requiere_turno = rt;
+  else if (typeof rt === 'string' && /^(true|si|sí|yes)$/i.test(rt.trim())) out.requiere_turno = true;
+  else if (typeof rt === 'string' && /^(false|no)$/i.test(rt.trim())) out.requiere_turno = false;
+
+  const datos: Record<string, unknown> = {};
+  const extra = origen.datos;
+  if (extra && typeof extra === 'object') Object.assign(datos, extra);
+  for (const [k, v] of Object.entries(origen)) {
+    if (usadas.has(k) || k === 'datos' || k === 'conversation_id' || k === 'mensaje' || k === 'respuesta_agente') continue;
+    if (CLAVE_SENSIBLE.test(normalizar(k))) continue;
+    const t = textoLimpio(v);
+    if (t) datos[k] = valorPlano(v);
+  }
+  for (const k of Object.keys(datos)) if (CLAVE_SENSIBLE.test(normalizar(k))) delete datos[k];
+  if (Object.keys(datos).length) out.datos = datos;
+  return out;
+}
+
+export const ETAPAS_AUTOMATICAS = ['nuevo', 'calificacion_a_medias', 'califico_sin_horario', 'agendado', 'fuera_de_avatar'] as const;
+
+/** Etapa según lo que el agente ya hizo con la persona (las categorías de seguimiento de su base de conocimiento). */
+export function etapaAutomatica(i: { tieneTurno: boolean; calificacion?: string | null; rama?: string | null; dniCuil?: string | null; mensajesCliente: number }) {
+  if (i.tieneTurno) return 'agendado';
+  if (i.calificacion === 'fuera_avatar') return 'fuera_de_avatar';
+  if (i.rama && (i.dniCuil || i.calificacion)) return 'califico_sin_horario';
+  if (i.mensajesCliente >= 2) return 'calificacion_a_medias';
+  return 'nuevo';
+}
+
+/** Fusiona lo nuevo con el lead existente: lo último pisa, pero campaña y mensaje inicial se conservan (primer contacto). */
+export function fusionarLead(
+  existente: Record<string, any> | null,
+  telefono: string,
+  c: CamposLead,
+  ctx: { tieneTurno: boolean; mensajesCliente: number; ahora: string },
+) {
+  const base: Record<string, any> = existente ? { ...existente } : { telefono, etapa: 'nuevo', datos: {}, canal: 'whatsapp', primer_contacto_at: ctx.ahora };
+  const PISAN = ['nombre', 'apellido', 'email', 'dni_cuil', 'localidad', 'rama', 'tipo_tramite', 'calificacion', 'resumen'] as const;
+  for (const k of PISAN) if (c[k]) base[k] = c[k];
+  for (const k of ['campana', 'mensaje_inicial'] as const) if (c[k] && !base[k]) base[k] = c[k];
+  if (typeof c.requiere_turno === 'boolean') base.requiere_turno = c.requiere_turno;
+  base.datos = { ...(existente?.datos ?? {}), ...(c.datos ?? {}) };
+  base.ultimo_contacto_at = ctx.ahora;
+  // Las etapas que mueve el equipo a mano (consulta realizada, cliente, etc.) nunca se pisan.
+  if (!existente || (ETAPAS_AUTOMATICAS as readonly string[]).includes(String(existente.etapa))) {
+    base.etapa = etapaAutomatica({ tieneTurno: ctx.tieneTurno, calificacion: base.calificacion, rama: base.rama, dniCuil: base.dni_cuil, mensajesCliente: ctx.mensajesCliente });
+  }
+  return base;
+}
+
+/** Crea o actualiza el lead de ese teléfono. Nunca debe romper el registro de la conversación: quien llama lo envuelve en try/catch. */
+export async function upsertLead(db: Db, telefono: unknown, campos: CamposLead, ahora = new Date().toISOString()) {
+  const clave = telefonoClave(telefono);
+  if (!clave) return null;
+  const [ex, convs, turnos] = await Promise.all([
+    db.from('leads').select('*').eq('telefono_clave', clave).maybeSingle(),
+    db.from('conversaciones_whatsapp').select('mensajes').eq('telefono_clave', clave),
+    db.from('consultas_agendadas').select('id').eq('telefono_clave', clave).limit(1),
+  ]);
+  if (ex.error) throw new Error(`lead: ${ex.error.message}`);
+  if (convs.error) throw new Error(`lead conversaciones: ${convs.error.message}`);
+  if (turnos.error) throw new Error(`lead turnos: ${turnos.error.message}`);
+
+  let mensajesCliente = 0;
+  for (const c of (convs.data ?? []) as any[]) {
+    for (const m of Array.isArray(c.mensajes) ? c.mensajes : []) if (m?.from === 'cliente') mensajesCliente++;
+  }
+  const fila = fusionarLead(ex.data as any, String(telefono).trim(), campos, { tieneTurno: ((turnos.data ?? []) as any[]).length > 0, mensajesCliente, ahora });
+  if (ex.data) {
+    const { error } = await db.from('leads').update(fila).eq('id', (ex.data as any).id);
+    if (error) throw new Error(`lead update: ${error.message}`);
+  } else {
+    const { error } = await db.from('leads').insert(fila);
+    if (error) throw new Error(`lead insert: ${error.message}`);
+  }
+  return fila;
+}
+
+async function upsertLeadSeguro(db: Db, telefono: unknown, campos: CamposLead) {
+  try { return await upsertLead(db, telefono, campos); }
+  catch (e) { console.error('[lead]', e); return null; }
 }
 
 // =====================================================================================
@@ -651,6 +848,7 @@ export async function procesarMensaje(deps: Deps, m: MsgEntrante) {
     updated_at: t,
   }, { onConflict: 'conversation_id' });
   if (error) throw new Error(`guardar conversación: ${error.message}`);
+  await upsertLeadSeguro(db, m.from, { nombre: m.nombre ?? undefined });
   return enviado ? 'ok' : 'no_enviado';
 }
 

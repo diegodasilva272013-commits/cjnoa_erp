@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { createHmac } from 'node:crypto';
 import handler, {
-  aMin, limpiarSecreto, firmaMetaValida, extraerMensajes, aMensajesLLM, procesarMensaje, type Deps, telefonoClave, historialDe, bloquesDelDia, firmaValida, huecosLibres, localDe, resolverProfesional, diaSemanaISO, fechaValida,
+  aMin, limpiarSecreto, camposDeLead, etapaAutomatica, fusionarLead, registrarMensaje, guardarTranscripcion, upsertLead, firmaMetaValida, extraerMensajes, aMensajesLLM, procesarMensaje, type Deps, telefonoClave, historialDe, bloquesDelDia, firmaValida, huecosLibres, localDe, resolverProfesional, diaSemanaISO, fechaValida,
   type Bloque,
 } from '../../api/turnos/[accion]';
 
@@ -305,5 +305,161 @@ describe('respaldo · ruta /api/turnos/respaldo', () => {
     const raw = '{"entry":[]}';
     const sig = 'sha256=' + createHmac('sha256', 'v').update(raw).digest('hex');
     expect((await correr('POST', {}, raw, { 'x-hub-signature-256': sig })).code).toBe(200);
+  });
+});
+
+// ------------------------------------------------------------------ leads
+/** Base en memoria que imita lo que usa la API (incluida la columna calculada telefono_clave). */
+function dbMemoria(tablas: Record<string, any[]> = {}) {
+  const clave = (tel: any) => { const d = String(tel ?? '').replace(/\D/g, ''); return d.length >= 8 ? d.slice(-10) : ''; };
+  const completar = (row: any) => ('telefono' in row ? { ...row, telefono_clave: clave(row.telefono) } : row);
+  for (const k of Object.keys(tablas)) tablas[k] = tablas[k].map(completar); // la base real calcula telefono_clave también en lo que ya existe
+  let seq = 0;
+  const from = (nombre: string) => {
+    const filas = () => (tablas[nombre] ??= []);
+    let modo = 'select'; let payload: any; let opts: any; let lim = Infinity;
+    const filtros: Array<(r: any) => boolean> = [];
+    const ejecutar = () => {
+      if (modo === 'insert') { filas().push(completar({ id: `id${++seq}`, ...payload })); return { data: null, error: null }; }
+      if (modo === 'upsert') {
+        const k = opts.onConflict; const i = filas().findIndex(r => r[k] === payload[k]);
+        if (i >= 0) filas()[i] = completar({ ...filas()[i], ...payload }); else filas().push(completar({ id: `id${++seq}`, ...payload }));
+        return { data: null, error: null };
+      }
+      const sel = filas().filter(r => filtros.every(f => f(r)));
+      if (modo === 'update') { sel.forEach(r => Object.assign(r, completar({ ...r, ...payload }))); return { data: null, error: null }; }
+      return { data: sel.slice(0, lim), error: null };
+    };
+    const q: any = {
+      select: () => q, not: () => q, order: () => q,
+      eq: (c: string, v: any) => { filtros.push(r => r[c] === v); return q; },
+      limit: (n: number) => { lim = n; return q; },
+      insert: (p: any) => { modo = 'insert'; payload = p; return q; },
+      update: (p: any) => { modo = 'update'; payload = p; return q; },
+      upsert: (p: any, o: any) => { modo = 'upsert'; payload = p; opts = o; return q; },
+      maybeSingle: () => Promise.resolve({ data: (ejecutar().data as any[])[0] ?? null, error: null }),
+      then: (res: any, rej: any) => Promise.resolve(ejecutar()).then(res, rej),
+    };
+    return q;
+  };
+  return { db: { from } as any, tablas };
+}
+
+describe('leads · camposDeLead', () => {
+  it('lee el Data Collection de ElevenLabs ({value}) y mapea alias', () => {
+    const c = camposDeLead({
+      nombre_consultante: { value: 'Juan', rationale: 'x' }, apellido: { value: 'Pérez' }, mail: { value: 'j@x.com' },
+      dni_o_cuil: { value: '20-12345678-9' }, rama_consulta: { value: 'Artículo 9' }, tipo_tramite_previsional: { value: null },
+      campana: { value: 'GANANCIAS' }, calificacion: { value: 'Alto valor' }, requiere_turno: { value: true },
+    });
+    expect(c).toMatchObject({ nombre: 'Juan', apellido: 'Pérez', email: 'j@x.com', dni_cuil: '20-12345678-9', rama: 'Artículo 9', campana: 'GANANCIAS', calificacion: 'alto_valor', requiere_turno: true });
+    expect(c.tipo_tramite).toBeUndefined();
+  });
+
+  it('lo desconocido va a datos, lo vacío se ignora y las claves NUNCA se guardan', () => {
+    const c = camposDeLead({ es_docente: { value: 'si' }, anio_jubilacion: { value: '2019' }, clave_anses: { value: 'secreta' }, password: 'x', otros: { value: 'null' }, datos_adicionales: 'recibo enviado' });
+    expect(c.datos).toEqual({ es_docente: 'si', anio_jubilacion: '2019', datos_adicionales: 'recibo enviado' });
+    expect(JSON.stringify(c)).not.toContain('secreta');
+  });
+});
+
+describe('leads · etapas', () => {
+  const base = { tieneTurno: false, calificacion: null, rama: null, dniCuil: null, mensajesCliente: 0 };
+  it('sigue las categorías de seguimiento del agente', () => {
+    expect(etapaAutomatica({ ...base, mensajesCliente: 1 })).toBe('nuevo');
+    expect(etapaAutomatica({ ...base, mensajesCliente: 3 })).toBe('calificacion_a_medias');
+    expect(etapaAutomatica({ ...base, mensajesCliente: 3, rama: 'Art 9', dniCuil: '20' })).toBe('califico_sin_horario');
+    expect(etapaAutomatica({ ...base, calificacion: 'fuera_avatar' })).toBe('fuera_de_avatar');
+    expect(etapaAutomatica({ ...base, tieneTurno: true, calificacion: 'fuera_avatar' })).toBe('agendado');
+  });
+  it('conserva campaña original y no pisa etapas manuales', () => {
+    const ahora = '2026-10-11T10:00:00Z';
+    const ex = { telefono: '549388', etapa: 'cliente', campana: 'GANANCIAS', datos: { a: 1 } };
+    const f = fusionarLead(ex, '549388', { campana: 'ART', nombre: 'Ana', datos: { b: 2 } }, { tieneTurno: true, mensajesCliente: 5, ahora });
+    expect(f.etapa).toBe('cliente');
+    expect(f.campana).toBe('GANANCIAS');
+    expect(f.nombre).toBe('Ana');
+    expect(f.datos).toEqual({ a: 1, b: 2 });
+  });
+});
+
+describe('leads · registro en tiempo real (registrarMensaje)', () => {
+  const p = { conversation_id: 'conv_1', telefono_cliente: '+54 9 388 486-7965', nombre_cliente: 'Juan', apellido: 'Pérez', mensaje: 'Hola, quiero consultar por Ganancias', respuesta_agente: 'Bienvenido, ¿es docente?', campana: 'GANANCIAS' };
+
+  it('crea la conversación y el lead con todos los datos', async () => {
+    const { db, tablas } = dbMemoria();
+    const r = await registrarMensaje(db, p);
+    expect(r).toEqual({ code: 200, body: { registrado: true, conversation_id: 'conv_1' } });
+    expect(tablas.conversaciones_whatsapp[0].mensajes).toEqual([
+      { from: 'cliente', texto: 'Hola, quiero consultar por Ganancias' },
+      { from: 'agente', texto: 'Bienvenido, ¿es docente?' },
+    ]);
+    expect(tablas.conversaciones_whatsapp[0].nombre).toBe('Juan Pérez');
+    expect(tablas.leads).toHaveLength(1);
+    expect(tablas.leads[0]).toMatchObject({ nombre: 'Juan', apellido: 'Pérez', campana: 'GANANCIAS', etapa: 'nuevo', telefono_clave: '3884867965' });
+  });
+
+  it('cada mensaje se agrega; un reintento idéntico no duplica', async () => {
+    const { db, tablas } = dbMemoria();
+    await registrarMensaje(db, p);
+    await registrarMensaje(db, { ...p, mensaje: 'Soy docente', respuesta_agente: '¿Qué año se jubiló?' });
+    await registrarMensaje(db, { ...p, mensaje: 'Soy docente', respuesta_agente: '¿Qué año se jubiló?' });
+    expect(tablas.conversaciones_whatsapp[0].mensajes).toHaveLength(4);
+    expect(tablas.leads).toHaveLength(1);
+    expect(tablas.leads[0].etapa).toBe('calificacion_a_medias'); // 2 mensajes del cliente
+  });
+
+  it('el mismo teléfono en otro formato es el mismo lead, aunque cambie la conversación', async () => {
+    const { db, tablas } = dbMemoria();
+    await registrarMensaje(db, p);
+    await registrarMensaje(db, { ...p, conversation_id: 'conv_2', telefono_cliente: '5493884867965', campana: 'ART', email: 'j@x.com' });
+    expect(tablas.leads).toHaveLength(1);
+    expect(tablas.leads[0].email).toBe('j@x.com');
+    expect(tablas.leads[0].campana).toBe('GANANCIAS'); // se conserva la campaña del primer contacto
+    expect(tablas.conversaciones_whatsapp).toHaveLength(2);
+  });
+
+  it('sin conversation_id ni teléfono responde 400', async () => {
+    expect((await registrarMensaje(dbMemoria().db, { mensaje: 'hola' })).code).toBe(400);
+  });
+
+  it('si el lead falla, la conversación igual se guarda', async () => {
+    const { db, tablas } = dbMemoria();
+    const orig = db.from;
+    db.from = (n: string) => { if (n === 'leads') throw new Error('tabla leads no existe'); return orig(n); };
+    expect((await registrarMensaje(db, p)).code).toBe(200);
+    expect(tablas.conversaciones_whatsapp).toHaveLength(1);
+  });
+});
+
+describe('leads · post-llamada de ElevenLabs', () => {
+  const data = {
+    transcript: [{ role: 'user', message: 'Hola' }, { role: 'agent', message: 'Bienvenido' }, { role: 'user', message: 'Quiero info' }],
+    analysis: { transcript_summary: 'Consulta por Art. 9', data_collection_results: { nombre_consultante: { value: 'Juan' }, rama_consulta: { value: 'Artículo 9' }, campana: { value: 'ARTICULO9' }, clave_anses: { value: 'secreta' } } },
+    conversation_initiation_client_data: { dynamic_variables: { system__caller_id: '5493884867965' } },
+  };
+
+  it('guarda el chat completo y completa el lead; el audio y los datos previos no se pisan', async () => {
+    const { db, tablas } = dbMemoria({ conversaciones_whatsapp: [{ id: 'x', conversation_id: 'conv_1', telefono: '5493884867965', nombre: 'Juan Pérez', audio_path: 'conv_1.mp3', mensajes: [] }] });
+    await guardarTranscripcion(db, 'conv_1', data);
+    const c = tablas.conversaciones_whatsapp[0];
+    expect(c.mensajes).toHaveLength(3);
+    expect(c.audio_path).toBe('conv_1.mp3');
+    expect(c.resumen).toBe('Consulta por Art. 9');
+    expect(tablas.leads[0]).toMatchObject({ rama: 'Artículo 9', campana: 'ARTICULO9', resumen: 'Consulta por Art. 9' });
+    expect(JSON.stringify(tablas.leads[0])).not.toContain('secreta');
+  });
+
+  it('un post-llamada sin teléfono no borra el que ya estaba', async () => {
+    const { db, tablas } = dbMemoria({ conversaciones_whatsapp: [{ id: 'x', conversation_id: 'conv_1', telefono: '5493884867965', mensajes: [] }] });
+    await guardarTranscripcion(db, 'conv_1', { transcript: [{ role: 'user', message: 'Hola' }] });
+    expect(tablas.conversaciones_whatsapp[0].telefono).toBe('5493884867965');
+    expect(tablas.leads ?? []).toHaveLength(0); // sin teléfono no hay lead
+  });
+
+  it('un turno ya agendado lleva al lead a Agendado', async () => {
+    const { db, tablas } = dbMemoria({ consultas_agendadas: [{ id: 't1', telefono: '+54 9 388 486-7965' }] });
+    await upsertLead(db, '5493884867965', { nombre: 'Juan' });
+    expect(tablas.leads[0].etapa).toBe('agendado');
   });
 });
