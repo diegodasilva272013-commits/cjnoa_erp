@@ -409,14 +409,15 @@ describe('leads · registro en tiempo real (registrarMensaje)', () => {
     expect(tablas.leads[0].etapa).toBe('calificacion_a_medias'); // 2 mensajes del cliente
   });
 
-  it('el mismo teléfono en otro formato es el mismo lead, aunque cambie la conversación', async () => {
+  it('el mismo teléfono en otro formato es el mismo lead y la misma conversación, aunque ElevenLabs cambie el conversation_id', async () => {
     const { db, tablas } = dbMemoria();
     await registrarMensaje(db, p);
     await registrarMensaje(db, { ...p, conversation_id: 'conv_2', telefono_cliente: '5493884867965', campana: 'ART', email: 'j@x.com' });
     expect(tablas.leads).toHaveLength(1);
     expect(tablas.leads[0].email).toBe('j@x.com');
     expect(tablas.leads[0].campana).toBe('GANANCIAS'); // se conserva la campaña del primer contacto
-    expect(tablas.conversaciones_whatsapp).toHaveLength(2);
+    expect(tablas.conversaciones_whatsapp).toHaveLength(1); // una persona = una conversación
+    expect(tablas.conversaciones_whatsapp[0].mensajes).toHaveLength(2);
   });
 
   it('sin conversation_id ni teléfono responde 400', async () => {
