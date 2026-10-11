@@ -370,6 +370,21 @@ export async function crearTurno(db: Db, p: Record<string, unknown>): Promise<Re
   };
 }
 
+/** Una persona = una conversación en el ERP: la fila más reciente de ese teléfono (ElevenLabs abre un conversation_id nuevo cada tanto). */
+async function filaPorTelefono(db: Db, clave: string): Promise<{ conversation_id: string; mensajes: MsgGuardado[] } | null> {
+  if (!clave) return null;
+  const { data, error } = await db.from('conversaciones_whatsapp').select('conversation_id, mensajes').eq('telefono_clave', clave).order('updated_at', { ascending: false }).limit(1);
+  if (error || !Array.isArray(data) || !data.length) return null;
+  const f = data[0] as any;
+  return { conversation_id: String(f.conversation_id), mensajes: Array.isArray(f.mensajes) ? f.mensajes : [] };
+}
+
+/** Suma los mensajes nuevos a los previos sin repetir los que ya estaban. */
+function unirMensajes(previos: MsgGuardado[], nuevos: MsgGuardado[]): MsgGuardado[] {
+  const visto = new Set(previos.map(m => `${m.from}|${m.texto}`));
+  return [...previos, ...nuevos.filter(m => !visto.has(`${m.from}|${m.texto}`))];
+}
+
 /** Guarda la conversación completa que manda ElevenLabs al terminar y actualiza el lead con su Data Collection. */
 export async function guardarTranscripcion(db: Db, conversationId: string, data: any) {
   const mensajes = (Array.isArray(data.transcript) ? data.transcript : [])
@@ -385,7 +400,12 @@ export async function guardarTranscripcion(db: Db, conversationId: string, data:
   const nombre = vars.nombre ?? reco.nombre?.value ?? reco.nombre_consultante?.value ?? null;
 
 // Solo se escriben los datos que llegaron: un post-call sin teléfono no debe borrar el que ya registró la herramienta.
-  const fila: Record<string, unknown> = { conversation_id: conversationId, mensajes, updated_at: new Date().toISOString() };
+  const prev = await filaPorTelefono(db, telefonoClave(telefono));
+  const fila: Record<string, unknown> = {
+    conversation_id: prev?.conversation_id ?? conversationId,
+    mensajes: prev ? unirMensajes(prev.mensajes, mensajes) : mensajes,
+    updated_at: new Date().toISOString(),
+  };
   if (telefono) fila.telefono = String(telefono);
   if (nombre) fila.nombre = String(nombre);
   if (data.analysis?.transcript_summary) fila.resumen = data.analysis.transcript_summary;
@@ -493,7 +513,8 @@ export async function registrarMensaje(db: Db, p: Record<string, unknown>): Prom
   const str = (v: unknown) => textoLimpio(v);
   const telefono = str(p.telefono_cliente ?? p.telefono);
   const clave = telefonoClave(telefono);
-  const conversationId = str(p.conversation_id) || (clave ? `tel-${clave}` : '');
+  const prev = await filaPorTelefono(db, clave);
+  const conversationId = prev?.conversation_id || str(p.conversation_id) || (clave ? `tel-${clave}` : '');
   if (!conversationId) return { code: 400, body: { registrado: false, error: 'Falta conversation_id o telefono_cliente' } };
 
   const { data: fila, error: eLeer } = await db.from('conversaciones_whatsapp').select('mensajes, nombre').eq('conversation_id', conversationId).maybeSingle();
