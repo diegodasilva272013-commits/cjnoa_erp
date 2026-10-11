@@ -32,7 +32,7 @@ export default function DisponibilidadModal({
   const [profesional, setProfesional] = useState<ProfesionalAgenda>(profesionalPropio ?? 'Alejandro');
   const [bloques, setBloques] = useState<Bloque[]>([]);
   const [tipo, setTipo] = useState<'semanal' | 'fecha'>('semanal');
-  const [dia, setDia] = useState(1);
+  const [dias, setDias] = useState<number[]>([1]);
   const [fecha, setFecha] = useState('');
   const [desde, setDesde] = useState('09:00');
   const [hasta, setHasta] = useState('13:00');
@@ -58,6 +58,7 @@ export default function DisponibilidadModal({
     setMsg(null);
     if (hasta <= desde) return setMsg('La hora "hasta" debe ser mayor que "desde".');
     if (tipo === 'fecha' && !fecha) return setMsg('Elegí la fecha.');
+    if (tipo === 'semanal' && dias.length === 0) return setMsg('Elegí al menos un día.');
     if ((timeToMin(hasta) - timeToMin(desde)) < duracion) return setMsg('El tramo es más corto que la duración del turno.');
     setGuardando(true);
     // El dueño del horario es el perfil del profesional (si lo carga el admin, se busca su perfil).
@@ -69,15 +70,11 @@ export default function DisponibilidadModal({
       if (!perfil && !esAdmin) { setGuardando(false); return setMsg(`No hay un usuario de ${profesional} en el sistema para asociarle el horario.`); }
       if (perfil) dueno = perfil.id;
     }
-    const { error } = await supabase.from('disponibilidad_horarios').insert({
-      profesional,
-      perfil_id: dueno,
-      dia_semana: tipo === 'semanal' ? dia : null,
-      fecha: tipo === 'fecha' ? fecha : null,
-      hora_desde: desde,
-      hora_hasta: hasta,
-      duracion_min: duracion,
-    });
+    const base = { profesional, perfil_id: dueno, hora_desde: desde, hora_hasta: hasta, duracion_min: duracion };
+    const filas = tipo === 'semanal'
+      ? [...dias].sort().map(d => ({ ...base, dia_semana: d, fecha: null }))
+      : [{ ...base, dia_semana: null, fecha }];
+    const { error } = await supabase.from('disponibilidad_horarios').insert(filas);
     setGuardando(false);
     if (error) return setMsg('No se pudo guardar: ' + error.message);
     await cargar();
@@ -125,11 +122,25 @@ export default function DisponibilidadModal({
             </select>
           </div>
           {tipo === 'semanal' ? (
-            <div>
-              <label className={label}>Día</label>
-              <select value={dia} onChange={e => setDia(Number(e.target.value))} className={input}>
-                {DIAS.map((d, i) => <option key={d} value={i + 1}>{d}</option>)}
-              </select>
+            <div className="col-span-2">
+              <label className={label}>Días (podés elegir varios)</label>
+              <div className="flex flex-wrap gap-2">
+                {DIAS.map((d, i) => {
+                  const activo = dias.includes(i + 1);
+                  return (
+                    <button key={d} type="button"
+                      onClick={() => setDias(a => activo ? a.filter(x => x !== i + 1) : [...a, i + 1])}
+                      className={`px-3 py-2 rounded-lg border text-sm ${activo ? 'bg-emerald-900/40 border-emerald-600/50 text-emerald-300' : 'bg-zinc-900 border-zinc-700 text-zinc-400'}`}>
+                      {d.slice(0, 3)}
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="flex gap-3 mt-2 text-xs">
+                <button type="button" onClick={() => setDias([1, 2, 3, 4, 5])} className="text-emerald-400 hover:underline">Lunes a viernes</button>
+                <button type="button" onClick={() => setDias([1, 2, 3, 4, 5, 6, 7])} className="text-emerald-400 hover:underline">Todos</button>
+                <button type="button" onClick={() => setDias([])} className="text-zinc-500 hover:underline">Limpiar</button>
+              </div>
             </div>
           ) : (
             <div>
