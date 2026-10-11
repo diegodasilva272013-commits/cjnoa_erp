@@ -427,42 +427,64 @@ async function postCall(req: VercelRequest, res: VercelResponse, db: Db, raw: st
   return res.status(200).send('OK');
 }
 
-/** Historial del cliente a partir de lo que ya existe (turnos + conversaciones), buscado por teléfono. */
+/** Historial del cliente a partir de lo que ya existe (turnos + conversaciones + lead), buscado por teléfono. */
 export async function historialDe(db: Db, telefono: unknown) {
   const clave = telefonoClave(telefono);
   const vacio = { tiene_historial: 'false', es_recurrente: 'false', cliente_nombre: '', cliente_historial: '' };
   if (!clave) return vacio;
 
-  const [cons, convs] = await Promise.all([
-    db.from('consultas_agendadas')
-      .select('cliente_nombre, telefono, fecha_consulta, hora_consulta, abogado_asignado, detalle_consulta, reserva_pagada')
-      .not('telefono', 'is', null).order('fecha_consulta', { ascending: false }).limit(2000),
-    db.from('conversaciones_whatsapp')
-      .select('nombre, telefono, resumen, updated_at')
-      .not('telefono', 'is', null).order('updated_at', { ascending: false }).limit(500),
+  // Con telefono_clave (migration_leads_campanas.sql) se filtra en la base: sin tope de filas, cliente viejo o nuevo.
+  // Si esa columna todavía no existe, cae al barrido anterior.
+  const colsCons = 'cliente_nombre, telefono, fecha_consulta, hora_consulta, abogado_asignado, detalle_consulta, reserva_pagada';
+  const colsConv = 'nombre, telefono, resumen, mensajes, updated_at';
+  let [cons, convs]: any[] = await Promise.all([
+    db.from('consultas_agendadas').select(colsCons).eq('telefono_clave', clave).order('fecha_consulta', { ascending: false }).limit(50),
+    db.from('conversaciones_whatsapp').select(colsConv).eq('telefono_clave', clave).order('updated_at', { ascending: false }).limit(20),
   ]);
+  if (cons.error || convs.error) {
+    [cons, convs] = await Promise.all([
+      db.from('consultas_agendadas').select(colsCons).not('telefono', 'is', null).order('fecha_consulta', { ascending: false }).limit(5000),
+      db.from('conversaciones_whatsapp').select(colsConv).not('telefono', 'is', null).order('updated_at', { ascending: false }).limit(200),
+    ]);
+  }
   if (cons.error) throw new Error(`historial consultas: ${cons.error.message}`);
   if (convs.error) throw new Error(`historial conversaciones: ${convs.error.message}`);
 
   const turnos = ((cons.data ?? []) as any[]).filter(r => telefonoClave(r.telefono) === clave);
   const charlas = ((convs.data ?? []) as any[]).filter(r => telefonoClave(r.telefono) === clave);
-  if (!turnos.length && !charlas.length) return vacio;
 
-  const nombre = turnos[0]?.cliente_nombre || charlas.find(c => c.nombre)?.nombre || '';
+  let lead: any = null;
+  const rl = await db.from('leads').select('nombre, apellido, campana, rama, tipo_tramite, calificacion, etapa, resumen').eq('telefono_clave', clave).maybeSingle();
+  if (!rl.error) lead = rl.data;
+
+  if (!turnos.length && !charlas.length && !lead) return vacio;
+
+  const nombre = turnos[0]?.cliente_nombre || [lead?.nombre, lead?.apellido].filter(Boolean).join(' ') || charlas.find(c => c.nombre)?.nombre || '';
   const partes: string[] = [];
-  for (const t of turnos.slice(0, 3)) {
+  if (lead) {
+    const datos = [lead.campana && `campaña ${lead.campana}`, lead.rama && `consulta de ${lead.rama}`, lead.tipo_tramite && `trámite ${lead.tipo_tramite}`, lead.etapa && `etapa ${lead.etapa}`].filter(Boolean);
+    if (datos.length) partes.push(`Ficha: ${datos.join(', ')}`);
+  }
+  for (const t of turnos.slice(0, 5)) {
     const f = String(t.fecha_consulta).split('-').reverse().join('/');
     partes.push(`Turno ${f}${t.hora_consulta ? ' ' + String(t.hora_consulta).slice(0, 5) : ''}${t.abogado_asignado ? ' con ' + t.abogado_asignado : ''}`
       + `${t.detalle_consulta ? ` por "${t.detalle_consulta}"` : ''} (${t.reserva_pagada ? 'reserva pagada' : 'reserva sin pagar'})`);
   }
-  const resumen = charlas.find(c => c.resumen)?.resumen;
-  if (resumen) partes.push(`Última conversación: ${String(resumen).slice(0, 500)}`);
+  const resumen = charlas.find(c => c.resumen)?.resumen ?? lead?.resumen;
+  if (resumen) partes.push(`Resumen de lo hablado: ${String(resumen).slice(0, 800)}`);
+
+  // Lo último que se dijeron, textual, para retomar sin volver a preguntar.
+  const msgs: MsgGuardado[] = charlas.flatMap(c => (Array.isArray(c.mensajes) ? c.mensajes : []) as MsgGuardado[]);
+  const ultimos = charlas.length ? ((Array.isArray(charlas[0].mensajes) ? charlas[0].mensajes : msgs) as MsgGuardado[]).slice(-12) : [];
+  if (ultimos.length) {
+    partes.push('Últimos mensajes: ' + ultimos.map(m => `${m.from === 'cliente' ? 'Cliente' : 'Agente'}: ${String(m.texto).slice(0, 300)}`).join(' | '));
+  }
 
   return {
     tiene_historial: 'true',
     es_recurrente: 'true',
     cliente_nombre: String(nombre),
-    cliente_historial: partes.join('. '),
+    cliente_historial: partes.join('. ').slice(0, 4000),
   };
 }
 
