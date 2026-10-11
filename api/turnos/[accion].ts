@@ -89,6 +89,14 @@ export function localDe(iso: string | Date) {
   return { fecha: d.toISOString().slice(0, 10), min: d.getUTCHours() * 60 + d.getUTCMinutes() };
 }
 
+const NOMBRES_DIA = ['lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado', 'domingo'];
+
+/** Fecha y hora de hoy en Jujuy: el agente no sabe qué día es y puede decir "no hay para hoy" con la fecha equivocada. */
+export function ahoraLocal(ahora: Date = new Date()) {
+  const l = localDe(ahora);
+  return { hoy: l.fecha, dia_hoy: NOMBRES_DIA[diaSemanaISO(l.fecha) - 1], hora_actual: aHHMM(l.min) };
+}
+
 export type Bloque = { dia_semana: number | null; fecha: string | null; hora_desde: string; hora_hasta: string; duracion_min: number };
 export type Ocupado = { desde: number; hasta: number };
 
@@ -284,7 +292,7 @@ export async function disponibilidadDe(db: Db, profesional: unknown, fechaIn: un
 
   const bloques = await bloquesDe(db, prof);
   if (fecha) {
-    return { code: 200, body: { profesional: prof, fecha, horarios_disponibles: await libresDelDia(db, prof, fecha, bloques) } };
+    return { code: 200, body: { ...ahoraLocal(), profesional: prof, fecha, horarios_disponibles: await libresDelDia(db, prof, fecha, bloques) } };
   }
 
   // Sin fecha: próximos días con lugar, para que el agente pueda ofrecer opciones.
@@ -295,7 +303,7 @@ export async function disponibilidadDe(db: Db, profesional: unknown, fechaIn: un
     const libres = await libresDelDia(db, prof, f, bloques);
     if (libres.length) dias.push({ fecha: f, horarios_disponibles: libres });
   }
-  return { code: 200, body: { profesional: prof, proximos_dias: dias } };
+  return { code: 200, body: { ...ahoraLocal(), profesional: prof, proximos_dias: dias } };
 }
 
 async function disponibles(req: VercelRequest, res: VercelResponse, db: Db) {
@@ -547,7 +555,8 @@ async function inicio(res: VercelResponse, db: Db, raw: string) {
   let b: any = {};
   try { b = JSON.parse(raw || '{}'); } catch { /* sin cuerpo */ }
   const h = await historialDe(db, b?.caller_id ?? b?.telefono);
-  return res.status(200).json({ type: 'conversation_initiation_client_data', dynamic_variables: h });
+  const a = ahoraLocal();
+  return res.status(200).json({ type: 'conversation_initiation_client_data', dynamic_variables: { ...h, fecha_hoy: a.hoy, dia_hoy: a.dia_hoy, hora_actual: a.hora_actual } });
 }
 
 // =====================================================================================
