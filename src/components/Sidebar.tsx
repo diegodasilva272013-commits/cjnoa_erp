@@ -25,6 +25,7 @@ import {
   Target,
   MessageCircle,
   Bot,
+  Megaphone,
 } from 'lucide-react';
 import { usePermisos } from '../hooks/usePermisos';
 import { useAuth } from '../context/AuthContext';
@@ -167,6 +168,12 @@ export default function Sidebar({ open, onClose }: SidebarProps) {
           <NavLink to="/consultas-whatsapp" onClick={onClose} className={({ isActive }) => linkClass(isActive)}>
             <Bot className="w-5 h-5" />
             Consultas WhatsApp
+          </NavLink>
+
+          {/* Leads de campañas */}
+          <NavLink to="/leads-campanas" onClick={onClose} className={({ isActive }) => linkClass(isActive)}>
+            <Megaphone className="w-5 h-5" />
+            Leads de campañas
           </NavLink>
 
           {/* Audiencias */}
