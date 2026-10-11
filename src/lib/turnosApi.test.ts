@@ -86,7 +86,7 @@ describe('api/turnos · firma post-call', () => {
 
 function dbFalsa(tablas: Record<string, any[]>) {
   const q = (rows: any[]) => {
-    const o: any = { not: () => o, order: () => o, limit: () => Promise.resolve({ data: rows, error: null }) };
+    const o: any = { not: () => o, eq: () => o, order: () => o, maybeSingle: () => Promise.resolve({ data: null, error: null }), limit: () => Promise.resolve({ data: rows, error: null }) };
     return o;
   };
   return { from: (t: string) => ({ select: () => q(tablas[t] ?? []) }) } as any;
