@@ -443,7 +443,17 @@ export async function guardarTranscripcion(db: Db, conversationId: string, data:
   const vars = data.conversation_initiation_client_data?.dynamic_variables ?? {};
   const reco = data.analysis?.data_collection_results ?? {};
   const telefono = vars.system__caller_id ?? vars.telefono ?? data.metadata?.phone_call?.external_number ?? reco.telefono?.value ?? null;
-  const nombre = vars.nombre ?? reco.nombre?.value ?? reco.nombre_consultante?.value ?? null;
+  let nombre = vars.nombre ?? reco.nombre?.value ?? reco.nombre_consultante?.value ?? null;
+  let apellidoInf: string | undefined;
+  // Si nadie lo mandó, el nombre se saca de lo que dijo el cliente en toda la conversación.
+  if (!nombre) {
+    let ultAgente: string | undefined;
+    for (const m of mensajes as MsgGuardado[]) {
+      if (m.from === 'agente') { ultAgente = m.texto; continue; }
+      const inf = inferirNombre(ultAgente, m.texto);
+      if (inf) { nombre = inf.nombre; apellidoInf = inf.apellido; break; }
+    }
+  }
 
 // Solo se escriben los datos que llegaron: un post-call sin teléfono no debe borrar el que ya registró la herramienta.
   const prev = await filaPorTelefono(db, telefonoClave(telefono));
@@ -460,7 +470,7 @@ export async function guardarTranscripcion(db: Db, conversationId: string, data:
     if (!huerfana.error && Array.isArray(huerfana.data?.audios)) fila.audios = unirAudios(prev.audios, huerfana.data.audios);
   }
   if (telefono) fila.telefono = String(telefono);
-  if (nombre) fila.nombre = String(nombre);
+  if (nombre) fila.nombre = [String(nombre), apellidoInf].filter(Boolean).join(' ');
   if (data.analysis?.transcript_summary) fila.resumen = data.analysis.transcript_summary;
   let { error } = await db.from('conversaciones_whatsapp').upsert(fila, { onConflict: 'conversation_id' });
   if (error) { // columnas nuevas todavía sin migrar: se guarda igual, sin ellas
@@ -472,6 +482,7 @@ export async function guardarTranscripcion(db: Db, conversationId: string, data:
   // Lead: Data Collection del agente (todo lo desconocido se guarda en datos) + resumen de la conversación.
   const campos = camposDeLead(Object.fromEntries(Object.entries(reco).map(([k, v]) => [k, v])));
   if (data.analysis?.transcript_summary && !campos.resumen) campos.resumen = String(data.analysis.transcript_summary);
+  if (!campos.nombre && nombre) { campos.nombre = String(nombre); if (apellidoInf && !campos.apellido) campos.apellido = apellidoInf; }
   await upsertLeadSeguro(db, telefono, campos);
 }
 
