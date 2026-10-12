@@ -740,7 +740,9 @@ export async function upsertLead(db: Db, telefono: unknown, campos: CamposLead, 
   }
   const fila = fusionarLead(ex.data as any, String(telefono).trim(), campos, { tieneTurno: ((turnos.data ?? []) as any[]).length > 0, mensajesCliente, ahora });
   if (ex.data) {
-    const { error } = await db.from('leads').update(fila).eq('id', (ex.data as any).id);
+    // telefono_clave es columna calculada: la base rechaza escribirla (y id/created_at no se tocan).
+    const { telefono_clave: _tc, id: _id, created_at: _ca, ...cambios } = fila as Record<string, any>;
+    const { error } = await db.from('leads').update(cambios).eq('id', (ex.data as any).id);
     if (error) throw new Error(`lead update: ${error.message}`);
   } else {
     const { error } = await db.from('leads').insert(fila);
