@@ -522,9 +522,6 @@ async function postCall(req: VercelRequest, res: VercelResponse, db: Db, raw: st
 // Trae las conversaciones recientes por la API, y guarda transcripción, nombre/lead y audio.
 // =====================================================================================
 
-// Piso fijo de la sincronización: lo anterior a esta fecha (conversaciones de prueba, ya limpiadas) no se vuelve a importar.
-const SYNC_DESDE_FIJO = '2026-10-12T16:35:04-03:00';
-
 const EL_API = 'https://api.elevenlabs.io/v1/convai';
 
 async function elGet(path: string, ms: number): Promise<Response> {
@@ -550,7 +547,7 @@ export async function sincronizarElevenLabs(db: Db, opt: { desdeSegs?: number; m
   const presupuesto = opt.presupuestoMs ?? 6000;
   // ELEVENLABS_SYNC_DESDE (fecha ISO, ej. 2026-10-12T14:00:00-03:00): nunca se importa nada anterior. Sirve para que, después de
   // limpiar pruebas, la sincronización no las vuelva a traer de ElevenLabs.
-  const corte = Date.parse(limpiarSecreto(process.env.ELEVENLABS_SYNC_DESDE ?? '') || SYNC_DESDE_FIJO);
+  const corte = Date.parse(limpiarSecreto(process.env.ELEVENLABS_SYNC_DESDE ?? ''));
   const desde = Math.max(Math.floor(Date.now() / 1000) - (opt.desdeSegs ?? 3 * 86400), Number.isFinite(corte) ? Math.floor(corte / 1000) : 0);
   const agente = process.env.ELEVENLABS_AGENT_ID ? `&agent_id=${encodeURIComponent(limpiarSecreto(process.env.ELEVENLABS_AGENT_ID))}` : '';
 
