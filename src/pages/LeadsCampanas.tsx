@@ -214,7 +214,7 @@ export default function LeadsCampanas() {
 
       {vista === 'tablero' ? (
         <DndContext sensors={sensors} onDragStart={alArrastrar} onDragEnd={alSoltar} onDragCancel={() => setArrastrando(null)}>
-          <div className="flex gap-3 overflow-x-auto pb-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3 items-start">
             {ETAPAS_LEAD.map(e => {
               const items = filtrados.filter(l => l.etapa === e.id);
               return (
@@ -223,7 +223,7 @@ export default function LeadsCampanas() {
                     <TarjetaArrastrable key={l.id} lead={l} turno={turnosPor.get(l.telefono_clave)?.[0]} audio={tieneAudio(l)}
                       oculta={arrastrando?.id === l.id} onAbrir={() => setAbierto(l)} />
                   ))}
-                  {items.length === 0 && <p className="px-2 py-6 text-center text-xs text-gray-600">Sin leads</p>}
+                  {items.length === 0 && <p className="text-[10px] text-gray-600 text-center py-6">Sin leads</p>}
                 </Columna>
               );
             })}
@@ -279,15 +279,30 @@ function Resumen({ leads, agendo, turnosPor, convsPor }: {
 
 // ------------------------------------------------------------------ tablero
 
-function Columna({ id, titulo, color, cantidad, children }: { id: string; titulo: string; color: string; cantidad: number; children: React.ReactNode }) {
+const ESTILO_ETAPA: Record<string, { borde: string; punto: string; chip: string }> = {
+  nuevo:                 { borde: 'border-t-gray-500',    punto: 'bg-gray-500',    chip: 'bg-gray-500/10 text-gray-400' },
+  calificacion_a_medias: { borde: 'border-t-amber-500',   punto: 'bg-amber-500',   chip: 'bg-amber-500/10 text-amber-400' },
+  califico_sin_horario:  { borde: 'border-t-orange-500',  punto: 'bg-orange-500',  chip: 'bg-orange-500/10 text-orange-400' },
+  agendado:              { borde: 'border-t-emerald-500', punto: 'bg-emerald-500', chip: 'bg-emerald-500/10 text-emerald-400' },
+  fuera_de_avatar:       { borde: 'border-t-red-500',     punto: 'bg-red-500',     chip: 'bg-red-500/10 text-red-400' },
+  consulta_realizada:    { borde: 'border-t-sky-500',     punto: 'bg-sky-500',     chip: 'bg-sky-500/10 text-sky-400' },
+  cliente:               { borde: 'border-t-violet-500',  punto: 'bg-violet-500',  chip: 'bg-violet-500/10 text-violet-400' },
+  no_califica:           { borde: 'border-t-gray-600',    punto: 'bg-gray-600',    chip: 'bg-gray-600/10 text-gray-500' },
+};
+
+function Columna({ id, titulo, cantidad, children }: { id: string; titulo: string; color?: string; cantidad: number; children: React.ReactNode }) {
   const { setNodeRef, isOver } = useDroppable({ id });
+  const e = ESTILO_ETAPA[id] ?? ESTILO_ETAPA.nuevo;
   return (
-    <div ref={setNodeRef} className={`flex w-72 shrink-0 flex-col rounded-lg border bg-[#080808] ${isOver ? 'border-emerald-500/60' : 'border-white/10'}`}>
-      <div className="flex items-center justify-between px-3 py-2.5">
-        <span className={`rounded-full border px-2 py-0.5 text-[11px] ${color}`}>{titulo}</span>
-        <span className="text-xs text-gray-500">{cantidad}</span>
+    <div ref={setNodeRef} className={`glass-card p-0 overflow-hidden border-t-2 ${e.borde} transition-all ${isOver ? 'ring-2 ring-white/20' : ''}`}>
+      <div className="px-3 py-2.5 flex items-center justify-between border-b border-white/[0.06]">
+        <div className="flex items-center gap-2 min-w-0">
+          <div className={`w-2 h-2 rounded-full flex-shrink-0 ${e.punto}`} />
+          <h3 className="text-xs font-semibold text-white truncate">{titulo}</h3>
+        </div>
+        <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium flex-shrink-0 ml-1 ${e.chip}`}>{cantidad}</span>
       </div>
-      <div className="flex max-h-[68vh] min-h-[120px] flex-col gap-2 overflow-y-auto px-2 pb-2">{children}</div>
+      <div className="p-2 space-y-2 min-h-[80px] max-h-[65vh] overflow-y-auto">{children}</div>
     </div>
   );
 }
@@ -302,31 +317,29 @@ function TarjetaArrastrable({ lead, turno, audio, oculta, onAbrir }: { lead: Lea
 }
 
 function Tarjeta({ lead, turno, audio, flotando }: { lead: Lead; turno?: Turno; audio: boolean; flotando?: boolean }) {
-  const resumen = lead.resumen?.trim();
   return (
-    <div className={`cursor-grab rounded-lg border border-white/10 bg-[#101010] p-3 text-left hover:border-white/25 ${flotando ? 'shadow-2xl ring-1 ring-emerald-500/40' : ''}`}>
+    <div className={`relative p-3 rounded-xl bg-white/[0.03] border border-white/[0.07] hover:bg-white/[0.06] hover:border-white/10 transition-all cursor-grab active:cursor-grabbing select-none ${flotando ? 'shadow-2xl ring-1 ring-white/20' : ''}`}>
       <div className="flex items-start justify-between gap-2">
-        <div className="min-w-0">
-          <div className="truncate text-sm font-medium text-white">{nombreCompleto(lead)}</div>
-          <div className="flex items-center gap-1 text-xs text-gray-500"><Phone className="h-3 w-3" />{lead.telefono}</div>
-        </div>
-        {audio && <Headphones className="h-4 w-4 shrink-0 text-sky-400" aria-label="Tiene audio" />}
+        <p className="text-xs font-medium text-white leading-tight break-words">{nombreCompleto(lead)}</p>
+        {audio && <Headphones className="h-3.5 w-3.5 shrink-0 text-sky-400" aria-label="Tiene audio" />}
       </div>
-
-      {turno && (
-        <div className="mt-2 flex items-center gap-1.5 rounded-md border border-emerald-700/40 bg-emerald-900/20 px-2 py-1 text-xs text-emerald-300">
-          <CalendarCheck className="h-3.5 w-3.5 shrink-0" />
-          <span className="truncate">{fmtTurno(turno)}{turno.abogado_asignado ? ` · ${turno.abogado_asignado}` : ''}</span>
-        </div>
+      {lead.telefono && nombreCompleto(lead) !== lead.telefono && (
+        <p className="mt-1 flex items-center gap-1 text-[10px] text-gray-500"><Phone className="h-3 w-3" />{lead.telefono}</p>
       )}
 
-      {lead.email && <div className="mt-2 truncate text-xs text-gray-400">{lead.email}</div>}
-      {resumen && <p className="mt-2 line-clamp-3 text-xs text-gray-400">{resumen}</p>}
+      {turno && (
+        <p className="mt-2 flex items-center gap-1.5 rounded-md bg-emerald-500/10 px-2 py-1 text-[10px] font-medium text-emerald-400">
+          <CalendarCheck className="h-3 w-3 shrink-0" />
+          <span className="truncate">{fmtTurno(turno)}{turno.abogado_asignado ? ` · ${turno.abogado_asignado}` : ''}</span>
+        </p>
+      )}
 
-      <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[11px]">
-        {lead.campana && <span className="rounded bg-blue-900/30 px-1.5 py-0.5 text-blue-300">{lead.campana}</span>}
-        {lead.rama && <span className="rounded bg-white/5 px-1.5 py-0.5 text-gray-300">{lead.rama}</span>}
-        {lead.calificacion && <span className="rounded bg-white/5 px-1.5 py-0.5 text-gray-300">{ETIQUETAS_CALIFICACION[lead.calificacion] ?? lead.calificacion}</span>}
+      {lead.email && <p className="mt-1.5 truncate text-[10px] text-gray-500">{lead.email}</p>}
+
+      <div className="mt-2 flex flex-wrap items-center gap-1 text-[10px]">
+        {lead.campana && <span className="rounded bg-blue-500/10 px-1.5 py-0.5 text-blue-400">{lead.campana}</span>}
+        {lead.rama && <span className="rounded bg-white/5 px-1.5 py-0.5 text-gray-400">{lead.rama}</span>}
+        {lead.calificacion && <span className="rounded bg-white/5 px-1.5 py-0.5 text-gray-400">{ETIQUETAS_CALIFICACION[lead.calificacion] ?? lead.calificacion}</span>}
         <span className="ml-auto text-gray-600">{relativo(lead.ultimo_contacto_at)}</span>
       </div>
     </div>
