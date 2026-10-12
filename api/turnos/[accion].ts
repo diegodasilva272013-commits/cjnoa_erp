@@ -545,7 +545,10 @@ export async function sincronizarElevenLabs(db: Db, opt: { desdeSegs?: number; m
   if (!limpiarSecreto(process.env.ELEVENLABS_API_KEY ?? '')) return { ok: false, motivo: 'Falta ELEVENLABS_API_KEY', nuevas: 0, audios: 0 };
   const t0 = Date.now();
   const presupuesto = opt.presupuestoMs ?? 6000;
-  const desde = Math.floor(Date.now() / 1000) - (opt.desdeSegs ?? 3 * 86400);
+  // ELEVENLABS_SYNC_DESDE (fecha ISO, ej. 2026-10-12T14:00:00-03:00): nunca se importa nada anterior. Sirve para que, después de
+  // limpiar pruebas, la sincronización no las vuelva a traer de ElevenLabs.
+  const corte = Date.parse(limpiarSecreto(process.env.ELEVENLABS_SYNC_DESDE ?? ''));
+  const desde = Math.max(Math.floor(Date.now() / 1000) - (opt.desdeSegs ?? 3 * 86400), Number.isFinite(corte) ? Math.floor(corte / 1000) : 0);
   const agente = process.env.ELEVENLABS_AGENT_ID ? `&agent_id=${encodeURIComponent(limpiarSecreto(process.env.ELEVENLABS_AGENT_ID))}` : '';
 
   const r = await elGet(`/conversations?page_size=50&call_start_after_unix=${desde}${agente}`, 4000);
