@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { createHmac } from 'node:crypto';
 import handler, {
-  aMin, limpiarSecreto, camposDeLead, etapaAutomatica, fusionarLead, registrarMensaje, guardarTranscripcion, upsertLead, firmaMetaValida, extraerMensajes, aMensajesLLM, procesarMensaje, type Deps, telefonoClave, historialDe, bloquesDelDia, firmaValida, huecosLibres, localDe, resolverProfesional, diaSemanaISO, fechaValida,
+  aMin, limpiarSecreto, camposDeLead, etapaAutomatica, fusionarLead, registrarMensaje, guardarTranscripcion, upsertLead, firmaMetaValida, extraerMensajes, aMensajesLLM, procesarMensaje, type Deps, telefonoClave, historialDe, inferirNombre, bloquesDelDia, firmaValida, huecosLibres, localDe, resolverProfesional, diaSemanaISO, fechaValida,
   type Bloque,
 } from '../../api/turnos/[accion]';
 
@@ -462,5 +462,22 @@ describe('leads · post-llamada de ElevenLabs', () => {
     const { db, tablas } = dbMemoria({ consultas_agendadas: [{ id: 't1', telefono: '+54 9 388 486-7965' }] });
     await upsertLead(db, '5493884867965', { nombre: 'Juan' });
     expect(tablas.leads[0].etapa).toBe('agendado');
+  });
+});
+
+describe('api/turnos · inferirNombre', () => {
+  it('"me llamo" y "mi nombre es"', () => {
+    expect(inferirNombre(undefined, 'Hola, me llamo Diego Da Silva')).toEqual({ nombre: 'Diego', apellido: 'Da Silva' });
+    expect(inferirNombre(undefined, 'mi nombre es maria.')).toEqual({ nombre: 'Maria', apellido: undefined });
+  });
+  it('respuesta suelta cuando el agente preguntó el nombre', () => {
+    expect(inferirNombre('¿Cómo te llamás?', 'Diego')).toEqual({ nombre: 'Diego', apellido: undefined });
+    expect(inferirNombre('¿Me decís tu nombre y apellido?', 'Juan Pérez')).toEqual({ nombre: 'Juan', apellido: 'Pérez' });
+  });
+  it('no confunde profesiones ni respuestas comunes', () => {
+    expect(inferirNombre(undefined, 'Soy docente')).toBeNull();
+    expect(inferirNombre('¿Cómo te llamás?', 'no quiero decirlo ahora')).toBeNull();
+    expect(inferirNombre('¿En qué te puedo ayudar?', 'Diego')).toBeNull();
+    expect(inferirNombre('¿Cómo te llamás?', 'si')).toBeNull();
   });
 });

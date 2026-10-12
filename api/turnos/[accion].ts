@@ -561,6 +561,30 @@ export async function historialDe(db: Db, telefono: unknown) {
   };
 }
 
+const NO_ES_NOMBRE = new Set(['de', 'del', 'la', 'el', 'un', 'una', 'nuevo', 'nueva', 'cliente', 'consultante', 'docente', 'jubilado', 'jubilada', 'empleado', 'empleada', 'monotributista', 'autonomo', 'autonoma', 'viuda', 'viudo', 'casado', 'casada', 'mayor', 'abogado', 'abogada', 'policia', 'enfermero', 'enfermera', 'medico', 'medica', 'hola', 'buenas', 'buen', 'si', 'no', 'ok', 'gracias', 'dale', 'bueno', 'que', 'quien', 'yo', 'aca', 'ahi', 'uno', 'ya']);
+
+const capitalizar = (t: string) => t.toLowerCase().replace(/(^|\s)([a-záéíóúñü])/g, (_m, a, b) => a + b.toUpperCase());
+
+/** Saca el nombre de lo que escribió el cliente: "me llamo X", "mi nombre es X", o la respuesta suelta a "¿cómo te llamás?". */
+export function inferirNombre(ultimoAgente: string | undefined, mensaje: string): { nombre: string; apellido?: string } | null {
+  const PAL = "[A-Za-zÁÉÍÓÚÑÜáéíóúñü]{2,}";
+  const limpio = (v: string) => v.trim().replace(/[.,;:!?¡¿]+$/g, '').trim();
+  const valido = (palabras: string[]) => palabras.length > 0 && palabras.length <= 4 && !NO_ES_NOMBRE.has(normalizar(palabras[0])) && palabras.every(w => /^[A-Za-zÁÉÍÓÚÑÜáéíóúñü]{2,}$/.test(w));
+  const armar = (palabras: string[]) => {
+    const [nombre, ...resto] = capitalizar(palabras.join(' ')).split(' ');
+    return { nombre, apellido: resto.join(' ') || undefined };
+  };
+
+  const explicito = new RegExp(String.raw`(?:me llamo|mi nombre es|mi nombre completo es|le habla|habla)\s+(${PAL}(?:\s+${PAL}){0,3})`, 'i').exec(mensaje);
+  if (explicito) { const p = limpio(explicito[1]).split(/\s+/); if (valido(p)) return armar(p); }
+
+  const pregunto = !!ultimoAgente && /nombre|c[oó]mo (te|se) llam|con qui[eé]n (hablo|tengo)|apellido/i.test(ultimoAgente);
+  if (!pregunto) return null;
+  const suelto = limpio(mensaje).replace(/^(soy|es|mi nombre es)\s+/i, '');
+  const p = suelto.split(/\s+/);
+  return suelto.length <= 40 && valido(p) ? armar(p) : null;
+}
+
 /** Herramienta del agente: registra cada intercambio en el momento (no espera al post-llamada) y actualiza el lead. */
 export async function registrarMensaje(db: Db, p: Record<string, unknown>): Promise<Resp> {
   const str = (v: unknown) => textoLimpio(v);
@@ -583,6 +607,12 @@ export async function registrarMensaje(db: Db, p: Record<string, unknown>): Prom
   const repetido = nuevos.length > 0 && ult.length === nuevos.length && ult.every((u, i) => u.from === nuevos[i].from && u.texto === nuevos[i].texto);
 
   const campos = camposDeLead(p);
+  // Si el agente no mandó el nombre, se saca de lo que escribió el cliente (no dependemos de que el agente lo recuerde).
+  if (!campos.nombre && !(fila as any)?.nombre && delCliente && !repetido) {
+    const ultAgente = [...previos].reverse().find(m => m.from === 'agente')?.texto;
+    const inf = inferirNombre(ultAgente, delCliente);
+    if (inf) { campos.nombre = inf.nombre; if (inf.apellido && !campos.apellido) campos.apellido = inf.apellido; }
+  }
   const nombreCompleto = [campos.nombre, campos.apellido].filter(Boolean).join(' ');
   const upd: Record<string, unknown> = { conversation_id: conversationId, mensajes: repetido ? previos : [...previos, ...nuevos], updated_at: new Date().toISOString() };
   if (telefono) upd.telefono = telefono;
