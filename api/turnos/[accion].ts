@@ -556,8 +556,10 @@ export async function sincronizarElevenLabs(db: Db, opt: { desdeSegs?: number; m
 
   // "Ya sincronizada" = su id figura en conversation_ids de alguna fila (lo agrega guardarTranscripcion).
   const hechas = new Set<string>();
-  const g: any = await db.from('conversaciones_whatsapp').select('conversation_ids').overlaps('conversation_ids', ids);
-  if (!g.error) for (const f of (g.data ?? []) as any[]) for (const id of f.conversation_ids ?? []) hechas.add(String(id));
+  let aviso: string | undefined;
+  const g: any = await db.from('conversaciones_whatsapp').select('conversation_id, conversation_ids').order('updated_at', { ascending: false }).limit(3000);
+  if (g.error) aviso = `no se pudo leer lo ya guardado: ${g.error.message}`;
+  else for (const f of (g.data ?? []) as any[]) for (const id of Array.isArray(f.conversation_ids) ? f.conversation_ids : []) hechas.add(String(id));
 
   let nuevas = 0, audios = 0;
   const pendientes = ids.filter(id => !hechas.has(id)).slice(0, opt.max ?? 5);
@@ -579,7 +581,7 @@ export async function sincronizarElevenLabs(db: Db, opt: { desdeSegs?: number; m
       }
     } catch (e) { console.error('[sync]', id, e); }
   }
-  return { ok: true, nuevas, audios, pendientes: Math.max(0, ids.filter(i => !hechas.has(i)).length - nuevas) };
+  return { ok: true, nuevas, audios, pendientes: Math.max(0, ids.filter(i => !hechas.has(i)).length - nuevas), aviso };
 }
 
 /** Historial del cliente a partir de lo que ya existe (turnos + conversaciones + lead), buscado por teléfono. */
