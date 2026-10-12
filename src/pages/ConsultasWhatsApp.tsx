@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { supabase } from '../lib/supabase';
+import { sincronizarAgente } from '../lib/sincronizarAgente';
 
 type Mensaje = { from: 'cliente' | 'agente'; texto: string; t?: number | null };
 
@@ -103,6 +104,9 @@ export default function ConsultasWhatsApp() {
 
     // Red de seguridad si el websocket se cae; también refresca los "hace X min".
     const interval = setInterval(() => { cargar(); setTick((n) => n + 1); }, 15000);
+    const sync = () => { void sincronizarAgente().then((n) => { if (n > 0 && activo) cargar(); }); };
+    sync();
+    const intervaloSync = setInterval(sync, 60000);
     const onVisible = () => { if (document.visibilityState === 'visible') cargar(); };
     document.addEventListener('visibilitychange', onVisible);
 
@@ -110,6 +114,7 @@ export default function ConsultasWhatsApp() {
       activo = false;
       if (timer) clearTimeout(timer);
       clearInterval(interval);
+      clearInterval(intervaloSync);
       document.removeEventListener('visibilitychange', onVisible);
       supabase.removeChannel(channel);
     };
