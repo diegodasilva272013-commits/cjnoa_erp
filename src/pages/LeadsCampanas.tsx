@@ -3,6 +3,7 @@ import { DndContext, DragOverlay, PointerSensor, useDraggable, useDroppable, use
 import { Bar, BarChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { CalendarCheck, Headphones, LayoutGrid, BarChart3, Phone, Search, X } from 'lucide-react';
 import { supabase } from '../lib/supabase';
+import { sincronizarAgente } from '../lib/sincronizarAgente';
 import { ETAPAS_LEAD, ETIQUETAS_CALIFICACION, etapaDe } from '../lib/leadsEtapas';
 
 type Lead = {
@@ -94,7 +95,10 @@ export default function LeadsCampanas() {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'conversaciones_whatsapp' }, refrescar)
       .subscribe();
     const intervalo = setInterval(cargar, 20000);
-    return () => { activo = false; if (timer) clearTimeout(timer); clearInterval(intervalo); supabase.removeChannel(canal); };
+    const sync = () => { void sincronizarAgente().then(n => { if (n > 0 && activo) void cargar(); }); };
+    sync();
+    const intervaloSync = setInterval(sync, 60000);
+    return () => { activo = false; clearInterval(intervaloSync); if (timer) clearTimeout(timer); clearInterval(intervalo); supabase.removeChannel(canal); };
   }, [cargar]);
 
   const turnosPor = useMemo(() => {

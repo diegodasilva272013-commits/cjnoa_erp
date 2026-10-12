@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { createHmac } from 'node:crypto';
 import handler, {
-  aMin, limpiarSecreto, camposDeLead, etapaAutomatica, fusionarLead, registrarMensaje, guardarTranscripcion, upsertLead, firmaMetaValida, extraerMensajes, aMensajesLLM, procesarMensaje, type Deps, telefonoClave, historialDe, inferirNombre, bloquesDelDia, firmaValida, huecosLibres, localDe, resolverProfesional, diaSemanaISO, fechaValida,
+  aMin, limpiarSecreto, camposDeLead, etapaAutomatica, fusionarLead, registrarMensaje, guardarTranscripcion, upsertLead, firmaMetaValida, extraerMensajes, aMensajesLLM, procesarMensaje, type Deps, telefonoClave, historialDe, inferirNombre, sincronizarElevenLabs, bloquesDelDia, firmaValida, huecosLibres, localDe, resolverProfesional, diaSemanaISO, fechaValida,
   type Bloque,
 } from '../../api/turnos/[accion]';
 
@@ -479,5 +479,17 @@ describe('api/turnos · inferirNombre', () => {
     expect(inferirNombre('¿Cómo te llamás?', 'no quiero decirlo ahora')).toBeNull();
     expect(inferirNombre('¿En qué te puedo ayudar?', 'Diego')).toBeNull();
     expect(inferirNombre('¿Cómo te llamás?', 'si')).toBeNull();
+  });
+});
+
+describe('api/turnos · sincronizarElevenLabs', () => {
+  it('sin ELEVENLABS_API_KEY no hace nada y lo avisa', async () => {
+    const antes = process.env.ELEVENLABS_API_KEY;
+    delete process.env.ELEVENLABS_API_KEY;
+    try {
+      const r = await sincronizarElevenLabs({} as any);
+      expect(r.ok).toBe(false);
+      expect(r.nuevas).toBe(0);
+    } finally { if (antes !== undefined) process.env.ELEVENLABS_API_KEY = antes; }
   });
 });

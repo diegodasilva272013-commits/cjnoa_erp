@@ -253,6 +253,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     if (accion === 'respaldo') return await respaldo(req, res, db, raw);
 
+    if (accion === 'sincronizar') {
+      if (req.method !== 'POST' && req.method !== 'GET') return res.status(405).json({ error: 'Método no permitido' });
+      if (!(await autorizadoSincronizar(req, db))) return res.status(401).json({ error: 'No autorizado' });
+      return res.status(200).json(await sincronizarElevenLabs(db, { audio: true, max: 4, presupuestoMs: 7000, desdeSegs: 7 * 86400 }));
+    }
+
     if (!['disponibles', 'agendar', 'historial', 'inicio', 'registrar'].includes(accion)) return res.status(404).json({ error: 'Ruta inexistente' });
 
     const secret = process.env.TURNOS_AGENTE_SECRET;
@@ -442,7 +448,7 @@ export async function guardarTranscripcion(db: Db, conversationId: string, data:
     }));
   const vars = data.conversation_initiation_client_data?.dynamic_variables ?? {};
   const reco = data.analysis?.data_collection_results ?? {};
-  const telefono = vars.system__caller_id ?? vars.telefono ?? data.metadata?.phone_call?.external_number ?? reco.telefono?.value ?? null;
+  const telefono = vars.system__caller_id ?? vars.telefono ?? data.metadata?.phone_call?.external_number ?? data.metadata?.whatsapp?.whatsapp_user_id ?? reco.telefono?.value ?? null;
   let nombre = vars.nombre ?? reco.nombre?.value ?? reco.nombre_consultante?.value ?? null;
   let apellidoInf: string | undefined;
   // Si nadie lo mandó, el nombre se saca de lo que dijo el cliente en toda la conversación.
@@ -509,6 +515,71 @@ async function postCall(req: VercelRequest, res: VercelResponse, db: Db, raw: st
     }
   }
   return res.status(200).send('OK');
+}
+
+// =====================================================================================
+// SINCRONIZACIÓN CON ELEVENLABS (no depende del webhook ni de que el agente llame herramientas)
+// Trae las conversaciones recientes por la API, y guarda transcripción, nombre/lead y audio.
+// =====================================================================================
+
+const EL_API = 'https://api.elevenlabs.io/v1/convai';
+
+async function elGet(path: string, ms: number): Promise<Response> {
+  const ctl = new AbortController();
+  const t = setTimeout(() => ctl.abort(), ms);
+  try { return await fetch(`${EL_API}${path}`, { headers: { 'xi-api-key': limpiarSecreto(process.env.ELEVENLABS_API_KEY ?? '') }, signal: ctl.signal }); }
+  finally { clearTimeout(t); }
+}
+
+/** Lo puede llamar el agente (secreto) o un usuario logueado del ERP (su sesión de Supabase). */
+async function autorizadoSincronizar(req: VercelRequest, db: Db) {
+  const secret = process.env.TURNOS_AGENTE_SECRET;
+  if (secret && autorizadoAgente(req, secret)) return true;
+  const h = String(req.headers.authorization ?? '');
+  if (!h.startsWith('Bearer ')) return false;
+  const { data, error } = await db.auth.getUser(h.slice(7).trim());
+  return !error && !!data?.user;
+}
+
+export async function sincronizarElevenLabs(db: Db, opt: { desdeSegs?: number; max?: number; audio?: boolean; presupuestoMs?: number } = {}) {
+  if (!limpiarSecreto(process.env.ELEVENLABS_API_KEY ?? '')) return { ok: false, motivo: 'Falta ELEVENLABS_API_KEY', nuevas: 0, audios: 0 };
+  const t0 = Date.now();
+  const presupuesto = opt.presupuestoMs ?? 6000;
+  const desde = Math.floor(Date.now() / 1000) - (opt.desdeSegs ?? 3 * 86400);
+  const agente = process.env.ELEVENLABS_AGENT_ID ? `&agent_id=${encodeURIComponent(limpiarSecreto(process.env.ELEVENLABS_AGENT_ID))}` : '';
+
+  const r = await elGet(`/conversations?page_size=50&call_start_after_unix=${desde}${agente}`, 4000);
+  if (!r.ok) return { ok: false, motivo: `ElevenLabs respondió ${r.status}`, nuevas: 0, audios: 0 };
+  const lista = (((await r.json()) as any)?.conversations ?? []) as any[];
+  const ids = lista.filter(c => c?.conversation_id && (!c.status || c.status === 'done')).map(c => String(c.conversation_id));
+  if (!ids.length) return { ok: true, nuevas: 0, audios: 0 };
+
+  // "Ya sincronizada" = su id figura en conversation_ids de alguna fila (lo agrega guardarTranscripcion).
+  const hechas = new Set<string>();
+  const g: any = await db.from('conversaciones_whatsapp').select('conversation_ids').overlaps('conversation_ids', ids);
+  if (!g.error) for (const f of (g.data ?? []) as any[]) for (const id of f.conversation_ids ?? []) hechas.add(String(id));
+
+  let nuevas = 0, audios = 0;
+  const pendientes = ids.filter(id => !hechas.has(id)).slice(0, opt.max ?? 5);
+  for (const id of pendientes) {
+    if (Date.now() - t0 > presupuesto) break;
+    try {
+      const d = await elGet(`/conversations/${encodeURIComponent(id)}`, 4000);
+      if (!d.ok) continue;
+      const data = await d.json();
+      await guardarTranscripcion(db, id, data);
+      nuevas++;
+      if (opt.audio && Date.now() - t0 < presupuesto) {
+        const a = await elGet(`/conversations/${encodeURIComponent(id)}/audio`, Math.max(1500, presupuesto - (Date.now() - t0)));
+        if (a.ok) {
+          const path = `${id}.mp3`;
+          const up = await db.storage.from('conversaciones-audio').upload(path, Buffer.from(await a.arrayBuffer()), { contentType: 'audio/mpeg', upsert: true });
+          if (!up.error) { await vincularAudio(db, id, path); audios++; }
+        }
+      }
+    } catch (e) { console.error('[sync]', id, e); }
+  }
+  return { ok: true, nuevas, audios, pendientes: Math.max(0, ids.filter(i => !hechas.has(i)).length - nuevas) };
 }
 
 /** Historial del cliente a partir de lo que ya existe (turnos + conversaciones + lead), buscado por teléfono. */
@@ -641,6 +712,8 @@ async function inicio(res: VercelResponse, db: Db, raw: string) {
   let b: any = {};
   try { b = JSON.parse(raw || '{}'); } catch { /* sin cuerpo */ }
   const telefono = b?.caller_id ?? b?.telefono;
+  // Trae de ElevenLabs lo que todavía no está guardado, para que la memoria incluya la charla anterior.
+  try { await sincronizarElevenLabs(db, { audio: false, max: 2, presupuestoMs: 2500, desdeSegs: 2 * 86400 }); } catch (e) { console.error('[sync]', e); }
   // El lead queda creado apenas la persona escribe, con su teléfono, sin esperar a que el agente llame ninguna herramienta.
   await upsertLeadSeguro(db, telefono, {});
   const h = await historialDe(db, telefono);
