@@ -483,13 +483,11 @@ describe('api/turnos · inferirNombre', () => {
 });
 
 describe('api/turnos · sincronizarElevenLabs', () => {
-  it('sin ELEVENLABS_API_KEY no hace nada y lo avisa', async () => {
-    const antes = process.env.ELEVENLABS_API_KEY;
-    delete process.env.ELEVENLABS_API_KEY;
-    try {
-      const r = await sincronizarElevenLabs({} as any);
-      expect(r.ok).toBe(false);
-      expect(r.nuevas).toBe(0);
-    } finally { if (antes !== undefined) process.env.ELEVENLABS_API_KEY = antes; }
+  it('está pausada: no trae nada de ElevenLabs', async () => {
+    const r: any = await sincronizarElevenLabs({} as any);
+    expect(r.ok).toBe(true);
+    expect(r.pausada).toBe(true);
+    expect(r.nuevas).toBe(0);
+    expect(r.audios).toBe(0);
   });
 });
