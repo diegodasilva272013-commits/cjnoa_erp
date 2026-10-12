@@ -541,7 +541,11 @@ async function autorizadoSincronizar(req: VercelRequest, db: Db) {
   return !error && !!data?.user;
 }
 
+/** PAUSADA: no trae nada de ElevenLabs. Para reactivarla, poner en false (o ELEVENLABS_SYNC_ACTIVA=si en Vercel). */
+const SINCRONIZACION_PAUSADA = true;
+
 export async function sincronizarElevenLabs(db: Db, opt: { desdeSegs?: number; max?: number; audio?: boolean; presupuestoMs?: number } = {}) {
+  if (SINCRONIZACION_PAUSADA && process.env.ELEVENLABS_SYNC_ACTIVA !== 'si') return { ok: true, pausada: true, nuevas: 0, audios: 0 };
   if (!limpiarSecreto(process.env.ELEVENLABS_API_KEY ?? '')) return { ok: false, motivo: 'Falta ELEVENLABS_API_KEY', nuevas: 0, audios: 0 };
   const t0 = Date.now();
   const presupuesto = opt.presupuestoMs ?? 6000;
