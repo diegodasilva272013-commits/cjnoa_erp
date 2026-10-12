@@ -599,7 +599,10 @@ export async function registrarMensaje(db: Db, p: Record<string, unknown>): Prom
 async function inicio(res: VercelResponse, db: Db, raw: string) {
   let b: any = {};
   try { b = JSON.parse(raw || '{}'); } catch { /* sin cuerpo */ }
-  const h = await historialDe(db, b?.caller_id ?? b?.telefono);
+  const telefono = b?.caller_id ?? b?.telefono;
+  // El lead queda creado apenas la persona escribe, con su teléfono, sin esperar a que el agente llame ninguna herramienta.
+  await upsertLeadSeguro(db, telefono, {});
+  const h = await historialDe(db, telefono);
   const a = ahoraLocal();
   return res.status(200).json({ type: 'conversation_initiation_client_data', dynamic_variables: { ...h, fecha_hoy: a.hoy, dia_hoy: a.dia_hoy, hora_actual: a.hora_actual } });
 }
