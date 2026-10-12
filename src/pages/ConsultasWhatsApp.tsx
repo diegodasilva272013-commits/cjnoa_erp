@@ -11,6 +11,8 @@ type Conversacion = {
   resumen: string | null;
   mensajes: Mensaje[];
   audio_path: string | null;
+  audios?: { conversation_id: string; path: string }[];
+  conversation_ids?: string[];
   created_at: string;
   updated_at: string;
 };
@@ -45,11 +47,10 @@ function relativeTime(iso: string) {
 }
 
 async function fetchConversaciones(): Promise<{ convs: Conversacion[]; turnos: Turno[] }> {
-  const { data, error } = await supabase
-    .from('conversaciones_whatsapp')
-    .select('id, conversation_id, telefono, nombre, resumen, mensajes, audio_path, created_at, updated_at')
-    .order('updated_at', { ascending: false })
-    .limit(1000);
+  const cols = 'id, conversation_id, telefono, nombre, resumen, mensajes, audio_path, created_at, updated_at';
+  // audios / conversation_ids existen solo si se corrió migration_audios_conversaciones.sql
+  let { data, error } = await supabase.from('conversaciones_whatsapp').select(`${cols}, audios, conversation_ids`).order('updated_at', { ascending: false }).limit(1000);
+  if (error) ({ data, error } = (await supabase.from('conversaciones_whatsapp').select(cols).order('updated_at', { ascending: false }).limit(1000)) as unknown as typeof data extends infer D ? { data: D; error: typeof error } : never);
   if (error) throw new Error(error.message);
   const convs = (data ?? []) as Conversacion[];
 
@@ -65,7 +66,7 @@ export default function ConsultasWhatsApp() {
   const [consultas, setConsultas] = useState<Conversacion[]>([]);
   const [turnos, setTurnos] = useState<Turno[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [audioUrl, setAudioUrl] = useState<string | null>(null);
+  const [audioUrls, setAudioUrls] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [, setTick] = useState(0);
@@ -120,19 +121,24 @@ export default function ConsultasWhatsApp() {
   );
   const bubbles = selected?.mensajes ?? [];
   const turnosSel = useMemo(
-    () => (selected ? turnos.filter((t) => t.conversation_id === selected.conversation_id) : []),
+    () => (selected ? turnos.filter((t) => t.conversation_id === selected.conversation_id || (selected.conversation_ids ?? []).includes(t.conversation_id)) : []),
     [turnos, selected]
   );
 
-  const audioPath = selected?.audio_path ?? null;
+  const audioPaths = useMemo(
+    () => [...new Set([...(selected?.audios ?? []).map((a) => a.path), ...(selected?.audio_path ? [selected.audio_path] : [])])],
+    [selected],
+  );
+  const audioKey = audioPaths.join('|');
   useEffect(() => {
-    setAudioUrl(null);
-    if (!audioPath) return;
+    setAudioUrls([]);
+    if (!audioPaths.length) return;
     let activo = true;
-    supabase.storage.from('conversaciones-audio').createSignedUrl(audioPath, 3600)
-      .then(({ data }) => { if (activo) setAudioUrl(data?.signedUrl ?? null); });
+    Promise.all(audioPaths.map((p) => supabase.storage.from('conversaciones-audio').createSignedUrl(p, 3600)))
+      .then((r) => { if (activo) setAudioUrls(r.map((x) => x.data?.signedUrl).filter((u): u is string => !!u)); });
     return () => { activo = false; };
-  }, [audioPath]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [audioKey]);
 
   if (loading) {
     return (
@@ -209,7 +215,7 @@ export default function ConsultasWhatsApp() {
                   {selected.nombre || selected.telefono || 'Consulta sin nombre'}
                 </h2>
                 <p className="mt-0.5 text-xs text-gray-500">{selected.telefono || 'Sin datos adicionales'}</p>
-                {audioUrl && <audio controls src={audioUrl} className="mt-2 h-8 w-full max-w-md" />}
+                {audioUrls.map((u) => <audio key={u} controls src={u} className="mt-2 h-8 w-full max-w-md" />)}
               </header>
 
               <div className="flex-1 space-y-3 overflow-y-auto px-5 py-5">

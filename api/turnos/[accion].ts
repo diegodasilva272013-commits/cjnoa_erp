@@ -324,6 +324,7 @@ export async function crearTurno(db: Db, p: Record<string, unknown>): Promise<Re
 
   const prof = resolverProfesional(p.profesional);
   const nombre = s(p.nombre), apellido = s(p.apellido), fecha = s(p.fecha);
+  const telefono = s(p.telefono ?? p.telefono_cliente ?? p.caller_id ?? p.system__caller_id);
   const hMin = aMin(s(p.hora));
   if (!prof) return { code: 400, body: { error: 'profesional debe ser Alejandro o Fabricio' } };
   if (!nombre) return { code: 400, body: { error: 'Falta nombre' } };
@@ -343,7 +344,7 @@ export async function crearTurno(db: Db, p: Record<string, unknown>): Promise<Re
 
   const { data, error } = await db.from('consultas_agendadas').insert({
     cliente_nombre: [nombre, apellido].filter(Boolean).join(' '),
-    telefono: s(p.telefono) || null,
+    telefono: telefono || null,
     detalle_consulta: s(p.tema ?? p.detalle) || null,
     socio_carga: prof,
     fecha_carga: localDe(new Date()).fecha,
@@ -367,7 +368,8 @@ export async function crearTurno(db: Db, p: Record<string, unknown>): Promise<Re
     throw new Error(`insert consulta: ${error.message}`);
   }
   // El lead de esta persona pasa a "Agendado" (si el teléfono sirve para identificarlo).
-  await upsertLeadSeguro(db, s(p.telefono), { nombre, apellido: apellido || undefined, requiere_turno: true, resumen: s(p.tema ?? p.detalle) || undefined });
+  const extra = camposDeLead(Object.fromEntries(['email', 'mail', 'correo', 'dni_o_cuil', 'dni', 'cuil', 'localidad', 'ciudad', 'campana', 'rama_consulta', 'tipo_tramite_previsional', 'calificacion', 'resumen', 'resumen_caso'].filter(k => p[k] !== undefined).map(k => [k, p[k]])));
+  await upsertLeadSeguro(db, telefono, { ...extra, nombre, apellido: apellido || undefined, requiere_turno: true, resumen: extra.resumen || s(p.tema ?? p.detalle) || undefined });
   return {
     code: 200,
     body: {
@@ -379,12 +381,48 @@ export async function crearTurno(db: Db, p: Record<string, unknown>): Promise<Re
 }
 
 /** Una persona = una conversación en el ERP: la fila más reciente de ese teléfono (ElevenLabs abre un conversation_id nuevo cada tanto). */
-async function filaPorTelefono(db: Db, clave: string): Promise<{ conversation_id: string; mensajes: MsgGuardado[] } | null> {
+async function filaPorTelefono(db: Db, clave: string): Promise<{ conversation_id: string; mensajes: MsgGuardado[]; conversation_ids: string[]; audios: AudioConv[] } | null> {
   if (!clave) return null;
-  const { data, error } = await db.from('conversaciones_whatsapp').select('conversation_id, mensajes').eq('telefono_clave', clave).order('updated_at', { ascending: false }).limit(1);
-  if (error || !Array.isArray(data) || !data.length) return null;
-  const f = data[0] as any;
-  return { conversation_id: String(f.conversation_id), mensajes: Array.isArray(f.mensajes) ? f.mensajes : [] };
+  let r: any = await db.from('conversaciones_whatsapp').select('conversation_id, mensajes, conversation_ids, audios').eq('telefono_clave', clave).order('updated_at', { ascending: false }).limit(1);
+  // Si migration_audios_conversaciones.sql todavía no se corrió, sigue funcionando sin esas dos columnas.
+  if (r.error) r = await db.from('conversaciones_whatsapp').select('conversation_id, mensajes').eq('telefono_clave', clave).order('updated_at', { ascending: false }).limit(1);
+  if (r.error || !Array.isArray(r.data) || !r.data.length) return null;
+  const f = r.data[0] as any;
+  return {
+    conversation_id: String(f.conversation_id),
+    mensajes: Array.isArray(f.mensajes) ? f.mensajes : [],
+    conversation_ids: Array.isArray(f.conversation_ids) ? f.conversation_ids : [],
+    audios: Array.isArray(f.audios) ? f.audios : [],
+  };
+}
+
+export type AudioConv = { conversation_id: string; path: string };
+
+/** Agrega un audio sin repetir el mismo archivo. */
+export function unirAudios(previos: AudioConv[], nuevos: AudioConv[]): AudioConv[] {
+  const visto = new Set(previos.map(a => a.path));
+  return [...previos, ...nuevos.filter(a => a?.path && !visto.has(a.path))];
+}
+
+/** Liga el audio de una llamada/charla a la conversación de esa persona (por su id, o por haber sido unida a la fila del teléfono). */
+export async function vincularAudio(db: Db, conversationId: string, path: string) {
+  let fila: any = null;
+  const a: any = await db.from('conversaciones_whatsapp').select('conversation_id, audios').eq('conversation_id', conversationId).maybeSingle();
+  if (!a.error && a.data) fila = a.data;
+  if (!fila) {
+    const b: any = await db.from('conversaciones_whatsapp').select('conversation_id, audios').contains('conversation_ids', [conversationId]).limit(1);
+    if (!b.error && Array.isArray(b.data) && b.data.length) fila = b.data[0];
+  }
+  const audios = unirAudios(Array.isArray(fila?.audios) ? fila.audios : [], [{ conversation_id: conversationId, path }]);
+  const ahora = new Date().toISOString();
+  let { error } = await db.from('conversaciones_whatsapp').upsert(
+    { conversation_id: fila?.conversation_id ?? conversationId, audio_path: path, audios, updated_at: ahora },
+    { onConflict: 'conversation_id' },
+  );
+  if (error) {
+    ({ error } = await db.from('conversaciones_whatsapp').upsert({ conversation_id: conversationId, audio_path: path, updated_at: ahora }, { onConflict: 'conversation_id' }));
+  }
+  if (error) throw new Error(`conversaciones audio: ${error.message}`);
 }
 
 /** Suma los mensajes nuevos a los previos sin repetir los que ya estaban. */
@@ -413,11 +451,22 @@ export async function guardarTranscripcion(db: Db, conversationId: string, data:
     conversation_id: prev?.conversation_id ?? conversationId,
     mensajes: prev ? unirMensajes(prev.mensajes, mensajes) : mensajes,
     updated_at: new Date().toISOString(),
+    conversation_ids: [...new Set([...(prev?.conversation_ids ?? []), ...(prev ? [prev.conversation_id] : []), conversationId])],
+    audios: prev?.audios ?? [],
   };
+  // Si el audio llegó antes que la transcripción, quedó en una fila suelta con este conversation_id: se trae a la fila de la persona.
+  if (prev && prev.conversation_id !== conversationId) {
+    const huerfana: any = await db.from('conversaciones_whatsapp').select('audios').eq('conversation_id', conversationId).maybeSingle();
+    if (!huerfana.error && Array.isArray(huerfana.data?.audios)) fila.audios = unirAudios(prev.audios, huerfana.data.audios);
+  }
   if (telefono) fila.telefono = String(telefono);
   if (nombre) fila.nombre = String(nombre);
   if (data.analysis?.transcript_summary) fila.resumen = data.analysis.transcript_summary;
-  const { error } = await db.from('conversaciones_whatsapp').upsert(fila, { onConflict: 'conversation_id' });
+  let { error } = await db.from('conversaciones_whatsapp').upsert(fila, { onConflict: 'conversation_id' });
+  if (error) { // columnas nuevas todavía sin migrar: se guarda igual, sin ellas
+    const { conversation_ids: _a, audios: _b, ...basica } = fila;
+    ({ error } = await db.from('conversaciones_whatsapp').upsert(basica, { onConflict: 'conversation_id' }));
+  }
   if (error) throw new Error(`conversaciones: ${error.message}`);
 
   // Lead: Data Collection del agente (todo lo desconocido se guarda en datos) + resumen de la conversación.
@@ -445,11 +494,7 @@ async function postCall(req: VercelRequest, res: VercelResponse, db: Db, raw: st
       const path = `${conversationId}.mp3`;
       const up = await db.storage.from('conversaciones-audio').upload(path, Buffer.from(b64, 'base64'), { contentType: 'audio/mpeg', upsert: true });
       if (up.error) throw new Error(`audio: ${up.error.message}`);
-      const { error } = await db.from('conversaciones_whatsapp').upsert(
-        { conversation_id: conversationId, audio_path: path, updated_at: new Date().toISOString() },
-        { onConflict: 'conversation_id' },
-      );
-      if (error) throw new Error(`conversaciones audio: ${error.message}`);
+      await vincularAudio(db, conversationId, path);
     }
   }
   return res.status(200).send('OK');

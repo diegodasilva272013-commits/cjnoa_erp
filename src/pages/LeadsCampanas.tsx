@@ -17,16 +17,24 @@ type Lead = {
 type Turno = {
   id: string; telefono_clave: string; fecha_consulta: string; hora_consulta: string | null; abogado_asignado: string | null;
   detalle_consulta: string | null; reserva_pagada: boolean | null; monto_reserva: number | null; fecha_carga: string | null; origen: string | null;
+  cliente_nombre: string | null; telefono: string | null; conversation_id: string | null; created_at: string | null;
 };
 type Conv = { id: string; conversation_id: string; telefono_clave: string; updated_at: string; created_at: string; audio_path: string | null; resumen: string | null };
 type Perfil = { id: string; nombre: string };
 type Mensaje = { from: 'cliente' | 'agente'; texto: string };
-type ConvDetalle = { id: string; mensajes: Mensaje[]; audio_path: string | null; resumen: string | null; created_at: string };
+type AudioConv = { conversation_id: string; path: string };
+type ConvDetalle = { id: string; mensajes: Mensaje[]; audio_path: string | null; audios?: AudioConv[]; resumen: string | null; created_at: string };
 
 const nombreCompleto = (l: Lead) => [l.nombre, l.apellido].filter(Boolean).join(' ') || l.telefono;
 const fmtFecha = (d: string) => d.slice(0, 10).split('-').reverse().join('/');
 const fmtFechaHora = (iso: string) => new Date(iso).toLocaleString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 const fmtTurno = (t: Turno) => `${fmtFecha(t.fecha_consulta)}${t.hora_consulta ? ' ' + t.hora_consulta.slice(0, 5) : ''}`;
+const claveTurno = (t: Turno) => t.telefono_clave || `turno-${t.id}`;
+/** Fila para crear en `leads` a partir de un lead armado desde un turno. */
+const filaDeLead = (l: Lead, cambios: Record<string, unknown>) => ({
+  telefono: l.telefono || 'sin teléfono', nombre: l.nombre, apellido: l.apellido, resumen: l.resumen, requiere_turno: true,
+  canal: l.canal, etapa: l.etapa, primer_contacto_at: l.primer_contacto_at, ultimo_contacto_at: l.ultimo_contacto_at, ...cambios,
+});
 const pct = (a: number, b: number) => (b ? `${Math.round((a / b) * 100)}%` : '—');
 
 function relativo(iso: string) {
@@ -45,7 +53,7 @@ function aInputLocal(iso: string | null) {
 }
 
 export default function LeadsCampanas() {
-  const [leads, setLeads] = useState<Lead[]>([]);
+  const [leadsDb, setLeads] = useState<Lead[]>([]);
   const [turnos, setTurnos] = useState<Turno[]>([]);
   const [convs, setConvs] = useState<Conv[]>([]);
   const [perfiles, setPerfiles] = useState<Perfil[]>([]);
@@ -62,7 +70,7 @@ export default function LeadsCampanas() {
   const cargar = useCallback(async () => {
     const [l, t, c, p] = await Promise.all([
       supabase.from('leads').select('*').order('ultimo_contacto_at', { ascending: false }).limit(2000),
-      supabase.from('consultas_agendadas').select('id, telefono_clave, fecha_consulta, hora_consulta, abogado_asignado, detalle_consulta, reserva_pagada, monto_reserva, fecha_carga, origen').neq('telefono_clave', '').limit(3000),
+      supabase.from('consultas_agendadas').select('id, telefono_clave, fecha_consulta, hora_consulta, abogado_asignado, detalle_consulta, reserva_pagada, monto_reserva, fecha_carga, origen, cliente_nombre, telefono, conversation_id, created_at').eq('origen', 'agente').limit(3000),
       supabase.from('conversaciones_whatsapp').select('id, conversation_id, telefono_clave, updated_at, created_at, audio_path, resumen').neq('telefono_clave', '').limit(3000),
       supabase.from('perfiles').select('id, nombre').order('nombre'),
     ]);
@@ -91,7 +99,7 @@ export default function LeadsCampanas() {
 
   const turnosPor = useMemo(() => {
     const m = new Map<string, Turno[]>();
-    for (const t of turnos) m.set(t.telefono_clave, [...(m.get(t.telefono_clave) ?? []), t]);
+    for (const t of turnos) { const k = claveTurno(t); m.set(k, [...(m.get(k) ?? []), t]); }
     for (const arr of m.values()) arr.sort((a, b) => (b.fecha_consulta + (b.hora_consulta ?? '')).localeCompare(a.fecha_consulta + (a.hora_consulta ?? '')));
     return m;
   }, [turnos]);
@@ -101,8 +109,30 @@ export default function LeadsCampanas() {
     return m;
   }, [convs]);
 
+  // Todo lo que agenda el agente aparece en el tablero aunque todavía no tenga fila en `leads` (se arma desde el turno).
+  const leads = useMemo(() => {
+    const conLead = new Set(leadsDb.map(l => l.telefono_clave).filter(Boolean));
+    const virtuales = new Map<string, Lead>();
+    for (const t of turnos) {
+      const k = claveTurno(t);
+      if (conLead.has(k) || virtuales.has(k)) continue;
+      const [nombre, ...resto] = (t.cliente_nombre ?? '').trim().split(/\s+/);
+      const cuando = t.created_at ?? `${t.fecha_carga ?? t.fecha_consulta}T12:00:00Z`;
+      virtuales.set(k, {
+        id: `turno-${t.id}`, telefono: t.telefono ?? '', telefono_clave: k,
+        nombre: nombre || null, apellido: resto.join(' ') || null, email: null, dni_cuil: null, localidad: null,
+        campana: null, mensaje_inicial: null, canal: 'whatsapp', rama: null, tipo_tramite: null, calificacion: null, datos: {},
+        resumen: t.detalle_consulta, requiere_turno: true, motivo_descarte: null,
+        etapa: 'agendado', asignado_a: null, proxima_accion_at: null, notas: null,
+        primer_contacto_at: cuando, ultimo_contacto_at: cuando,
+      });
+    }
+    return [...leadsDb, ...virtuales.values()].sort((a, b) => b.ultimo_contacto_at.localeCompare(a.ultimo_contacto_at));
+  }, [leadsDb, turnos]);
+
   // "Se agendó" / "solo consultó" se calculan del calendario, no se guardan aparte.
   const agendo = useCallback((l: Lead) => (turnosPor.get(l.telefono_clave)?.length ?? 0) > 0, [turnosPor]);
+  const esVirtual = (l: Lead) => l.id.startsWith('turno-');
   const tieneAudio = useCallback((l: Lead) => (convsPor.get(l.telefono_clave) ?? []).some(c => !!c.audio_path), [convsPor]);
   const campanas = useMemo(() => [...new Set(leads.map(l => l.campana).filter(Boolean) as string[])].sort(), [leads]);
 
@@ -124,7 +154,9 @@ export default function LeadsCampanas() {
     if (!lead || lead.etapa === etapa) return;
     setAviso('');
     setLeads(prev => prev.map(l => (l.id === leadId ? { ...l, etapa } : l)));
-    const { error: e } = await supabase.from('leads').update({ etapa }).eq('id', leadId);
+    const { error: e } = esVirtual(lead)
+      ? await supabase.from('leads').insert(filaDeLead(lead, { etapa }))
+      : await supabase.from('leads').update({ etapa }).eq('id', leadId);
     if (e) { setAviso('No se pudo mover el lead: ' + e.message); await cargar(); }
   }
 
@@ -455,17 +487,21 @@ function Ficha({ lead, turnos, convs, perfiles, onClose, onGuardado }: {
   useEffect(() => {
     let activo = true;
     if (!convs.length) { setChat([]); return; }
-    supabase.from('conversaciones_whatsapp').select('id, mensajes, audio_path, resumen, created_at').in('id', convs.map(c => c.id)).order('created_at', { ascending: true })
-      .then(({ data }) => { if (activo) setChat((data ?? []) as ConvDetalle[]); });
+    const ids = convs.map(c => c.id);
+    (async () => {
+      let r: { data: unknown; error: unknown } = await supabase.from('conversaciones_whatsapp').select('id, mensajes, audio_path, audios, resumen, created_at').in('id', ids).order('created_at', { ascending: true });
+      if (r.error) r = await supabase.from('conversaciones_whatsapp').select('id, mensajes, audio_path, resumen, created_at').in('id', ids).order('created_at', { ascending: true });
+      if (activo) setChat((r.data ?? []) as unknown as ConvDetalle[]);
+    })();
     return () => { activo = false; };
   }, [convs]);
 
   async function guardar() {
     setGuardando(true); setMsg('');
-    const { error } = await supabase.from('leads').update({
-      etapa, asignado_a: asignado || null, notas: notas.trim() || null,
-      proxima_accion_at: proxima ? new Date(proxima).toISOString() : null,
-    }).eq('id', lead.id);
+    const cambios = { etapa, asignado_a: asignado || null, notas: notas.trim() || null, proxima_accion_at: proxima ? new Date(proxima).toISOString() : null };
+    const { error } = lead.id.startsWith('turno-')
+      ? await supabase.from('leads').insert(filaDeLead(lead, cambios))
+      : await supabase.from('leads').update(cambios).eq('id', lead.id);
     setGuardando(false);
     if (error) return setMsg('No se pudo guardar: ' + error.message);
     setMsg('Guardado'); await onGuardado();
@@ -535,7 +571,7 @@ function Ficha({ lead, turnos, convs, perfiles, onClose, onGuardado }: {
           {chat.length === 0 ? <p className="text-sm text-gray-500">Sin conversaciones registradas.</p> : chat.map(c => (
             <div key={c.id} className="mb-3 space-y-2 rounded-md border border-white/10 bg-white/5 p-3">
               <div className="text-[11px] text-gray-500">{fmtFechaHora(c.created_at)}</div>
-              {c.audio_path && <Audio path={c.audio_path} />}
+              {[...new Set([...(c.audios ?? []).map(a => a.path), ...(c.audio_path ? [c.audio_path] : [])])].map(path => <Audio key={path} path={path} />)}
               <div className="max-h-64 space-y-1.5 overflow-y-auto">
                 {c.mensajes.map((m, i) => <div key={i} className={`text-xs ${m.from === 'cliente' ? 'text-sky-200' : 'text-gray-200'}`}><span className="text-gray-500">{m.from === 'cliente' ? 'Cliente' : 'Agente'}: </span>{m.texto}</div>)}
               </div>
