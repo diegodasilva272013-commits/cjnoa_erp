@@ -54,6 +54,23 @@ export function telefonoClave(v: unknown) {
   return d.length >= 8 ? d.slice(-10) : '';
 }
 
+/** El agente puede mandar la fecha como 20/10/2026 o 20-10-2026: se pasa a YYYY-MM-DD. */
+export function normalizarFecha(v: unknown): string {
+  const t = String(v ?? '').trim();
+  const m = /^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})$/.exec(t);
+  return m ? `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}` : t;
+}
+
+/** El agente puede mandar la hora como 10:30, 10.30, 10:30:00, 10 hs, 10:30 hs o 10:30 PM: se pasa a HH:MM de 24 h. */
+export function normalizarHora(v: unknown): string {
+  const t = String(v ?? '').trim().toLowerCase().replace(/\s*(hs?|horas?)\.?$/, '');
+  const m = /^(\d{1,2})(?:[:.h](\d{2}))?(?::\d{2})?\s*(a\.?m\.?|p\.?m\.?)?$/.exec(t);
+  if (!m) return String(v ?? '').trim();
+  let h = Number(m[1]);
+  if (m[3]) { const pm = m[3].startsWith('p'); if (pm && h < 12) h += 12; if (!pm && h === 12) h = 0; }
+  return `${String(h).padStart(2, '0')}:${m[2] ?? '00'}`;
+}
+
 export function aMin(hhmm: string | null | undefined): number | null {
   const m = /^(\d{1,2}):(\d{2})/.exec(String(hhmm ?? ''));
   if (!m) return null;
@@ -293,7 +310,7 @@ type Resp = { code: number; body: any };
 export async function disponibilidadDe(db: Db, profesional: unknown, fechaIn: unknown): Promise<Resp> {
   const prof = resolverProfesional(profesional);
   if (!prof) return { code: 400, body: { error: 'profesional debe ser Alejandro o Fabricio' } };
-  const fecha = fechaIn ? String(fechaIn) : null;
+  const fecha = fechaIn ? normalizarFecha(fechaIn) : null;
   if (fecha && !fechaValida(fecha)) return { code: 400, body: { error: 'fecha debe ser YYYY-MM-DD' } };
 
   const bloques = await bloquesDe(db, prof);
@@ -329,9 +346,9 @@ export async function crearTurno(db: Db, p: Record<string, unknown>): Promise<Re
   const s = (v: unknown) => (v === undefined || v === null ? '' : String(v).trim());
 
   const prof = resolverProfesional(p.profesional);
-  const nombre = s(p.nombre), apellido = s(p.apellido), fecha = s(p.fecha);
+  const nombre = s(p.nombre), apellido = s(p.apellido), fecha = normalizarFecha(p.fecha);
   const telefono = s(p.telefono ?? p.telefono_cliente ?? p.caller_id ?? p.system__caller_id);
-  const hMin = aMin(s(p.hora));
+  const hMin = aMin(normalizarHora(p.hora));
   if (!prof) return { code: 400, body: { error: 'profesional debe ser Alejandro o Fabricio' } };
   if (!nombre) return { code: 400, body: { error: 'Falta nombre' } };
   if (!fechaValida(fecha)) return { code: 400, body: { error: 'fecha debe ser YYYY-MM-DD' } };

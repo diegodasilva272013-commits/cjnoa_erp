@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { createHmac } from 'node:crypto';
 import handler, {
-  aMin, limpiarSecreto, camposDeLead, etapaAutomatica, fusionarLead, registrarMensaje, guardarTranscripcion, upsertLead, firmaMetaValida, extraerMensajes, aMensajesLLM, procesarMensaje, type Deps, telefonoClave, historialDe, inferirNombre, sincronizarElevenLabs, bloquesDelDia, firmaValida, huecosLibres, localDe, resolverProfesional, diaSemanaISO, fechaValida,
+  aMin, limpiarSecreto, camposDeLead, etapaAutomatica, fusionarLead, registrarMensaje, guardarTranscripcion, upsertLead, firmaMetaValida, extraerMensajes, aMensajesLLM, procesarMensaje, type Deps, telefonoClave, historialDe, inferirNombre, normalizarFecha, normalizarHora, sincronizarElevenLabs, bloquesDelDia, firmaValida, huecosLibres, localDe, resolverProfesional, diaSemanaISO, fechaValida,
   type Bloque,
 } from '../../api/turnos/[accion]';
 
@@ -489,5 +489,24 @@ describe('api/turnos · sincronizarElevenLabs', () => {
     expect(r.pausada).toBe(true);
     expect(r.nuevas).toBe(0);
     expect(r.audios).toBe(0);
+  });
+});
+
+describe('api/turnos · formatos que puede mandar el agente', () => {
+  it('fecha', () => {
+    expect(normalizarFecha('2026-10-20')).toBe('2026-10-20');
+    expect(normalizarFecha('20/10/2026')).toBe('2026-10-20');
+    expect(normalizarFecha('5-3-2026')).toBe('2026-03-05');
+  });
+  it('hora', () => {
+    expect(normalizarHora('10:30')).toBe('10:30');
+    expect(normalizarHora('10.30')).toBe('10:30');
+    expect(normalizarHora('10:30:00')).toBe('10:30');
+    expect(normalizarHora('9')).toBe('09:00');
+    expect(normalizarHora('10 hs')).toBe('10:00');
+    expect(normalizarHora('10:30 hs')).toBe('10:30');
+    expect(normalizarHora('3:30 PM')).toBe('15:30');
+    expect(normalizarHora('12:00 AM')).toBe('00:00');
+    expect(normalizarHora('12:00 PM')).toBe('12:00');
   });
 });
