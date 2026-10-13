@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { createHmac } from 'node:crypto';
 import handler, {
-  aMin, limpiarSecreto, camposDeLead, etapaAutomatica, fusionarLead, registrarMensaje, guardarTranscripcion, upsertLead, firmaMetaValida, extraerMensajes, aMensajesLLM, procesarMensaje, type Deps, telefonoClave, historialDe, inferirNombre, normalizarFecha, normalizarHora, sincronizarElevenLabs, bloquesDelDia, firmaValida, huecosLibres, localDe, resolverProfesional, diaSemanaISO, fechaValida,
+  aMin, limpiarSecreto, camposDeLead, etapaAutomatica, fusionarLead, registrarMensaje, upsertLead, firmaMetaValida, extraerMensajes, aMensajesLLM, procesarMensaje, notaDeImagen, montoValidadoDe, quitarEtiquetas, aMensajesOpenAI, deOpenAI, ejecutarHerramienta, PROMPT_AGENTE, type Deps, telefonoClave, historialDe, inferirNombre, normalizarFecha, normalizarHora, bloquesDelDia, huecosLibres, localDe, resolverProfesional, diaSemanaISO, fechaValida,
   type Bloque,
 } from '../../api/turnos/[accion]';
 
@@ -69,19 +69,6 @@ describe('api/turnos · historial', () => {
     expect(telefonoClave(null)).toBe('');
     expect(telefonoClave('12345')).toBe('');
   });
-});
-
-describe('api/turnos · firma post-call', () => {
-  const secret = 'whsec_test';
-  const body = '{"type":"post_call_transcription"}';
-  const now = Date.now();
-  const t = Math.floor(now / 1000);
-  const v0 = createHmac('sha256', secret).update(`${t}.${body}`).digest('hex');
-
-  it('acepta firma correcta', () => expect(firmaValida(secret, `t=${t},v0=${v0}`, body, now)).toBe(true));
-  it('rechaza cuerpo alterado', () => expect(firmaValida(secret, `t=${t},v0=${v0}`, body + ' ', now)).toBe(false));
-  it('rechaza firma vieja', () => expect(firmaValida(secret, `t=${t - 4000},v0=${v0}`, body, now)).toBe(false));
-  it('rechaza header vacío', () => expect(firmaValida(secret, '', body, now)).toBe(false));
 });
 
 function dbFalsa(tablas: Record<string, any[]>) {
@@ -225,7 +212,7 @@ describe('respaldo · procesarMensaje', () => {
       ejecutar: async (nombre, input, ctx) => { llamadas.push({ nombre, input, ctx }); return { horarios_disponibles: ['09:00'] }; },
     });
     await procesarMensaje(d, msg);
-    expect(llamadas).toEqual([{ nombre: 'consultar_disponibilidad', input: { profesional: 'alejandro' }, ctx: { telefono: '5493884867965', conversationId: 'respaldo-5493884867965' } }]);
+    expect(llamadas).toEqual([{ nombre: 'consultar_disponibilidad', input: { profesional: 'alejandro' }, ctx: { telefono: '5493884867965', conversationId: 'respaldo-5493884867965', montoValidado: null } }]);
     expect(enviados).toEqual(['Tengo lugar el martes 09:00']);
   });
 
@@ -270,7 +257,7 @@ describe('respaldo · ruta /api/turnos/respaldo', () => {
   const guardar = { ...process.env };
   beforeEach(() => {
     process.env.SUPABASE_URL = 'http://localhost:1'; process.env.SUPABASE_SERVICE_ROLE_KEY = 'x';
-    for (const k of ['WHATSAPP_VERIFY_TOKEN', 'META_APP_SECRET', 'WHATSAPP_TOKEN', 'WHATSAPP_PHONE_ID', 'ANTHROPIC_API_KEY', 'RESPALDO_PROMPT']) delete process.env[k];
+    for (const k of ['WHATSAPP_VERIFY_TOKEN', 'META_APP_SECRET', 'WHATSAPP_TOKEN', 'WHATSAPP_PHONE_ID', 'OPENAI_API_KEY', 'api_openai', 'AGENTE_PROMPT']) delete process.env[k];
   });
   afterEach(() => { process.env = { ...guardar }; });
 
@@ -295,13 +282,13 @@ describe('respaldo · ruta /api/turnos/respaldo', () => {
   });
 
   it('rechaza un POST con firma falsa', async () => {
-    for (const k of ['META_APP_SECRET', 'WHATSAPP_TOKEN', 'WHATSAPP_PHONE_ID', 'ANTHROPIC_API_KEY', 'RESPALDO_PROMPT']) process.env[k] = 'v';
+    for (const k of ['META_APP_SECRET', 'WHATSAPP_TOKEN', 'WHATSAPP_PHONE_ID', 'OPENAI_API_KEY', 'api_openai', 'AGENTE_PROMPT']) process.env[k] = 'v';
     const r = await correr('POST', {}, '{"entry":[]}', { 'x-hub-signature-256': 'sha256=00' });
     expect(r.code).toBe(401);
   });
 
   it('con firma correcta y sin mensajes responde OK', async () => {
-    for (const k of ['META_APP_SECRET', 'WHATSAPP_TOKEN', 'WHATSAPP_PHONE_ID', 'ANTHROPIC_API_KEY', 'RESPALDO_PROMPT']) process.env[k] = 'v';
+    for (const k of ['META_APP_SECRET', 'WHATSAPP_TOKEN', 'WHATSAPP_PHONE_ID', 'OPENAI_API_KEY', 'api_openai', 'AGENTE_PROMPT']) process.env[k] = 'v';
     const raw = '{"entry":[]}';
     const sig = 'sha256=' + createHmac('sha256', 'v').update(raw).digest('hex');
     expect((await correr('POST', {}, raw, { 'x-hub-signature-256': sig })).code).toBe(200);
@@ -346,7 +333,7 @@ function dbMemoria(tablas: Record<string, any[]> = {}) {
 }
 
 describe('leads · camposDeLead', () => {
-  it('lee el Data Collection de ElevenLabs ({value}) y mapea alias', () => {
+  it('lee datos como {value} y mapea alias', () => {
     const c = camposDeLead({
       nombre_consultante: { value: 'Juan', rationale: 'x' }, apellido: { value: 'Pérez' }, mail: { value: 'j@x.com' },
       dni_o_cuil: { value: '20-12345678-9' }, rama_consulta: { value: 'Artículo 9' }, tipo_tramite_previsional: { value: null },
@@ -409,7 +396,7 @@ describe('leads · registro en tiempo real (registrarMensaje)', () => {
     expect(tablas.leads[0].etapa).toBe('calificacion_a_medias'); // 2 mensajes del cliente
   });
 
-  it('el mismo teléfono en otro formato es el mismo lead y la misma conversación, aunque ElevenLabs cambie el conversation_id', async () => {
+  it('el mismo teléfono en otro formato es el mismo lead y la misma conversación, aunque cambie el conversation_id', async () => {
     const { db, tablas } = dbMemoria();
     await registrarMensaje(db, p);
     await registrarMensaje(db, { ...p, conversation_id: 'conv_2', telefono_cliente: '5493884867965', campana: 'ART', email: 'j@x.com' });
@@ -433,31 +420,7 @@ describe('leads · registro en tiempo real (registrarMensaje)', () => {
   });
 });
 
-describe('leads · post-llamada de ElevenLabs', () => {
-  const data = {
-    transcript: [{ role: 'user', message: 'Hola' }, { role: 'agent', message: 'Bienvenido' }, { role: 'user', message: 'Quiero info' }],
-    analysis: { transcript_summary: 'Consulta por Art. 9', data_collection_results: { nombre_consultante: { value: 'Juan' }, rama_consulta: { value: 'Artículo 9' }, campana: { value: 'ARTICULO9' }, clave_anses: { value: 'secreta' } } },
-    conversation_initiation_client_data: { dynamic_variables: { system__caller_id: '5493884867965' } },
-  };
-
-  it('guarda el chat completo y completa el lead; el audio y los datos previos no se pisan', async () => {
-    const { db, tablas } = dbMemoria({ conversaciones_whatsapp: [{ id: 'x', conversation_id: 'conv_1', telefono: '5493884867965', nombre: 'Juan Pérez', audio_path: 'conv_1.mp3', mensajes: [] }] });
-    await guardarTranscripcion(db, 'conv_1', data);
-    const c = tablas.conversaciones_whatsapp[0];
-    expect(c.mensajes).toHaveLength(3);
-    expect(c.audio_path).toBe('conv_1.mp3');
-    expect(c.resumen).toBe('Consulta por Art. 9');
-    expect(tablas.leads[0]).toMatchObject({ rama: 'Artículo 9', campana: 'ARTICULO9', resumen: 'Consulta por Art. 9' });
-    expect(JSON.stringify(tablas.leads[0])).not.toContain('secreta');
-  });
-
-  it('un post-llamada sin teléfono no borra el que ya estaba', async () => {
-    const { db, tablas } = dbMemoria({ conversaciones_whatsapp: [{ id: 'x', conversation_id: 'conv_1', telefono: '5493884867965', mensajes: [] }] });
-    await guardarTranscripcion(db, 'conv_1', { transcript: [{ role: 'user', message: 'Hola' }] });
-    expect(tablas.conversaciones_whatsapp[0].telefono).toBe('5493884867965');
-    expect(tablas.leads ?? []).toHaveLength(0); // sin teléfono no hay lead
-  });
-
+describe('leads · turno agendado', () => {
   it('un turno ya agendado lleva al lead a Agendado', async () => {
     const { db, tablas } = dbMemoria({ consultas_agendadas: [{ id: 't1', telefono: '+54 9 388 486-7965' }] });
     await upsertLead(db, '5493884867965', { nombre: 'Juan' });
@@ -482,16 +445,6 @@ describe('api/turnos · inferirNombre', () => {
   });
 });
 
-describe('api/turnos · sincronizarElevenLabs', () => {
-  it('está pausada: no trae nada de ElevenLabs', async () => {
-    const r: any = await sincronizarElevenLabs({} as any);
-    expect(r.ok).toBe(true);
-    expect(r.pausada).toBe(true);
-    expect(r.nuevas).toBe(0);
-    expect(r.audios).toBe(0);
-  });
-});
-
 describe('api/turnos · formatos que puede mandar el agente', () => {
   it('fecha', () => {
     expect(normalizarFecha('2026-10-20')).toBe('2026-10-20');
@@ -508,5 +461,194 @@ describe('api/turnos · formatos que puede mandar el agente', () => {
     expect(normalizarHora('3:30 PM')).toBe('15:30');
     expect(normalizarHora('12:00 AM')).toBe('00:00');
     expect(normalizarHora('12:00 PM')).toBe('12:00');
+  });
+});
+
+
+describe('agente · reglas de plata (notaDeImagen)', () => {
+  const rec = (a9: number | null, g: number | null = null) => ({ tipo: 'recibo_sueldo' as const, descuento_articulo_9: a9, descuento_ganancias: g, monto: null, destinatario: null });
+  const trf = (monto: number | null, destinatario: string | null = 'Arturo Rodrigo Reyes') => ({ tipo: 'transferencia' as const, descuento_articulo_9: null, descuento_ganancias: null, monto, destinatario });
+
+  it('descuento mayor a $100.000: consulta sin cargo', () => {
+    const n = notaDeImagen(rec(125000));
+    expect(n).toContain('$125.000');
+    expect(n).toContain('Consulta sin cargo con el Dr. Alejandro Reyes');
+  });
+  it('descuento menor a $100.000: consulta de $100.000 con seña de $50.000', () => {
+    const n = notaDeImagen(rec(45000));
+    expect(n).toContain('$45.000');
+    expect(n).toContain('seña de $50.000');
+  });
+  it('exactamente $100.000 no supera el umbral', () => expect(notaDeImagen(rec(100000))).toContain('seña de $50.000'));
+  it('toma el mayor entre Artículo 9 y Ganancias', () => expect(notaDeImagen(rec(30000, 150000))).toContain('sin cargo'));
+  it('sin descuentos', () => expect(notaDeImagen(rec(null))).toContain('No se detectaron descuentos'));
+  it('transferencia válida', () => {
+    const n = notaDeImagen(trf(250000), 'Arturo Reyes');
+    expect(n).toContain('validado exitosamente por $250.000');
+    expect(montoValidadoDe([n])).toBe(250000);
+  });
+  it('transferencia a otra persona, sin importe o menor a la seña no se da por válida', () => {
+    for (const n of [notaDeImagen(trf(250000, 'Juan Pérez'), 'Arturo Reyes'), notaDeImagen(trf(null)), notaDeImagen(trf(20000)), notaDeImagen(trf(250000, null), 'Arturo Reyes')]) {
+      expect(n).toContain('NO dar la seña por pagada');
+      expect(montoValidadoDe([n])).toBeNull();
+    }
+  });
+  it('imagen que no es recibo ni transferencia', () => {
+    expect(notaDeImagen({ tipo: 'otro', descuento_articulo_9: null, descuento_ganancias: null, monto: null, destinatario: null })).toContain('envíe de nuevo');
+  });
+  it('quita las etiquetas de emoción del texto', () => {
+    expect(quitarEtiquetas('[warmly] Hola, buen día. [calm] Le cuento.')).toBe('Hola, buen día. Le cuento.');
+    expect(quitarEtiquetas('Turno el [martes] 10:00')).toBe('Turno el [martes] 10:00');
+  });
+});
+
+describe('agente · OpenAI', () => {
+  it('convierte herramientas y resultados al formato de OpenAI', () => {
+    const r = aMensajesOpenAI('SYS', [
+      { role: 'user', content: 'hola' },
+      { role: 'assistant', content: [{ type: 'text', text: 'veo' }, { type: 'tool_use', id: 't1', name: 'consultar_disponibilidad', input: { profesional: 'alejandro' } }] },
+      { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't1', content: '{"ok":1}' }] },
+    ]);
+    expect(r[0]).toEqual({ role: 'system', content: 'SYS' });
+    expect(r[2].tool_calls[0]).toMatchObject({ id: 't1', type: 'function', function: { name: 'consultar_disponibilidad', arguments: '{"profesional":"alejandro"}' } });
+    expect(r[3]).toEqual({ role: 'tool', tool_call_id: 't1', content: '{"ok":1}' });
+  });
+  it('lee la respuesta con herramientas o con texto', () => {
+    expect(deOpenAI({ content: 'Hola' })).toEqual({ stop_reason: 'end_turn', content: [{ type: 'text', text: 'Hola' }] });
+    const r = deOpenAI({ content: null, tool_calls: [{ id: 'c1', function: { name: 'agendar_turno', arguments: '{"hora":"10:00"}' } }, { id: 'c2', function: { name: 'x', arguments: 'roto' } }] });
+    expect(r.stop_reason).toBe('tool_use');
+    expect(r.content[0]).toEqual({ type: 'tool_use', id: 'c1', name: 'agendar_turno', input: { hora: '10:00' } });
+    expect(r.content[1].input).toEqual({});
+  });
+  it('el prompt por defecto trae el criterio de precio', () => {
+    expect(PROMPT_AGENTE).toContain('$100.000');
+    expect(PROMPT_AGENTE).toContain('$50.000');
+  });
+});
+
+describe('agente · audio y fotos', () => {
+  it('extrae el id de audio e imagen', () => {
+    const payload = { entry: [{ changes: [{ value: { messages: [
+      { id: 'a', from: '549', type: 'audio', audio: { id: 'AUD1' } },
+      { id: 'b', from: '549', type: 'image', image: { id: 'IMG1', caption: 'mi recibo' } },
+    ] } }] }] };
+    const r = extraerMensajes(payload);
+    expect(r[0]).toMatchObject({ tipo: 'audio', mediaId: 'AUD1', esTexto: false });
+    expect(r[1]).toMatchObject({ tipo: 'image', mediaId: 'IMG1', caption: 'mi recibo' });
+  });
+
+  it('si escribió con audio, contesta con nota de voz; el texto guardado no lleva etiquetas', async () => {
+    const { db, estado } = dbConversaciones();
+    const audios: string[] = [];
+    const { d, enviados } = deps(db, {
+      preparar: async () => ({ texto: '[Audio] quiero un turno', esAudio: true }),
+      llm: async () => texto('[warmly] Claro, ¿con quién?'),
+      enviarAudio: async (_t, x) => { audios.push(x); },
+    });
+    await procesarMensaje(d, { ...msg, esTexto: false, tipo: 'audio', mediaId: 'A' });
+    expect(audios).toEqual(['[warmly] Claro, ¿con quién?']);
+    expect(enviados).toHaveLength(0);
+    expect(estado.upserts[0].mensajes[0].texto).toBe('[Audio] quiero un turno');
+    expect(estado.upserts[0].mensajes[1].texto).toBe('Claro, ¿con quién?');
+  });
+
+  it('si falla la voz, contesta por texto', async () => {
+    const { db } = dbConversaciones();
+    const { d, enviados } = deps(db, {
+      preparar: async () => ({ texto: '[Audio] hola', esAudio: true }),
+      llm: async () => texto('[calm] Buen día'),
+      enviarAudio: async () => { throw new Error('sin saldo de voz'); },
+    });
+    expect(await procesarMensaje(d, { ...msg, esTexto: false, tipo: 'audio', mediaId: 'A' })).toBe('ok');
+    expect(enviados).toEqual(['Buen día']);
+  });
+
+  it('si escribió por texto, no manda audio', async () => {
+    const { db } = dbConversaciones();
+    const { d, enviados } = deps(db, { enviarAudio: async () => { throw new Error('no debería llamarse'); } });
+    await procesarMensaje(d, msg);
+    expect(enviados).toHaveLength(1);
+  });
+
+  it('el comprobante validado llega a las herramientas como importe verificado', async () => {
+    const { db } = dbConversaciones();
+    const ctxs: any[] = [];
+    let n = 0;
+    const { d } = deps(db, {
+      preparar: async () => ({ texto: '[El cliente envió una foto]\n[SISTEMA ERP: Comprobante de transferencia validado exitosamente por $50.000 hacia Arturo Rodrigo Reyes. Proceder con el agendamiento.]', esAudio: false }),
+      llm: async () => (n++ === 0 ? { stop_reason: 'tool_use', content: [{ type: 'tool_use', id: 't', name: 'agendar_turno', input: {} }] } : texto('ok')),
+      ejecutar: async (_n, _i, ctx) => { ctxs.push(ctx); return {}; },
+    });
+    await procesarMensaje(d, { ...msg, esTexto: false, tipo: 'image', mediaId: 'I' });
+    expect(ctxs[0].montoValidado).toBe(50000);
+  });
+});
+
+describe('agente · herramientas', () => {
+  it('guardar_datos_cliente completa el lead con el teléfono de WhatsApp', async () => {
+    const { db, tablas } = dbMemoria();
+    const r = await ejecutarHerramienta(db, 'guardar_datos_cliente', { nombre: 'Ana', dni_o_cuil: '20111222', rama_consulta: 'Artículo 9', clave_anses: 'secreta' }, { telefono: '5493884867965', conversationId: 'c' });
+    expect(r).toEqual({ guardado: true });
+    expect(tablas.leads[0]).toMatchObject({ nombre: 'Ana', dni_cuil: '20111222', rama: 'Artículo 9' });
+    expect(JSON.stringify(tablas.leads[0])).not.toContain('secreta');
+  });
+  it('derivar_a_humano deja el motivo en el lead', async () => {
+    const { db, tablas } = dbMemoria();
+    const r: any = await ejecutarHerramienta(db, 'derivar_a_humano', { motivo: 'Reclamo por un pago' }, { telefono: '5493884867965', conversationId: 'c' });
+    expect(r.derivado).toBe(true);
+    expect(tablas.leads[0].datos.derivar_a_humano).toBe('Reclamo por un pago');
+  });
+  it('herramienta desconocida', async () => {
+    const { db } = dbMemoria();
+    expect(await ejecutarHerramienta(db, 'borrar_todo', {}, { telefono: '1', conversationId: 'c' })).toEqual({ error: 'Herramienta desconocida: borrar_todo' });
+  });
+});
+
+describe('agente · comportamiento humano', () => {
+  it('marca "escribiendo" y espera 4 a 5 segundos antes de contestar', async () => {
+    const { db } = dbConversaciones();
+    const orden: string[] = []; const pausas: number[] = [];
+    const { d } = deps(db, {
+      escribiendo: async () => { orden.push('escribiendo'); },
+      pausa: async (ms) => { pausas.push(ms); orden.push('pausa'); },
+      enviar: async () => { orden.push('enviar'); },
+    });
+    await procesarMensaje(d, msg);
+    expect(orden[0]).toBe('escribiendo');
+    expect(orden[orden.length - 1]).toBe('enviar');
+    expect(pausas).toHaveLength(1);
+    expect(pausas[0]).toBeGreaterThan(3500);
+    expect(pausas[0]).toBeLessThanOrEqual(5000);
+  });
+
+  it('si el trabajo ya tardó más de 5 segundos, no espera de más', async () => {
+    const { db } = dbConversaciones();
+    let ahora = 1_000_000;
+    const real = Date.now; Date.now = () => ahora;
+    try {
+      const pausas: number[] = [];
+      const { d } = deps(db, { llm: async () => { ahora += 6000; return texto('ok'); }, pausa: async (ms) => { pausas.push(ms); } });
+      await procesarMensaje(d, msg);
+      expect(pausas).toHaveLength(0);
+    } finally { Date.now = real; }
+  });
+
+  it('una foto recibe primero el aviso "Foto recibida" y después la respuesta; el texto no', async () => {
+    const { db, estado } = dbConversaciones();
+    const { d, enviados } = deps(db, { preparar: async () => ({ texto: '[foto]', esAudio: false }), llm: async () => texto('Listo, lo revisé.') });
+    await procesarMensaje(d, { ...msg, esTexto: false, tipo: 'image', mediaId: 'I' });
+    expect(enviados).toEqual(['Foto recibida. Estamos revisando, aguarde un instante por favor.', 'Listo, lo revisé.']);
+    expect(estado.upserts[0].mensajes.map((x: any) => x.from)).toEqual(['cliente', 'agente', 'agente']);
+
+    const otro = dbConversaciones(); const t = deps(otro.db);
+    await procesarMensaje(t.d, msg);
+    expect(t.enviados).toEqual(['Hola Juan, ¿con qué profesional?']);
+  });
+
+  it('si falla el "escribiendo" igual contesta', async () => {
+    const { db } = dbConversaciones();
+    const { d, enviados } = deps(db, { escribiendo: async () => { throw new Error('sin permiso'); } });
+    expect(await procesarMensaje(d, msg)).toBe('ok');
+    expect(enviados).toHaveLength(1);
   });
 });

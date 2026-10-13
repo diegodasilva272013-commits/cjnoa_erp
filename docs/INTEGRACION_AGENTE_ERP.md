@@ -1,4 +1,4 @@
-# Qué hace el ERP con el agente de ElevenLabs
+# Qué hace el ERP con el agente de WhatsApp
 
 Todo vive en `api/turnos/[accion].ts` (una sola función de Vercel, ruta dinámica). Dominio: `https://cjnoa-erp.vercel.app`.
 Base: Supabase `yvuxcpqlbybmtkrnmnsj`. Zona horaria del ERP para fechas y horas: Jujuy (UTC−3).
@@ -7,9 +7,7 @@ Base: Supabase `yvuxcpqlbybmtkrnmnsj`. Zona horaria del ERP para fechas y horas:
 
 | Ruta | Quién la llama | Cómo se autentica |
 |---|---|---|
-| `historial`, `disponibles`, `agendar`, `registrar`, `inicio` | el agente (herramientas y pre-call) | `Authorization: Bearer <TURNOS_AGENTE_SECRET>` (también acepta `x-api-key`) |
-| `post-call` | ElevenLabs (webhook) | firma HMAC `elevenlabs-signature` con `ELEVENLABS_WEBHOOK_SECRET` (rechaza firmas de más de 30 min) |
-| `sincronizar` | las pantallas del ERP (sesión de Supabase) o el agente (secreto) | Bearer con el token de un usuario logueado, o `TURNOS_AGENTE_SECRET` |
+| `historial`, `disponibles`, `agendar`, `registrar` | el agente (herramientas) | `Authorization: Bearer <TURNOS_AGENTE_SECRET>` (también acepta `x-api-key`) |
 | `respaldo` | Meta/WhatsApp | verificación de Meta (agente de respaldo, inactivo) |
 
 ## 2. Identidad de la persona: el teléfono
@@ -18,17 +16,20 @@ La persona se identifica **solo por teléfono**. Se toman los **últimos 10 díg
 Las tablas `conversaciones_whatsapp`, `consultas_agendadas` y `leads` tienen la columna calculada `telefono_clave` (la base no deja escribirla a mano).
 Si el teléfono tiene menos de 8 dígitos útiles, no se crea ni se busca lead.
 
-## 3. Qué pasa en cada conversación, paso a paso
+## 3. El agente de WhatsApp (`/api/turnos/agente`)
 
-1. **Llega un mensaje por WhatsApp.** ElevenLabs llama al **pre-call** `POST /api/turnos/inicio` con `caller_id`.
-   - El ERP **crea el lead con el teléfono** (si no existe) y, antes de responder, intenta traer de ElevenLabs las conversaciones recientes que falten (máx. 2, 2,5 s).
-   - Devuelve variables dinámicas: `tiene_historial`, `es_recurrente`, `cliente_nombre`, `cliente_historial`, `fecha_hoy`, `dia_hoy`, `hora_actual`.
-2. **El agente pregunta por el cliente:** `GET /api/turnos/historial?telefono=...` (misma información que el pre-call).
-3. **El agente guarda cada intercambio:** `POST /api/turnos/registrar`.
-4. **El agente ofrece turnos:** `GET /api/turnos/disponibles?profesional=&fecha=`.
-5. **El agente agenda:** `POST /api/turnos/agendar`.
-6. **Al terminar la charla,** ElevenLabs manda `POST /api/turnos/post-call` (transcripción completa y audio) si el webhook está asignado al agente.
-7. **Red de seguridad:** `POST /api/turnos/sincronizar` busca en la API de ElevenLabs (`ELEVENLABS_API_KEY`) lo que no llegó. Se dispara desde `/leads-campanas` y `/consultas-whatsapp` al abrirlas y cada 60 s, y desde el pre-call.
+Webhook de la API de WhatsApp Cloud de Meta (`/api/turnos/respaldo` es un alias). Por cada mensaje:
+
+1. Valida la firma de Meta, ignora reintentos y crea el lead con el teléfono.
+2. **Entiende el mensaje:** texto tal cual; **audio** → transcripción con Whisper (OpenAI); **foto** → lectura con visión (OpenAI) de recibos de sueldo y comprobantes de transferencia.
+3. **La plata la decide el código, no el modelo** (`notaDeImagen`): descuento de Art. 9 / Ganancias mayor a $100.000 → consulta sin cargo con el Dr. Alejandro Reyes; menor → consulta de $100.000 con seña de $50.000; sin descuento → se informa. Una transferencia solo se da por válida si se leyó el importe (≥ $50.000) y, si está cargado `TITULAR_CUENTA`, el destinatario coincide.
+4. El modelo (OpenAI, `AGENTE_MODELO`) conversa con el prompt `PROMPT_AGENTE` (se puede reemplazar con `AGENTE_PROMPT`) y usa cuatro herramientas: `consultar_disponibilidad`, `agendar_turno`, `guardar_datos_cliente` y `derivar_a_humano`.
+5. `agendar_turno` marca la seña como pagada **solo** si el sistema validó un comprobante en esa conversación, y por el importe leído de la foto (esto dispara el ingreso automático en finanzas).
+6. **Parece una persona:** apenas llega el mensaje lo marca como leído y muestra "escribiendo…"; si es una foto, avisa enseguida "Foto recibida, estamos revisando". La respuesta sale a los 4 o 5 segundos (si el trabajo tardó más, sale apenas termina).
+7. **Contesta:** por texto, o con **nota de voz** nativa de WhatsApp (ElevenLabs text-to-speech en ogg/opus, con etiquetas de emoción) si el cliente escribió con audio. Si la voz falla, cae a texto. Si el modelo falla, manda un mensaje seguro.
+8. Guarda la conversación (`conversaciones_whatsapp`), actualiza el lead (`leads`) y el turno queda en `consultas_agendadas`. `derivar_a_humano` deja el motivo en `leads.datos.derivar_a_humano`.
+
+Está **inactivo** hasta que Meta apunte su webhook a `https://cjnoa-erp.vercel.app/api/turnos/agente` y estén cargadas las variables.
 
 ## 4. Rutas en detalle
 
@@ -41,7 +42,7 @@ Lee `consultas_agendadas` (turnos), `conversaciones_whatsapp` (charlas) y `leads
 
 ### `registrar` (POST) — cada mensaje, en el momento
 Parámetros: `telefono_cliente` (o `telefono`), `conversation_id`, `mensaje` (lo que dijo el cliente), `respuesta_agente`, y opcionales de ficha (ver sección 5).
-- **Una persona = una conversación:** se reutiliza la fila más reciente de ese teléfono aunque ElevenLabs cambie el `conversation_id`. Si no hay teléfono, se usa el `conversation_id`.
+- **Una persona = una conversación:** se reutiliza la fila más reciente de ese teléfono. Si no hay teléfono, se usa el `conversation_id`.
 - Agrega los mensajes sin duplicar reintentos idénticos y guarda en `conversaciones_whatsapp`: `telefono`, `nombre`, `resumen`, `mensajes` (jsonb `[{from:'cliente'|'agente', texto}]`).
 - **Nombre inferido:** si el agente no mandó nombre, se saca de lo que escribió el cliente ("me llamo X", "mi nombre es X", o la respuesta suelta a "¿cómo te llamás?"). No toma profesiones ni respuestas comunes ("soy docente", "sí").
 - Actualiza el lead (sección 5).
@@ -60,16 +61,9 @@ Obligatorios: `profesional` (Alejandro o Fabricio), `nombre`, `fecha` (`YYYY-MM-
 - **Cuidado con la plata:** si llega `pago: true` con `monto_reserva > 0`, un **trigger de la base** crea automáticamente un **ingreso** en finanzas ("Reserva consulta agendada - nombre"). Al borrar ese turno, otro trigger borra el ingreso. El agente debe mandar `pago: true` solo si el cliente mostró el comprobante.
 - **No crea eventos de Google Calendar.**
 
-### `post-call` (POST, webhook)
-- `post_call_transcription`: guarda la conversación **completa** (mensajes de ambos), el resumen que genera ElevenLabs (`transcript_summary`, hoy en inglés) y los datos de Data Collection (`analysis.data_collection_results`). Teléfono desde `system__caller_id`, `telefono`, `metadata.phone_call.external_number` o `metadata.whatsapp.whatsapp_user_id`. Si nadie mandó el nombre, se infiere de la transcripción. Une los mensajes con los ya guardados sin repetir y registra el `conversation_id` en `conversation_ids`.
-- `post_call_audio`: sube el MP3 al bucket privado `conversaciones-audio` (`<conversation_id>.mp3`) y lo liga a la conversación de la persona (`audios` y `audio_path`). Vercel corta pedidos de más de 4,5 MB, por eso existe la sincronización por API.
-
-### `sincronizar` (POST)
-Pide a ElevenLabs las conversaciones recientes (hasta 7 días) y, por cada una que no esté en `conversation_ids`, descarga el detalle y el audio y los guarda igual que el post-call. Procesa hasta 4 por pasada. **`ELEVENLABS_SYNC_DESDE`** (fecha ISO) pone un piso: no importa nada anterior. Úsalo después de limpiar pruebas.
-
 ## 5. El lead (`leads`) — una fila por persona
 
-Se crea al primer mensaje (pre-call) y se completa con lo que llegue por `registrar`, `agendar`, `post-call` o `sincronizar`.
+Se crea al primer mensaje y se completa con lo que llegue por `registrar` o `agendar`.
 
 **Campos y nombres con los que los acepta** (el ERP reconoce varios alias):
 
@@ -107,4 +101,8 @@ Columnas agregadas por migraciones: `consultas_agendadas.conversation_id/origen/
 
 ## 8. Variables de entorno (Vercel)
 
-`TURNOS_AGENTE_SECRET`, `ELEVENLABS_WEBHOOK_SECRET`, `ELEVENLABS_API_KEY`, `ELEVENLABS_AGENT_ID` (opcional, filtra la sincronización), `ELEVENLABS_SYNC_DESDE` (opcional, piso de la sincronización), `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`. Agente de respaldo (inactivo): `WHATSAPP_*`, `META_APP_SECRET`, `ANTHROPIC_API_KEY`, `RESPALDO_PROMPT`.
+Base: `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `TURNOS_AGENTE_SECRET`.
+
+Agente de WhatsApp (obligatorias): `WHATSAPP_VERIFY_TOKEN` (texto inventado, el mismo que se pone en Meta), `META_APP_SECRET`, `WHATSAPP_TOKEN`, `WHATSAPP_PHONE_ID`, `api_openai` (u `OPENAI_API_KEY`).
+
+Opcionales: `AGENTE_PROMPT`, `AGENTE_DATOS_PAGO` (CBU/alias para pasar al cliente), `TITULAR_CUENTA` (nombre que debe figurar en las transferencias), `AGENTE_MODELO` (por defecto `gpt-4o-mini`), `AGENTE_MODELO_VISION` (`gpt-4o`), `ELEVENLABS_API_KEY` + `ELEVENLABS_VOICE_ID` (+ `ELEVENLABS_MODEL`, por defecto `eleven_v3`) para las notas de voz.

@@ -1,8 +1,8 @@
 -- ============================================================================
 -- MIGRATION: varios audios por persona
--- Una persona tiene UNA conversación en el ERP (se junta por teléfono), pero ElevenLabs
+-- Una persona tiene UNA conversación en el ERP (se junta por teléfono), pero el canal
 -- abre un conversation_id distinto en cada llamada/charla y cada una tiene su audio.
---   conversation_ids : todos los conversation_id de ElevenLabs que se juntaron en esta fila
+--   conversation_ids : todos los conversation_id que se juntaron en esta fila
 --   audios           : [{conversation_id, path}] un audio por llamada/charla
 -- Sin DROP/DELETE/TRUNCATE. Idempotente.
 -- ============================================================================

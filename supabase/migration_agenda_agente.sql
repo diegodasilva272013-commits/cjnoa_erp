@@ -1,10 +1,10 @@
 -- ============================================================================
--- MIGRATION: Agente de ElevenLabs agenda en el calendario del ERP
+-- MIGRATION: El agente agenda en el calendario del ERP
 --
 -- Reutiliza consultas_agendadas (donde ya vive todo el agendamiento y lo que
 -- lee el Calendario). Solo agrega:
 --   1) disponibilidad_horarios : tiempos libres que cargan Alejandro / Fabricio
---   2) conversaciones_whatsapp : transcripción + audio que manda el post-call
+--   2) conversaciones_whatsapp : transcripción + audio de la conversación
 --   3) consultas_agendadas.conversation_id / origen  (vínculo, sin copiar datos)
 -- Sin DROP/DELETE/TRUNCATE: solo crea lo que falta (IF NOT EXISTS). Se puede correr más de una vez.
 -- ============================================================================
@@ -74,7 +74,7 @@ DO $pol$ BEGIN
   END IF;
 END $pol$;
 
--- 2) Conversaciones (una fila por conversation_id de ElevenLabs) -------------
+-- 2) Conversaciones (una fila por conversation_id) -------------
 CREATE TABLE IF NOT EXISTS public.conversaciones_whatsapp (
   id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
   conversation_id text NOT NULL UNIQUE,

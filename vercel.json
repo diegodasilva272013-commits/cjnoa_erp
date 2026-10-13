@@ -1,4 +1,7 @@
 {
+  "functions": {
+    "api/turnos/[accion].ts": { "maxDuration": 60 }
+  },
   "rewrites": [
     { "source": "/((?!api/|assets/).*)", "destination": "/index.html" }
   ],
