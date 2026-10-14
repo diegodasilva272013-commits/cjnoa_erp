@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { createHmac } from 'node:crypto';
 import handler, {
-  aMin, limpiarSecreto, camposDeLead, etapaAutomatica, fusionarLead, registrarMensaje, upsertLead, firmaMetaValida, extraerMensajes, aMensajesLLM, procesarMensaje, notaDeImagen, montoValidadoDe, quitarEtiquetas, aMensajesOpenAI, deOpenAI, ejecutarHerramienta, PROMPT_AGENTE, type Deps, telefonoClave, historialDe, inferirNombre, normalizarFecha, normalizarHora, bloquesDelDia, huecosLibres, localDe, resolverProfesional, diaSemanaISO, fechaValida,
+  aMin, limpiarSecreto, camposDeLead, etapaAutomatica, fusionarLead, registrarMensaje, upsertLead, firmaMetaValida, firmaKapsoValida, extraerMensajesKapso, extraerMensajes, aMensajesLLM, procesarMensaje, notaDeImagen, montoValidadoDe, quitarEtiquetas, aMensajesOpenAI, deOpenAI, ejecutarHerramienta, PROMPT_AGENTE, type Deps, telefonoClave, historialDe, inferirNombre, normalizarFecha, normalizarHora, bloquesDelDia, huecosLibres, localDe, resolverProfesional, diaSemanaISO, fechaValida,
   type Bloque,
 } from '../../api/turnos/[accion]';
 
@@ -173,6 +173,34 @@ describe('respaldo · entrada de WhatsApp', () => {
     expect(r[1].esTexto).toBe(false);
     expect(r[1].texto).toContain('image');
     expect(extraerMensajes({})).toEqual([]);
+  });
+
+  it('valida la firma de Kapso (hex, sin prefijo)', () => {
+    const raw = '{"a":1}';
+    const sig = createHmac('sha256', 'whsec').update(raw).digest('hex');
+    expect(firmaKapsoValida('whsec', sig, raw)).toBe(true);
+    expect(firmaKapsoValida('whsec', sig, raw + ' ')).toBe(false);
+    expect(firmaKapsoValida('otro', sig, raw)).toBe(false);
+    expect(firmaKapsoValida('whsec', '', raw)).toBe(false);
+  });
+
+  it('extrae mensajes de Kapso: texto, audio, imagen, lote y salientes', () => {
+    const conv = { phone_number: '5493885775043', contact_name: 'Jaime' };
+    const texto = { phone_number_id: '999371756590594', conversation: conv, message: { id: 'w1', from: '5493885775043', type: 'text', text: { body: 'hola' }, kapso: { direction: 'inbound' } } };
+    const r = extraerMensajesKapso(texto);
+    expect(r).toHaveLength(1);
+    expect(r[0]).toMatchObject({ id: 'w1', from: '5493885775043', nombre: 'Jaime', texto: 'hola', esTexto: true });
+
+    const audio = { conversation: conv, message: { id: 'w2', type: 'audio', audio: { id: 'm1' }, kapso: { direction: 'inbound', media_url: 'https://api.kapso.ai/media/x' } } };
+    expect(extraerMensajesKapso(audio)[0]).toMatchObject({ id: 'w2', from: '5493885775043', tipo: 'audio', mediaId: 'm1', mediaUrl: 'https://api.kapso.ai/media/x', esTexto: false });
+
+    const imagen = { conversation: conv, message: { id: 'w3', from: '549', type: 'image', image: { id: 'm2', caption: 'recibo' }, kapso: { media_data: { url: 'https://api.kapso.ai/media/y' } } } };
+    expect(extraerMensajesKapso(imagen)[0]).toMatchObject({ tipo: 'image', caption: 'recibo', mediaUrl: 'https://api.kapso.ai/media/y' });
+
+    expect(extraerMensajesKapso({ batch: true, data: [texto, audio] })).toHaveLength(2);
+    expect(extraerMensajesKapso({ conversation: conv, message: { ...texto.message, id: 'w4', kapso: { direction: 'outbound' } } })).toEqual([]);
+    expect(extraerMensajesKapso({ conversation: conv, message: { ...texto.message, id: 'w5', kapso: { origin: 'business_app' } } })).toEqual([]);
+    expect(extraerMensajesKapso({})).toEqual([]);
   });
 
   it('arma el contexto alternando roles y empezando por el cliente', () => {

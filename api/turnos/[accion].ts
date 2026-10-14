@@ -1,6 +1,7 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { createHmac, timingSafeEqual } from 'node:crypto';
+import { waitUntil } from '@vercel/functions';
 
 /**
  * Puente entre el agente de WhatsApp del ERP y el calendario.
@@ -686,6 +687,8 @@ async function upsertLeadSeguro(db: Db, telefono: unknown, campos: CamposLead) {
 //
 // Está INACTIVO hasta que Meta apunte su webhook acá y estén cargadas las variables (Vercel):
 //   META_APP_SECRET, WHATSAPP_TOKEN, WHATSAPP_PHONE_ID, WHATSAPP_VERIFY_TOKEN, api_openai (u OPENAI_API_KEY)
+// Alternativa por Kapso (con KAPSO_API_KEY se usa Kapso en lugar de Meta directo):
+//   KAPSO_API_KEY, KAPSO_WEBHOOK_SECRET, KAPSO_PHONE_NUMBER_ID, api_openai
 // Opcionales: AGENTE_PROMPT (reemplaza el prompt por defecto), AGENTE_DATOS_PAGO (datos para la seña),
 //   TITULAR_CUENTA (nombre que debe figurar en las transferencias), AGENTE_MODELO (gpt-4o-mini),
 //   AGENTE_MODELO_VISION (gpt-4o), ELEVENLABS_API_KEY + ELEVENLABS_VOICE_ID (+ ELEVENLABS_MODEL, eleven_v3).
@@ -707,7 +710,7 @@ export const DESCUENTO_SIN_CARGO = 100000;
 export const VALOR_CONSULTA = 100000;
 export const SENIA = 50000;
 
-export type MsgEntrante = { id: string; from: string; nombre: string | null; texto: string; esTexto: boolean; tipo?: string; mediaId?: string; caption?: string };
+export type MsgEntrante = { id: string; from: string; nombre: string | null; texto: string; esTexto: boolean; tipo?: string; mediaId?: string; mediaUrl?: string; caption?: string };
 export type MsgGuardado = { from: 'cliente' | 'agente'; texto: string; t?: number | null; wid?: string };
 type BloqueLLM = { type: string; [k: string]: any };
 type MsgLLM = { role: 'user' | 'assistant'; content: string | BloqueLLM[] };
@@ -744,6 +747,42 @@ export function extraerMensajes(payload: any): MsgEntrante[] {
         });
       }
     }
+  }
+  return out;
+}
+
+/** Kapso firma el cuerpo con `X-Webhook-Signature: <hex>` (HMAC-SHA256 del cuerpo crudo con el secreto del webhook, sin prefijo). */
+export function firmaKapsoValida(secret: string, header: string, raw: string) {
+  const h = header.trim().toLowerCase();
+  if (!h || !secret) return false;
+  return iguales(createHmac('sha256', secret).update(raw).digest('hex'), h);
+}
+
+/** Mensajes entrantes de un webhook de Kapso (`whatsapp.message.received`, suelto o en lote con `batch: true` y `data: [...]`). */
+export function extraerMensajesKapso(payload: any): MsgEntrante[] {
+  const items: any[] = payload?.batch === true && Array.isArray(payload?.data) ? payload.data : [payload];
+  const out: MsgEntrante[] = [];
+  for (const it of items) {
+    const m = it?.message;
+    if (!m?.id) continue;
+    if (m?.kapso?.direction && m.kapso.direction !== 'inbound') continue;
+    if (m?.kapso?.origin === 'business_app') continue; // lo escribió una persona desde la app del celular (coexistencia): no se contesta
+    const from = String(m.from ?? it?.conversation?.phone_number ?? '');
+    if (!from) continue;
+    const esTexto = m.type === 'text' && typeof m.text?.body === 'string';
+    const mediaId = m.type === 'audio' ? m.audio?.id : m.type === 'image' ? m.image?.id : undefined;
+    const mediaUrl = m?.kapso?.media_data?.url ?? m?.kapso?.media_url;
+    out.push({
+      id: String(m.id),
+      from,
+      nombre: it?.conversation?.contact_name || null,
+      esTexto,
+      tipo: String(m.type ?? 'desconocido'),
+      mediaId: mediaId ? String(mediaId) : undefined,
+      mediaUrl: typeof mediaUrl === 'string' ? mediaUrl : undefined,
+      caption: m.type === 'image' && typeof m.image?.caption === 'string' ? m.image.caption : undefined,
+      texto: esTexto ? String(m.text.body) : `[El cliente envió un mensaje de tipo "${m.type ?? 'desconocido'}" que no puedo leer]`,
+    });
   }
   return out;
 }
@@ -1167,10 +1206,29 @@ async function transcribir(audio: Buffer, mime: string): Promise<string> {
 
 // ---------------------------------------------------------------- WhatsApp (Meta) y voz
 
-const tokenWA = () => limpiarSecreto(process.env.WHATSAPP_TOKEN ?? '');
+const envWA = (k: string) => limpiarSecreto(process.env[k] ?? '');
+/** Con KAPSO_API_KEY el agente habla por Kapso (API compatible con la de Meta); si no, directo con la Cloud API de Meta. */
+const usaKapso = () => !!envWA('KAPSO_API_KEY');
+function canalWA() {
+  if (usaKapso()) {
+    return { base: `https://api.kapso.ai/meta/whatsapp/v24.0/${envWA('KAPSO_PHONE_NUMBER_ID')}`, headers: { 'X-API-Key': envWA('KAPSO_API_KEY') } as Record<string, string> };
+  }
+  return { base: `${GRAPH_URL}/${envWA('WHATSAPP_PHONE_ID')}`, headers: { authorization: `Bearer ${envWA('WHATSAPP_TOKEN')}` } as Record<string, string> };
+}
 
-async function descargarMedia(mediaId: string): Promise<{ data: Buffer; mime: string }> {
-  const h = { authorization: `Bearer ${tokenWA()}` };
+async function descargarMedia(mediaId: string, mediaUrl?: string): Promise<{ data: Buffer; mime: string }> {
+  if (usaKapso()) {
+    // Kapso entrega la URL del archivo en el webhook; la clave solo se manda a su propio dominio.
+    if (!mediaUrl) throw new Error('el webhook no trajo la URL del archivo');
+    const u = new URL(mediaUrl);
+    const h: Record<string, string> = u.hostname === 'kapso.ai' || u.hostname.endsWith('.kapso.ai') ? { 'X-API-Key': envWA('KAPSO_API_KEY') } : {};
+    const f = await fetch(u, { headers: h });
+    if (!f.ok) throw new Error(`descarga ${f.status}`);
+    const data = Buffer.from(await f.arrayBuffer());
+    if (data.length > MAX_MEDIA_BYTES) throw new Error('archivo demasiado grande');
+    return { data, mime: String(f.headers.get('content-type') ?? 'application/octet-stream').split(';')[0] };
+  }
+  const h = canalWA().headers;
   const meta = await fetch(`${GRAPH_URL}/${encodeURIComponent(mediaId)}`, { headers: h });
   if (!meta.ok) throw new Error(`media ${meta.status}`);
   const info = (await meta.json()) as any;
@@ -1185,7 +1243,7 @@ async function descargarMedia(mediaId: string): Promise<{ data: Buffer; mime: st
 async function prepararEntrante(m: MsgEntrante): Promise<{ texto: string; esAudio: boolean }> {
   if (m.tipo === 'audio' && m.mediaId) {
     try {
-      const { data, mime } = await descargarMedia(m.mediaId);
+      const { data, mime } = await descargarMedia(m.mediaId, m.mediaUrl);
       const t = await transcribir(data, mime);
       if (t) return { texto: `[Audio] ${t}`, esAudio: true };
     } catch (e) { console.error('[agente] audio', e); }
@@ -1194,7 +1252,7 @@ async function prepararEntrante(m: MsgEntrante): Promise<{ texto: string; esAudi
   if (m.tipo === 'image' && m.mediaId) {
     const pie = m.caption ? ` con el texto: "${m.caption}"` : '';
     try {
-      const { data, mime } = await descargarMedia(m.mediaId);
+      const { data, mime } = await descargarMedia(m.mediaId, m.mediaUrl);
       const a = await analizarImagen(`data:${mime};base64,${data.toString('base64')}`);
       return { texto: `[El cliente envió una foto${pie}]\n${notaDeImagen(a, limpiarSecreto(process.env.TITULAR_CUENTA ?? ''))}`, esAudio: false };
     } catch (e) { console.error('[agente] imagen', e); }
@@ -1205,17 +1263,19 @@ async function prepararEntrante(m: MsgEntrante): Promise<{ texto: string; esAudi
 
 /** Doble tilde azul + "escribiendo…" (la API de WhatsApp lo mantiene hasta 25 s o hasta que se envía la respuesta). */
 async function escribiendoWhatsApp(messageId: string) {
-  await fetch(`${GRAPH_URL}/${limpiarSecreto(process.env.WHATSAPP_PHONE_ID ?? '')}/messages`, {
+  const c = canalWA();
+  await fetch(`${c.base}/messages`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json', authorization: `Bearer ${tokenWA()}` },
+    headers: { 'content-type': 'application/json', ...c.headers },
     body: JSON.stringify({ messaging_product: 'whatsapp', status: 'read', message_id: messageId, typing_indicator: { type: 'text' } }),
   });
 }
 
 async function enviarWhatsApp(to: string, texto: string) {
-  const r = await fetch(`${GRAPH_URL}/${limpiarSecreto(process.env.WHATSAPP_PHONE_ID ?? '')}/messages`, {
+  const c = canalWA();
+  const r = await fetch(`${c.base}/messages`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json', authorization: `Bearer ${tokenWA()}` },
+    headers: { 'content-type': 'application/json', ...c.headers },
     body: JSON.stringify({ messaging_product: 'whatsapp', to, type: 'text', text: { body: texto.slice(0, 3800) } }),
   });
   if (!r.ok) throw new Error(`whatsapp ${r.status}: ${(await r.text()).slice(0, 200)}`);
@@ -1237,15 +1297,16 @@ async function enviarAudioWhatsApp(to: string, texto: string) {
   fd.append('messaging_product', 'whatsapp');
   fd.append('type', 'audio/ogg');
   fd.append('file', new Blob([new Uint8Array(audio)], { type: 'audio/ogg' }), 'respuesta.ogg');
-  const up = await fetch(`${GRAPH_URL}/${limpiarSecreto(process.env.WHATSAPP_PHONE_ID ?? '')}/media`, { method: 'POST', headers: { authorization: `Bearer ${tokenWA()}` }, body: fd });
+  const c = canalWA();
+  const up = await fetch(`${c.base}/media`, { method: 'POST', headers: c.headers, body: fd });
   if (!up.ok) throw new Error(`subir audio ${up.status}: ${(await up.text()).slice(0, 200)}`);
   const id = ((await up.json()) as any)?.id;
   if (!id) throw new Error('Meta no devolvió el id del audio');
 
-  const r = await fetch(`${GRAPH_URL}/${limpiarSecreto(process.env.WHATSAPP_PHONE_ID ?? '')}/messages`, {
+  const r = await fetch(`${c.base}/messages`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json', authorization: `Bearer ${tokenWA()}` },
-    body: JSON.stringify({ messaging_product: 'whatsapp', to, type: 'audio', audio: { id } }),
+    headers: { 'content-type': 'application/json', ...c.headers },
+    body: JSON.stringify({ messaging_product: 'whatsapp', to, type: 'audio', audio: { id }, voice: true }),
   });
   if (!r.ok) throw new Error(`whatsapp audio ${r.status}: ${(await r.text()).slice(0, 200)}`);
 }
@@ -1253,7 +1314,9 @@ async function enviarAudioWhatsApp(to: string, texto: string) {
 async function agente(req: VercelRequest, res: VercelResponse, db: Db, raw: string) {
   const env = (k: string) => limpiarSecreto(process.env[k] ?? '');
 
-  // Verificación inicial del webhook (Meta)
+  const kapso = usaKapso();
+  // Verificación inicial del webhook (Meta). Kapso no la usa.
+  if (req.method === 'GET' && kapso) return res.status(200).send('OK');
   if (req.method === 'GET') {
     const verify = env('WHATSAPP_VERIFY_TOKEN');
     if (!verify) return res.status(500).json({ error: 'Falta WHATSAPP_VERIFY_TOKEN' });
@@ -1264,15 +1327,21 @@ async function agente(req: VercelRequest, res: VercelResponse, db: Db, raw: stri
   }
   if (req.method !== 'POST') return res.status(405).json({ error: 'Método no permitido' });
 
-  const faltan = ['META_APP_SECRET', 'WHATSAPP_TOKEN', 'WHATSAPP_PHONE_ID'].filter(k => !env(k));
+  const faltan = (kapso ? ['KAPSO_API_KEY', 'KAPSO_WEBHOOK_SECRET', 'KAPSO_PHONE_NUMBER_ID'] : ['META_APP_SECRET', 'WHATSAPP_TOKEN', 'WHATSAPP_PHONE_ID']).filter(k => !env(k));
   if (!claveOpenAI()) faltan.push('api_openai (u OPENAI_API_KEY)');
   if (faltan.length) return res.status(500).json({ error: `Faltan variables: ${faltan.join(', ')}` });
-  if (!firmaMetaValida(env('META_APP_SECRET'), String(req.headers['x-hub-signature-256'] ?? ''), raw)) {
+  const firmaOk = kapso
+    ? firmaKapsoValida(env('KAPSO_WEBHOOK_SECRET'), String(req.headers['x-webhook-signature'] ?? ''), raw)
+    : firmaMetaValida(env('META_APP_SECRET'), String(req.headers['x-hub-signature-256'] ?? ''), raw);
+  if (!firmaOk) {
     return res.status(401).json({ error: 'Firma inválida' });
   }
 
   let payload: any;
   try { payload = JSON.parse(raw); } catch { return res.status(400).json({ error: 'JSON inválido' }); }
+  // Kapso manda otros eventos (whatsapp.message.sent, whatsapp.thread.standby, ownership_changed...): se aceptan pero no se contestan.
+  const evento = String(req.headers['x-webhook-event'] ?? '');
+  if (kapso && evento && evento !== 'whatsapp.message.received') return res.status(200).send('OK');
 
   const deps: Deps = {
     db,
@@ -1286,9 +1355,14 @@ async function agente(req: VercelRequest, res: VercelResponse, db: Db, raw: stri
     enviarAudio: env('ELEVENLABS_API_KEY') && env('ELEVENLABS_VOICE_ID') ? enviarAudioWhatsApp : undefined,
   };
   // Secuencial: un mismo cliente puede mandar varios mensajes seguidos y el contexto debe respetar el orden.
-  for (const m of extraerMensajes(payload)) {
-    try { await procesarMensaje(deps, m); }
-    catch (e) { console.error('[agente] mensaje', m.id, e); }
-  }
-  return res.status(200).send('OK'); // siempre 200 para que Meta no reintente en bucle
+  const trabajo = (async () => {
+    for (const m of kapso ? extraerMensajesKapso(payload) : extraerMensajes(payload)) {
+      try { await procesarMensaje(deps, m); }
+      catch (e) { console.error('[agente] mensaje', m.id, e); }
+    }
+  })();
+  // En Vercel se contesta 200 al instante (Kapso/Meta reintentan si tardamos más de ~10 s) y se sigue trabajando en segundo plano.
+  if (process.env.VERCEL) { waitUntil(trabajo); return res.status(200).send('OK'); }
+  await trabajo;
+  return res.status(200).send('OK'); // siempre 200 para que no reintenten en bucle
 }
