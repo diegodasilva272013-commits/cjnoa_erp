@@ -1278,7 +1278,7 @@ async function enviarWhatsApp(to: string, texto: string) {
     headers: { 'content-type': 'application/json', ...c.headers },
     body: JSON.stringify({ messaging_product: 'whatsapp', to, type: 'text', text: { body: texto.slice(0, 3800) } }),
   });
-  if (!r.ok) throw new Error(`whatsapp ${r.status}: ${(await r.text()).slice(0, 200)}`);
+  if (!r.ok) throw new Error(`whatsapp ${r.status} (to=${to}, canal=${usaKapso() ? 'kapso ' + envWA('KAPSO_PHONE_NUMBER_ID') : 'meta'}): ${(await r.text()).slice(0, 900)}`);
 }
 
 /** Nota de voz: texto → ElevenLabs (text-to-speech, con emoción, en ogg/opus) → sube el audio a Meta → se ve como nota de voz de WhatsApp. */
