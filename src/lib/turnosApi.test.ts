@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { createHmac } from 'node:crypto';
 import handler, {
+  clasificarRecibo, TIPOS_CONSULTA,
   aMin, limpiarSecreto, camposDeLead, etapaAutomatica, fusionarLead, registrarMensaje, upsertLead, firmaMetaValida, firmaKapsoValida, extraerMensajesKapso, extraerMensajes, aMensajesLLM, procesarMensaje, notaDeImagen, montoValidadoDe, quitarEtiquetas, aMensajesOpenAI, deOpenAI, ejecutarHerramienta, PROMPT_AGENTE, type Deps, telefonoClave, historialDe, inferirNombre, normalizarFecha, normalizarHora, bloquesDelDia, huecosLibres, localDe, resolverProfesional, diaSemanaISO, fechaValida,
   type Bloque,
 } from '../../api/turnos/[accion]';
@@ -499,24 +500,42 @@ describe('agente · reglas de plata (notaDeImagen)', () => {
 
   it('descuento mayor a $100.000: consulta sin cargo', () => {
     const n = notaDeImagen(rec(125000));
-    expect(n).toContain('$125.000');
     expect(n).toContain('Consulta sin cargo con el Dr. Alejandro Reyes');
+    expect(n).not.toContain('$125.000'); // el monto del descuento no le llega al modelo
   });
-  it('descuento menor a $100.000: consulta de $100.000 con seña de $50.000', () => {
+  it('descuento menor a $100.000: consulta de $100.000 con reserva de $50.000', () => {
     const n = notaDeImagen(rec(45000));
-    expect(n).toContain('$45.000');
-    expect(n).toContain('seña de $50.000');
+    expect(n).not.toContain('$45.000');
+    expect(n).toContain('valor de $100.000');
+    expect(n).toContain('reserva de $50.000');
+    expect(n).toContain('saldo de $50.000');
   });
-  it('exactamente $100.000 no supera el umbral', () => expect(notaDeImagen(rec(100000))).toContain('seña de $50.000'));
+  it('exactamente $100.000 no supera el umbral', () => expect(notaDeImagen(rec(100000))).toContain('reserva de $50.000'));
+  it('clasifica el recibo por el descuento individual más alto', () => {
+    expect(clasificarRecibo(rec(100001))).toMatchObject({ categoria: 'art9_sin_cargo', valor: 0, reserva: 0 });
+    expect(clasificarRecibo(rec(100000))).toMatchObject({ categoria: 'art9_con_cargo', valor: 100000, reserva: 50000, descuento: 100000 });
+    expect(clasificarRecibo(rec(20000, 130000))).toMatchObject({ categoria: 'art9_sin_cargo', descuento: 130000 });
+    expect(clasificarRecibo(rec(null))).toMatchObject({ categoria: 'sin_descuento' });
+  });
   it('toma el mayor entre Artículo 9 y Ganancias', () => expect(notaDeImagen(rec(30000, 150000))).toContain('sin cargo'));
   it('sin descuentos', () => expect(notaDeImagen(rec(null))).toContain('No se detectaron descuentos'));
   it('transferencia válida', () => {
-    const n = notaDeImagen(trf(250000), 'Arturo Reyes');
+    const n = notaDeImagen(trf(250000), 'Arturo Reyes', 50000);
     expect(n).toContain('validado exitosamente por $250.000');
     expect(montoValidadoDe([n])).toBe(250000);
   });
+  it('la reserva exigida depende del tipo de consulta', () => {
+    expect(montoValidadoDe([notaDeImagen(trf(40000), 'Arturo Reyes', TIPOS_CONSULTA.jubilacion_docente.reserva)])).toBe(40000);
+    expect(montoValidadoDe([notaDeImagen(trf(50000), 'Arturo Reyes', TIPOS_CONSULTA.otras_situaciones_anses.reserva)])).toBeNull();
+    expect(montoValidadoDe([notaDeImagen(trf(75000), 'Arturo Reyes', TIPOS_CONSULTA.otras_situaciones_anses.reserva)])).toBe(75000);
+  });
+  it('sin tipo de consulta definido no se valida ninguna transferencia', () => {
+    const n = notaDeImagen(trf(250000), 'Arturo Reyes');
+    expect(n).toContain('NO dar la seña por pagada');
+    expect(montoValidadoDe([n])).toBeNull();
+  });
   it('transferencia a otra persona, sin importe o menor a la seña no se da por válida', () => {
-    for (const n of [notaDeImagen(trf(250000, 'Juan Pérez'), 'Arturo Reyes'), notaDeImagen(trf(null)), notaDeImagen(trf(20000)), notaDeImagen(trf(250000, null), 'Arturo Reyes')]) {
+    for (const n of [notaDeImagen(trf(250000, 'Juan Pérez'), 'Arturo Reyes'), notaDeImagen(trf(null)), notaDeImagen(trf(20000), 'Arturo Reyes', 50000), notaDeImagen(trf(250000, null), 'Arturo Reyes', 50000)]) {
       expect(n).toContain('NO dar la seña por pagada');
       expect(montoValidadoDe([n])).toBeNull();
     }
@@ -548,9 +567,11 @@ describe('agente · OpenAI', () => {
     expect(r.content[0]).toEqual({ type: 'tool_use', id: 'c1', name: 'agendar_turno', input: { hora: '10:00' } });
     expect(r.content[1].input).toEqual({});
   });
-  it('el prompt por defecto trae el criterio de precio', () => {
-    expect(PROMPT_AGENTE).toContain('$100.000');
-    expect(PROMPT_AGENTE).toContain('$50.000');
+  it('el prompt por defecto trae el flujo del brief y no filtra los precios', () => {
+    expect(PROMPT_AGENTE).toContain('asistente virtual del Centro Jurídico NOA');
+    expect(PROMPT_AGENTE).toContain('definir_tipo_consulta');
+    expect(PROMPT_AGENTE).toContain('NUNCA la pidas de entrada');
+    expect(PROMPT_AGENTE).not.toMatch(/\$\s?\d/); // los importes los fija el sistema, no el prompt
   });
 });
 
@@ -619,6 +640,16 @@ describe('agente · herramientas', () => {
     expect(r).toEqual({ guardado: true });
     expect(tablas.leads[0]).toMatchObject({ nombre: 'Ana', dni_cuil: '20111222', rama: 'Artículo 9' });
     expect(JSON.stringify(tablas.leads[0])).not.toContain('secreta');
+  });
+  it('definir_tipo_consulta fija valor y reserva en código y los deja en el lead', async () => {
+    const { db, tablas } = dbMemoria();
+    const r: any = await ejecutarHerramienta(db, 'definir_tipo_consulta', { tipo: 'jubilacion_docente' }, { telefono: '5493884867965', conversationId: 'c' });
+    expect(r).toMatchObject({ valor_consulta: 80000, reserva: 40000, saldo_dia_consulta: 40000, abogado: 'Fabricio' });
+    expect(r.datos_para_transferir).toContain('centrojuridiconoa680');
+    expect(tablas.leads[0].datos).toMatchObject({ tipo_consulta: 'jubilacion_docente', reserva_esperada: 40000 });
+    const o: any = await ejecutarHerramienta(db, 'definir_tipo_consulta', { tipo: 'otras_situaciones_anses' }, { telefono: '5493884867965', conversationId: 'c' });
+    expect(o).toMatchObject({ valor_consulta: 150000, reserva: 75000, abogado: 'Alejandro' });
+    expect(await ejecutarHerramienta(db, 'definir_tipo_consulta', { tipo: 'gratis' }, { telefono: '1', conversationId: 'c' })).toHaveProperty('error');
   });
   it('derivar_a_humano deja el motivo en el lead', async () => {
     const { db, tablas } = dbMemoria();
