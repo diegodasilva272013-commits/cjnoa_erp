@@ -710,7 +710,7 @@ export const DESCUENTO_SIN_CARGO = 100000;
 export const VALOR_CONSULTA = 100000;
 export const SENIA = 50000;
 
-export type MsgEntrante = { id: string; from: string; nombre: string | null; texto: string; esTexto: boolean; tipo?: string; mediaId?: string; mediaUrl?: string; caption?: string };
+export type MsgEntrante = { id: string; from: string; nombre: string | null; texto: string; esTexto: boolean; tipo?: string; mediaId?: string; mediaUrl?: string; caption?: string; phoneNumberId?: string };
 export type MsgGuardado = { from: 'cliente' | 'agente'; texto: string; t?: number | null; wid?: string };
 type BloqueLLM = { type: string; [k: string]: any };
 type MsgLLM = { role: 'user' | 'assistant'; content: string | BloqueLLM[] };
@@ -780,6 +780,7 @@ export function extraerMensajesKapso(payload: any): MsgEntrante[] {
       tipo: String(m.type ?? 'desconocido'),
       mediaId: mediaId ? String(mediaId) : undefined,
       mediaUrl: typeof mediaUrl === 'string' ? mediaUrl : undefined,
+      phoneNumberId: it?.phone_number_id ? String(it.phone_number_id) : undefined,
       caption: m.type === 'image' && typeof m.image?.caption === 'string' ? m.image.caption : undefined,
       texto: esTexto ? String(m.text.body) : `[El cliente envió un mensaje de tipo "${m.type ?? 'desconocido'}" que no puedo leer]`,
     });
@@ -1209,9 +1210,11 @@ async function transcribir(audio: Buffer, mime: string): Promise<string> {
 const envWA = (k: string) => limpiarSecreto(process.env[k] ?? '');
 /** Con KAPSO_API_KEY el agente habla por Kapso (API compatible con la de Meta); si no, directo con la Cloud API de Meta. */
 const usaKapso = () => !!envWA('KAPSO_API_KEY');
+/** Número por el que entró el mensaje (lo manda Kapso en cada evento). Se contesta por el mismo; si no viene, KAPSO_PHONE_NUMBER_ID. */
+let emisorKapso = '';
 function canalWA() {
   if (usaKapso()) {
-    return { base: `https://api.kapso.ai/meta/whatsapp/v24.0/${envWA('KAPSO_PHONE_NUMBER_ID')}`, headers: { 'X-API-Key': envWA('KAPSO_API_KEY') } as Record<string, string> };
+    return { base: `https://api.kapso.ai/meta/whatsapp/v24.0/${emisorKapso || envWA('KAPSO_PHONE_NUMBER_ID')}`, headers: { 'X-API-Key': envWA('KAPSO_API_KEY') } as Record<string, string> };
   }
   return { base: `${GRAPH_URL}/${envWA('WHATSAPP_PHONE_ID')}`, headers: { authorization: `Bearer ${envWA('WHATSAPP_TOKEN')}` } as Record<string, string> };
 }
@@ -1278,7 +1281,7 @@ async function enviarWhatsApp(to: string, texto: string) {
     headers: { 'content-type': 'application/json', ...c.headers },
     body: JSON.stringify({ messaging_product: 'whatsapp', to, type: 'text', text: { body: texto.slice(0, 3800) } }),
   });
-  if (!r.ok) throw new Error(`whatsapp ${r.status} (to=${to}, canal=${usaKapso() ? 'kapso ' + envWA('KAPSO_PHONE_NUMBER_ID') : 'meta'}): ${(await r.text()).slice(0, 900)}`);
+  if (!r.ok) throw new Error(`whatsapp ${r.status} (to=${to}, canal=${usaKapso() ? 'kapso ' + (emisorKapso || envWA('KAPSO_PHONE_NUMBER_ID')) : 'meta'}): ${(await r.text()).slice(0, 900)}`);
 }
 
 /** Nota de voz: texto → ElevenLabs (text-to-speech, con emoción, en ogg/opus) → sube el audio a Meta → se ve como nota de voz de WhatsApp. */
@@ -1327,7 +1330,7 @@ async function agente(req: VercelRequest, res: VercelResponse, db: Db, raw: stri
   }
   if (req.method !== 'POST') return res.status(405).json({ error: 'Método no permitido' });
 
-  const faltan = (kapso ? ['KAPSO_API_KEY', 'KAPSO_WEBHOOK_SECRET', 'KAPSO_PHONE_NUMBER_ID'] : ['META_APP_SECRET', 'WHATSAPP_TOKEN', 'WHATSAPP_PHONE_ID']).filter(k => !env(k));
+  const faltan = (kapso ? ['KAPSO_API_KEY', 'KAPSO_WEBHOOK_SECRET'] : ['META_APP_SECRET', 'WHATSAPP_TOKEN', 'WHATSAPP_PHONE_ID']).filter(k => !env(k));
   if (!claveOpenAI()) faltan.push('api_openai (u OPENAI_API_KEY)');
   if (faltan.length) return res.status(500).json({ error: `Faltan variables: ${faltan.join(', ')}` });
   const firmaOk = kapso
@@ -1357,6 +1360,7 @@ async function agente(req: VercelRequest, res: VercelResponse, db: Db, raw: stri
   // Secuencial: un mismo cliente puede mandar varios mensajes seguidos y el contexto debe respetar el orden.
   const trabajo = (async () => {
     for (const m of kapso ? extraerMensajesKapso(payload) : extraerMensajes(payload)) {
+      if (kapso) emisorKapso = m.phoneNumberId || '';
       try { await procesarMensaje(deps, m); }
       catch (e) { console.error('[agente] mensaje', m.id, e); }
     }
