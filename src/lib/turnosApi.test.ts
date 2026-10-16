@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { createHmac } from 'node:crypto';
 import handler, {
-  clasificarRecibo, TIPOS_CONSULTA,
+  clasificarRecibo, TIPOS_CONSULTA, promesaSinCumplir,
   aMin, limpiarSecreto, camposDeLead, etapaAutomatica, fusionarLead, registrarMensaje, upsertLead, firmaMetaValida, firmaKapsoValida, extraerMensajesKapso, extraerMensajes, aMensajesLLM, procesarMensaje, notaDeImagen, montoValidadoDe, quitarEtiquetas, aMensajesOpenAI, deOpenAI, ejecutarHerramienta, PROMPT_AGENTE, type Deps, telefonoClave, historialDe, inferirNombre, normalizarFecha, normalizarHora, bloquesDelDia, huecosLibres, localDe, resolverProfesional, diaSemanaISO, fechaValida,
   type Bloque,
 } from '../../api/turnos/[accion]';
@@ -198,6 +198,8 @@ describe('respaldo · entrada de WhatsApp', () => {
     const imagen = { conversation: conv, message: { id: 'w3', from: '549', type: 'image', image: { id: 'm2', caption: 'recibo' }, kapso: { media_data: { url: 'https://api.kapso.ai/media/y' } } } };
     expect(extraerMensajesKapso(imagen)[0]).toMatchObject({ tipo: 'image', caption: 'recibo', mediaUrl: 'https://api.kapso.ai/media/y' });
 
+    const pdf = { conversation: conv, message: { id: 'w6', from: '5493885775043', type: 'document', document: { id: 'm9', filename: 'recibo.pdf', mime_type: 'application/pdf' }, kapso: { media_data: { url: 'https://api.kapso.ai/media/z', content_type: 'application/pdf' } } } };
+    expect(extraerMensajesKapso(pdf)[0]).toMatchObject({ tipo: 'document', mediaId: 'm9', archivo: 'recibo.pdf', mime: 'application/pdf', mediaUrl: 'https://api.kapso.ai/media/z', esTexto: false });
     expect(extraerMensajesKapso({ batch: true, data: [texto, audio] })).toHaveLength(2);
     expect(extraerMensajesKapso({ conversation: conv, message: { ...texto.message, id: 'w4', kapso: { direction: 'outbound' } } })).toEqual([]);
     expect(extraerMensajesKapso({ conversation: conv, message: { ...texto.message, id: 'w5', kapso: { origin: 'business_app' } } })).toEqual([]);
@@ -511,6 +513,16 @@ describe('agente · reglas de plata (notaDeImagen)', () => {
     expect(n).toContain('saldo de $50.000');
   });
   it('exactamente $100.000 no supera el umbral', () => expect(notaDeImagen(rec(100000))).toContain('reserva de $50.000'));
+  it('si el recibo nombra Ganancias o Art. 9 pero no se lee el importe, SÍ tiene el descuento', () => {
+    const r = { ...rec(null), menciona_ganancias: true };
+    expect(clasificarRecibo(r).categoria).toBe('descuento_sin_importe');
+    const n = notaDeImagen(r);
+    expect(n).toContain('SÍ figura el descuento');
+    expect(n).not.toContain('No se detectaron descuentos');
+    expect(clasificarRecibo({ ...rec(null), menciona_articulo_9: true }).categoria).toBe('descuento_sin_importe');
+    expect(clasificarRecibo({ ...rec(80000), menciona_ganancias: true }).categoria).toBe('art9_con_cargo');
+    expect(clasificarRecibo(rec(null)).categoria).toBe('sin_descuento');
+  });
   it('clasifica el recibo por el descuento individual más alto', () => {
     expect(clasificarRecibo(rec(100001))).toMatchObject({ categoria: 'art9_sin_cargo', valor: 0, reserva: 0 });
     expect(clasificarRecibo(rec(100000))).toMatchObject({ categoria: 'art9_con_cargo', valor: 100000, reserva: 50000, descuento: 100000 });
@@ -660,6 +672,35 @@ describe('agente · herramientas', () => {
   it('herramienta desconocida', async () => {
     const { db } = dbMemoria();
     expect(await ejecutarHerramienta(db, 'borrar_todo', {}, { telefono: '1', conversationId: 'c' })).toEqual({ error: 'Herramienta desconocida: borrar_todo' });
+  });
+});
+
+describe('agente · seguimiento (no se queda en una promesa)', () => {
+  it('detecta promesas de verificar sin cumplir, pero no preguntas ni respuestas completas', () => {
+    expect(promesaSinCumplir('Perfecto, voy a chequear la disponibilidad del Dr. Fabricio Reyes.')).toBe(true);
+    expect(promesaSinCumplir('Gracias por el recibo. Aguarde un momento mientras lo verifico.')).toBe(true);
+    expect(promesaSinCumplir('¿Cuándo le quedaría más cómodo? Así veo si hay disponibilidad.')).toBe(false);
+    expect(promesaSinCumplir('Su consulta quedó agendada el martes 20 a las 10:00 con el Dr. Fabricio Reyes.')).toBe(false);
+  });
+  it('si el modelo promete y no hace nada, se le pide que cumpla y se contesta con el resultado', async () => {
+    const { db } = dbConversaciones();
+    let llamadas = 0;
+    const { d, enviados } = deps(db, {
+      llm: async () => {
+        llamadas++;
+        return llamadas === 1 ? texto('Perfecto, voy a chequear la disponibilidad ahora mismo.') : texto('El Dr. Fabricio tiene lugar el martes 20 a las 10:00. ¿Le sirve?');
+      },
+    });
+    await procesarMensaje(d, msg);
+    expect(llamadas).toBe(2);
+    expect(enviados).toEqual(['El Dr. Fabricio tiene lugar el martes 20 a las 10:00. ¿Le sirve?']);
+  });
+  it('reintenta una sola vez aunque siga prometiendo', async () => {
+    const { db } = dbConversaciones();
+    let llamadas = 0;
+    const { d } = deps(db, { llm: async () => { llamadas++; return texto('Aguarde un momento, voy a verificar.'); } });
+    await procesarMensaje(d, msg);
+    expect(llamadas).toBe(2);
   });
 });
 
