@@ -1545,7 +1545,7 @@ async function agente(req: VercelRequest, res: VercelResponse, db: Db, raw: stri
     escribiendo: escribiendoWhatsApp,
     pausa: ms => new Promise(r => setTimeout(r, ms)),
     enviarAudio: env('ELEVENLABS_API_KEY') ? enviarAudioWhatsApp : undefined,
-    vozSiempre: env('AGENTE_VOZ').toLowerCase() !== 'texto',
+    vozSiempre: env('AGENTE_VOZ').toLowerCase() === 'siempre', // por defecto: audio solo si el cliente mandó audio
   };
   // Secuencial: un mismo cliente puede mandar varios mensajes seguidos y el contexto debe respetar el orden.
   const trabajo = (async () => {
