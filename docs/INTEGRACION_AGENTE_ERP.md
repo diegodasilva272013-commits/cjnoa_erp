@@ -7,8 +7,17 @@ Base: Supabase `yvuxcpqlbybmtkrnmnsj`. Zona horaria del ERP para fechas y horas:
 
 | Ruta | Quién la llama | Cómo se autentica |
 |---|---|---|
-| `historial`, `disponibles`, `agendar`, `registrar` | el agente (herramientas) | `Authorization: Bearer <TURNOS_AGENTE_SECRET>` (también acepta `x-api-key`) |
-| `respaldo` | Meta/WhatsApp | verificación de Meta (agente de respaldo, inactivo) |
+| `agente` (alias `respaldo`) | Kapso o Meta (WhatsApp) | firma HMAC del webhook (`KAPSO_WEBHOOK_SECRET` / `META_APP_SECRET`); sin firma válida se rechaza |
+
+No hay más rutas. Las antiguas (`historial`, `disponibles`, `agendar`, `registrar`, `inicio`, `post-call`, `sincronizar`) se eliminaron: el agente usa esas funciones directamente, sin endpoints con un secreto compartido. `TURNOS_AGENTE_SECRET` ya no se usa.
+
+## Seguridad del agente (resumen)
+- Lo que escribe la persona (texto, audio, texto en fotos) se neutraliza: no puede imitar un aviso `[SISTEMA ERP: ...]` ni forzar un pago validado.
+- El modelo solo puede guardar en la ficha una lista fija de campos, y solo puede ver y tocar los turnos del teléfono que escribe.
+- No se ofrecen horarios ni se agenda hasta que corresponda: consulta sin cargo confirmada por el recibo, comprobante validado por el sistema, o efectivo acordado.
+- El comprobante lo lee una IA, no el banco: el turno queda con la nota "VERIFICAR en la cuenta bancaria" y la ficha con `pago_pendiente_verificar`.
+- Cancelar un turno NO lo elimina: queda marcado "CANCELACIÓN SOLICITADA" para que el equipo lo confirme.
+- Una respuesta con herramientas, avisos del sistema, claves o direcciones de la base se bloquea. Límite de mensajes por persona y de turnos vigentes.
 
 ## 2. Identidad de la persona: el teléfono
 

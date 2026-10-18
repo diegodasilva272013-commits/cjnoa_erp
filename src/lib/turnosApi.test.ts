@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { createHmac } from 'node:crypto';
 import handler, {
   clasificarRecibo, TIPOS_CONSULTA, promesaSinCumplir, separarDatosPago, mensajeApurado,
-  aMin, limpiarSecreto, camposDeLead, etapaAutomatica, fusionarLead, registrarMensaje, upsertLead, firmaMetaValida, firmaKapsoValida, extraerMensajesKapso, extraerMensajes, aMensajesLLM, procesarMensaje, neutralizarMarcas, salidaInsegura, superaLimite, urlMediaSegura, resumenTurnosVigentes, HERRAMIENTAS_LLM, cuerpoNotaDeVoz, eligioTransferencia, notaDeImagen, montoValidadoDe, quitarEtiquetas, aMensajesOpenAI, deOpenAI, ejecutarHerramienta, PROMPT_AGENTE, type Deps, telefonoClave, historialDe, inferirNombre, normalizarFecha, normalizarHora, bloquesDelDia, huecosLibres, localDe, resolverProfesional, diaSemanaISO, fechaValida,
+  aMin, limpiarSecreto, camposDeLead, etapaAutomatica, fusionarLead, registrarMensaje, upsertLead, firmaMetaValida, firmaKapsoValida, extraerMensajesKapso, extraerMensajes, aMensajesLLM, procesarMensaje, modalidadElegida, enmascarar, neutralizarMarcas, salidaInsegura, superaLimite, urlMediaSegura, resumenTurnosVigentes, HERRAMIENTAS_LLM, cuerpoNotaDeVoz, eligioTransferencia, notaDeImagen, montoValidadoDe, quitarEtiquetas, aMensajesOpenAI, deOpenAI, ejecutarHerramienta, PROMPT_AGENTE, type Deps, telefonoClave, historialDe, inferirNombre, normalizarFecha, normalizarHora, bloquesDelDia, huecosLibres, localDe, resolverProfesional, diaSemanaISO, fechaValida,
   type Bloque,
 } from '../../api/turnos/[accion]';
 
@@ -243,7 +243,7 @@ describe('respaldo · procesarMensaje', () => {
       ejecutar: async (nombre, input, ctx) => { llamadas.push({ nombre, input, ctx }); return { horarios_disponibles: ['09:00'] }; },
     });
     await procesarMensaje(d, msg);
-    expect(llamadas).toEqual([{ nombre: 'consultar_disponibilidad', input: { profesional: 'alejandro' }, ctx: { telefono: '5493884867965', conversationId: 'respaldo-5493884867965', montoValidado: null, pasarDatos: false } }]);
+    expect(llamadas).toEqual([{ nombre: 'consultar_disponibilidad', input: { profesional: 'alejandro' }, ctx: { telefono: '5493884867965', conversationId: 'respaldo-5493884867965', montoValidado: null, pasarDatos: false, modalidad: null } }]);
     expect(enviados).toEqual(['Tengo lugar el martes 09:00']);
   });
 
@@ -865,6 +865,7 @@ describe('agente · agendar turno de punta a punta', () => {
     disponibilidad_horarios: [{ profesional: 'Alejandro', dia_semana: 2, fecha: null, hora_desde: '09:00', hora_hasta: '11:00', duracion_min: 30 }],
     consultas_agendadas: [{ id: 'x', fecha_consulta: fecha, hora_consulta: '09:30', abogado_asignado: 'Alejandro', origen: 'manual' }],
     perfiles: [], audiencias: [], audiencias_general: [], eventos_internos: [],
+    leads: [{ telefono: '5493884867965', etapa: 'nuevo', datos: { categoria_recibo: 'art9_sin_cargo', reserva_esperada: 0 } }],
   });
   const ctx = { telefono: '5493884867965', conversationId: 'respaldo-5493884867965' };
 
@@ -1158,5 +1159,102 @@ describe('agente · cliente que ya tiene turno', () => {
     const nombres = HERRAMIENTAS_LLM.map(h => h.name);
     expect(nombres).toEqual(expect.arrayContaining(['consultar_mis_turnos', 'reprogramar_turno', 'solicitar_cancelacion']));
     expect(nombres).not.toContain('eliminar_turno');
+  });
+});
+
+
+// ------------------------------------------------------------------ el turno solo se agenda cuando corresponde
+describe('agente · no se agenda sin reserva abonada', () => {
+  const fecha = (() => { const d = new Date(Date.now() + 10 * 86400000); while (d.getUTCDay() !== 2) d.setUTCDate(d.getUTCDate() + 1); return d.toISOString().slice(0, 10); })();
+  const tel = '5493884867965';
+  const mundo = (lead: any) => dbAgenda({
+    disponibilidad_horarios: [{ profesional: 'Alejandro', dia_semana: 2, fecha: null, hora_desde: '09:00', hora_hasta: '12:00', duracion_min: 30 }],
+    consultas_agendadas: [], perfiles: [], audiencias: [], audiencias_general: [], eventos_internos: [],
+    leads: lead ? [{ telefono: tel, datos: lead }] : [],
+  });
+  const pedir = { profesional: 'alejandro', nombre: 'Ana', fecha, hora: '10:00' };
+  const base = { telefono: tel, conversationId: 'c' };
+
+  it('consulta con reserva y sin comprobante: no ofrece horarios ni agenda', async () => {
+    const { db, tablas } = mundo({ tipo_consulta: 'jubilacion_docente', reserva_esperada: 40000 });
+    const horarios: any = await ejecutarHerramienta(db, 'consultar_disponibilidad', { profesional: 'fabricio', fecha }, { ...base, modalidad: 'transferencia' });
+    expect(horarios.status).toBe('requiere_reserva');
+    expect(horarios.horarios_disponibles).toBeUndefined();
+    const r: any = await ejecutarHerramienta(db, 'agendar_turno', pedir, { ...base, modalidad: 'transferencia' });
+    expect(r.status).toBe('requiere_reserva');
+    expect(r.mensaje).toContain('comprobante');
+    expect(tablas.consultas_agendadas).toHaveLength(0);
+  });
+
+  it('aunque pida pago=true, sin comprobante validado no agenda', async () => {
+    const { db, tablas } = mundo({ reserva_esperada: 50000 });
+    const r: any = await ejecutarHerramienta(db, 'agendar_turno', { ...pedir, pago: true }, base);
+    expect(r.status).toBe('requiere_reserva');
+    expect(tablas.consultas_agendadas).toHaveLength(0);
+  });
+
+  it('con el comprobante validado por el sistema, sí agenda y deja el pago marcado para verificar', async () => {
+    const { db, tablas } = mundo({ reserva_esperada: 50000 });
+    const r: any = await ejecutarHerramienta(db, 'agendar_turno', { ...pedir, pago: true }, { ...base, montoValidado: 50000 });
+    expect(r.status).toBe('success');
+    const t = tablas.consultas_agendadas[0];
+    expect(t).toMatchObject({ reserva_pagada: true, monto_reserva: 50000 });
+    expect(t.observaciones).toContain('VERIFICAR en la cuenta bancaria');
+    expect(tablas.leads[0].datos.pago_pendiente_verificar).toContain('$50000');
+  });
+
+  it('si eligió efectivo (y ya está definida la consulta), coordina el turno sin marcarlo como pagado', async () => {
+    const { db, tablas } = mundo({ reserva_esperada: 40000 });
+    const r: any = await ejecutarHerramienta(db, 'agendar_turno', pedir, { ...base, modalidad: 'efectivo' });
+    expect(r.status).toBe('success');
+    expect(tablas.consultas_agendadas[0]).toMatchObject({ reserva_pagada: false, monto_reserva: 0 });
+    expect(tablas.consultas_agendadas[0].observaciones).not.toContain('VERIFICAR');
+  });
+
+  it('consulta sin cargo confirmada por el recibo: agenda directo', async () => {
+    const { db } = mundo({ categoria_recibo: 'art9_sin_cargo', reserva_esperada: 0 });
+    expect(((await ejecutarHerramienta(db, 'agendar_turno', pedir, base)) as any).status).toBe('success');
+  });
+
+  it('si todavía no está definido qué consulta le corresponde, no agenda', async () => {
+    for (const lead of [null, {}, { categoria_recibo: 'descuento_sin_importe' }]) {
+      const { db, tablas } = mundo(lead);
+      const r: any = await ejecutarHerramienta(db, 'agendar_turno', pedir, base);
+      expect(r.status).toBe('requiere_reserva');
+      expect(tablas.consultas_agendadas).toHaveLength(0);
+    }
+  });
+
+  it('el modelo no puede saltear la condición escribiendo la palabra efectivo o diciendo que pagó: lo decide el cliente y el sistema', () => {
+    expect(modalidadElegida(['hola', 'prefiero efectivo'])).toBe('efectivo');
+    expect(modalidadElegida(['efectivo', 'mejor transferencia'])).toBe('transferencia');
+    expect(modalidadElegida(['hola'])).toBeNull();
+  });
+});
+
+describe('seguridad · rutas viejas eliminadas y datos personales en logs', () => {
+  const guardar = { ...process.env };
+  beforeEach(() => { process.env.SUPABASE_URL = 'http://localhost:1'; process.env.SUPABASE_SERVICE_ROLE_KEY = 'x'; process.env.TURNOS_AGENTE_SECRET = 'secreto'; });
+  afterEach(() => { process.env = { ...guardar }; });
+
+  function correr(accion: string, method = 'GET', headers: Record<string, string> = {}) {
+    const { Readable } = require('node:stream');
+    const req: any = Object.assign(Readable.from([]), { method, query: { accion, telefono: '5493884867965' }, headers });
+    const out: any = { code: 0, body: undefined };
+    const res: any = { status(c: number) { out.code = c; return res; }, json(b: any) { out.body = b; return res; }, send(b: any) { out.body = b; return res; } };
+    return handler(req, res).then(() => out);
+  }
+
+  it('historial, disponibles, agendar, registrar e inicio ya no existen (ni con el secreto)', async () => {
+    for (const accion of ['historial', 'disponibles', 'agendar', 'registrar', 'inicio', 'post-call', 'sincronizar']) {
+      const r = await correr(accion, 'GET', { authorization: 'Bearer secreto' });
+      expect(r.code).toBe(404);
+    }
+  });
+
+  it('los teléfonos en los logs salen enmascarados', () => {
+    expect(enmascarar('5493884867965')).toBe('***7965');
+    expect(enmascarar('+54 9 388 486-7965')).toBe('***7965');
+    expect(enmascarar('12')).toBe('***');
   });
 });

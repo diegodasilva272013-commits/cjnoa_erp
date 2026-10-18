@@ -7,12 +7,9 @@ import { waitUntil } from '@vercel/functions';
  * Puente entre el agente de WhatsApp del ERP y el calendario.
  * Un solo archivo para no sumar funciones serverless (una ruta dinámica):
  *
- *   GET  /api/turnos/disponibles?profesional=Alejandro&fecha=2026-10-20
- *   POST /api/turnos/agendar
- *   POST /api/turnos/registrar      (tool del agente: registra cada mensaje en el momento + lead)
- *   GET/POST /api/turnos/agente     (agente de WhatsApp, ver más abajo; inactivo hasta activarlo)
+ *   GET/POST /api/turnos/agente     (agente de WhatsApp: webhook de Kapso o de Meta; /respaldo es un alias)
  *
- * disponibles/agendar: header `Authorization: Bearer <TURNOS_AGENTE_SECRET>` (o `x-api-key`).
+ * No hay otras rutas: el agente llama a estas funciones directamente, sin endpoints con secreto compartido.
  *
  * Disponibilidad = horarios que cargan Alejandro/Fabricio (disponibilidad_horarios)
  * menos lo ya ocupado en el sistema: consultas_agendadas, audiencias_general,
@@ -234,13 +231,6 @@ export function limpiarSecreto(v: string) {
   return v.trim().replace(/^["']|["']$/g, '').trim();
 }
 
-function autorizadoAgente(req: VercelRequest, secretCrudo: string) {
-  const secret = limpiarSecreto(secretCrudo);
-  const h = String(req.headers.authorization ?? '');
-  const token = h.startsWith('Bearer ') ? h.slice(7) : String(req.headers['x-api-key'] ?? '');
-  return token.length > 0 && iguales(token.trim(), secret);
-}
-
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   const accion = String(Array.isArray(req.query.accion) ? req.query.accion[0] : req.query.accion ?? '');
 
@@ -254,28 +244,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     if (accion === 'agente' || accion === 'respaldo') return await agente(req, res, db, raw);
 
-    if (!['disponibles', 'agendar', 'historial', 'registrar'].includes(accion)) return res.status(404).json({ error: 'Ruta inexistente' });
-
-    const secret = process.env.TURNOS_AGENTE_SECRET;
-    if (!secret) return res.status(500).json({ error: 'Falta TURNOS_AGENTE_SECRET' });
-    if (!autorizadoAgente(req, secret)) return res.status(401).json({ error: 'No autorizado' });
-
-    if (accion === 'disponibles') {
-      if (req.method !== 'GET') return res.status(405).json({ error: 'Método no permitido' });
-      return await disponibles(req, res, db);
-    }
-    if (accion === 'historial') {
-      if (req.method !== 'GET') return res.status(405).json({ error: 'Método no permitido' });
-      return res.status(200).json(await historialDe(db, req.query.telefono));
-    }
-    if (req.method !== 'POST') return res.status(405).json({ error: 'Método no permitido' });
-    if (accion === 'registrar') {
-      let b: Record<string, unknown> = {};
-      try { b = JSON.parse(raw || '{}'); } catch { return res.status(400).json({ registrado: false, error: 'JSON inválido' }); }
-      const r = await registrarMensaje(db, (b.parameters && typeof b.parameters === 'object' ? b.parameters : b) as Record<string, unknown>);
-      return res.status(r.code).json(r.body);
-    }
-    return await agendar(res, db, raw);
+    return res.status(404).json({ error: 'Ruta inexistente' });
   } catch (e) {
     console.error('[turnos]', accion, e);
     return res.status(500).json({ error: e instanceof Error ? e.message : 'Error interno' });
@@ -304,19 +273,6 @@ export async function disponibilidadDe(db: Db, profesional: unknown, fechaIn: un
     if (libres.length) dias.push({ fecha: f, horarios_disponibles: libres });
   }
   return { code: 200, body: { ...ahoraLocal(), profesional: prof, proximos_dias: dias } };
-}
-
-async function disponibles(req: VercelRequest, res: VercelResponse, db: Db) {
-  const r = await disponibilidadDe(db, req.query.profesional, req.query.fecha);
-  return res.status(r.code).json(r.body);
-}
-
-async function agendar(res: VercelResponse, db: Db, raw: string) {
-  let b: Record<string, unknown>;
-  try { b = JSON.parse(raw || '{}'); } catch { return res.status(400).json({ error: 'JSON inválido' }); }
-  const p = (b.parameters && typeof b.parameters === 'object' ? b.parameters : b) as Record<string, unknown>;
-  const r = await crearTurno(db, p);
-  return res.status(r.code).json(r.body);
 }
 
 export async function crearTurno(db: Db, p: Record<string, unknown>): Promise<Resp> {
@@ -355,7 +311,7 @@ export async function crearTurno(db: Db, p: Record<string, unknown>): Promise<Re
     monto_a_cancelar: 0,
     reserva_pagada: pago,
     reserva_modalidad: modalidad,
-    observaciones: ['Agendado por el agente de IA', /^(presencial|virtual)$/.test(modalidadIn) ? `Modalidad: ${modalidadIn === 'virtual' ? 'Virtual' : 'Presencial'}` : '']
+    observaciones: ['Agendado por el agente de IA', /^(presencial|virtual)$/.test(modalidadIn) ? `Modalidad: ${modalidadIn === 'virtual' ? 'Virtual' : 'Presencial'}` : '', p.pago_automatico === true && pago ? 'PAGO VALIDADO AUTOMÁTICAMENTE por lectura de imagen: VERIFICAR en la cuenta bancaria' : '']
       .filter(Boolean).join(' · '),
     conversation_id: s(p.conversation_id) || null,
     origen: 'agente',
@@ -736,7 +692,7 @@ export type MsgEntrante = { id: string; from: string; nombre: string | null; tex
 export type MsgGuardado = { from: 'cliente' | 'agente'; texto: string; t?: number | null; wid?: string; at?: number };
 type BloqueLLM = { type: string; [k: string]: any };
 type MsgLLM = { role: 'user' | 'assistant'; content: string | BloqueLLM[] };
-type CtxHerramienta = { telefono: string; conversationId: string; montoValidado?: number | null; pasarDatos?: boolean };
+type CtxHerramienta = { telefono: string; conversationId: string; montoValidado?: number | null; pasarDatos?: boolean; modalidad?: 'transferencia' | 'efectivo' | null };
 
 /** Meta firma el cuerpo con `X-Hub-Signature-256: sha256=<hex>` usando el App Secret. */
 export function firmaMetaValida(appSecret: string, header: string, raw: string) {
@@ -920,15 +876,20 @@ export function separarDatosPago(texto: string): { voz: string; escrito: string 
   return { voz: voz.join('\n').replace(/\n{3,}/g, '\n\n').trim(), escrito: escrito.join('\n').trim() };
 }
 
-/** La persona eligió transferencia como forma de abonar la reserva (lo último que dijo entre transferencia y efectivo). */
-export function eligioTransferencia(textosCliente: string[]): boolean {
+/** Qué forma de abonar la reserva eligió la persona (lo último que dijo entre transferencia y efectivo). */
+export function modalidadElegida(textosCliente: string[]): 'transferencia' | 'efectivo' | null {
   let ultima: 'transferencia' | 'efectivo' | null = null;
   for (const t of textosCliente) {
     const tr = /\btransfer|\bcbu\b|\bcvu\b|\balias\b|mercado ?pago/i.test(t);
     const ef = /\befectivo\b|\bpersonalmente\b|\ben las oficinas\b/i.test(t);
     if (tr && !ef) ultima = 'transferencia'; else if (ef && !tr) ultima = 'efectivo';
   }
-  return ultima === 'transferencia';
+  return ultima;
+}
+
+/** La persona eligió transferencia como forma de abonar la reserva. */
+export function eligioTransferencia(textosCliente: string[]): boolean {
+  return modalidadElegida(textosCliente) === 'transferencia';
 }
 
 /** El modelo mandó en un solo mensaje los datos para transferir y horarios del calendario: son pasos de instancias distintas. */
@@ -1014,6 +975,29 @@ export function resumenTurnosVigentes(ts: TurnoVigente[]): string {
   if (!ts.length) return 'Turnos vigentes de esta persona: ninguno.';
   return 'Turnos vigentes de esta persona (ya tiene turno: no le vuelvas a vender la consulta; preguntale en qué podés ayudarla): ' +
     ts.map(t => `${textoTurno(t)}${t.reserva_pagada ? ' (reserva pagada)' : ''}${(t.observaciones ?? '').includes(MARCA_CANCELACION) ? ' (cancelación ya solicitada)' : ''} [id ${t.id}]`).join(' · ');
+}
+
+/**
+ * ¿Ya se puede ofrecer horarios y agendar? Lo decide el código, no el modelo:
+ *  - consulta sin cargo (el recibo lo confirmó), o
+ *  - el sistema ya validó el comprobante de la reserva, o
+ *  - la persona eligió abonar en efectivo en las oficinas (y ya está definido qué consulta le corresponde).
+ * Con reserva pendiente y sin comprobante, NO se agenda.
+ */
+export async function condicionDeAgenda(db: Db, ctx: CtxHerramienta): Promise<{ ok: true } | { ok: false; mensaje: string }> {
+  if (ctx.montoValidado) return { ok: true };
+  let datos: any = {};
+  try {
+    const { data } = await db.from('leads').select('datos').eq('telefono_clave', telefonoClave(ctx.telefono)).maybeSingle();
+    datos = (data as any)?.datos ?? {};
+  } catch (e) { console.error('[agente] condición de agenda', e); }
+  if (datos.categoria_recibo === 'art9_sin_cargo') return { ok: true };
+  const reserva = Number(datos.reserva_esperada);
+  if (Number.isFinite(reserva) && reserva > 0) {
+    if (ctx.modalidad === 'efectivo') return { ok: true };
+    return { ok: false, mensaje: 'TODAVÍA NO se puede agendar: primero la persona tiene que abonar la reserva. Si elige transferencia, pasale los datos y pedile el comprobante; recién cuando el sistema lo valide se coordina el turno. Si prefiere efectivo, coordiná con ella el día y la hora para abonar en las oficinas. No ofrezcas horarios ni agendes hasta entonces.' };
+  }
+  return { ok: false, mensaje: 'TODAVÍA NO se puede agendar: no está definido qué consulta le corresponde a esta persona. Si es Artículo 9 / Ganancias, pedile el recibo para que el sistema lo verifique; si es jubilación docente u otras situaciones, usá definir_tipo_consulta y seguí la secuencia (valor, forma de pago, comprobante). No ofrezcas horarios hasta entonces.' };
 }
 
 function elegirTurno(ts: TurnoVigente[], id: unknown): TurnoVigente | { error: string } {
@@ -1144,13 +1128,23 @@ export type Deps = {
 };
 
 export async function ejecutarHerramienta(db: Db, nombre: string, input: any, ctx: CtxHerramienta) {
-  if (nombre === 'consultar_disponibilidad') return (await disponibilidadDe(db, input?.profesional, input?.fecha)).body;
+  if (nombre === 'consultar_disponibilidad') {
+    // Con un turno vigente puede estar reprogramando; si no, solo se ofrecen horarios cuando ya corresponde agendar.
+    if ((await turnosVigentesDe(db, ctx.telefono, new Date())).length === 0) {
+      const c = await condicionDeAgenda(db, ctx);
+      if (!c.ok) return { status: 'requiere_reserva', mensaje: c.mensaje };
+    }
+    return (await disponibilidadDe(db, input?.profesional, input?.fecha)).body;
+  }
   if (nombre === 'agendar_turno') {
     // Tope de turnos vigentes por persona: evita llenar la agenda con reservas falsas.
     const vigentes = await turnosVigentesDe(db, ctx.telefono, new Date());
     if (vigentes.length >= MAX_TURNOS_VIGENTES) {
       return { status: 'limit', mensaje: `Esta persona ya tiene ${vigentes.length} turnos vigentes. Si necesita cambiar uno, usá reprogramar_turno; si quiere otro más, derivá a una persona.` };
     }
+    // Sin reserva abonada (o sin consulta sin cargo / efectivo acordado) no se agenda: lo decide el código, no el modelo.
+    const cond = await condicionDeAgenda(db, ctx);
+    if (!cond.ok) return { status: 'requiere_reserva', mensaje: cond.mensaje };
     // La seña solo se marca pagada si el sistema validó un comprobante en esta conversación, y por el importe leído (no el que diga el modelo).
     const pidioPago = input?.pago === true;
     const pago = pidioPago && !!ctx.montoValidado;
@@ -1159,10 +1153,12 @@ export async function ejecutarHerramienta(db: Db, nombre: string, input: any, ct
     const r = await crearTurno(db, {
       profesional: input?.profesional, fecha: input?.fecha, hora: input?.hora,
       nombre: corto(input?.nombre, 120), apellido: corto(input?.apellido, 120), tema: corto(input?.tema, 500), modalidad: corto(input?.modalidad, 40),
-      pago, monto_reserva: pago ? ctx.montoValidado : undefined,
+      pago, pago_automatico: pago, monto_reserva: pago ? ctx.montoValidado : undefined,
       telefono: ctx.telefono, conversation_id: ctx.conversationId,
     });
     if (pidioPago && !pago && r.code === 200) r.body = { ...r.body, aviso_pago: 'No hay comprobante validado: el turno quedó agendado sin marcar la seña como pagada.' };
+    // El comprobante lo leyó una IA, no el banco: queda marcado para que una persona lo verifique contra la cuenta.
+    if (pago && r.code === 200) await upsertLeadSeguro(db, ctx.telefono, camposDeLead({ datos: { pago_pendiente_verificar: `$${ctx.montoValidado} validado por lectura de imagen el ${new Date().toISOString().slice(0, 10)}` } }));
     return r.body;
   }
   if (nombre === 'consultar_mis_turnos') {
@@ -1306,6 +1302,7 @@ Documentación para la consulta: DNI y recibo de sueldo (obligatorios); certific
 - Sobre la clave de ANSES: NUNCA la pidas de entrada, nadie la comparte antes de tener confianza. Primero hacé las preguntas, validá el recibo, explicá cómo es el proceso y ganate la confianza. Recién con la persona avanzada en el trámite (por ejemplo cuando ya reservó o está por reservar) podés mencionar, como algo opcional, que si tiene a mano la clave de ANSES y el CUIL le sirven al abogado para adelantar el trabajo en la consulta, y que si no la tiene no hay ningún problema. Que la lleve a la consulta; no la pidas por este chat. Si insiste en pasarla por acá, pedile con amabilidad que no la comparta por mensaje y que se la dé al abogado en persona. Si duda, no insistas más de una vez. Nunca guardes ni repitas una clave.
 
 ## Turnos (guiá paso a paso, no vuelques el calendario)
+- El sistema decide cuándo se puede agendar: si consultar_disponibilidad o agendar_turno responden status requiere_reserva, NO ofrezcas horarios ni digas que el turno quedó agendado. Seguí la secuencia: la reserva se transfiere y el comprobante lo valida el sistema (o se acuerda efectivo en las oficinas); recién después se coordina el turno. Un turno nunca queda confirmado antes de eso.
 - Cuando corresponde agendar (reserva validada, o consulta sin cargo aceptada), NO tires horarios de una. Primero preguntá cuándo le queda más cómodo, con tus palabras. Por ejemplo: "Perfecto, recibimos su pago. Ahora, para agendar, ¿cuándo le quedaría más cómodo coordinar la consulta? Así le informo si el Dr. Alejandro Reyes tiene disponibilidad." (si es consulta sin cargo, omití lo del pago).
 - Con lo que responda (día, franja, mañana o tarde), usá consultar_disponibilidad con el abogado que corresponde y ofrecé como máximo 3 opciones que coincidan con lo que pidió. Nunca inventes horarios. Si lo que pidió no está libre, decilo y ofrecé las alternativas más cercanas.
 - Cuando elija día y hora, confirmá sus datos y usá agendar_turno. Si hay comprobante validado, mandá pago=true.
@@ -1420,6 +1417,7 @@ export async function procesarMensaje(deps: Deps, m: MsgEntrante) {
     conversationId,
     montoValidado: montoValidadoDe(textosCliente),
     pasarDatos,
+    modalidad: modalidadElegida(textosCliente),
   };
   const datosPago = limpiarSecreto(process.env.AGENTE_DATOS_PAGO ?? '');
 
@@ -1510,6 +1508,9 @@ export async function procesarMensaje(deps: Deps, m: MsgEntrante) {
 }
 
 // ---------------------------------------------------------------- OpenAI (conversación, visión, transcripción)
+
+/** Teléfono para logs: solo los últimos 4 dígitos. */
+export function enmascarar(tel: unknown) { const d = String(tel ?? '').replace(/\D/g, ''); return d.length > 4 ? `***${d.slice(-4)}` : '***'; }
 
 function claveOpenAI() { return limpiarSecreto(process.env.api_openai || process.env.OPENAI_API_KEY || ''); }
 
@@ -1684,7 +1685,7 @@ async function enviarWhatsApp(to: string, texto: string) {
     headers: { 'content-type': 'application/json', ...c.headers },
     body: JSON.stringify({ messaging_product: 'whatsapp', to, type: 'text', text: { body: texto.slice(0, 3800) } }),
   });
-  if (!r.ok) throw new Error(`whatsapp ${r.status} (to=${to}, canal=${usaKapso() ? 'kapso ' + (emisorKapso || envWA('KAPSO_PHONE_NUMBER_ID')) : 'meta'}): ${(await r.text()).slice(0, 900)}`);
+  if (!r.ok) throw new Error(`whatsapp ${r.status} (to=${enmascarar(to)}, canal=${usaKapso() ? 'kapso ' + (emisorKapso || envWA('KAPSO_PHONE_NUMBER_ID')) : 'meta'}): ${(await r.text()).slice(0, 900)}`);
 }
 
 /** Mensaje de WhatsApp para una nota de voz nativa: `voice: true` va DENTRO de `audio` (afuera se ignora y llega como audio común, sin ondas). */
