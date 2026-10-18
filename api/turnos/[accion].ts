@@ -704,6 +704,8 @@ async function upsertLeadSeguro(db: Db, telefono: unknown, campos: CamposLead) {
 //   AGENTE_MODELO_VISION (gpt-4o), ELEVENLABS_API_KEY + ELEVENLABS_VOICE_ID (+ ELEVENLABS_MODEL, eleven_v3).
 // =====================================================================================
 
+/** Voz por defecto (ElevenLabs: Melanie). Se reemplaza con la variable ELEVENLABS_VOICE_ID. */
+const VOZ_DEFAULT = 'bN1bDXgDIGX5lw0rtY2B';
 const GRAPH_URL = 'https://graph.facebook.com/v20.0';
 const MODELO_DEFAULT = 'gpt-4o-mini';
 const MODELO_VISION_DEFAULT = 'gpt-4o';
@@ -1472,8 +1474,8 @@ async function enviarWhatsApp(to: string, texto: string) {
 
 /** Nota de voz: texto → ElevenLabs (text-to-speech, con emoción, en ogg/opus) → sube el audio a Meta → se ve como nota de voz de WhatsApp. */
 async function enviarAudioWhatsApp(to: string, texto: string) {
-  const key = limpiarSecreto(process.env.ELEVENLABS_API_KEY ?? ''), voz = limpiarSecreto(process.env.ELEVENLABS_VOICE_ID ?? '');
-  if (!key || !voz) throw new Error('Falta ELEVENLABS_API_KEY o ELEVENLABS_VOICE_ID');
+  const key = limpiarSecreto(process.env.ELEVENLABS_API_KEY ?? ''), voz = limpiarSecreto(process.env.ELEVENLABS_VOICE_ID ?? '') || VOZ_DEFAULT;
+  if (!key) throw new Error('Falta ELEVENLABS_API_KEY');
   const tts = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(voz)}?output_format=opus_48000_64`, {
     method: 'POST',
     headers: { 'content-type': 'application/json', 'xi-api-key': key },
@@ -1542,7 +1544,7 @@ async function agente(req: VercelRequest, res: VercelResponse, db: Db, raw: stri
     preparar: prepararEntrante,
     escribiendo: escribiendoWhatsApp,
     pausa: ms => new Promise(r => setTimeout(r, ms)),
-    enviarAudio: env('ELEVENLABS_API_KEY') && env('ELEVENLABS_VOICE_ID') ? enviarAudioWhatsApp : undefined,
+    enviarAudio: env('ELEVENLABS_API_KEY') ? enviarAudioWhatsApp : undefined,
     vozSiempre: env('AGENTE_VOZ').toLowerCase() !== 'texto',
   };
   // Secuencial: un mismo cliente puede mandar varios mensajes seguidos y el contexto debe respetar el orden.
