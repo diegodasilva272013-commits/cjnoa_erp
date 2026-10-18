@@ -807,3 +807,108 @@ describe('agente · comportamiento humano', () => {
     expect(enviados).toHaveLength(1);
   });
 });
+
+
+// ------------------------------------------------------------------ agendado de punta a punta (base simulada)
+/** Base en memoria con lo que usan disponibilidad y agendado: filtros, insert().select().single() e índice único del turno del agente. */
+function dbAgenda(tablas: Record<string, any[]>) {
+  const clave = (tel: any) => { const d = String(tel ?? '').replace(/\D/g, ''); return d.length >= 8 ? d.slice(-10) : ''; };
+  const completar = (row: any) => ('telefono' in row ? { ...row, telefono_clave: clave(row.telefono) } : row);
+  for (const k of Object.keys(tablas)) tablas[k] = tablas[k].map(completar);
+  let seq = 0;
+  const from = (nombre: string) => {
+    const filas = () => (tablas[nombre] ??= []);
+    let modo = 'select'; let payload: any; let opts: any; let lim = Infinity; let uno = false;
+    const filtros: Array<(r: any) => boolean> = [];
+    const ejecutar = (): { data: any; error: any } => {
+      if (modo === 'insert') {
+        if (nombre === 'consultas_agendadas' && payload.origen === 'agente' && filas().some(r => r.origen === 'agente' && r.abogado_asignado === payload.abogado_asignado && r.fecha_consulta === payload.fecha_consulta && r.hora_consulta === payload.hora_consulta)) {
+          return { data: null, error: { code: '23505', message: 'duplicate key' } };
+        }
+        const fila = completar({ id: `id${++seq}`, ...payload }); filas().push(fila);
+        return { data: uno ? { id: fila.id } : null, error: null };
+      }
+      if (modo === 'upsert') {
+        const k = opts.onConflict; const i = filas().findIndex(r => r[k] === payload[k]);
+        if (i >= 0) filas()[i] = completar({ ...filas()[i], ...payload }); else filas().push(completar({ id: `id${++seq}`, ...payload }));
+        return { data: null, error: null };
+      }
+      const sel = filas().filter(r => filtros.every(f => f(r)));
+      if (modo === 'update') { sel.forEach(r => Object.assign(r, completar({ ...r, ...payload }))); return { data: null, error: null }; }
+      const out = sel.slice(0, lim);
+      return { data: uno ? (out[0] ?? null) : out, error: null };
+    };
+    const q: any = {
+      select: () => q, not: () => q, order: () => q,
+      eq: (c: string, v: any) => { filtros.push(r => r[c] === v); return q; },
+      ilike: (c: string, v: string) => { const t = v.replace(/%/g, '').toLowerCase(); filtros.push(r => String(r[c] ?? '').toLowerCase().includes(t)); return q; },
+      in: (c: string, vs: any[]) => { filtros.push(r => vs.includes(r[c])); return q; },
+      gte: (c: string, v: any) => { filtros.push(r => r[c] >= v); return q; },
+      lt: (c: string, v: any) => { filtros.push(r => r[c] < v); return q; },
+      limit: (n: number) => { lim = n; return q; },
+      single: () => { uno = true; return Promise.resolve(ejecutar()); },
+      insert: (p: any) => { modo = 'insert'; payload = p; return q; },
+      update: (p: any) => { modo = 'update'; payload = p; return q; },
+      upsert: (p: any, o: any) => { modo = 'upsert'; payload = p; opts = o; return q; },
+      maybeSingle: () => { uno = true; return Promise.resolve(ejecutar()); },
+      then: (res: any, rej: any) => Promise.resolve(ejecutar()).then(res, rej),
+    };
+    return q;
+  };
+  return { db: { from } as any, tablas };
+}
+
+describe('agente · agendar turno de punta a punta', () => {
+  // Un día hábil futuro (martes dentro de 1 a 2 semanas) para no depender de la fecha real.
+  const fecha = (() => { const d = new Date(Date.now() + 10 * 86400000); while (d.getUTCDay() !== 2) d.setUTCDate(d.getUTCDate() + 1); return d.toISOString().slice(0, 10); })();
+  const base = () => dbAgenda({
+    disponibilidad_horarios: [{ profesional: 'Alejandro', dia_semana: 2, fecha: null, hora_desde: '09:00', hora_hasta: '11:00', duracion_min: 30 }],
+    consultas_agendadas: [{ id: 'x', fecha_consulta: fecha, hora_consulta: '09:30', abogado_asignado: 'Alejandro', origen: 'manual' }],
+    perfiles: [], audiencias: [], audiencias_general: [], eventos_internos: [],
+  });
+  const ctx = { telefono: '5493884867965', conversationId: 'respaldo-5493884867965' };
+
+  it('ofrece solo los horarios libres (descuenta lo ya ocupado)', async () => {
+    const { db } = base();
+    const r: any = await ejecutarHerramienta(db, 'consultar_disponibilidad', { profesional: 'alejandro', fecha }, ctx);
+    expect(r.horarios_disponibles).toEqual(['09:00', '10:00', '10:30']);
+  });
+
+  it('agenda: queda en el calendario, con el teléfono de WhatsApp, y el lead pasa a Agendado', async () => {
+    const { db, tablas } = base();
+    const r: any = await ejecutarHerramienta(db, 'agendar_turno', { profesional: 'alejandro', nombre: 'Ana', apellido: 'Gómez', fecha, hora: '10:00', tema: 'Artículo 9', telefono: '999' }, ctx);
+    expect(r.status).toBe('success');
+    const t = tablas.consultas_agendadas.find((x: any) => x.hora_consulta === '10:00');
+    expect(t).toMatchObject({ cliente_nombre: 'Ana Gómez', telefono: '5493884867965', abogado_asignado: 'Alejandro', fecha_consulta: fecha, origen: 'agente', reserva_pagada: false, monto_reserva: 0, conversation_id: 'respaldo-5493884867965' });
+    expect(tablas.leads[0].etapa).toBe('agendado');
+  });
+
+  it('no agenda dos veces el mismo horario ni uno ocupado', async () => {
+    const { db, tablas } = base();
+    const a: any = await ejecutarHerramienta(db, 'agendar_turno', { profesional: 'alejandro', nombre: 'Ana', fecha, hora: '10:00' }, ctx);
+    const b: any = await ejecutarHerramienta(db, 'agendar_turno', { profesional: 'alejandro', nombre: 'Luis', fecha, hora: '10:00' }, ctx);
+    const c: any = await ejecutarHerramienta(db, 'agendar_turno', { profesional: 'alejandro', nombre: 'Luis', fecha, hora: '09:30' }, ctx);
+    expect(a.status).toBe('success');
+    expect(b.status).toBe('conflict');
+    expect(c.status).toBe('conflict');
+    expect(tablas.consultas_agendadas.filter((x: any) => x.origen === 'agente')).toHaveLength(1);
+  });
+
+  it('la seña solo se marca pagada con comprobante validado, y por el importe leído', async () => {
+    const sin = base();
+    const r1: any = await ejecutarHerramienta(sin.db, 'agendar_turno', { profesional: 'alejandro', nombre: 'Ana', fecha, hora: '10:00', pago: true }, ctx);
+    expect(r1.aviso_pago).toBeTruthy();
+    expect(sin.tablas.consultas_agendadas.find((x: any) => x.hora_consulta === '10:00')).toMatchObject({ reserva_pagada: false, monto_reserva: 0 });
+
+    const con = base();
+    await ejecutarHerramienta(con.db, 'agendar_turno', { profesional: 'alejandro', nombre: 'Ana', fecha, hora: '10:00', pago: true, monto_reserva: 1 }, { ...ctx, montoValidado: 50000 });
+    expect(con.tablas.consultas_agendadas.find((x: any) => x.hora_consulta === '10:00')).toMatchObject({ reserva_pagada: true, monto_reserva: 50000 });
+  });
+
+  it('rechaza un profesional que no existe o una fecha pasada', async () => {
+    const { db } = base();
+    expect((await ejecutarHerramienta(db, 'agendar_turno', { profesional: 'pedro', nombre: 'Ana', fecha, hora: '10:00' }, ctx) as any).error).toBeTruthy();
+    const pasado: any = await ejecutarHerramienta(db, 'agendar_turno', { profesional: 'alejandro', nombre: 'Ana', fecha: '2020-01-07', hora: '10:00' }, ctx);
+    expect(pasado.status).toBe('conflict');
+  });
+});
