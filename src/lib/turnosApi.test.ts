@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { createHmac } from 'node:crypto';
 import handler, {
   clasificarRecibo, TIPOS_CONSULTA, promesaSinCumplir, separarDatosPago, mensajeApurado,
-  aMin, limpiarSecreto, camposDeLead, etapaAutomatica, fusionarLead, registrarMensaje, upsertLead, firmaMetaValida, firmaKapsoValida, extraerMensajesKapso, extraerMensajes, aMensajesLLM, procesarMensaje, notaDeImagen, montoValidadoDe, quitarEtiquetas, aMensajesOpenAI, deOpenAI, ejecutarHerramienta, PROMPT_AGENTE, type Deps, telefonoClave, historialDe, inferirNombre, normalizarFecha, normalizarHora, bloquesDelDia, huecosLibres, localDe, resolverProfesional, diaSemanaISO, fechaValida,
+  aMin, limpiarSecreto, camposDeLead, etapaAutomatica, fusionarLead, registrarMensaje, upsertLead, firmaMetaValida, firmaKapsoValida, extraerMensajesKapso, extraerMensajes, aMensajesLLM, procesarMensaje, cuerpoNotaDeVoz, eligioTransferencia, notaDeImagen, montoValidadoDe, quitarEtiquetas, aMensajesOpenAI, deOpenAI, ejecutarHerramienta, PROMPT_AGENTE, type Deps, telefonoClave, historialDe, inferirNombre, normalizarFecha, normalizarHora, bloquesDelDia, huecosLibres, localDe, resolverProfesional, diaSemanaISO, fechaValida,
   type Bloque,
 } from '../../api/turnos/[accion]';
 
@@ -243,7 +243,7 @@ describe('respaldo · procesarMensaje', () => {
       ejecutar: async (nombre, input, ctx) => { llamadas.push({ nombre, input, ctx }); return { horarios_disponibles: ['09:00'] }; },
     });
     await procesarMensaje(d, msg);
-    expect(llamadas).toEqual([{ nombre: 'consultar_disponibilidad', input: { profesional: 'alejandro' }, ctx: { telefono: '5493884867965', conversationId: 'respaldo-5493884867965', montoValidado: null } }]);
+    expect(llamadas).toEqual([{ nombre: 'consultar_disponibilidad', input: { profesional: 'alejandro' }, ctx: { telefono: '5493884867965', conversationId: 'respaldo-5493884867965', montoValidado: null, pasarDatos: false } }]);
     expect(enviados).toEqual(['Tengo lugar el martes 09:00']);
   });
 
@@ -738,7 +738,7 @@ describe('agente · voz y secuencia comercial', () => {
       enviarAudio: async (_t, x) => { audios.push(x); },
       llm: async () => texto('[warmly] Le paso los datos por escrito.\nAlias: centrojuridiconoa680\nCVU: 0000003100050009854368'),
     });
-    await procesarMensaje(d, msg);
+    await procesarMensaje(d, { ...msg, texto: 'Prefiero pagar por transferencia' });
     expect(audios).toEqual(['[warmly] Le paso los datos por escrito.']);
     expect(enviados).toEqual(['Alias: centrojuridiconoa680\nCVU: 0000003100050009854368']);
   });
@@ -910,5 +910,56 @@ describe('agente · agendar turno de punta a punta', () => {
     expect((await ejecutarHerramienta(db, 'agendar_turno', { profesional: 'pedro', nombre: 'Ana', fecha, hora: '10:00' }, ctx) as any).error).toBeTruthy();
     const pasado: any = await ejecutarHerramienta(db, 'agendar_turno', { profesional: 'alejandro', nombre: 'Ana', fecha: '2020-01-07', hora: '10:00' }, ctx);
     expect(pasado.status).toBe('conflict');
+  });
+});
+
+
+describe('agente · datos bancarios solo después de elegir transferencia', () => {
+  it('detecta qué eligió la persona (lo último que dijo)', () => {
+    expect(eligioTransferencia(['Hola', '55 hombre y sí'])).toBe(false);
+    expect(eligioTransferencia(['Prefiero transferencia'])).toBe(true);
+    expect(eligioTransferencia(['transferencia', 'mejor en efectivo'])).toBe(false);
+    expect(eligioTransferencia(['efectivo', 'no, mejor por transferencia'])).toBe(true);
+    expect(eligioTransferencia(['[Audio] hago la transferencia hoy'])).toBe(true);
+  });
+
+  it('si todavía no eligió, el modelo no recibe los datos y, si igual los escribe, se quitan del mensaje', async () => {
+    const { db } = dbConversaciones();
+    const sistemas: string[] = [];
+    const { d, enviados } = deps(db, {
+      llm: async (sys) => { sistemas.push(sys); return texto('Gracias. La consulta vale $100.000.\nAlias: centrojuridiconoa680\nCVU: 0000003100050009854368\nTitular: Arturo Rodrigo Reyes\n¿Prefiere transferencia o efectivo?'); },
+    });
+    await procesarMensaje(d, { ...msg, texto: '55 hombre y sí' });
+    expect(sistemas[0]).not.toContain('centrojuridiconoa680');
+    expect(sistemas[0]).toContain('TODAVÍA NO eligió transferencia');
+    expect(enviados[0]).not.toMatch(/alias|cvu|centrojuridiconoa680/i);
+    expect(enviados[0]).toContain('¿Prefiere transferencia o efectivo?');
+  });
+
+  it('cuando elige transferencia, el modelo recibe los datos', async () => {
+    const { db } = dbConversaciones();
+    const sistemas: string[] = [];
+    const { d } = deps(db, { llm: async (sys) => { sistemas.push(sys); return texto('Ahí le paso los datos.'); } });
+    await procesarMensaje(d, { ...msg, texto: 'Por transferencia' });
+    expect(sistemas[0]).toContain('centrojuridiconoa680');
+  });
+
+  it('definir_tipo_consulta no entrega los datos bancarios antes de que elija transferencia', async () => {
+    const { db } = dbMemoria();
+    const sin: any = await ejecutarHerramienta(db, 'definir_tipo_consulta', { tipo: 'jubilacion_docente' }, { telefono: '5493884867965', conversationId: 'c', pasarDatos: false });
+    expect(sin.datos_para_transferir).toBeUndefined();
+    expect(sin.nota).toContain('NO pases datos bancarios');
+    expect(sin.valor_consulta).toBeGreaterThan(0);
+    const con: any = await ejecutarHerramienta(db, 'definir_tipo_consulta', { tipo: 'jubilacion_docente' }, { telefono: '5493884867965', conversationId: 'c', pasarDatos: true });
+    expect(con.datos_para_transferir).toContain('centrojuridiconoa680');
+  });
+});
+
+
+describe('agente · nota de voz nativa', () => {
+  it('el flag voice va dentro de audio, para que se vea como nota de voz con ondas', () => {
+    const c: any = cuerpoNotaDeVoz('5493884867965', 'MEDIA1');
+    expect(c).toEqual({ messaging_product: 'whatsapp', to: '5493884867965', type: 'audio', audio: { id: 'MEDIA1', voice: true } });
+    expect(c.voice).toBeUndefined();
   });
 });

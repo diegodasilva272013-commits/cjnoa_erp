@@ -736,7 +736,7 @@ export type MsgEntrante = { id: string; from: string; nombre: string | null; tex
 export type MsgGuardado = { from: 'cliente' | 'agente'; texto: string; t?: number | null; wid?: string };
 type BloqueLLM = { type: string; [k: string]: any };
 type MsgLLM = { role: 'user' | 'assistant'; content: string | BloqueLLM[] };
-type CtxHerramienta = { telefono: string; conversationId: string; montoValidado?: number | null };
+type CtxHerramienta = { telefono: string; conversationId: string; montoValidado?: number | null; pasarDatos?: boolean };
 
 /** Meta firma el cuerpo con `X-Hub-Signature-256: sha256=<hex>` usando el App Secret. */
 export function firmaMetaValida(appSecret: string, header: string, raw: string) {
@@ -920,6 +920,17 @@ export function separarDatosPago(texto: string): { voz: string; escrito: string 
   return { voz: voz.join('\n').replace(/\n{3,}/g, '\n\n').trim(), escrito: escrito.join('\n').trim() };
 }
 
+/** La persona eligió transferencia como forma de abonar la reserva (lo último que dijo entre transferencia y efectivo). */
+export function eligioTransferencia(textosCliente: string[]): boolean {
+  let ultima: 'transferencia' | 'efectivo' | null = null;
+  for (const t of textosCliente) {
+    const tr = /\btransfer|\bcbu\b|\bcvu\b|\balias\b|mercado ?pago/i.test(t);
+    const ef = /\befectivo\b|\bpersonalmente\b|\ben las oficinas\b/i.test(t);
+    if (tr && !ef) ultima = 'transferencia'; else if (ef && !tr) ultima = 'efectivo';
+  }
+  return ultima === 'transferencia';
+}
+
 /** El modelo mandó en un solo mensaje los datos para transferir y horarios del calendario: son pasos de instancias distintas. */
 export function mensajeApurado(txt: string): boolean {
   return LINEA_DATOS_PAGO.test(txt) && /\b\d{1,2}[:.]\d{2}\s*(?:hs|h)?\b/i.test(txt);
@@ -1044,7 +1055,11 @@ export async function ejecutarHerramienta(db: Db, nombre: string, input: any, ct
     const c = TIPOS_CONSULTA[t];
     if (!c) return { error: 'tipo debe ser otras_situaciones_anses o jubilacion_docente' };
     await upsertLeadSeguro(db, ctx.telefono, camposDeLead({ datos: { tipo_consulta: t, valor_consulta: c.valor, reserva_esperada: c.reserva } }));
-    return { valor_consulta: c.valor, reserva: c.reserva, saldo_dia_consulta: c.valor - c.reserva, abogado: c.abogado, datos_para_transferir: limpiarSecreto(process.env.AGENTE_DATOS_PAGO ?? '') || DATOS_PAGO_DEFAULT };
+    return { valor_consulta: c.valor, reserva: c.reserva, saldo_dia_consulta: c.valor - c.reserva, abogado: c.abogado,
+      // Los datos bancarios solo existen para el modelo cuando la persona ya eligió transferencia.
+      ...(ctx.pasarDatos === false
+        ? { nota: 'La persona todavía no eligió transferencia: NO pases datos bancarios ni horarios. Primero decile el valor y preguntale cómo prefiere abonar la reserva (transferencia o efectivo).' }
+        : { datos_para_transferir: limpiarSecreto(process.env.AGENTE_DATOS_PAGO ?? '') || DATOS_PAGO_DEFAULT }) };
   }
   if (nombre === 'derivar_a_humano') {
     const motivo = String(input?.motivo ?? '').trim().slice(0, 400) || 'Sin detalle';
@@ -1138,7 +1153,7 @@ Documentación para la consulta: DNI y recibo de sueldo (obligatorios); certific
 Usá derivar_a_humano con un motivo claro, y decile que lo contactan en el día, cuando: plantee una urgencia de plazos; el caso sea ambiguo y no puedas clasificarlo; haya un problema con un pago; o pida hablar con alguien.
 Si una herramienta falla de forma repetida, no hables de errores técnicos: tomá nombre, teléfono y tema, derivá y decile: "Ya dejé registrado su pedido. Un integrante del equipo lo contacta en el día para confirmar." Si no entendés un mensaje, no adivines: pedí que lo repita o derivá.`;
 
-function sistema(prompt: string, hist: Awaited<ReturnType<typeof historialDe>>, ahora: Date, extra: { esAudio?: boolean; datosPago?: string; referral?: string; conVoz?: boolean } = {}) {
+function sistema(prompt: string, hist: Awaited<ReturnType<typeof historialDe>>, ahora: Date, extra: { esAudio?: boolean; datosPago?: string; pasarDatos?: boolean; referral?: string; conVoz?: boolean } = {}) {
   const l = localDe(ahora);
   const dias = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
   const dow = new Date(`${l.fecha}T12:00:00Z`).getUTCDay();
@@ -1151,11 +1166,13 @@ function sistema(prompt: string, hist: Awaited<ReturnType<typeof historialDe>>, 
     `{{es_recurrente}}: ${hist.es_recurrente}`,
     `{{tiene_historial}}: ${hist.tiene_historial}`,
     `{{cliente_historial}}: ${hist.cliente_historial}`,
-    `Datos para transferir la reserva (pasalos SOLO cuando la persona haya elegido transferencia; el importe lo indica el sistema según el tipo de consulta): ${extra.datosPago || DATOS_PAGO_DEFAULT}`,
+    extra.pasarDatos === false
+      ? 'Datos bancarios: la persona TODAVÍA NO eligió transferencia, así que no los tenés. No los menciones ni los inventes: primero preguntale cómo prefiere abonar la reserva (transferencia o efectivo) y esperá su respuesta.'
+      : `Datos para transferir la reserva (la persona ya eligió transferencia; el importe lo indica el sistema según el tipo de consulta): ${extra.datosPago || DATOS_PAGO_DEFAULT}`,
     ...(extra.referral ? [`El primer mensaje llegó desde un anuncio de Meta: ${extra.referral}`] : []),
     'Usá las herramientas para disponibilidad y agenda. Respondé siempre en texto plano, corto, sin markdown.',
     ...(extra.conVoz
-      ? ['Tu respuesta se envía como NOTA DE VOZ (se convierte en audio con la voz del estudio). Escribí como se habla, en frases cortas y cálidas, sin listas, sin markdown y sin números largos. Poné al inicio de CADA frase una etiqueta de emoción entre corchetes que acompañe lo que decís, por ejemplo [warmly], [calm], [empathetic], [cheerful], [thoughtful], [reassuring] o [gently]; solo una por frase y siempre en inglés. Los datos para transferir (alias, CVU, titular) escribilos cada uno en su propia línea con el formato "Alias: ...", "CVU: ...", "Titular: ...": van por escrito y no se dictan; en la parte hablada decí solo que se los pasás por escrito.']
+      ? ['Tu respuesta se envía como NOTA DE VOZ (se convierte en audio con la voz del estudio). Escribí como se habla, en frases cortas y cálidas, sin listas, sin markdown y sin números largos. Poné al inicio de CADA frase una etiqueta de emoción entre corchetes que acompañe lo que decís, por ejemplo [warmly], [calm], [empathetic], [cheerful], [thoughtful], [reassuring] o [gently]; solo una por frase y siempre en inglés. ' + (extra.pasarDatos === false ? '' : 'Los datos para transferir (alias, CVU, titular) escribilos cada uno en su propia línea con el formato "Alias: ...", "CVU: ...", "Titular: ...": van por escrito y no se dictan; en la parte hablada decí solo que se los pasás por escrito.')]
       : []),
   ].join('\n');
 }
@@ -1206,10 +1223,13 @@ export async function procesarMensaje(deps: Deps, m: MsgEntrante) {
 
   const hist = await historialDe(db, m.from).catch(() => ({ tiene_historial: 'false', es_recurrente: 'false', cliente_nombre: '', cliente_historial: '' }));
   const mensajes: MsgLLM[] = aMensajesLLM([...previos, { from: 'cliente', texto: textoCliente }]);
+  const textosCliente = [...previos.filter(x => x.from === 'cliente').map(x => x.texto), textoCliente];
+  const pasarDatos = eligioTransferencia(textosCliente);
   const ctx: CtxHerramienta = {
     telefono: m.from,
     conversationId,
-    montoValidado: montoValidadoDe([...previos.filter(x => x.from === 'cliente').map(x => x.texto), textoCliente]),
+    montoValidado: montoValidadoDe(textosCliente),
+    pasarDatos,
   };
   const datosPago = limpiarSecreto(process.env.AGENTE_DATOS_PAGO ?? '');
 
@@ -1219,7 +1239,7 @@ export async function procesarMensaje(deps: Deps, m: MsgEntrante) {
   let reintentoApuro = false;
   try {
     for (let i = 0; i < MAX_VUELTAS_HERRAMIENTAS + 1; i++) {
-      const r = await deps.llm(sistema(deps.prompt, hist, ahora, { esAudio, datosPago, referral: m.referral, conVoz }), mensajes);
+      const r = await deps.llm(sistema(deps.prompt, hist, ahora, { esAudio, datosPago, pasarDatos, referral: m.referral, conVoz }), mensajes);
       if (r.stop_reason !== 'tool_use') {
         const txt = r.content.filter(b => b.type === 'text').map(b => String(b.text)).join('\n').trim();
         // Si prometió "voy a chequear…" sin hacerlo, se le pide que lo haga ahora: el cliente no tiene que insistir.
@@ -1253,6 +1273,8 @@ export async function procesarMensaje(deps: Deps, m: MsgEntrante) {
   } catch (e) {
     console.error('[agente] modelo', e);
   }
+  // Red de seguridad: los datos bancarios solo salen si la persona ya eligió transferencia.
+  if (!pasarDatos && LINEA_DATOS_PAGO.test(respuesta)) respuesta = respuesta.split('\n').filter(l => !LINEA_DATOS_PAGO.test(l)).join('\n').replace(/\n{3,}/g, '\n\n').trim();
   if (!respuesta) respuesta = MSG_SIN_RESPUESTA; // nunca dejamos al cliente sin respuesta
   const textoPlano = quitarEtiquetas(respuesta) || MSG_SIN_RESPUESTA;
 
@@ -1472,6 +1494,11 @@ async function enviarWhatsApp(to: string, texto: string) {
   if (!r.ok) throw new Error(`whatsapp ${r.status} (to=${to}, canal=${usaKapso() ? 'kapso ' + (emisorKapso || envWA('KAPSO_PHONE_NUMBER_ID')) : 'meta'}): ${(await r.text()).slice(0, 900)}`);
 }
 
+/** Mensaje de WhatsApp para una nota de voz nativa: `voice: true` va DENTRO de `audio` (afuera se ignora y llega como audio común, sin ondas). */
+export function cuerpoNotaDeVoz(to: string, mediaId: string) {
+  return { messaging_product: 'whatsapp', to, type: 'audio', audio: { id: mediaId, voice: true } };
+}
+
 /** Nota de voz: texto → ElevenLabs (text-to-speech, con emoción, en ogg/opus) → sube el audio a Meta → se ve como nota de voz de WhatsApp. */
 async function enviarAudioWhatsApp(to: string, texto: string) {
   const key = limpiarSecreto(process.env.ELEVENLABS_API_KEY ?? ''), voz = limpiarSecreto(process.env.ELEVENLABS_VOICE_ID ?? '') || VOZ_DEFAULT;
@@ -1497,7 +1524,7 @@ async function enviarAudioWhatsApp(to: string, texto: string) {
   const r = await fetch(`${c.base}/messages`, {
     method: 'POST',
     headers: { 'content-type': 'application/json', ...c.headers },
-    body: JSON.stringify({ messaging_product: 'whatsapp', to, type: 'audio', audio: { id }, voice: true }),
+    body: JSON.stringify(cuerpoNotaDeVoz(to, id)),
   });
   if (!r.ok) throw new Error(`whatsapp audio ${r.status}: ${(await r.text()).slice(0, 200)}`);
 }
