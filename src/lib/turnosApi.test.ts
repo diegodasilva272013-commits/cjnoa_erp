@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { createHmac } from 'node:crypto';
 import handler, {
-  clasificarRecibo, TIPOS_CONSULTA, promesaSinCumplir,
+  clasificarRecibo, TIPOS_CONSULTA, promesaSinCumplir, separarDatosPago, mensajeApurado,
   aMin, limpiarSecreto, camposDeLead, etapaAutomatica, fusionarLead, registrarMensaje, upsertLead, firmaMetaValida, firmaKapsoValida, extraerMensajesKapso, extraerMensajes, aMensajesLLM, procesarMensaje, notaDeImagen, montoValidadoDe, quitarEtiquetas, aMensajesOpenAI, deOpenAI, ejecutarHerramienta, PROMPT_AGENTE, type Deps, telefonoClave, historialDe, inferirNombre, normalizarFecha, normalizarHora, bloquesDelDia, huecosLibres, localDe, resolverProfesional, diaSemanaISO, fechaValida,
   type Bloque,
 } from '../../api/turnos/[accion]';
@@ -701,6 +701,61 @@ describe('agente · seguimiento (no se queda en una promesa)', () => {
     const { d } = deps(db, { llm: async () => { llamadas++; return texto('Aguarde un momento, voy a verificar.'); } });
     await procesarMensaje(d, msg);
     expect(llamadas).toBe(2);
+  });
+});
+
+describe('agente · voz y secuencia comercial', () => {
+  it('separa los datos de pago (van por escrito) de lo que se dice con la voz', () => {
+    const t = '[warmly] Perfecto, le paso los datos por escrito.\nAlias: centrojuridiconoa680\nCVU: 0000003100050009854368\nTitular: Arturo Rodrigo Reyes\n[calm] Cuando transfiera, mándeme el comprobante.';
+    const { voz, escrito } = separarDatosPago(t);
+    expect(voz).toContain('le paso los datos por escrito');
+    expect(voz).toContain('mándeme el comprobante');
+    expect(voz).not.toContain('centrojuridiconoa680');
+    expect(escrito.split('\n')).toHaveLength(3);
+    expect(separarDatosPago('[warmly] Hola, buen día.')).toEqual({ voz: '[warmly] Hola, buen día.', escrito: '' });
+  });
+  it('detecta datos bancarios mezclados con horarios del calendario', () => {
+    expect(mensajeApurado('Alias: centrojuridiconoa680\nTambién tengo el martes 10:30 y 11:00.')).toBe(true);
+    expect(mensajeApurado('Alias: centrojuridiconoa680\nCVU: 0000003100050009854368')).toBe(false);
+    expect(mensajeApurado('El martes a las 10:30 hay lugar. ¿Le sirve?')).toBe(false);
+  });
+  it('si mezcla datos bancarios y calendario, se le pide reescribir con un solo paso', async () => {
+    const { db } = dbConversaciones();
+    let llamadas = 0;
+    const { d, enviados } = deps(db, {
+      llm: async () => { llamadas++; return llamadas === 1 ? texto('La consulta vale $80.000.\nAlias: centrojuridiconoa680\nTengo martes 10:30 y 11:00.') : texto('Gracias. Podríamos coordinar una consulta con el Dr. Fabricio Reyes. ¿Prefiere abonar la reserva por transferencia o en efectivo?'); },
+    });
+    await procesarMensaje(d, msg);
+    expect(llamadas).toBe(2);
+    expect(enviados[0]).not.toContain('Alias');
+    expect(enviados[0]).toContain('transferencia o en efectivo');
+  });
+  it('con voz siempre, contesta con nota de voz aunque el cliente escriba, y los datos de pago van por escrito', async () => {
+    const { db } = dbConversaciones();
+    const audios: string[] = [];
+    const { d, enviados } = deps(db, {
+      vozSiempre: true,
+      enviarAudio: async (_t, x) => { audios.push(x); },
+      llm: async () => texto('[warmly] Le paso los datos por escrito.\nAlias: centrojuridiconoa680\nCVU: 0000003100050009854368'),
+    });
+    await procesarMensaje(d, msg);
+    expect(audios).toEqual(['[warmly] Le paso los datos por escrito.']);
+    expect(enviados).toEqual(['Alias: centrojuridiconoa680\nCVU: 0000003100050009854368']);
+  });
+  it('si falla la voz, contesta por texto sin etiquetas', async () => {
+    const { db } = dbConversaciones();
+    const { d, enviados } = deps(db, {
+      vozSiempre: true,
+      enviarAudio: async () => { throw new Error('sin saldo de voz'); },
+      llm: async () => texto('[warmly] Hola Juan. [calm] ¿Qué consulta quiere hacer?'),
+    });
+    await procesarMensaje(d, msg);
+    expect(enviados).toEqual(['Hola Juan. ¿Qué consulta quiere hacer?']);
+  });
+  it('el prompt arma la secuencia: valor y modalidad, datos solo si elige transferencia, turno tras el comprobante', () => {
+    expect(PROMPT_AGENTE).toContain('Secuencia comercial');
+    expect(PROMPT_AGENTE).toContain('Solo si elige transferencia');
+    expect(PROMPT_AGENTE).toContain('Solo después de que el sistema valide el comprobante');
   });
 });
 

@@ -907,7 +907,21 @@ export function montoValidadoDe(textos: string[]): number | null {
   return monto;
 }
 
-const ETIQUETA_VOZ = /\s*\[(?:warmly|calm|calmly|empathetic|cheerful|gently|softly|friendly|reassuring|serious|thoughtful|apologetic|concerned|excited|sighs|whispers|laughs|pauses)\]\s*/gi;
+const ETIQUETA_VOZ = /\s*\[(?:warmly|warm|calm|calmly|empathetic|cheerful|gently|softly|friendly|reassuring|serious|thoughtful|apologetic|concerned|excited|enthusiastic|encouraging|curious|relieved|sincere|sincerely|happy|sad|sighs|whispers|laughs|chuckles|pauses|hesitates)\]\s*/gi;
+
+const LINEA_DATOS_PAGO = /centrojuridiconoa680|0000003100050009854368|\b(?:alias|cvu|titular)\b\s*[:=]/i;
+
+/** En una nota de voz no se dictan alias ni CVU: esas líneas salen por escrito y el resto se dice con la voz. */
+export function separarDatosPago(texto: string): { voz: string; escrito: string } {
+  const voz: string[] = [], escrito: string[] = [];
+  for (const l of texto.split('\n')) (LINEA_DATOS_PAGO.test(l) ? escrito : voz).push(l);
+  return { voz: voz.join('\n').replace(/\n{3,}/g, '\n\n').trim(), escrito: escrito.join('\n').trim() };
+}
+
+/** El modelo mandó en un solo mensaje los datos para transferir y horarios del calendario: son pasos de instancias distintas. */
+export function mensajeApurado(txt: string): boolean {
+  return LINEA_DATOS_PAGO.test(txt) && /\b\d{1,2}[:.]\d{2}\s*(?:hs|h)?\b/i.test(txt);
+}
 
 /** Las etiquetas de emoción para la voz ([warmly], [calm]...) no van en los mensajes de texto. */
 export function quitarEtiquetas(t: string) {
@@ -997,6 +1011,8 @@ export type Deps = {
   preparar?: (m: MsgEntrante, ctx?: { reservaEsperada: number | null }) => Promise<{ texto: string; esAudio: boolean; datos?: Record<string, unknown> }>;
   /** Contesta con nota de voz. Si falla, se contesta por texto. */
   enviarAudio?: (to: string, texto: string) => Promise<void>;
+  /** Contesta con voz a todos los mensajes (no solo cuando el cliente manda un audio). */
+  vozSiempre?: boolean;
   /** Marca el mensaje como leído y muestra "escribiendo…" en el WhatsApp del cliente. */
   escribiendo?: (messageId: string) => Promise<void>;
   /** Espera (ms). Sirve para que la respuesta no salga al instante y parezca de una persona. */
@@ -1072,11 +1088,19 @@ Fuera del avatar (tope por acumulación, reajustes docentes, reajustes generales
 
 ## Flujo B: Jubilación docente
 Preguntas: edad, sexo y si está trabajando como docente. No clasifiques a la persona por cargo ni por situación laboral más allá de esas preguntas: eso lo determina el Dr. Fabricio Reyes en la consulta. Use definir_tipo_consulta con "jubilacion_docente" y agendá con el Dr. Fabricio Reyes. Aplica lo mismo si consulta por otros regímenes o por el régimen general: tomá el motivo y el contexto, y el abogado asesora en la consulta.
+
+## Secuencia comercial (un paso por mensaje, con criterio y empatía)
+Cuando la consulta lleva reserva (Jubilación docente, otras situaciones ANSES y Art. 9 / Ganancias con valor), avanzá de a un paso y NUNCA adelantes uno posterior. Nunca mandes en un mismo mensaje el valor de la consulta, los datos bancarios y horarios del calendario.
+1. Cuando la persona terminó de dar sus datos, agradecé y proponé la consulta con calidez y valor, adaptando al abogado y al tema. Por ejemplo: "Gracias por la información. Podríamos coordinar una consulta con el Dr. Fabricio Reyes, experto en jubilaciones, para analizar su caso y explicarle los pasos a seguir." Recién ahí (usá definir_tipo_consulta o lo que indique el sistema) decí el valor de la consulta, que la reserva es la mitad y que el resto se abona ese día, y preguntá cómo prefiere abonar la reserva: transferencia o efectivo. Todavía NO pases datos bancarios ni horarios.
+2. Solo si elige transferencia: pasale los datos para transferir (alias, CVU y titular) con el importe de la reserva, y pedile el comprobante. Nada de horarios todavía.
+3. Si elige efectivo: explicale que puede acercarse a las oficinas, previo acuerdo de día y hora, para abonar la reserva ahí y dejar el turno confirmado; preguntale cuándo le queda cómodo y coordiná con la agenda.
+4. Solo después de que el sistema valide el comprobante: agradecé que recibieron el pago y preguntá cuándo le quedaría más cómodo coordinar la consulta (sin listar el calendario). Recién con su respuesta consultá la disponibilidad.
+Si la consulta es sin cargo, saltá del paso 1 directo a preguntar cuándo le queda cómodo.
 Documentación para la consulta: DNI y recibo de sueldo (obligatorios); certificación de servicios y remuneraciones (opcional).
 
 ## Reglas de dinero (confidencial, las fija el sistema)
 - Los valores, el criterio y los umbrales de precio son información interna. NUNCA le digas a la persona de qué depende el precio, ni mencionés umbrales, ni montos de descuento como motivo del precio, ni que existen categorías de clientes. No inventes importes: usá solo los que te devuelva el sistema (mensajes [SISTEMA ERP: ...] o definir_tipo_consulta).
-- La reserva es el 50% del valor de la consulta y el resto se abona el día de la consulta. Se transfiere a los datos que figuran en el contexto.
+- La reserva es el 50% del valor de la consulta y el resto se abona el día de la consulta. Los datos para transferir figuran en el contexto: se pasan solo después de que la persona elija transferencia (ver la secuencia comercial).
 - Alternativa si desconfía de transferir: puede ir a las oficinas, previo acuerdo de día y hora, y reservar el turno ahí. Aclaralo con tacto (implica un doble traslado) y ofrecelo solo si la desconfianza es lo que lo frena.
 - Una reserva solo se da por pagada si el sistema validó el comprobante ("Comprobante de transferencia validado exitosamente"). Nunca la des por pagada por lo que diga la persona.
 
@@ -1112,7 +1136,7 @@ Documentación para la consulta: DNI y recibo de sueldo (obligatorios); certific
 Usá derivar_a_humano con un motivo claro, y decile que lo contactan en el día, cuando: plantee una urgencia de plazos; el caso sea ambiguo y no puedas clasificarlo; haya un problema con un pago; o pida hablar con alguien.
 Si una herramienta falla de forma repetida, no hables de errores técnicos: tomá nombre, teléfono y tema, derivá y decile: "Ya dejé registrado su pedido. Un integrante del equipo lo contacta en el día para confirmar." Si no entendés un mensaje, no adivines: pedí que lo repita o derivá.`;
 
-function sistema(prompt: string, hist: Awaited<ReturnType<typeof historialDe>>, ahora: Date, extra: { esAudio?: boolean; datosPago?: string; referral?: string } = {}) {
+function sistema(prompt: string, hist: Awaited<ReturnType<typeof historialDe>>, ahora: Date, extra: { esAudio?: boolean; datosPago?: string; referral?: string; conVoz?: boolean } = {}) {
   const l = localDe(ahora);
   const dias = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
   const dow = new Date(`${l.fecha}T12:00:00Z`).getUTCDay();
@@ -1125,11 +1149,11 @@ function sistema(prompt: string, hist: Awaited<ReturnType<typeof historialDe>>, 
     `{{es_recurrente}}: ${hist.es_recurrente}`,
     `{{tiene_historial}}: ${hist.tiene_historial}`,
     `{{cliente_historial}}: ${hist.cliente_historial}`,
-    `Datos para transferir la reserva (el importe lo indica el sistema según el tipo de consulta): ${extra.datosPago || DATOS_PAGO_DEFAULT}`,
+    `Datos para transferir la reserva (pasalos SOLO cuando la persona haya elegido transferencia; el importe lo indica el sistema según el tipo de consulta): ${extra.datosPago || DATOS_PAGO_DEFAULT}`,
     ...(extra.referral ? [`El primer mensaje llegó desde un anuncio de Meta: ${extra.referral}`] : []),
     'Usá las herramientas para disponibilidad y agenda. Respondé siempre en texto plano, corto, sin markdown.',
-    ...(extra.esAudio
-      ? ['El cliente te escribió con un audio: tu respuesta se envía como nota de voz. Escribí como se habla, en frases cortas, sin listas ni números largos. Podés usar como mucho una o dos etiquetas de emoción entre corchetes, al inicio de una frase, por ejemplo [warmly], [calm], [empathetic] o [cheerful].']
+    ...(extra.conVoz
+      ? ['Tu respuesta se envía como NOTA DE VOZ (se convierte en audio con la voz del estudio). Escribí como se habla, en frases cortas y cálidas, sin listas, sin markdown y sin números largos. Poné al inicio de CADA frase una etiqueta de emoción entre corchetes que acompañe lo que decís, por ejemplo [warmly], [calm], [empathetic], [cheerful], [thoughtful], [reassuring] o [gently]; solo una por frase y siempre en inglés. Los datos para transferir (alias, CVU, titular) escribilos cada uno en su propia línea con el formato "Alias: ...", "CVU: ...", "Titular: ...": van por escrito y no se dictan; en la parte hablada decí solo que se los pasás por escrito.']
       : []),
   ].join('\n');
 }
@@ -1187,11 +1211,13 @@ export async function procesarMensaje(deps: Deps, m: MsgEntrante) {
   };
   const datosPago = limpiarSecreto(process.env.AGENTE_DATOS_PAGO ?? '');
 
+  const conVoz = !!deps.enviarAudio && (esAudio || !!deps.vozSiempre);
   let respuesta = '';
   let reintentoPromesa = false;
+  let reintentoApuro = false;
   try {
     for (let i = 0; i < MAX_VUELTAS_HERRAMIENTAS + 1; i++) {
-      const r = await deps.llm(sistema(deps.prompt, hist, ahora, { esAudio, datosPago, referral: m.referral }), mensajes);
+      const r = await deps.llm(sistema(deps.prompt, hist, ahora, { esAudio, datosPago, referral: m.referral, conVoz }), mensajes);
       if (r.stop_reason !== 'tool_use') {
         const txt = r.content.filter(b => b.type === 'text').map(b => String(b.text)).join('\n').trim();
         // Si prometió "voy a chequear…" sin hacerlo, se le pide que lo haga ahora: el cliente no tiene que insistir.
@@ -1199,6 +1225,13 @@ export async function procesarMensaje(deps: Deps, m: MsgEntrante) {
           reintentoPromesa = true;
           mensajes.push({ role: 'assistant', content: txt });
           mensajes.push({ role: 'user', content: '[SISTEMA ERP: Dijiste que ibas a verificar o consultar algo pero no lo hiciste. Hacelo ahora con tus herramientas (consultar_disponibilidad, definir_tipo_consulta, etc.) o con lo que ya sabés, y respondé en este mismo mensaje con el resultado y el siguiente paso. No prometas nada más.]' });
+          continue;
+        }
+        // Un paso por mensaje: datos bancarios y horarios del calendario nunca juntos.
+        if (txt && !reintentoApuro && mensajeApurado(txt)) {
+          reintentoApuro = true;
+          mensajes.push({ role: 'assistant', content: txt });
+          mensajes.push({ role: 'user', content: '[SISTEMA ERP: Mezclaste en un solo mensaje los datos para transferir y horarios del calendario. Son pasos distintos. Reescribí el mensaje con UN solo paso: si la persona recién eligió transferencia, solo los datos y el pedido del comprobante; los horarios se coordinan recién después de validar el comprobante, y empezando por preguntar cuándo le queda más cómodo.]' });
           continue;
         }
         respuesta = txt;
@@ -1228,8 +1261,14 @@ export async function procesarMensaje(deps: Deps, m: MsgEntrante) {
   }
 
   let enviado = false;
-  if (esAudio && deps.enviarAudio && respuesta !== MSG_SIN_RESPUESTA) {
-    try { await deps.enviarAudio(m.from, respuesta); enviado = true; } catch (e) { console.error('[agente] audio', e); }
+  if (conVoz && respuesta !== MSG_SIN_RESPUESTA) {
+    // La nota de voz lleva todo menos los datos de pago, que salen por escrito aparte.
+    const { voz, escrito } = separarDatosPago(respuesta);
+    try {
+      if (voz) await deps.enviarAudio!(m.from, voz);
+      if (escrito) await deps.enviar(m.from, quitarEtiquetas(escrito));
+      enviado = true;
+    } catch (e) { console.error('[agente] audio', e); }
   }
   if (!enviado) {
     try { await deps.enviar(m.from, textoPlano); enviado = true; } catch (e) { console.error('[agente] envío', e); }
@@ -1504,6 +1543,7 @@ async function agente(req: VercelRequest, res: VercelResponse, db: Db, raw: stri
     escribiendo: escribiendoWhatsApp,
     pausa: ms => new Promise(r => setTimeout(r, ms)),
     enviarAudio: env('ELEVENLABS_API_KEY') && env('ELEVENLABS_VOICE_ID') ? enviarAudioWhatsApp : undefined,
+    vozSiempre: env('AGENTE_VOZ').toLowerCase() !== 'texto',
   };
   // Secuencial: un mismo cliente puede mandar varios mensajes seguidos y el contexto debe respetar el orden.
   const trabajo = (async () => {
