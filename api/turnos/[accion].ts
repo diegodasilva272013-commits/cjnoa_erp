@@ -243,6 +243,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const raw = req.method === 'POST' ? await leerCuerpo(req) : '';
 
     if (accion === 'agente' || accion === 'respaldo') return await agente(req, res, db, raw);
+    if (accion === 'mercadopago') return await mercadopago(req, res, db, raw);
 
     return res.status(404).json({ error: 'Ruta inexistente' });
   } catch (e) {
@@ -311,7 +312,7 @@ export async function crearTurno(db: Db, p: Record<string, unknown>): Promise<Re
     monto_a_cancelar: 0,
     reserva_pagada: pago,
     reserva_modalidad: modalidad,
-    observaciones: ['Agendado por el agente de IA', /^(presencial|virtual)$/.test(modalidadIn) ? `Modalidad: ${modalidadIn === 'virtual' ? 'Virtual' : 'Presencial'}` : '', p.pago_automatico === true && pago ? 'PAGO VALIDADO AUTOMÁTICAMENTE por lectura de imagen: VERIFICAR en la cuenta bancaria' : '']
+    observaciones: ['Agendado por el agente de IA', /^(presencial|virtual)$/.test(modalidadIn) ? `Modalidad: ${modalidadIn === 'virtual' ? 'Virtual' : 'Presencial'}` : '', (pago && String(p.pago_origen).startsWith('mercadopago:')) ? `PAGO CONFIRMADO por Mercado Pago (id ${String(p.pago_origen).split(':')[1]})` : (pago && p.pago_origen === 'imagen') ? 'PAGO VALIDADO AUTOMÁTICAMENTE por lectura de imagen: VERIFICAR en la cuenta bancaria' : '']
       .filter(Boolean).join(' · '),
     conversation_id: s(p.conversation_id) || null,
     origen: 'agente',
@@ -692,7 +693,7 @@ export type MsgEntrante = { id: string; from: string; nombre: string | null; tex
 export type MsgGuardado = { from: 'cliente' | 'agente'; texto: string; t?: number | null; wid?: string; at?: number };
 type BloqueLLM = { type: string; [k: string]: any };
 type MsgLLM = { role: 'user' | 'assistant'; content: string | BloqueLLM[] };
-type CtxHerramienta = { telefono: string; conversationId: string; montoValidado?: number | null; pasarDatos?: boolean; modalidad?: 'transferencia' | 'efectivo' | null };
+type CtxHerramienta = { telefono: string; conversationId: string; montoValidado?: number | null; pagoMpId?: string; pasarDatos?: boolean; modalidad?: 'transferencia' | 'efectivo' | null };
 
 /** Meta firma el cuerpo con `X-Hub-Signature-256: sha256=<hex>` usando el App Secret. */
 export function firmaMetaValida(appSecret: string, header: string, raw: string) {
@@ -826,7 +827,7 @@ export function clasificarRecibo(a: AnalisisImagen): ClasifRecibo {
  * Aviso del sistema para el modelo, a partir de lo que se leyó en la foto. El modelo no decide la plata: la decide esto.
  * `reservaEsperada` es la reserva que corresponde a este cliente (la dejó fijada un recibo o definir_tipo_consulta); si no hay, no se valida ninguna transferencia.
  */
-export function notaDeImagen(a: AnalisisImagen, titular = '', reservaEsperada: number | null = null): string {
+export function notaDeImagen(a: AnalisisImagen, titular = '', reservaEsperada: number | null = null, soloMercadoPago = false): string {
   const n = (v: number | null) => (typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : 0);
   if (a.tipo === 'recibo_sueldo') {
     const c = clasificarRecibo(a);
@@ -838,6 +839,7 @@ export function notaDeImagen(a: AnalisisImagen, titular = '', reservaEsperada: n
     return `[SISTEMA ERP: Recibo validado: se detectaron descuentos de Artículo 9 / Ganancias. Criterio aplicado: Consulta con valor de ${pesos(c.valor)} y reserva de ${pesos(c.reserva)} (el saldo de ${pesos(c.valor - c.reserva)} se abona el día de la consulta). Proceder con cobro de reserva. DATO INTERNO: no mencione al cliente montos de descuento, umbrales ni criterios.]`;
   }
   if (a.tipo === 'transferencia') {
+    if (soloMercadoPago) return '[SISTEMA ERP: Se recibió un comprobante de transferencia. La reserva se confirma sola cuando Mercado Pago registra el pago (puede demorar unos minutos). NO dar la reserva por pagada ni agendar todavía; decile que apenas se acredite se lo confirmamos por este chat. Si pasa un rato largo y no se confirma, usá derivar_a_humano.]';
     const monto = n(a.monto);
     if (!monto) return '[SISTEMA ERP: Se recibió un comprobante de transferencia pero no se pudo leer el importe. NO dar la seña por pagada. Pedir una captura completa y nítida.]';
     const dest = a.destinatario ? normalizar(a.destinatario) : '';
@@ -929,7 +931,7 @@ export function secretosDelEntorno(): string[] {
 }
 
 /** Cosas internas que jamás deben aparecer en una respuesta: herramientas, avisos del sistema, etiquetas internas, claves o la base. */
-const INTERNO_EN_SALIDA = /\[\s*SISTEMA|DATO INTERNO|\b(?:consultar_disponibilidad|agendar_turno|guardar_datos_cliente|definir_tipo_consulta|derivar_a_humano|reprogramar_turno|solicitar_cancelacion|consultar_mis_turnos)\b|fuera_avatar|alto_valor|api_openai|service_role|TURNOS_AGENTE|KAPSO_|ELEVENLABS_|OPENAI_API|supabase\.co|\bsk-[A-Za-z0-9_-]{16,}|eyJ[A-Za-z0-9_-]{15,}\.[A-Za-z0-9_-]{10,}/i;
+const INTERNO_EN_SALIDA = /\[\s*SISTEMA|DATO INTERNO|\b(?:consultar_disponibilidad|agendar_turno|guardar_datos_cliente|definir_tipo_consulta|derivar_a_humano|reprogramar_turno|solicitar_cancelacion|consultar_mis_turnos|pedir_reserva_transferencia)\b|fuera_avatar|alto_valor|api_openai|service_role|TURNOS_AGENTE|KAPSO_|ELEVENLABS_|OPENAI_API|supabase\.co|\bsk-[A-Za-z0-9_-]{16,}|eyJ[A-Za-z0-9_-]{15,}\.[A-Za-z0-9_-]{10,}/i;
 export function salidaInsegura(t: string, secretos: string[] = []): boolean {
   return INTERNO_EN_SALIDA.test(t) || secretos.some(s => s.length >= 8 && t.includes(s));
 }
@@ -1098,6 +1100,11 @@ export const HERRAMIENTAS_LLM = [
     },
   },
   {
+    name: 'pedir_reserva_transferencia',
+    description: 'Cuando la persona eligió abonar la reserva por transferencia: te da el IMPORTE EXACTO (con centavos) que debe transferir y los datos bancarios. Usala en lugar de pasar un importe redondo. El pago se confirma solo cuando Mercado Pago lo registra.',
+    input_schema: { type: 'object', properties: {} },
+  },
+  {
     name: 'derivar_a_humano',
     description: 'Avisa al equipo que una persona debe contactar a este cliente (no podés resolverlo, es urgente, pidió hablar con alguien, hay un problema con un pago, etc.).',
     input_schema: {
@@ -1153,12 +1160,13 @@ export async function ejecutarHerramienta(db: Db, nombre: string, input: any, ct
     const r = await crearTurno(db, {
       profesional: input?.profesional, fecha: input?.fecha, hora: input?.hora,
       nombre: corto(input?.nombre, 120), apellido: corto(input?.apellido, 120), tema: corto(input?.tema, 500), modalidad: corto(input?.modalidad, 40),
-      pago, pago_automatico: pago, monto_reserva: pago ? ctx.montoValidado : undefined,
+      pago, pago_origen: pago ? (ctx.pagoMpId ? `mercadopago:${ctx.pagoMpId}` : 'imagen') : undefined, monto_reserva: pago ? ctx.montoValidado : undefined,
       telefono: ctx.telefono, conversation_id: ctx.conversationId,
     });
     if (pidioPago && !pago && r.code === 200) r.body = { ...r.body, aviso_pago: 'No hay comprobante validado: el turno quedó agendado sin marcar la seña como pagada.' };
     // El comprobante lo leyó una IA, no el banco: queda marcado para que una persona lo verifique contra la cuenta.
-    if (pago && r.code === 200) await upsertLeadSeguro(db, ctx.telefono, camposDeLead({ datos: { pago_pendiente_verificar: `$${ctx.montoValidado} validado por lectura de imagen el ${new Date().toISOString().slice(0, 10)}` } }));
+    if (pago && r.code === 200 && ctx.pagoMpId) await upsertLeadSeguro(db, ctx.telefono, camposDeLead({ datos: { pago_mp_usado: ctx.pagoMpId } }));
+    if (pago && r.code === 200 && !ctx.pagoMpId) await upsertLeadSeguro(db, ctx.telefono, camposDeLead({ datos: { pago_pendiente_verificar: `$${ctx.montoValidado} validado por lectura de imagen el ${new Date().toISOString().slice(0, 10)}` } }));
     return r.body;
   }
   if (nombre === 'consultar_mis_turnos') {
@@ -1232,6 +1240,21 @@ export async function ejecutarHerramienta(db: Db, nombre: string, input: any, ct
         ? { nota: 'La persona todavía no eligió transferencia: NO pases datos bancarios ni horarios. Primero decile el valor y preguntale cómo prefiere abonar la reserva (transferencia o efectivo).' }
         : { datos_para_transferir: limpiarSecreto(process.env.AGENTE_DATOS_PAGO ?? '') || DATOS_PAGO_DEFAULT }) };
   }
+  if (nombre === 'pedir_reserva_transferencia') {
+    if (!usaMercadoPago()) return { error: 'No disponible: pasale los datos para transferir y pedile el comprobante.' };
+    if (ctx.pasarDatos === false) return { error: 'La persona todavía no eligió transferencia: primero preguntale cómo prefiere abonar la reserva (transferencia o efectivo).' };
+    const base = Number((await datosDeLead(db, ctx.telefono)).reserva_esperada);
+    if (!Number.isFinite(base) || base <= 0) return { error: 'Todavía no está definido qué consulta le corresponde: usá definir_tipo_consulta (o pedí el recibo si es Artículo 9 / Ganancias).' };
+    const { importe, hasta } = await asignarImporteUnico(db, ctx.telefono, base);
+    return {
+      importe_exacto: importe,
+      importe_para_decir: importeLindo(Number(importe)),
+      vigencia_horas: HORAS_VIGENCIA_PAGO,
+      vence: hasta,
+      datos_para_transferir: limpiarSecreto(process.env.AGENTE_DATOS_PAGO ?? '') || DATOS_PAGO_DEFAULT,
+      instruccion: 'Decile que transfiera EXACTAMENTE ese importe, con los centavos: así el sistema reconoce el pago. No le pidas comprobante: el pago se confirma solo y se lo avisamos por este chat apenas se acredite.',
+    };
+  }
   if (nombre === 'derivar_a_humano') {
     const motivo = String(input?.motivo ?? '').trim().slice(0, 400) || 'Sin detalle';
     await upsertLeadSeguro(db, ctx.telefono, camposDeLead({ requiere_turno: true, datos: { derivar_a_humano: motivo, derivado_el: new Date().toISOString() } }));
@@ -1280,7 +1303,7 @@ Preguntas: edad, sexo y si está trabajando como docente. No clasifiques a la pe
 ## Secuencia comercial (un paso por mensaje, con criterio y empatía)
 Cuando la consulta lleva reserva (Jubilación docente, otras situaciones ANSES y Art. 9 / Ganancias con valor), avanzá de a un paso y NUNCA adelantes uno posterior. Nunca mandes en un mismo mensaje el valor de la consulta, los datos bancarios y horarios del calendario.
 1. Cuando la persona terminó de dar sus datos, agradecé y proponé la consulta con calidez y valor, adaptando al abogado y al tema. Por ejemplo: "Gracias por la información. Podríamos coordinar una consulta con el Dr. Fabricio Reyes, experto en jubilaciones, para analizar su caso y explicarle los pasos a seguir." Recién ahí (usá definir_tipo_consulta o lo que indique el sistema) decí el valor de la consulta, que la reserva es la mitad y que el resto se abona ese día, y preguntá cómo prefiere abonar la reserva: transferencia o efectivo. Todavía NO pases datos bancarios ni horarios.
-2. Solo si elige transferencia: pasale los datos para transferir (alias, CVU y titular) con el importe de la reserva, y pedile el comprobante. Nada de horarios todavía.
+2. Solo si elige transferencia: si tenés la herramienta pedir_reserva_transferencia, usala: te da el importe EXACTO con centavos y los datos; decile que transfiera exactamente ese importe, que el pago se confirma solo y que se lo avisamos apenas se acredite (no hace falta comprobante). Si no tenés esa herramienta, pasale los datos para transferir (alias, CVU y titular) con el importe de la reserva y pedile el comprobante. Nada de horarios todavía.
 3. Si elige efectivo: explicale que puede acercarse a las oficinas, previo acuerdo de día y hora, para abonar la reserva ahí y dejar el turno confirmado; preguntale cuándo le queda cómodo y coordiná con la agenda.
 4. Solo después de que el sistema valide el comprobante: agradecé que recibieron el pago y preguntá cuándo le quedaría más cómodo coordinar la consulta (sin listar el calendario). Recién con su respuesta consultá la disponibilidad.
 Si la consulta es sin cargo, saltá del paso 1 directo a preguntar cuándo le queda cómodo.
@@ -1412,10 +1435,13 @@ export async function procesarMensaje(deps: Deps, m: MsgEntrante) {
   const mensajes: MsgLLM[] = aMensajesLLM([...previos, { from: 'cliente', texto: textoCliente }]);
   const textosCliente = [...previos.filter(x => x.from === 'cliente').map(x => x.texto), textoCliente];
   const pasarDatos = eligioTransferencia(textosCliente);
+  // Con Mercado Pago activo, la reserva solo se da por pagada si Mercado Pago la confirmó; ningún texto ni foto del cliente la valida.
+  const mp = usaMercadoPago() ? montoMercadoPago(await datosDeLead(db, m.from)) : null;
   const ctx: CtxHerramienta = {
     telefono: m.from,
     conversationId,
-    montoValidado: montoValidadoDe(textosCliente),
+    montoValidado: mp ? mp.monto : (usaMercadoPago() ? null : montoValidadoDe(textosCliente)),
+    pagoMpId: mp ? mp.id : undefined,
     pasarDatos,
     modalidad: modalidadElegida(textosCliente),
   };
@@ -1551,7 +1577,7 @@ async function llamarModelo(system: string, mensajes: MsgLLM[]) {
       temperature: 0.3,
       max_tokens: 600,
       messages: aMensajesOpenAI(system, mensajes),
-      tools: HERRAMIENTAS_LLM.map(h => ({ type: 'function', function: { name: h.name, description: h.description, parameters: h.input_schema } })),
+      tools: HERRAMIENTAS_LLM.filter(h => h.name !== 'pedir_reserva_transferencia' || usaMercadoPago()).map(h => ({ type: 'function', function: { name: h.name, description: h.description, parameters: h.input_schema } })),
     }),
   });
   if (!r.ok) throw new Error(`modelo ${r.status}: ${(await r.text()).slice(0, 200)}`);
@@ -1661,7 +1687,7 @@ async function prepararEntrante(m: MsgEntrante, ctx?: { reservaEsperada: number 
         const c = clasificarRecibo(a);
         if (c.categoria !== 'sin_descuento') datos = { descuento_recibo: c.descuento, categoria_recibo: c.categoria, valor_consulta: c.valor, reserva_esperada: c.reserva };
       }
-      return { texto: `[El cliente envió ${que}${pie}]\n${notaDeImagen(a, titular, ctx?.reservaEsperada ?? null)}`, esAudio: false, datos };
+      return { texto: `[El cliente envió ${que}${pie}]\n${notaDeImagen(a, titular, ctx?.reservaEsperada ?? null, usaMercadoPago())}`, esAudio: false, datos };
     } catch (e) { console.error('[agente] imagen', e); }
     return { texto: `[El cliente envió ${que}${pie} que no se pudo leer. Pedile que lo envíe de nuevo (foto o PDF), completo y bien enfocado.]`, esAudio: false };
   }
@@ -1721,6 +1747,136 @@ async function enviarAudioWhatsApp(to: string, texto: string) {
     body: JSON.stringify(cuerpoNotaDeVoz(to, id)),
   });
   if (!r.ok) throw new Error(`whatsapp audio ${r.status}: ${(await r.text()).slice(0, 200)}`);
+}
+
+// ---------------------------------------------------------------- Mercado Pago: confirmación de la reserva por transferencia
+//
+// Cada persona recibe un importe con centavos únicos (por ejemplo $50.000,37) y lo transfiere al alias del estudio.
+// Mercado Pago avisa al ERP (webhook de "Pagos"); el ERP consulta ese pago directo a Mercado Pago y, si está aprobado y el
+// importe coincide con uno pendiente de UNA persona, da la reserva por pagada. No depende de ninguna foto.
+// Se activa solo si están cargadas MERCADOPAGO_ACCESS_TOKEN y MERCADOPAGO_WEBHOOK_SECRET.
+
+const MP_API = 'https://api.mercadopago.com';
+const HORAS_VIGENCIA_PAGO = 24;
+const mpToken = () => limpiarSecreto(process.env.MERCADOPAGO_ACCESS_TOKEN ?? '');
+const mpSecreto = () => limpiarSecreto(process.env.MERCADOPAGO_WEBHOOK_SECRET ?? '');
+export const usaMercadoPago = () => !!mpToken() && !!mpSecreto();
+
+/** 50000.37 → "50000.37" (así se guarda y se compara). */
+export const importeTexto = (n: number) => n.toFixed(2);
+/** 50000.37 → "$50.000,37"; 50000 → "$50.000". */
+export function importeLindo(n: number) {
+  const [e, c] = n.toFixed(2).split('.');
+  return `$${e.replace(/\B(?=(\d{3})+(?!\d))/g, '.')}${c === '00' ? '' : ',' + c}`;
+}
+
+/** Firma del webhook de Mercado Pago: header `x-signature: ts=...,v1=...` = HMAC-SHA256 de `id:<id>;request-id:<x-request-id>;ts:<ts>;`. */
+export function firmaMercadoPagoValida(secret: string, signature: string, requestId: string, dataId: string): boolean {
+  if (!secret || !signature) return false;
+  const partes = Object.fromEntries(signature.split(',').map(p => p.trim().split('=') as [string, string]));
+  const ts = partes.ts, v1 = String(partes.v1 ?? '').toLowerCase();
+  if (!ts || !v1) return false;
+  const manifest = `id:${String(dataId).toLowerCase()};request-id:${requestId};ts:${ts};`;
+  return iguales(createHmac('sha256', secret).update(manifest).digest('hex'), v1);
+}
+
+/** Reserva pagada y confirmada por Mercado Pago que todavía no se usó para agendar (o null). */
+export function montoMercadoPago(datosLead: any): { monto: number; id: string } | null {
+  const v = datosLead?.pago_validado_mp;
+  const monto = Number(v?.monto);
+  if (!v || !Number.isFinite(monto) || monto <= 0) return null;
+  if (String(datosLead?.pago_mp_usado ?? '') === String(v.id)) return null;
+  return { monto, id: String(v.id) };
+}
+
+async function datosDeLead(db: Db, telefono: unknown): Promise<any> {
+  const clave = telefonoClave(telefono);
+  if (!clave) return {};
+  try {
+    const { data } = await db.from('leads').select('datos').eq('telefono_clave', clave).maybeSingle();
+    return (data as any)?.datos ?? {};
+  } catch (e) { console.error('[agente] datos del lead', e); return {}; }
+}
+
+/**
+ * Asigna a esta persona un importe único: la reserva + centavos que nadie más tenga pendientes. Dura 24 horas y se reutiliza si pide de nuevo.
+ * Así, cuando llega la transferencia, el importe exacto dice de quién es.
+ */
+export async function asignarImporteUnico(db: Db, telefono: unknown, base: number, ahora = new Date()): Promise<{ importe: string; hasta: string }> {
+  const clave = telefonoClave(telefono);
+  const d = await datosDeLead(db, telefono);
+  if (d.pago_monto_unico && Number(d.pago_base) === base && Date.parse(String(d.pago_pendiente_hasta)) > ahora.getTime()) {
+    return { importe: String(d.pago_monto_unico), hasta: String(d.pago_pendiente_hasta) };
+  }
+  const hasta = new Date(ahora.getTime() + HORAS_VIGENCIA_PAGO * 3600 * 1000).toISOString();
+  const probados = new Set<number>();
+  for (let i = 0; i < 40 && probados.size < 99; i++) {
+    const c = 1 + Math.floor(Math.random() * 99);
+    if (probados.has(c)) continue;
+    probados.add(c);
+    const importe = importeTexto((Math.round(base * 100) + c) / 100);
+    const { data } = await db.from('leads').select('telefono, datos').eq('datos->>pago_monto_unico', importe).limit(10);
+    const choca = ((data ?? []) as any[]).some(x => telefonoClave(x.telefono) !== clave && Date.parse(String(x?.datos?.pago_pendiente_hasta)) > ahora.getTime());
+    if (choca) continue;
+    await upsertLeadSeguro(db, telefono, camposDeLead({ datos: { pago_monto_unico: importe, pago_pendiente_hasta: hasta, pago_base: base } }));
+    return { importe, hasta };
+  }
+  throw new Error('no hay importes únicos libres');
+}
+
+/** Un pago de Mercado Pago ya consultado a su API: si coincide con el importe pendiente de una persona, se confirma su reserva. */
+export async function procesarPagoMP(db: Db, pago: any, enviar: (to: string, texto: string) => Promise<void>, ahora = new Date()):
+  Promise<'validado' | 'no_aprobado' | 'sin_coincidencia' | 'duplicado' | 'vencido' | 'ambiguo'> {
+  if (!pago || String(pago.status) !== 'approved') return 'no_aprobado';
+  if (pago.currency_id && String(pago.currency_id) !== 'ARS') return 'sin_coincidencia';
+  const id = String(pago.id ?? '');
+  const monto = Number(pago.transaction_amount);
+  if (!id || !Number.isFinite(monto) || monto <= 0) return 'sin_coincidencia';
+
+  const dup = await db.from('leads').select('telefono').eq('datos->>pago_mp_id', id).limit(1);
+  if (Array.isArray(dup.data) && dup.data.length) return 'duplicado';
+
+  const { data } = await db.from('leads').select('telefono, datos').eq('datos->>pago_monto_unico', importeTexto(monto)).limit(10);
+  const filas = (data ?? []) as any[];
+  const vivos = filas.filter(x => Date.parse(String(x?.datos?.pago_pendiente_hasta)) > ahora.getTime());
+  if (!filas.length) return 'sin_coincidencia';
+  if (!vivos.length) return 'vencido';
+  if (vivos.length > 1) return 'ambiguo'; // no debería pasar: los importes pendientes son únicos
+
+  const lead = vivos[0];
+  const pagador = [pago.payer?.first_name, pago.payer?.last_name].filter(Boolean).join(' ').trim() || null;
+  await upsertLeadSeguro(db, lead.telefono, camposDeLead({ datos: { pago_validado_mp: { id, monto, at: ahora.toISOString(), pagador }, pago_mp_id: id, pago_monto_unico: null, pago_pendiente_hasta: null } }));
+
+  const texto = `Recibimos su pago de ${importeLindo(monto)}. ¡Muchas gracias! Ahora coordinemos su consulta: ¿cuándo le quedaría más cómodo?`;
+  try {
+    await enviar(lead.telefono, texto);
+    const conversationId = `respaldo-${lead.telefono}`;
+    const { data: fila } = await db.from('conversaciones_whatsapp').select('mensajes').eq('conversation_id', conversationId).maybeSingle();
+    const previos = Array.isArray((fila as any)?.mensajes) ? (fila as any).mensajes : [];
+    await db.from('conversaciones_whatsapp').upsert({ conversation_id: conversationId, telefono: lead.telefono, mensajes: [...previos, { from: 'agente', texto }].slice(-MAX_MENSAJES_GUARDADOS), updated_at: ahora.toISOString() }, { onConflict: 'conversation_id' });
+  } catch (e) { console.error('[mercadopago] aviso al cliente', e); }
+  return 'validado';
+}
+
+async function mercadopago(req: VercelRequest, res: VercelResponse, db: Db, raw: string) {
+  if (!usaMercadoPago()) return res.status(500).json({ error: 'Falta MERCADOPAGO_ACCESS_TOKEN o MERCADOPAGO_WEBHOOK_SECRET' });
+  if (req.method !== 'POST') return res.status(200).send('OK');
+  let body: any = {};
+  try { body = JSON.parse(raw || '{}'); } catch { /* el id puede venir en la URL */ }
+  const q = (k: string) => { const v = (req.query as any)?.[k]; return String(Array.isArray(v) ? v[0] : v ?? ''); };
+  const dataId = q('data.id') || String(body?.data?.id ?? '');
+  if (!firmaMercadoPagoValida(mpSecreto(), String(req.headers['x-signature'] ?? ''), String(req.headers['x-request-id'] ?? ''), dataId)) {
+    return res.status(401).json({ error: 'Firma inválida' });
+  }
+  const tipo = String(body?.type ?? q('type') ?? q('topic') ?? '');
+  if ((tipo && tipo !== 'payment') || !/^\d+$/.test(dataId)) return res.status(200).send('OK');
+
+  // El aviso solo dice "hay un pago": los datos se consultan siempre a la API de Mercado Pago con nuestra clave.
+  const r = await fetch(`${MP_API}/v1/payments/${dataId}`, { headers: { authorization: `Bearer ${mpToken()}` } });
+  if (!r.ok) { console.error('[mercadopago] consulta del pago', r.status); return res.status(500).json({ error: 'No se pudo consultar el pago' }); } // Mercado Pago reintenta
+  const resultado = await procesarPagoMP(db, await r.json(), enviarWhatsApp);
+  console.log('[mercadopago] pago', dataId, resultado);
+  return res.status(200).json({ ok: true, resultado });
 }
 
 async function agente(req: VercelRequest, res: VercelResponse, db: Db, raw: string) {

@@ -8,8 +8,18 @@ Base: Supabase `yvuxcpqlbybmtkrnmnsj`. Zona horaria del ERP para fechas y horas:
 | Ruta | Quién la llama | Cómo se autentica |
 |---|---|---|
 | `agente` (alias `respaldo`) | Kapso o Meta (WhatsApp) | firma HMAC del webhook (`KAPSO_WEBHOOK_SECRET` / `META_APP_SECRET`); sin firma válida se rechaza |
+| `mercadopago` | Mercado Pago (webhook de Pagos) | firma `x-signature` con `MERCADOPAGO_WEBHOOK_SECRET`; además cada pago se consulta a la API de Mercado Pago con `MERCADOPAGO_ACCESS_TOKEN` |
 
-No hay más rutas. Las antiguas (`historial`, `disponibles`, `agendar`, `registrar`, `inicio`, `post-call`, `sincronizar`) se eliminaron: el agente usa esas funciones directamente, sin endpoints con un secreto compartido. `TURNOS_AGENTE_SECRET` ya no se usa.
+No hay más rutas que esas dos. Las antiguas (`historial`, `disponibles`, `agendar`, `registrar`, `inicio`, `post-call`, `sincronizar`) se eliminaron: el agente usa esas funciones directamente, sin endpoints con un secreto compartido. `TURNOS_AGENTE_SECRET` ya no se usa.
+
+## Confirmación de la reserva por transferencia (Mercado Pago)
+Se activa sola cuando están cargadas `MERCADOPAGO_ACCESS_TOKEN` y `MERCADOPAGO_WEBHOOK_SECRET`; sin ellas, sigue el modo anterior (lectura del comprobante por imagen, con la nota "VERIFICAR").
+1. Cuando la persona elige transferencia, el agente usa `pedir_reserva_transferencia`: le da un importe **con centavos únicos** (por ejemplo $50.000,37), válido 24 horas, y los datos del alias.
+2. La persona transfiere ese importe exacto. Mercado Pago avisa a `/api/turnos/mercadopago`.
+3. El ERP valida la firma, consulta el pago a Mercado Pago, y si está aprobado, en ARS, no se usó antes y su importe coincide con el pendiente de UNA persona, marca la reserva como pagada en su ficha (`pago_validado_mp`) y le avisa por WhatsApp.
+4. Con Mercado Pago activo, ninguna foto ni texto del cliente confirma un pago. Cada pago confirmado sirve para un solo turno (`pago_mp_usado`).
+5. Si el turno se agenda con ese pago, queda con la nota "PAGO CONFIRMADO por Mercado Pago (id …)".
+Pendiente de comprobar con una transferencia real de prueba: que Mercado Pago registre como pago una transferencia recibida por alias y que dispare el aviso. Si no lo hiciera, queda el link de pago como alternativa.
 
 ## Seguridad del agente (resumen)
 - Lo que escribe la persona (texto, audio, texto en fotos) se neutraliza: no puede imitar un aviso `[SISTEMA ERP: ...]` ni forzar un pago validado.
