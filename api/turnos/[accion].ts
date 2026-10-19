@@ -724,7 +724,7 @@ export function extraerMensajes(payload: any): MsgEntrante[] {
           caption: m.type === 'image' && typeof m.image?.caption === 'string' ? m.image.caption : m.type === 'document' && typeof m.document?.caption === 'string' ? m.document.caption : undefined,
           archivo: m.type === 'document' ? String(m.document?.filename ?? '') || undefined : undefined,
           mime: m.type === 'document' ? String(m.document?.mime_type ?? '') || undefined : undefined,
-          texto: esTexto ? String(m.text.body) : `[El cliente envió un mensaje de tipo "${m.type ?? 'desconocido'}" que no puedo leer]`,
+          texto: esTexto ? String(m.text.body) : textoNoLegible(m),
         });
       }
     }
@@ -745,6 +745,15 @@ function referralDe(m: any, it: any): string | undefined {
   if (!r || typeof r !== 'object') return undefined;
   const t = [r.headline, r.body, r.source_url, r.source_id && `anuncio ${r.source_id}`].filter((x: unknown) => typeof x === 'string' && x).join(' | ');
   return t ? t.slice(0, 400) : undefined;
+}
+
+/** Texto para el modelo cuando llega algo que no se puede leer. WhatsApp marca "unsupported" lo que su API no entrega (encuestas, "ver una vez", ubicación en vivo, etc.). */
+export function textoNoLegible(m: any): string {
+  if (m?.type === 'unsupported') {
+    const tipo = String(m?.unsupported?.type ?? m?.errors?.[0]?.title ?? '').slice(0, 60);
+    return `[El cliente envió un mensaje que WhatsApp no permite recibir${tipo ? ` (${tipo})` : ''}, así que no sabés qué decía. No inventes su contenido: saludalo con calidez y pedile que te lo escriba, o que lo mande como foto o audio.]`;
+  }
+  return `[El cliente envió un mensaje de tipo "${m?.type ?? 'desconocido'}" que no puedo leer]`;
 }
 
 /** Mensajes entrantes de un webhook de Kapso (`whatsapp.message.received`, suelto o en lote con `batch: true` y `data: [...]`). */
@@ -774,7 +783,7 @@ export function extraerMensajesKapso(payload: any): MsgEntrante[] {
       caption: m.type === 'image' && typeof m.image?.caption === 'string' ? m.image.caption : m.type === 'document' && typeof m.document?.caption === 'string' ? m.document.caption : undefined,
       archivo: m.type === 'document' ? String(m.document?.filename ?? m?.kapso?.media_data?.filename ?? '') || undefined : undefined,
       mime: String(m?.document?.mime_type ?? m?.kapso?.media_data?.content_type ?? '') || undefined,
-      texto: esTexto ? String(m.text.body) : `[El cliente envió un mensaje de tipo "${m.type ?? 'desconocido'}" que no puedo leer]`,
+      texto: esTexto ? String(m.text.body) : textoNoLegible(m),
     });
   }
   return out;
@@ -1909,6 +1918,7 @@ async function agente(req: VercelRequest, res: VercelResponse, db: Db, raw: stri
   try { payload = JSON.parse(raw); } catch { return res.status(400).json({ error: 'JSON inválido' }); }
   // Kapso manda otros eventos (whatsapp.message.sent, whatsapp.thread.standby, ownership_changed...): se aceptan pero no se contestan.
   const evento = String(req.headers['x-webhook-event'] ?? '');
+  if (kapso && payload?.message?.type === 'unsupported') console.log('[agente] mensaje no soportado por WhatsApp:', JSON.stringify({ unsupported: payload.message.unsupported, errors: payload.message.errors }).slice(0, 400));
   if (kapso) console.log('[agente] evento', evento, 'campos:', Object.keys(payload ?? {}).join(','), 'message:', Object.keys(payload?.message ?? {}).join(','), 'kapso:', Object.keys(payload?.message?.kapso ?? {}).join(','));
   if (kapso && evento && evento !== 'whatsapp.message.received') return res.status(200).send('OK');
 

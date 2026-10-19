@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { createHmac } from 'node:crypto';
 import handler, {
   clasificarRecibo, TIPOS_CONSULTA, promesaSinCumplir, separarDatosPago, mensajeApurado,
-  aMin, limpiarSecreto, camposDeLead, etapaAutomatica, fusionarLead, registrarMensaje, upsertLead, firmaMetaValida, firmaKapsoValida, extraerMensajesKapso, extraerMensajes, aMensajesLLM, procesarMensaje, firmaMercadoPagoValida, importeTexto, importeLindo, asignarImporteUnico, procesarPagoMP, montoMercadoPago, modalidadElegida, enmascarar, neutralizarMarcas, salidaInsegura, superaLimite, urlMediaSegura, resumenTurnosVigentes, HERRAMIENTAS_LLM, cuerpoNotaDeVoz, eligioTransferencia, notaDeImagen, montoValidadoDe, quitarEtiquetas, aMensajesOpenAI, deOpenAI, ejecutarHerramienta, PROMPT_AGENTE, type Deps, telefonoClave, historialDe, inferirNombre, normalizarFecha, normalizarHora, bloquesDelDia, huecosLibres, localDe, resolverProfesional, diaSemanaISO, fechaValida,
+  aMin, limpiarSecreto, camposDeLead, etapaAutomatica, fusionarLead, registrarMensaje, upsertLead, firmaMetaValida, firmaKapsoValida, extraerMensajesKapso, extraerMensajes, aMensajesLLM, procesarMensaje, textoNoLegible, firmaMercadoPagoValida, importeTexto, importeLindo, asignarImporteUnico, procesarPagoMP, montoMercadoPago, modalidadElegida, enmascarar, neutralizarMarcas, salidaInsegura, superaLimite, urlMediaSegura, resumenTurnosVigentes, HERRAMIENTAS_LLM, cuerpoNotaDeVoz, eligioTransferencia, notaDeImagen, montoValidadoDe, quitarEtiquetas, aMensajesOpenAI, deOpenAI, ejecutarHerramienta, PROMPT_AGENTE, type Deps, telefonoClave, historialDe, inferirNombre, normalizarFecha, normalizarHora, bloquesDelDia, huecosLibres, localDe, resolverProfesional, diaSemanaISO, fechaValida,
   type Bloque,
 } from '../../api/turnos/[accion]';
 
@@ -1465,5 +1465,24 @@ describe('mercadopago · ruta del webhook', () => {
     const v1 = createHmac('sha256', 'secreto').update('id:123;request-id:r;ts:1;').digest('hex');
     const r = await correr('POST', { 'data.id': '123' }, JSON.stringify({ type: 'merchant_order', data: { id: '123' } }), { 'x-signature': `ts=1,v1=${v1}`, 'x-request-id': 'r' });
     expect(r.code).toBe(200);
+  });
+});
+
+
+describe('agente · mensajes que WhatsApp no deja recibir (unsupported)', () => {
+  it('le avisa al modelo que no sabe qué decía y que no lo invente', () => {
+    const t = textoNoLegible({ type: 'unsupported', unsupported: { type: 'poll_creation' }, errors: [{ code: 131051, title: 'Message type is not currently supported' }] });
+    expect(t).toContain('poll_creation');
+    expect(t).toContain('No inventes');
+    expect(t).toContain('pedile que te lo escriba');
+    expect(textoNoLegible({ type: 'unsupported' })).toContain('no sabés qué decía');
+    expect(textoNoLegible({ type: 'sticker' })).toContain('sticker');
+  });
+
+  it('el evento de Kapso con tipo unsupported llega con ese texto', () => {
+    const r = extraerMensajesKapso({ message: { id: 'w1', from: '543885195671', type: 'unsupported', unsupported: { type: 'view_once' }, kapso: { direction: 'inbound' } }, conversation: { phone_number: '543885195671' } });
+    expect(r).toHaveLength(1);
+    expect(r[0].esTexto).toBe(false);
+    expect(r[0].texto).toContain('view_once');
   });
 });
