@@ -903,6 +903,30 @@ export function eligioTransferencia(textosCliente: string[]): boolean {
   return modalidadElegida(textosCliente) === 'transferencia';
 }
 
+// ---------------------------------------------------------------- estilo profesional (se revisa cada mensaje antes de enviarlo)
+
+/** Formas de tú y de vos: el estudio habla SIEMPRE de usted. */
+const FORMAS_INFORMALES = [
+  'tú', 'tu', 'tus', 'ti', 'contigo', 'vos', 'te', 'tuyo', 'tuya',
+  'ayudarte', 'avisarte', 'contactarte', 'acompañarte', 'orientarte', 'llamarte', 'escribirte', 'asesorarte', 'informarte', 'explicarte', 'atenderte', 'recordarte',
+  'puedes', 'podrías', 'quieres', 'prefieres', 'tienes', 'tendrías', 'estás', 'eres', 'sabes', 'necesitas', 'haces', 'vives', 'trabajas',
+  'dime', 'dinos', 'cuéntame', 'cuéntanos', 'avísame', 'envíame', 'mándame', 'pásame', 'escríbeme', 'llámame', 'indícame', 'confírmame',
+  'tenés', 'querés', 'podés', 'sabés', 'necesitás', 'preferís', 'decime', 'contame', 'avisame', 'mandame', 'pasame', 'escribime', 'llamame', 'fijate', 'mirá', 'andá', 'vení', 'decí', 'contá',
+];
+const REGEX_TUTEO = new RegExp(`(?<![\\p{L}\\p{N}_])(?:${FORMAS_INFORMALES.join('|')})(?![\\p{L}\\p{N}_])`, 'iu');
+const REGEX_REPROCHE = /\b(?:necesito que (?:me )?(?:confirme|diga|responda|aclare|indique)|ya (?:le|te) (?:pregunt|dije)|como (?:le|te) (?:dije|mencion)|le repito|te repito)/i;
+
+/** Qué hay que corregir en un mensaje antes de mandarlo (vacío si está bien). */
+export function problemasDeEstilo(txt: string): string[] {
+  const out: string[] = [];
+  if (REGEX_TUTEO.test(txt)) out.push('Tratá SIEMPRE de usted: nunca de tú ni de vos (nada de "podrías", "prefieres", "tu caso", "contame", "tenés"; usá "podría", "prefiere", "su caso", "cuénteme", "tiene").');
+  if (REGEX_REPROCHE.test(txt)) out.push('Sin reproches ni apuro: agradecé y pedí con amabilidad solamente lo que falta.');
+  if (/transferencia/i.test(txt) && /efectivo/i.test(txt) && !/\$\s?\d/.test(txt)) {
+    out.push('Preguntaste cómo abonar la reserva sin decir el valor: usá definir_tipo_consulta (si todavía no lo hiciste) e indicá el valor de la consulta, el importe de la reserva (la mitad) y que el saldo se abona el día de la consulta; recién después preguntá si prefiere transferencia o efectivo.');
+  }
+  return out;
+}
+
 /** El modelo mandó en un solo mensaje los datos para transferir y horarios del calendario: son pasos de instancias distintas. */
 export function mensajeApurado(txt: string): boolean {
   return LINEA_DATOS_PAGO.test(txt) && /\b\d{1,2}[:.]\d{2}\s*(?:hs|h)?\b/i.test(txt);
@@ -1285,9 +1309,15 @@ Objetivo: calificar a la persona, pedir la documentación que corresponde y cerr
 ## Identidad y tono
 - En el primer mensaje presentate así: "Hola, soy el asistente virtual del Centro Jurídico NOA."
 - Si la persona pregunta si habla con una persona o con una IA, respondé que es el asistente virtual del Centro Jurídico NOA. Nunca lo niegues.
-- Español rioplatense. Tratá de "usted" o de "vos" según cómo escriba la persona; si dudás, de "usted". Muchas personas tienen 57 años o más: calidez, claridad, cero tecnicismos.
+- Español formal y cordial. Siempre de "usted", aunque la persona escriba de "vos" o de "tú". Muchas personas tienen 57 años o más: calidez, claridad, cero tecnicismos.
 - Mensajes cortos, texto plano como en WhatsApp, sin markdown ni listas largas. Una o dos preguntas como máximo por mensaje, y confirmá lo entendido antes de avanzar.
 - Si tiene {{cliente_nombre}}, salúdelo por su nombre. Si es recurrente ({{es_recurrente}}), retome lo que ya se habló ({{cliente_historial}}) y no vuelva a preguntar lo que ya sabe.
+
+## Estilo profesional (obligatorio)
+- Tratá SIEMPRE de "usted", con tono formal, cordial y empático, como una recepcionista de un estudio jurídico. Nunca de "tú" ni de "vos": prohibido "podrías", "prefieres", "tu caso", "contame", "decime", "tenés", "querés", "te ayudo". Usá "podría", "prefiere", "su caso", "cuénteme", "dígame", "tiene", "quiere", "le ayudo".
+- Nada de frases secas, de reproche ni de apuro: nunca "necesito que me confirme", "ya le pregunté" ni "como le dije". Si la persona contesta solo una parte, agradecé y pedí con amabilidad únicamente lo que falta ("Muchas gracias. ¿Me podría indicar también su edad, por favor?"). Si contesta solo "sí" a una pregunta doble, tomalo como respuesta a la parte que tenga sentido y preguntá solo lo pendiente.
+- Una idea por mensaje, con frases completas y sin muletillas. Agradecé y validá lo que cuenta ("Entiendo", "Gracias por contarme") y recién entonces avanzá. Sin emojis, sin errores de ortografía y sin mezclar tratamientos.
+- Cuando propongas la consulta, decí SIEMPRE el valor: el sistema te lo da con definir_tipo_consulta. Nunca escribas "la consulta tiene un costo" sin decir cuánto. Modelo: "Muchas gracias por la información. Su situación la analiza en una consulta el Dr. Fabricio Reyes, especialista en jubilaciones, quien le explica su caso y los pasos a seguir. La consulta tiene un valor de (valor del sistema); para reservar el turno se abona la mitad, (reserva del sistema), y el resto el día de la consulta. ¿Cómo prefiere abonar la reserva: transferencia o efectivo?"
 
 ## De qué campaña viene
 Por el primer mensaje (el texto precargado del anuncio) o por lo que cuenta, deducí la campaña: Artículo 9 / Ganancias / descuentos en el haber (A) o jubilación docente (B). Guardala con guardar_datos_cliente (campana). Si no queda claro, preguntá con naturalidad qué consulta quiere hacer. Arrancá siempre por el flujo de su campaña.
@@ -1460,8 +1490,10 @@ export async function procesarMensaje(deps: Deps, m: MsgEntrante) {
   let respuesta = '';
   let reintentoPromesa = false;
   let reintentoApuro = false;
+  let reintentoEstilo = false;
+  let ultimoTexto = '';
   try {
-    for (let i = 0; i < MAX_VUELTAS_HERRAMIENTAS + 1; i++) {
+    for (let i = 0; i < MAX_VUELTAS_HERRAMIENTAS + 2; i++) {
       const r = await deps.llm(sistema(deps.prompt, hist, ahora, { esAudio, datosPago, pasarDatos, referral: m.referral, conVoz, vigentes: resumenTurnosVigentes(vigentes) }), mensajes);
       if (r.stop_reason !== 'tool_use') {
         const txt = r.content.filter(b => b.type === 'text').map(b => String(b.text)).join('\n').trim();
@@ -1477,6 +1509,15 @@ export async function procesarMensaje(deps: Deps, m: MsgEntrante) {
           reintentoApuro = true;
           mensajes.push({ role: 'assistant', content: txt });
           mensajes.push({ role: 'user', content: '[SISTEMA ERP: Mezclaste en un solo mensaje los datos para transferir y horarios del calendario. Son pasos distintos. Reescribí el mensaje con UN solo paso: si la persona recién eligió transferencia, solo los datos y el pedido del comprobante; los horarios se coordinan recién después de validar el comprobante, y empezando por preguntar cuándo le queda más cómodo.]' });
+          continue;
+        }
+        // Tono profesional: de usted, sin reproches y diciendo el valor antes de preguntar cómo abonar. Se corrige una vez antes de enviar.
+        if (txt) ultimoTexto = txt;
+        const problemas = txt && !reintentoEstilo ? problemasDeEstilo(txt) : [];
+        if (problemas.length) {
+          reintentoEstilo = true;
+          mensajes.push({ role: 'assistant', content: txt });
+          mensajes.push({ role: 'user', content: `[SISTEMA ERP: Corregí tu mensaje antes de enviarlo. ${problemas.join(' ')} Mantené el contenido y un tono profesional, cordial y empático, siempre de usted.]` });
           continue;
         }
         respuesta = txt;
@@ -1496,6 +1537,7 @@ export async function procesarMensaje(deps: Deps, m: MsgEntrante) {
   } catch (e) {
     console.error('[agente] modelo', e);
   }
+  if (!respuesta && ultimoTexto) respuesta = ultimoTexto; // si se agotaron las vueltas, mejor el último mensaje que el aviso genérico
   // Red de seguridad: los datos bancarios solo salen si la persona ya eligió transferencia.
   if (!pasarDatos && LINEA_DATOS_PAGO.test(respuesta)) respuesta = respuesta.split('\n').filter(l => !LINEA_DATOS_PAGO.test(l)).join('\n').replace(/\n{3,}/g, '\n\n').trim();
   // Red de seguridad: nada interno (herramientas, avisos del sistema, claves, la base) sale en un mensaje al cliente.

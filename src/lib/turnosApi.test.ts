@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { createHmac } from 'node:crypto';
 import handler, {
   clasificarRecibo, TIPOS_CONSULTA, promesaSinCumplir, separarDatosPago, mensajeApurado,
-  aMin, limpiarSecreto, camposDeLead, etapaAutomatica, fusionarLead, registrarMensaje, upsertLead, firmaMetaValida, firmaKapsoValida, extraerMensajesKapso, extraerMensajes, aMensajesLLM, procesarMensaje, textoNoLegible, firmaMercadoPagoValida, importeTexto, importeLindo, asignarImporteUnico, procesarPagoMP, montoMercadoPago, modalidadElegida, enmascarar, neutralizarMarcas, salidaInsegura, superaLimite, urlMediaSegura, resumenTurnosVigentes, HERRAMIENTAS_LLM, cuerpoNotaDeVoz, eligioTransferencia, notaDeImagen, montoValidadoDe, quitarEtiquetas, aMensajesOpenAI, deOpenAI, ejecutarHerramienta, PROMPT_AGENTE, type Deps, telefonoClave, historialDe, inferirNombre, normalizarFecha, normalizarHora, bloquesDelDia, huecosLibres, localDe, resolverProfesional, diaSemanaISO, fechaValida,
+  aMin, limpiarSecreto, camposDeLead, etapaAutomatica, fusionarLead, registrarMensaje, upsertLead, firmaMetaValida, firmaKapsoValida, extraerMensajesKapso, extraerMensajes, aMensajesLLM, procesarMensaje, problemasDeEstilo, textoNoLegible, firmaMercadoPagoValida, importeTexto, importeLindo, asignarImporteUnico, procesarPagoMP, montoMercadoPago, modalidadElegida, enmascarar, neutralizarMarcas, salidaInsegura, superaLimite, urlMediaSegura, resumenTurnosVigentes, HERRAMIENTAS_LLM, cuerpoNotaDeVoz, eligioTransferencia, notaDeImagen, montoValidadoDe, quitarEtiquetas, aMensajesOpenAI, deOpenAI, ejecutarHerramienta, PROMPT_AGENTE, type Deps, telefonoClave, historialDe, inferirNombre, normalizarFecha, normalizarHora, bloquesDelDia, huecosLibres, localDe, resolverProfesional, diaSemanaISO, fechaValida,
   type Bloque,
 } from '../../api/turnos/[accion]';
 
@@ -723,7 +723,7 @@ describe('agente · voz y secuencia comercial', () => {
     const { db } = dbConversaciones();
     let llamadas = 0;
     const { d, enviados } = deps(db, {
-      llm: async () => { llamadas++; return llamadas === 1 ? texto('La consulta vale $80.000.\nAlias: centrojuridiconoa680\nTengo martes 10:30 y 11:00.') : texto('Gracias. Podríamos coordinar una consulta con el Dr. Fabricio Reyes. ¿Prefiere abonar la reserva por transferencia o en efectivo?'); },
+      llm: async () => { llamadas++; return llamadas === 1 ? texto('La consulta vale $80.000.\nAlias: centrojuridiconoa680\nTengo martes 10:30 y 11:00.') : texto('Gracias. Podríamos coordinar una consulta con el Dr. Fabricio Reyes, de valor $80.000, con una reserva de $40.000. ¿Prefiere abonar la reserva por transferencia o en efectivo?'); },
     });
     await procesarMensaje(d, msg);
     expect(llamadas).toBe(2);
@@ -1484,5 +1484,78 @@ describe('agente · mensajes que WhatsApp no deja recibir (unsupported)', () => 
     expect(r).toHaveLength(1);
     expect(r[0].esTexto).toBe(false);
     expect(r[0].texto).toContain('view_once');
+  });
+});
+
+
+describe('agente · tono profesional (siempre de usted)', () => {
+  it('detecta el tuteo y el voseo de las conversaciones reales', () => {
+    expect(problemasDeEstilo('Para poder ayudarte mejor, ¿podrías decirme tu edad y si actualmente estás trabajando como docente?').length).toBeGreaterThan(0);
+    expect(problemasDeEstilo('Podríamos coordinar una consulta para analizar tu caso. ¿Cómo prefieres abonar la reserva?').length).toBeGreaterThan(0);
+    for (const t of ['¿Cómo preferís abonar?', 'Contame qué necesitás', 'Decime tu edad', 'Mirá, te cuento', 'Dime su edad', 'Cuéntame más']) {
+      expect(problemasDeEstilo(t).join(' ')).toContain('usted');
+    }
+  });
+
+  it('un mensaje de usted correcto no genera correcciones', () => {
+    expect(problemasDeEstilo('Muchas gracias por la información. ¿Me podría indicar su edad, por favor?')).toEqual([]);
+    expect(problemasDeEstilo('Su situación la analiza el Dr. Fabricio Reyes. La consulta tiene un valor de $80.000; la reserva es de $40.000. ¿Prefiere transferencia o efectivo?')).toEqual([]);
+    expect(problemasDeEstilo('Tengo lugar el martes a las 10:00. El instituto queda en San Salvador de Jujuy. Cuente con nuestro apoyo.')).toEqual([]);
+  });
+
+  it('detecta reproches y apuro', () => {
+    expect(problemasDeEstilo('Entiendo, pero necesito que me confirme su edad y si está trabajando como docente.').join(' ')).toContain('reproches');
+    expect(problemasDeEstilo('Como le dije, necesitamos su edad.').join(' ')).toContain('reproches');
+    expect(problemasDeEstilo('Le repito la pregunta.').join(' ')).toContain('reproches');
+  });
+
+  it('detecta que se pregunta cómo abonar sin decir el valor ("La consulta tiene un costo")', () => {
+    const p = problemasDeEstilo('Perfecto, gracias por la información. La consulta tiene un costo. ¿Cómo prefiere abonar la reserva: transferencia o efectivo?');
+    expect(p.join(' ')).toContain('definir_tipo_consulta');
+    expect(problemasDeEstilo('La consulta vale $80.000 y la reserva $40.000. ¿Prefiere transferencia o efectivo?')).toEqual([]);
+  });
+
+  it('si el modelo tutea, se le pide reescribir de usted y se envía la versión corregida', async () => {
+    const { db } = dbConversaciones();
+    let llamadas = 0;
+    const sistemas: string[] = [];
+    const { d, enviados } = deps(db, {
+      llm: async (_sys, msgs) => {
+        llamadas++;
+        sistemas.push(JSON.stringify(msgs.slice(-1)));
+        return llamadas === 1 ? texto('Para poder ayudarte mejor, ¿podrías decirme tu edad?') : texto('Para poder ayudarle mejor, ¿me podría indicar su edad, por favor?');
+      },
+    });
+    await procesarMensaje(d, msg);
+    expect(llamadas).toBe(2);
+    expect(sistemas[1]).toContain('usted');
+    expect(enviados[0]).toBe('Para poder ayudarle mejor, ¿me podría indicar su edad, por favor?');
+  });
+
+  it('si propone la consulta sin decir el valor, se corrige antes de enviar', async () => {
+    const { db } = dbConversaciones();
+    let llamadas = 0;
+    const { d, enviados } = deps(db, {
+      llm: async () => { llamadas++; return llamadas === 1 ? texto('Podríamos coordinar una consulta con el Dr. Fabricio Reyes. La consulta tiene un costo. ¿Cómo prefiere abonar: transferencia o efectivo?') : texto('La consulta con el Dr. Fabricio Reyes tiene un valor de $80.000; la reserva es de $40.000 y el resto se abona el día. ¿Prefiere transferencia o efectivo?'); },
+    });
+    await procesarMensaje(d, msg);
+    expect(llamadas).toBe(2);
+    expect(enviados[0]).toContain('$80.000');
+  });
+
+  it('solo corrige una vez: si sigue mal, se envía igual y no hay bucle', async () => {
+    const { db } = dbConversaciones();
+    let llamadas = 0;
+    const { d, enviados } = deps(db, { llm: async () => { llamadas++; return texto('¿Podrías decirme tu edad?'); } });
+    await procesarMensaje(d, msg);
+    expect(llamadas).toBe(2);
+    expect(enviados).toHaveLength(1);
+  });
+
+  it('el prompt exige usted y ya no permite el vos ni el tuteo', () => {
+    expect(PROMPT_AGENTE).toContain('Tratá SIEMPRE de "usted"');
+    expect(PROMPT_AGENTE).not.toContain('Tratá de "usted" o de "vos"');
+    expect(PROMPT_AGENTE).toContain('Estilo profesional (obligatorio)');
+    expect(PROMPT_AGENTE).toContain('necesito que me confirme');
   });
 });
