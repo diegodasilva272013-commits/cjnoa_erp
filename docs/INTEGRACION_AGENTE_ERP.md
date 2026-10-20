@@ -125,3 +125,12 @@ Base: `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `TURNOS_AGENTE_SECRET`.
 Agente de WhatsApp (obligatorias): `WHATSAPP_VERIFY_TOKEN` (texto inventado, el mismo que se pone en Meta), `META_APP_SECRET`, `WHATSAPP_TOKEN`, `WHATSAPP_PHONE_ID`, `api_openai` (u `OPENAI_API_KEY`).
 
 Opcionales: `AGENTE_PROMPT`, `AGENTE_DATOS_PAGO` (CBU/alias para pasar al cliente), `TITULAR_CUENTA` (nombre que debe figurar en las transferencias), `AGENTE_MODELO` (por defecto `gpt-4o-mini`), `AGENTE_MODELO_VISION` (`gpt-4o`), `ELEVENLABS_API_KEY` + `ELEVENLABS_VOICE_ID` (+ `ELEVENLABS_MODEL`, por defecto `eleven_v3`) para las notas de voz.
+
+## Agentes maestros (Agentes IA)
+
+Pantallas (solo admin y socio): **Agentes IA** (`/agentes`: en vivo, análisis, prompt) y **Registro** (`/agentes/registro`).
+- Tablas (migración `supabase/migration_agentes_maestros.sql`, solo crea tablas nuevas): `agentes_estado`, `agentes_registro` (inmutable), `agentes_ejecuciones`, `agentes_analisis`, `agentes_config`, `agente_prompt_versiones`.
+- **Analista (activo):** cada 10 conversaciones nuevas (o con el botón) lee las conversaciones, cruza fichas y turnos, mide el embudo hasta la cita agendada, detecta errores (tuteo, reproches, preguntas repetidas, consulta sin valor, mensajes sin respuesta) y revisa una muestra con IA, siempre sin teléfonos ni mails. Guarda un informe y deja todo en el registro. Tope diario de corridas; pausa general.
+- **Redactor, Tester y Auditor:** previstos para las próximas etapas. Ningún cambio llega al agente de WhatsApp sin aprobación.
+- **Prompt en la base:** el agente usa la versión activa de `agente_prompt_versiones` (solo administradores pueden leerla). Aplicar una versión archiva la anterior (backup); se puede volver atrás con un botón y nada se borra. Si la base no responde o no hay versión activa, usa el prompt de respaldo del código.
+- Las llamadas de la pantalla van a `/api/turnos/agentes` (misma función de Vercel: el plan gratuito tiene tope de funciones).

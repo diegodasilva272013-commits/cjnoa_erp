@@ -34,11 +34,20 @@ const ControlTareas = lazyWithRetry(() => import('./pages/ControlTareas'));
 const MiDia = lazyWithRetry(() => import('./pages/MiDia'));
 const Chat = lazyWithRetry(() => import('./pages/Chat'));
 const ConsultasWhatsApp = lazyWithRetry(() => import('./pages/ConsultasWhatsApp'));
+const AgentesIA = lazyWithRetry(() => import('./pages/AgentesIA'));
+const AgentesRegistro = lazyWithRetry(() => import('./pages/AgentesRegistro'));
 const LeadsCampanas = lazyWithRetry(() => import('./pages/LeadsCampanas'));
 
 function ProtectedRoute({ modulo, children }: { modulo: 'dashboard' | 'casos' | 'finanzas' | 'equipo' | 'agenda' | 'previsional' | 'honorarios'; children: React.ReactNode }) {
   const { canSee } = usePermisos();
   if (!canSee(modulo)) return <Navigate to="/casos-generales" replace />;
+  return <>{children}</>;
+}
+
+/** Pantallas de los agentes: solo administradores y socios (el prompt, además, solo administradores). */
+function SoloAdminSocio({ children }: { children: React.ReactNode }) {
+  const { rol } = usePermisos();
+  if (rol !== 'admin' && rol !== 'socio') return <Navigate to="/casos-generales" replace />;
   return <>{children}</>;
 }
 
@@ -95,6 +104,8 @@ export default function App() {
           <Route path="/mi-dia" element={<MiDia />} />
           <Route path="/chat" element={<Chat />} />
           <Route path="/consultas-whatsapp" element={<ConsultasWhatsApp />} />
+          <Route path="/agentes" element={<SoloAdminSocio><AgentesIA /></SoloAdminSocio>} />
+          <Route path="/agentes/registro" element={<SoloAdminSocio><AgentesRegistro /></SoloAdminSocio>} />
           <Route path="/leads-campanas" element={<LeadsCampanas />} />
           <Route path="/honorarios" element={<ProtectedRoute modulo="honorarios"><Honorarios /></ProtectedRoute>} />
           <Route path="/ingresos" element={<ProtectedRoute modulo="finanzas"><Ingresos /></ProtectedRoute>} />

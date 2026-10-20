@@ -26,6 +26,7 @@ import {
   MessageCircle,
   Bot,
   Megaphone,
+  Sparkles,
 } from 'lucide-react';
 import { usePermisos } from '../hooks/usePermisos';
 import { useAuth } from '../context/AuthContext';
@@ -41,7 +42,7 @@ interface SidebarProps {
 export default function Sidebar({ open, onClose }: SidebarProps) {
   const location = useLocation();
   const navigate = useNavigate();
-  const { permisos } = usePermisos();
+  const { permisos, rol } = usePermisos();
   const { perfil } = useAuth();
   const { theme } = useTheme();
   const avatarUrl = useAvatarUrl(perfil?.avatar_url);
@@ -169,6 +170,14 @@ export default function Sidebar({ open, onClose }: SidebarProps) {
             <Bot className="w-5 h-5" />
             Consultas WhatsApp
           </NavLink>
+
+          {/* Agentes IA (analista, redactor, tester, auditor): solo admin y socio */}
+          {(rol === 'admin' || rol === 'socio') && (
+            <NavLink to="/agentes" onClick={onClose} className={({ isActive }) => linkClass(isActive)}>
+              <Sparkles className="w-5 h-5" />
+              Agentes IA
+            </NavLink>
+          )}
 
           {/* Leads de campañas */}
           <NavLink to="/leads-campanas" onClick={onClose} className={({ isActive }) => linkClass(isActive)}>
