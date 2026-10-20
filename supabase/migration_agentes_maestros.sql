@@ -1,9 +1,9 @@
 -- ============================================================================
 -- AGENTES MAESTROS (analista, redactor, tester, auditor) + prompts en la base
 --
--- SEGURA DE CORRER: solo CREA tablas, funciones, triggers y políticas NUEVAS.
--- No modifica ni borra ninguna tabla, columna ni dato existente. Se puede correr
--- más de una vez (todo es IF NOT EXISTS / CREATE OR REPLACE / DROP del propio objeto).
+-- SIN NADA DESTRUCTIVO: este archivo no tiene DROP, DELETE, TRUNCATE ni ALTER sobre tablas existentes.
+-- Solo CREA objetos nuevos (cada uno solo si todavía no existe) e inserta 5 filas iniciales.
+-- Se puede correr más de una vez: lo que ya existe se deja como está.
 --
 -- Qué crea:
 --   agentes_estado          qué está haciendo cada agente ahora (lo ve la pantalla en vivo)
@@ -13,8 +13,6 @@
 --   agentes_config          pausa general, cada cuántas conversaciones analizar, tope diario
 --   agente_prompt_versiones el prompt del agente de WhatsApp, con versiones y backup
 --                           (nunca se borran; solo los administradores pueden leerlo)
---
--- Después de correrla: en el ERP, Agentes IA > Prompt > "Importar prompt actual".
 -- ============================================================================
 
 -- 1) Estado en vivo ----------------------------------------------------------
@@ -82,22 +80,22 @@ CREATE TABLE IF NOT EXISTS public.agentes_config (
 
 -- 6) Prompt del agente de WhatsApp, con versiones y backup --------------------
 CREATE TABLE IF NOT EXISTS public.agente_prompt_versiones (
-  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  version     bigint GENERATED ALWAYS AS IDENTITY,
-  contenido   text NOT NULL,
-  hash        text,
-  estado      text NOT NULL DEFAULT 'propuesta' CHECK (estado IN ('activa','propuesta','archivada','rechazada')),
-  origen      text NOT NULL DEFAULT 'manual' CHECK (origen IN ('importada','manual','propuesta_agente','restauracion')),
-  motivo      text,
-  creado_por  text,
-  creado_at   timestamptz NOT NULL DEFAULT now(),
-  aplicada_at timestamptz,
+  id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  version      bigint GENERATED ALWAYS AS IDENTITY,
+  contenido    text NOT NULL,
+  hash         text,
+  estado       text NOT NULL DEFAULT 'propuesta' CHECK (estado IN ('activa','propuesta','archivada','rechazada')),
+  origen       text NOT NULL DEFAULT 'manual' CHECK (origen IN ('importada','manual','propuesta_agente','restauracion')),
+  motivo       text,
+  creado_por   text,
+  creado_at    timestamptz NOT NULL DEFAULT now(),
+  aplicada_at  timestamptz,
   aplicada_por text
 );
 -- Como mucho UNA versión activa a la vez.
 CREATE UNIQUE INDEX IF NOT EXISTS uq_agente_prompt_una_activa ON public.agente_prompt_versiones ((true)) WHERE estado = 'activa';
 
--- Fila inicial de cada agente y de la configuración (si ya existen, no se tocan).
+-- 7) Filas iniciales (si ya existen, no se tocan) ------------------------------
 INSERT INTO public.agentes_estado (agente, nombre, rol, tarea) VALUES
   ('analista', 'Analista', 'Lee las conversaciones, mide el embudo y detecta errores', 'Esperando conversaciones nuevas'),
   ('redactor', 'Redactor', 'Propone mejoras al prompt a partir de los hallazgos', 'En espera (próxima etapa)'),
@@ -106,16 +104,13 @@ INSERT INTO public.agentes_estado (agente, nombre, rol, tarea) VALUES
 ON CONFLICT (agente) DO NOTHING;
 INSERT INTO public.agentes_config (id) VALUES (1) ON CONFLICT (id) DO NOTHING;
 
--- 7) Lo registrado y las versiones del prompt NO se pueden editar ni borrar ----
+-- 8) Protecciones: el registro y las versiones del prompt no se editan ni se borran -----
+--    (Estas funciones solo se aplican a las tablas nuevas de arriba.)
 CREATE OR REPLACE FUNCTION public.agentes_registro_inmutable()
 RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
   RAISE EXCEPTION 'El registro de los agentes no se puede modificar ni borrar';
 END $$;
-DROP TRIGGER IF EXISTS trg_agentes_registro_inmutable ON public.agentes_registro;
-CREATE TRIGGER trg_agentes_registro_inmutable
-  BEFORE UPDATE OR DELETE ON public.agentes_registro
-  FOR EACH ROW EXECUTE FUNCTION public.agentes_registro_inmutable();
 
 CREATE OR REPLACE FUNCTION public.agente_prompt_proteger()
 RETURNS trigger LANGUAGE plpgsql AS $$
@@ -128,12 +123,22 @@ BEGIN
   END IF;
   RETURN NEW;
 END $$;
-DROP TRIGGER IF EXISTS trg_agente_prompt_proteger ON public.agente_prompt_versiones;
-CREATE TRIGGER trg_agente_prompt_proteger
-  BEFORE UPDATE OR DELETE ON public.agente_prompt_versiones
-  FOR EACH ROW EXECUTE FUNCTION public.agente_prompt_proteger();
 
--- 8) Activar una versión (o volver a una anterior) en un solo paso -------------
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'trg_agentes_registro_inmutable' AND NOT tgisinternal) THEN
+    CREATE TRIGGER trg_agentes_registro_inmutable
+      BEFORE UPDATE OR DELETE ON public.agentes_registro
+      FOR EACH ROW EXECUTE FUNCTION public.agentes_registro_inmutable();
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'trg_agente_prompt_proteger' AND NOT tgisinternal) THEN
+    CREATE TRIGGER trg_agente_prompt_proteger
+      BEFORE UPDATE OR DELETE ON public.agente_prompt_versiones
+      FOR EACH ROW EXECUTE FUNCTION public.agente_prompt_proteger();
+  END IF;
+END $$;
+
+-- 9) Activar una versión (o volver a una anterior) en un solo paso -------------
 --    La que estaba activa pasa a 'archivada' (queda guardada para volver atrás).
 CREATE OR REPLACE FUNCTION public.agente_prompt_activar(p_id uuid, p_por text)
 RETURNS bigint LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
@@ -153,7 +158,7 @@ END $$;
 REVOKE ALL ON FUNCTION public.agente_prompt_activar(uuid, text) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.agente_prompt_activar(uuid, text) TO service_role;
 
--- 9) Quién puede ver qué (RLS). Escribir lo hace solo el servidor (service role). ---
+-- 10) Quién puede ver qué (RLS). Escribir lo hace solo el servidor. ---------------
 ALTER TABLE public.agentes_estado          ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.agentes_registro        ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.agentes_ejecuciones     ENABLE ROW LEVEL SECURITY;
@@ -161,32 +166,37 @@ ALTER TABLE public.agentes_analisis        ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.agentes_config          ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.agente_prompt_versiones ENABLE ROW LEVEL SECURITY;
 
-DROP POLICY IF EXISTS agentes_estado_leer ON public.agentes_estado;
-CREATE POLICY agentes_estado_leer ON public.agentes_estado FOR SELECT TO authenticated
-  USING (EXISTS (SELECT 1 FROM public.perfiles p WHERE p.id = auth.uid() AND p.rol IN ('admin','socio')));
+DO $$
+BEGIN
+  -- Admin y socio pueden LEER el estado, el registro, las corridas, los análisis y la configuración.
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = 'public' AND tablename = 'agentes_estado' AND policyname = 'agentes_estado_leer') THEN
+    CREATE POLICY agentes_estado_leer ON public.agentes_estado FOR SELECT TO authenticated
+      USING (EXISTS (SELECT 1 FROM public.perfiles p WHERE p.id = auth.uid() AND p.rol IN ('admin','socio')));
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = 'public' AND tablename = 'agentes_registro' AND policyname = 'agentes_registro_leer') THEN
+    CREATE POLICY agentes_registro_leer ON public.agentes_registro FOR SELECT TO authenticated
+      USING (EXISTS (SELECT 1 FROM public.perfiles p WHERE p.id = auth.uid() AND p.rol IN ('admin','socio')));
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = 'public' AND tablename = 'agentes_ejecuciones' AND policyname = 'agentes_ejecuciones_leer') THEN
+    CREATE POLICY agentes_ejecuciones_leer ON public.agentes_ejecuciones FOR SELECT TO authenticated
+      USING (EXISTS (SELECT 1 FROM public.perfiles p WHERE p.id = auth.uid() AND p.rol IN ('admin','socio')));
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = 'public' AND tablename = 'agentes_analisis' AND policyname = 'agentes_analisis_leer') THEN
+    CREATE POLICY agentes_analisis_leer ON public.agentes_analisis FOR SELECT TO authenticated
+      USING (EXISTS (SELECT 1 FROM public.perfiles p WHERE p.id = auth.uid() AND p.rol IN ('admin','socio')));
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = 'public' AND tablename = 'agentes_config' AND policyname = 'agentes_config_leer') THEN
+    CREATE POLICY agentes_config_leer ON public.agentes_config FOR SELECT TO authenticated
+      USING (EXISTS (SELECT 1 FROM public.perfiles p WHERE p.id = auth.uid() AND p.rol IN ('admin','socio')));
+  END IF;
+  -- El prompt es lo más sensible: SOLO administradores.
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = 'public' AND tablename = 'agente_prompt_versiones' AND policyname = 'agente_prompt_leer') THEN
+    CREATE POLICY agente_prompt_leer ON public.agente_prompt_versiones FOR SELECT TO authenticated
+      USING (EXISTS (SELECT 1 FROM public.perfiles p WHERE p.id = auth.uid() AND p.rol = 'admin'));
+  END IF;
+END $$;
 
-DROP POLICY IF EXISTS agentes_registro_leer ON public.agentes_registro;
-CREATE POLICY agentes_registro_leer ON public.agentes_registro FOR SELECT TO authenticated
-  USING (EXISTS (SELECT 1 FROM public.perfiles p WHERE p.id = auth.uid() AND p.rol IN ('admin','socio')));
-
-DROP POLICY IF EXISTS agentes_ejecuciones_leer ON public.agentes_ejecuciones;
-CREATE POLICY agentes_ejecuciones_leer ON public.agentes_ejecuciones FOR SELECT TO authenticated
-  USING (EXISTS (SELECT 1 FROM public.perfiles p WHERE p.id = auth.uid() AND p.rol IN ('admin','socio')));
-
-DROP POLICY IF EXISTS agentes_analisis_leer ON public.agentes_analisis;
-CREATE POLICY agentes_analisis_leer ON public.agentes_analisis FOR SELECT TO authenticated
-  USING (EXISTS (SELECT 1 FROM public.perfiles p WHERE p.id = auth.uid() AND p.rol IN ('admin','socio')));
-
-DROP POLICY IF EXISTS agentes_config_leer ON public.agentes_config;
-CREATE POLICY agentes_config_leer ON public.agentes_config FOR SELECT TO authenticated
-  USING (EXISTS (SELECT 1 FROM public.perfiles p WHERE p.id = auth.uid() AND p.rol IN ('admin','socio')));
-
--- El prompt es lo más sensible: SOLO administradores.
-DROP POLICY IF EXISTS agente_prompt_leer ON public.agente_prompt_versiones;
-CREATE POLICY agente_prompt_leer ON public.agente_prompt_versiones FOR SELECT TO authenticated
-  USING (EXISTS (SELECT 1 FROM public.perfiles p WHERE p.id = auth.uid() AND p.rol = 'admin'));
-
--- 10) Tiempo real para la pantalla en vivo --------------------------------------
+-- 11) Tiempo real para la pantalla en vivo ----------------------------------------
 DO $$
 BEGIN
   IF EXISTS (SELECT 1 FROM pg_publication WHERE pubname = 'supabase_realtime') THEN
