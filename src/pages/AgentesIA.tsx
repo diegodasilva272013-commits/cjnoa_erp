@@ -94,10 +94,10 @@ export default function AgentesIA() {
     finally { setOcupado(null); }
   };
 
-  const analizarAhora = () => ejecutar('analizar', async () => {
-    const r = await llamarAgentes<{ ok: boolean; estado: string; motivo?: string; conversaciones?: number; pct_cierre?: number }>('analizar');
+  const analizarAhora = (desdeCero = false) => ejecutar('analizar', async () => {
+    const r = await llamarAgentes<{ ok: boolean; estado: string; motivo?: string; conversaciones?: number; pct_cierre?: number }>('analizar', desdeCero ? { desde_cero: true } : {});
     setAviso(r.estado === 'ok'
-      ? { tipo: 'ok', texto: `Análisis listo: ${r.conversaciones} conversaciones, ${r.pct_cierre}% llegó a la cita.` }
+      ? { tipo: 'ok', texto: `Análisis listo: ${r.conversaciones} conversaciones reales, ${r.pct_cierre}% llegó a la cita. Mirá la pestaña Análisis.` }
       : { tipo: r.estado === 'error' ? 'error' : 'info', texto: r.motivo || 'No se pudo analizar ahora.' });
     await Promise.all([cargarEstados(), cargarAnalisis()]);
   });
@@ -143,6 +143,17 @@ export default function AgentesIA() {
 
   const ultimo = useMemo(() => analisis.find(a => a.id === elegido) ?? analisis[0] ?? null, [analisis, elegido]);
   const algunoTrabajando = estados.some(e => e.estado === 'trabajando');
+  // Desde que se toca el botón, el Analista se ve trabajando aunque el servidor tarde un instante en avisarlo.
+  const estadosVista = useMemo(() => estados.map(e => (ocupado === 'analizar' && e.agente === 'analista' && e.estado === 'inactivo')
+    ? { ...e, estado: 'trabajando' as const, tarea: 'Arrancando el análisis…', progreso: 3 } : e), [estados, ocupado]);
+
+  // Mientras alguien trabaja, la pantalla se actualiza seguido (no depende solo del tiempo real).
+  const hayActividad = ocupado === 'analizar' || algunoTrabajando;
+  useEffect(() => {
+    if (!hayActividad) return;
+    const t = setInterval(() => { void cargarEstados(); void cargarTicker(); }, 1500);
+    return () => clearInterval(t);
+  }, [hayActividad, cargarEstados, cargarTicker]);
 
   if (cargando) {
     return <div className="flex min-h-[400px] items-center justify-center"><div className="h-8 w-8 animate-spin rounded-full border-2 border-white/30 border-t-transparent" /></div>;
@@ -165,8 +176,11 @@ export default function AgentesIA() {
       <Encabezado />
 
       <div className="mb-5 flex flex-wrap items-center gap-3">
-        <button onClick={analizarAhora} disabled={!!ocupado || algunoTrabajando || config?.pausado} className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-40">
+        <button onClick={() => analizarAhora()} disabled={!!ocupado || algunoTrabajando || config?.pausado} className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-40">
           <Play className="size-4" /> {ocupado === 'analizar' ? 'Analizando…' : 'Ejecutar análisis ahora'}
+        </button>
+        <button onClick={() => analizarAhora(true)} disabled={!!ocupado || algunoTrabajando || config?.pausado} title="Vuelve a mirar todas las conversaciones desde el principio, sin contar las pruebas del equipo. Los análisis anteriores se conservan." className="inline-flex items-center gap-2 rounded-lg border border-white/15 px-4 py-2 text-sm text-gray-200 transition hover:bg-white/5 disabled:cursor-not-allowed disabled:opacity-40">
+          <RotateCcw className="size-4" /> Analizar todo de nuevo
         </button>
         <button onClick={() => pausar(!config?.pausado)} disabled={!!ocupado} className="inline-flex items-center gap-2 rounded-lg border border-white/15 px-4 py-2 text-sm text-gray-200 transition hover:bg-white/5 disabled:opacity-40">
           {config?.pausado ? <><Play className="size-4" /> Reanudar a todos</> : <><Pause className="size-4" /> Pausar a todos</>}
@@ -196,7 +210,7 @@ export default function AgentesIA() {
 
       {tab === 'vivo' && (
         <div className="space-y-6">
-          <OficinaAgentes agentes={estados} />
+          <OficinaAgentes agentes={estadosVista} />
           <section className="rounded-xl border border-white/10 bg-[#0a0a0a] p-4">
             <h2 className="mb-3 text-sm font-semibold text-white">Lo último que hicieron</h2>
             {ticker.length === 0 ? <p className="text-sm text-gray-500">Todavía no hicieron nada.</p> : (
@@ -328,6 +342,12 @@ function PanelAnalisis({ ultimo, historial, elegido, onElegir }: { ultimo: Anali
   const todos = Object.entries({ ...errores, ...Object.fromEntries(Object.entries(erroresIA).map(([c, n]) => [c, Math.max(n, errores[c] ?? 0)])) }).sort((a, b) => b[1] - a[1]);
   return (
     <div className="space-y-6">
+      {ultimo.hallazgos?.resumen && (
+        <section className="rounded-xl border border-blue-500/30 bg-blue-500/5 p-4">
+          <h2 className="mb-1.5 text-sm font-semibold text-blue-200">En pocas palabras</h2>
+          <p className="text-sm leading-relaxed text-gray-200">{ultimo.hallazgos.resumen}</p>
+        </section>
+      )}
       {k.confianza === 'baja' && (
         <div className="flex items-start gap-2 rounded-lg border border-amber-600/40 bg-amber-950/20 px-4 py-3 text-sm text-amber-200">
           <AlertTriangle className="mt-0.5 size-4 shrink-0" />

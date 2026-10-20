@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { createHmac } from 'node:crypto';
 import handler, {
   clasificarRecibo, TIPOS_CONSULTA, promesaSinCumplir, separarDatosPago, mensajeApurado,
-  aMin, limpiarSecreto, camposDeLead, etapaAutomatica, fusionarLead, registrarMensaje, upsertLead, firmaMetaValida, firmaKapsoValida, extraerMensajesKapso, extraerMensajes, aMensajesLLM, procesarMensaje, ejecutarAnalista, revisarAnalisisAutomatico, codigosDeEstilo, etapaEmbudo, analizarConversacion, calcularMetricas, mascararDatos, textoParaEtiquetar, validarEtiquetas, promptDelAgente, limpiarCachePrompt, accionAgentes, problemasDeEstilo, textoNoLegible, firmaMercadoPagoValida, importeTexto, importeLindo, asignarImporteUnico, procesarPagoMP, montoMercadoPago, modalidadElegida, enmascarar, neutralizarMarcas, salidaInsegura, superaLimite, urlMediaSegura, resumenTurnosVigentes, HERRAMIENTAS_LLM, cuerpoNotaDeVoz, eligioTransferencia, notaDeImagen, montoValidadoDe, quitarEtiquetas, aMensajesOpenAI, deOpenAI, ejecutarHerramienta, PROMPT_AGENTE, type Deps, telefonoClave, historialDe, inferirNombre, normalizarFecha, normalizarHora, bloquesDelDia, huecosLibres, localDe, resolverProfesional, diaSemanaISO, fechaValida,
+  aMin, limpiarSecreto, camposDeLead, etapaAutomatica, fusionarLead, registrarMensaje, upsertLead, firmaMetaValida, firmaKapsoValida, extraerMensajesKapso, extraerMensajes, aMensajesLLM, procesarMensaje, motivoDeExclusion, resumenEnPalabras, ejecutarAnalista, revisarAnalisisAutomatico, codigosDeEstilo, etapaEmbudo, analizarConversacion, calcularMetricas, mascararDatos, textoParaEtiquetar, validarEtiquetas, promptDelAgente, limpiarCachePrompt, accionAgentes, problemasDeEstilo, textoNoLegible, firmaMercadoPagoValida, importeTexto, importeLindo, asignarImporteUnico, procesarPagoMP, montoMercadoPago, modalidadElegida, enmascarar, neutralizarMarcas, salidaInsegura, superaLimite, urlMediaSegura, resumenTurnosVigentes, HERRAMIENTAS_LLM, cuerpoNotaDeVoz, eligioTransferencia, notaDeImagen, montoValidadoDe, quitarEtiquetas, aMensajesOpenAI, deOpenAI, ejecutarHerramienta, PROMPT_AGENTE, type Deps, telefonoClave, historialDe, inferirNombre, normalizarFecha, normalizarHora, bloquesDelDia, huecosLibres, localDe, resolverProfesional, diaSemanaISO, fechaValida,
   type Bloque,
 } from '../../api/turnos/[accion]';
 
@@ -1902,5 +1902,129 @@ describe('agentes · el prompt vive en la base, con versiones y backup', () => {
     const r: any = await accionAgentes(db, U('socio'), 'analizar', {}, {});
     expect(r.code).toBe(200);
     expect(r.body.estado).toBe('omitida');
+  });
+});
+
+
+describe('agentes · las pruebas del equipo no cuentan', () => {
+  const equipo = new Set(['diegodasilva', 'rodrigoreyes']);
+  const tels = new Set(['3884867965']);
+
+  it('reconoce al equipo, las pruebas de Kapso y los teléfonos excluidos', () => {
+    expect(motivoDeExclusion('Diego Da Silva', '5493880000000', equipo, tels)).toBe('equipo');
+    expect(motivoDeExclusion('rodrigo reyes', null, equipo, tels)).toBe('equipo');
+    expect(motivoDeExclusion('kapso_test_user', '123', equipo, tels)).toBe('prueba');
+    expect(motivoDeExclusion('Test', '123', equipo, tels)).toBe('prueba');
+    expect(motivoDeExclusion('Ana López', '+54 9 388 486-7965', equipo, tels)).toBe('excluida');
+  });
+
+  it('un cliente real no se excluye (ni siquiera con el mismo nombre de pila)', () => {
+    expect(motivoDeExclusion('Diego Pérez', '5493885551111', equipo, tels)).toBeNull();
+    expect(motivoDeExclusion('Rodrigo', '5493885551111', equipo, tels)).toBeNull();
+    expect(motivoDeExclusion(null, '5493885551111', equipo, tels)).toBeNull();
+  });
+});
+
+describe('agentes · el Analista ignora las pruebas y se ve trabajar', () => {
+  const ahora = new Date('2026-10-20T15:00:00Z');
+  const conv = (id: string, telefono: string, nombre: string, mensajes: any[]) => ({ id, telefono, nombre, mensajes, created_at: '2026-10-20T12:00:00Z', updated_at: '2026-10-20T12:00:00Z' });
+  const guardar = { ...process.env };
+  afterEach(() => { process.env = { ...guardar }; });
+  const mundo = (convs: any[], extra: Record<string, any[]> = {}) => dbAgenda({
+    agentes_config: [{ id: 1, pausado: false, analizar_cada: 10, max_ejecuciones_dia: 6, ultimo_analisis_at: null, conversaciones_analizadas: 0 }],
+    agentes_estado: [{ agente: 'analista', estado: 'inactivo', tarea: 'Esperando', progreso: 0 }],
+    agentes_registro: [], agentes_ejecuciones: [], agentes_analisis: [],
+    perfiles: [{ nombre: 'Diego Da Silva' }, { nombre: 'Rodrigo Reyes' }],
+    conversaciones_whatsapp: convs, leads: [], consultas_agendadas: [],
+    ...extra,
+  });
+  const dos = [mm('cliente', 'hola'), mm('agente', 'Buen día, ¿en qué puedo ayudarle?')];
+
+  it('deja afuera al equipo y a las pruebas, y analiza solo las conversaciones reales', async () => {
+    const { db, tablas } = mundo([
+      conv('1', '5493880000001', 'Diego Da Silva', dos), conv('2', '5493880000002', 'Rodrigo Reyes', dos), conv('3', '5493880000003', 'kapso_test_user', dos),
+      conv('4', '5493880000004', 'Marta Gómez', dos), conv('5', '5493880000005', 'Luis Paz', dos),
+    ]);
+    const r = await ejecutarAnalista(db, { ahora: () => ahora, etiquetar: async () => [] }, 'manual');
+    expect(r).toMatchObject({ ok: true, estado: 'ok', conversaciones: 2 });
+    expect(tablas.agentes_analisis[0].conversaciones).toBe(2);
+    expect(tablas.agentes_analisis[0].hallazgos.excluidas).toBe(3);
+    expect(tablas.agentes_analisis[0].hallazgos.resumen).toContain('Se analizaron 2 conversaciones (se dejaron afuera 3 de prueba o del equipo)');
+    expect(tablas.agentes_registro.some((x: any) => x.accion.includes('Se dejaron afuera 3'))).toBe(true);
+    expect(tablas.agentes_config[0].conversaciones_analizadas).toBe(2);
+  });
+
+  it('un teléfono de la lista AGENTES_EXCLUIR tampoco cuenta', async () => {
+    process.env.AGENTES_EXCLUIR = '3880000004, 5493880000005';
+    const { db, tablas } = mundo([conv('4', '5493880000004', 'Marta', dos), conv('5', '5493880000005', 'Luis', dos), conv('6', '5493880000006', 'Eva', dos)]);
+    await ejecutarAnalista(db, { ahora: () => ahora, etiquetar: async () => [] }, 'manual');
+    expect(tablas.agentes_analisis[0].conversaciones).toBe(1);
+  });
+
+  it('si solo hay pruebas, no hay nada que analizar, pero se dan por vistas (no se re-dispara)', async () => {
+    const { db, tablas } = mundo([conv('1', '5493880000001', 'Diego Da Silva', dos), conv('2', '5493880000002', 'Rodrigo Reyes', dos)]);
+    const r = await ejecutarAnalista(db, { ahora: () => ahora, etiquetar: async () => [] }, 'manual');
+    expect(r).toMatchObject({ ok: true, estado: 'omitida', conversaciones: 0 });
+    expect(r.motivo).toContain('prueba');
+    expect(tablas.agentes_analisis).toHaveLength(0);
+    expect(tablas.agentes_config[0].ultimo_analisis_at).toBe(ahora.toISOString());
+    expect(tablas.agentes_estado[0].estado).toBe('inactivo');
+  });
+
+  it('entre un paso y otro hace una pausa, para que se lo vea trabajar en la pantalla', async () => {
+    const { db } = mundo([conv('4', '5493880000004', 'Marta', dos)]);
+    const pausas: number[] = [];
+    await ejecutarAnalista(db, { ahora: () => ahora, etiquetar: async () => [], pausa: async (ms) => { pausas.push(ms); } }, 'manual');
+    expect(pausas.length).toBeGreaterThanOrEqual(4);
+    expect(pausas.every(ms => ms >= 1000)).toBe(true);
+  });
+});
+
+describe('agentes · el resumen en palabras', () => {
+  const rs = (etapas: string[], errores: string[][] = []) => etapas.map((etapa, i) => ({ ref: `c${i}`, campana: 'A', abogado: 'x', etapa, mensajesCliente: 3, sinRespuesta: false, errores: errores[i] ?? [] })) as any[];
+
+  it('cuenta lo importante con palabras simples', () => {
+    const t = resumenEnPalabras(calcularMetricas(rs(['agendada', 'propuesta', 'propuesta', 'consulto'], [[], ['tuteo'], ['tuteo', 'sin_valor'], []])), { excluidas: 2 });
+    expect(t).toContain('Se analizaron 4 conversaciones (se dejaron afuera 2 de prueba o del equipo)');
+    expect(t).toContain('1 llegó a la cita agendada (25%)');
+    expect(t).toContain('Donde más gente se queda: 2 recibió el valor de la consulta pero no eligió cómo pagar');
+    expect(t).toContain('tutea (2)');
+    expect(t).toContain('Son pocas conversaciones');
+  });
+
+  it('dice cuando nadie llegó a la cita y cuando no hay errores', () => {
+    const t = resumenEnPalabras(calcularMetricas(rs(['consulto', 'datos'])));
+    expect(t).toContain('Ninguna llegó a la cita agendada');
+    expect(t).toContain('No se detectaron errores');
+  });
+
+  it('con cero conversaciones no inventa nada', () => {
+    expect(resumenEnPalabras(calcularMetricas([]))).toBe('Se analizaron 0 conversaciones.');
+  });
+});
+
+
+describe('agentes · analizar todo de nuevo', () => {
+  it('reinicia el punto de partida, mira todo otra vez y conserva los análisis anteriores', async () => {
+    const ahora = new Date('2026-10-20T15:00:00Z');
+    const { db, tablas } = dbAgenda({
+      agentes_config: [{ id: 1, pausado: false, analizar_cada: 10, max_ejecuciones_dia: 6, ultimo_analisis_at: '2026-10-20T14:00:00Z', conversaciones_analizadas: 5 }],
+      agentes_estado: [{ agente: 'analista', estado: 'inactivo' }], agentes_registro: [], agentes_ejecuciones: [],
+      agentes_analisis: [{ id: 'viejo', conversaciones: 5 }],
+      perfiles: [{ nombre: 'Diego Da Silva' }],
+      conversaciones_whatsapp: [
+        { id: '1', telefono: '5493880000001', nombre: 'Diego Da Silva', mensajes: [mm('cliente', 'hola'), mm('agente', 'Buen día')], created_at: '2026-10-20T12:00:00Z', updated_at: '2026-10-20T12:00:00Z' },
+        { id: '2', telefono: '5493880000002', nombre: 'Marta', mensajes: [mm('cliente', 'hola'), mm('agente', 'Buen día')], created_at: '2026-10-20T12:00:00Z', updated_at: '2026-10-20T12:00:00Z' },
+      ],
+      leads: [], consultas_agendadas: [],
+    });
+    const U = { id: 'u1', email: 'a@b.com', rol: 'admin' };
+    // sin reiniciar: no hay nada nuevo desde las 14:00
+    expect((await accionAgentes(db, U, 'analizar', {}, { ahora: () => ahora, etiquetar: async () => [] }) as any).body.estado).toBe('omitida');
+    const r: any = await accionAgentes(db, U, 'analizar', { desde_cero: true }, { ahora: () => ahora, etiquetar: async () => [] });
+    expect(r.body).toMatchObject({ ok: true, estado: 'ok', conversaciones: 1 });
+    expect(tablas.agentes_analisis).toHaveLength(2);
+    expect(tablas.agentes_analisis.find((a: any) => a.id === 'viejo')).toBeTruthy();
+    expect(tablas.agentes_registro.some((x: any) => x.accion.includes('analizar todo de nuevo'))).toBe(true);
   });
 });

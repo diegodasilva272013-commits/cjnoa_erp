@@ -1974,15 +1974,54 @@ async function etiquetarConOpenAI(lote: { ref: string; texto: string }[]): Promi
   return validarEtiquetas(JSON.parse(contenido), new Set(lote.map(l => l.ref)));
 }
 
+// ---------------------------------------------------------------- pruebas del equipo, y resumen en palabras
+
+/**
+ * ¿Es una conversación de prueba o de alguien del equipo? Esas no cuentan en las estadísticas.
+ * Se reconocen por: nombre igual al de un integrante del equipo (perfiles), nombre de prueba de Kapso, o un teléfono de la lista AGENTES_EXCLUIR.
+ */
+export function motivoDeExclusion(nombre: string | null | undefined, telefono: string | null | undefined, nombresEquipo: Set<string>, telefonosExcluidos: Set<string>): 'equipo' | 'prueba' | 'excluida' | null {
+  const n = normalizar(nombre ?? '');
+  if (n && nombresEquipo.has(n)) return 'equipo';
+  if (/kapsotest|usuarioprueba|conversacionprueba/.test(n) || /^(test|prueba)\d*$/.test(n)) return 'prueba';
+  const k = telefonoClave(telefono);
+  if (k && telefonosExcluidos.has(k)) return 'excluida';
+  return null;
+}
+
+const NOMBRE_ETAPA_TXT: Record<string, string> = { consulto: 'consultó pero no dio sus datos', datos: 'dio sus datos pero no recibió el valor de la consulta', propuesta: 'recibió el valor de la consulta pero no eligió cómo pagar', forma_pago: 'eligió cómo pagar pero no pagó la reserva', reserva: 'pagó la reserva pero no agendó' };
+const NOMBRE_ERROR_TXT: Record<string, string> = {
+  tuteo: 'tutea', reproche: 'reprocha o apura', pregunta_repetida: 'repite preguntas', sin_valor: 'pregunta cómo pagar sin decir el valor', no_enviado: 'mensajes que no se pudieron enviar',
+  respuesta_generica: 'respuesta genérica de emergencia', mensaje_no_leido: 'mensajes que no pudo leer', dato_inventado: 'inventa datos', no_respondio_la_duda: 'no responde una duda',
+  demasiado_largo: 'mensajes muy largos', tono_frio: 'tono frío', salto_de_paso: 'se saltea un paso', otro: 'otros problemas',
+};
+
+/** Lo que dice el análisis, en palabras simples (sin IA: sale de los números). */
+export function resumenEnPalabras(k: ReturnType<typeof calcularMetricas>, extra: { excluidas?: number; erroresIA?: Record<string, number> } = {}): string {
+  const partes: string[] = [];
+  partes.push(`Se analizaron ${k.total} conversaciones${extra.excluidas ? ` (se dejaron afuera ${extra.excluidas} de prueba o del equipo)` : ''}.`);
+  if (!k.total) return partes.join(' ');
+  partes.push(k.agendadas === 0 ? 'Ninguna llegó a la cita agendada.' : `${k.agendadas} ${k.agendadas === 1 ? 'llegó' : 'llegaron'} a la cita agendada (${k.pct_cierre}%).`);
+  const caidas = k.se_quedaron_en.filter(x => x.cantidad > 0).sort((a, b) => b.cantidad - a.cantidad);
+  if (caidas.length) partes.push(`Donde más gente se queda: ${caidas[0].cantidad} ${NOMBRE_ETAPA_TXT[caidas[0].etapa] ?? caidas[0].etapa}.`);
+  const errores = Object.entries({ ...k.errores_automaticos, ...(extra.erroresIA ?? {}) }).sort((a, b) => b[1] - a[1]).slice(0, 3);
+  partes.push(errores.length ? `Lo que más falla: ${errores.map(([c, n]) => `${NOMBRE_ERROR_TXT[c] ?? c} (${n})`).join(', ')}.` : 'No se detectaron errores en los mensajes del agente.');
+  if (k.sin_respuesta > 0) partes.push(`${k.sin_respuesta} ${k.sin_respuesta === 1 ? 'conversación quedó' : 'conversaciones quedaron'} sin respuesta del agente.`);
+  if (k.confianza === 'baja') partes.push('Son pocas conversaciones: todavía no alcanzan para sacar conclusiones firmes (con 30 o más empiezan a servir).');
+  return partes.join(' ');
+}
+
 // ---------------------------------------------------------------- el Analista trabajando
 
-export type DepsAgentes = { etiquetar?: Etiquetador; ahora?: () => Date };
+export type DepsAgentes = { etiquetar?: Etiquetador; ahora?: () => Date; /** Espera entre pasos para que se vea trabajar al agente en la pantalla. */ pausa?: (ms: number) => Promise<void> };
 export type ResumenCorrida = { ok: boolean; estado: 'ok' | 'omitida' | 'error'; motivo?: string; conversaciones?: number; analisis_id?: string; pct_cierre?: number };
 
 const MAX_CONVERSACIONES_ANALISIS = 60;
 const MUESTRA_ABIERTAS = 8;
 const MUESTRA_CERRADAS = 4;
 const LOTE_ETIQUETAS = 4;
+const PAUSA_PASO_MS = 1500;
+const esperar = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
 
 export async function ejecutarAnalista(db: Db, deps: DepsAgentes, disparador: 'manual' | 'automatico', pedidoPor?: string): Promise<ResumenCorrida> {
   const ahora = (deps.ahora ?? (() => new Date()))();
@@ -2010,6 +2049,7 @@ export async function ejecutarAnalista(db: Db, deps: DepsAgentes, disparador: 'm
 
   const runId = randomUUID();
   await db.from('agentes_ejecuciones').insert({ run_id: runId, agente: 'analista', disparador, pedido_por: pedidoPor ?? null, estado: 'en_curso' });
+  const paso = async () => { if (deps.pausa) await deps.pausa(PAUSA_PASO_MS); };
   const fin = async (estado: 'ok' | 'omitida' | 'error', resumen: Record<string, unknown>) => {
     await db.from('agentes_ejecuciones').update({ estado, fin: new Date().toISOString(), resumen }).eq('run_id', runId);
   };
@@ -2017,21 +2057,35 @@ export async function ejecutarAnalista(db: Db, deps: DepsAgentes, disparador: 'm
   try {
     await registrarAgente(db, 'analista', 'Empezó un análisis', { disparador, pedido_por: pedidoPor ?? 'automático' }, { runId });
     await estadoAgente(db, 'analista', 'trabajando', 'Buscando conversaciones nuevas…', 5, runId);
+    await paso();
 
     const desde = config.ultimo_analisis_at ?? '1970-01-01T00:00:00.000Z';
     const { data: convs, error: eConv } = await db.from('conversaciones_whatsapp')
-      .select('id, telefono, mensajes, created_at, updated_at').gt('updated_at', desde).order('updated_at', { ascending: false }).limit(MAX_CONVERSACIONES_ANALISIS);
+      .select('id, telefono, nombre, mensajes, created_at, updated_at').gt('updated_at', desde).order('updated_at', { ascending: false }).limit(MAX_CONVERSACIONES_ANALISIS);
     if (eConv) throw new Error(`conversaciones: ${eConv.message}`);
-    const lista = ((Array.isArray(convs) ? convs : []) as any[]).filter(c => Array.isArray(c.mensajes) && c.mensajes.length);
+    const todas = ((Array.isArray(convs) ? convs : []) as any[]).filter(c => Array.isArray(c.mensajes) && c.mensajes.length);
+    // Las pruebas del equipo y las conversaciones de prueba no cuentan: ensucian las estadísticas.
+    const { data: perfilesEquipo } = await db.from('perfiles').select('nombre');
+    const nombresEquipo = new Set(((Array.isArray(perfilesEquipo) ? perfilesEquipo : []) as any[]).map(x => normalizar(x.nombre)).filter(n => n.length >= 6));
+    const telefonosExcluidos = new Set(String(process.env.AGENTES_EXCLUIR ?? '').split(/[,;\s]+/).map(x => telefonoClave(x)).filter(Boolean));
+    const motivos = todas.map(c => motivoDeExclusion(c.nombre, c.telefono, nombresEquipo, telefonosExcluidos));
+    const lista = todas.filter((_, i) => !motivos[i]);
+    const excluidas = todas.length - lista.length;
+    if (excluidas) {
+      await registrarAgente(db, 'analista', `Se dejaron afuera ${excluidas} conversaciones de prueba o del equipo`, { equipo: motivos.filter(m => m === 'equipo').length, prueba: motivos.filter(m => m === 'prueba').length, excluidas_por_telefono: motivos.filter(m => m === 'excluida').length }, { runId });
+    }
     if (!lista.length) {
-      await registrarAgente(db, 'analista', 'No había conversaciones nuevas para analizar', {}, { runId });
+      await registrarAgente(db, 'analista', todas.length ? 'Solo había conversaciones de prueba o del equipo: nada para analizar' : 'No había conversaciones nuevas para analizar', {}, { runId });
+      // Si solo había pruebas, se dan por vistas: así no se vuelve a disparar el análisis automático por las mismas.
+      if (todas.length) await db.from('agentes_config').update({ ultimo_analisis_at: ahora.toISOString(), actualizado_at: ahora.toISOString() }).eq('id', 1);
       await estadoAgente(db, 'analista', 'inactivo', 'Esperando conversaciones nuevas', 0);
-      await fin('omitida', { motivo: 'sin conversaciones nuevas' });
-      return { ok: true, estado: 'omitida', motivo: 'No hay conversaciones nuevas desde el último análisis.', conversaciones: 0 };
+      await fin('omitida', { motivo: todas.length ? 'solo pruebas o del equipo' : 'sin conversaciones nuevas', excluidas });
+      return { ok: true, estado: 'omitida', motivo: todas.length ? 'Solo había conversaciones de prueba o del equipo: no hay nada para analizar.' : 'No hay conversaciones nuevas desde el último análisis.', conversaciones: 0 };
     }
 
     await registrarAgente(db, 'analista', `Leyendo ${lista.length} conversaciones`, { cantidad: lista.length }, { runId });
     await estadoAgente(db, 'analista', 'trabajando', `Leyendo ${lista.length} conversaciones…`, 20, runId);
+    await paso();
 
     const claves = [...new Set(lista.map(c => telefonoClave(c.telefono)).filter(Boolean))];
     const leadsPor = new Map<string, any>(), turnosPor = new Map<string, any[]>();
@@ -2045,6 +2099,8 @@ export async function ejecutarAnalista(db: Db, deps: DepsAgentes, disparador: 'm
     }
 
     await estadoAgente(db, 'analista', 'trabajando', 'Midiendo el embudo hasta la cita…', 45, runId);
+
+    await paso();
     const resultados = lista.map((c, i) => {
       const k = telefonoClave(c.telefono);
       return analizarConversacion(`c${i + 1}`, c.mensajes as MsgGuardado[], leadsPor.get(k) ?? null, turnosPor.get(k) ?? []);
@@ -2057,6 +2113,7 @@ export async function ejecutarAnalista(db: Db, deps: DepsAgentes, disparador: 'm
     const etiquetar = deps.etiquetar ?? (claveOpenAI() ? etiquetarConOpenAI : undefined);
     if (etiquetar) {
       await estadoAgente(db, 'analista', 'trabajando', 'Revisando por qué se cae la gente…', 65, runId);
+      await paso();
       const abiertas = lista.map((c, i) => ({ c, r: resultados[i] })).filter(x => x.r.etapa !== 'agendada').slice(0, MUESTRA_ABIERTAS);
       const cerradas = lista.map((c, i) => ({ c, r: resultados[i] })).filter(x => x.r.etapa === 'agendada').slice(0, MUESTRA_CERRADAS);
       const muestra = [...abiertas, ...cerradas].map(x => ({ ref: x.r.ref, texto: textoParaEtiquetar(x.c.mensajes as MsgGuardado[]) }));
@@ -2076,6 +2133,8 @@ export async function ejecutarAnalista(db: Db, deps: DepsAgentes, disparador: 'm
     for (const e of etiquetas) for (const c of e.errores) erroresIA[c] = (erroresIA[c] ?? 0) + 1;
     const mejoras = [...new Set(etiquetas.map(e => e.mejora).filter(Boolean))].slice(0, 8);
     const hallazgos = {
+      resumen: resumenEnPalabras(metricas, { excluidas, erroresIA }),
+      excluidas,
       errores_ia: erroresIA,
       revisadas_con_ia: etiquetas.length,
       muestras: etiquetas.filter(e => e.resultado !== 'cerro').slice(0, 8).map(e => ({ resultado: e.resultado, motivo_caida: e.motivo_caida })),
@@ -2083,6 +2142,8 @@ export async function ejecutarAnalista(db: Db, deps: DepsAgentes, disparador: 'm
     const propuestas = mejoras.map(m => ({ titulo: m, origen: 'ia' }));
 
     await estadoAgente(db, 'analista', 'trabajando', 'Guardando el informe…', 90, runId);
+
+    await paso();
     const { data: guardado, error: eGuardar } = await db.from('agentes_analisis').insert({
       run_id: runId, conversaciones: lista.length, desde, hasta: ahora.toISOString(), metricas, hallazgos, propuestas,
     }).select('id').single();
@@ -2142,6 +2203,11 @@ export async function accionAgentes(db: Db, u: UsuarioAgentes, accion: string, p
   const quien = u.email ?? u.id;
 
   if (accion === 'analizar') {
+    // "Analizar todo de nuevo": vuelve a mirar desde la primera conversación (los análisis anteriores se conservan).
+    if (p?.desde_cero === true) {
+      await db.from('agentes_config').update({ ultimo_analisis_at: null, actualizado_at: new Date().toISOString() }).eq('id', 1);
+      await registrarAgente(db, 'analista', 'Se pidió analizar todo de nuevo desde el principio', { por: quien }, { nivel: 'aviso' });
+    }
     const r = await ejecutarAnalista(db, deps, 'manual', quien);
     return { code: 200, body: r };
   }
@@ -2212,7 +2278,7 @@ async function agentesHttp(req: VercelRequest, res: VercelResponse, db: Db, raw:
   if (!perfil || (perfil as any).activo === false) return res.status(403).json({ error: 'No autorizado' });
   let body: any = {};
   try { body = JSON.parse(raw || '{}'); } catch { return res.status(400).json({ error: 'JSON inválido' }); }
-  const r = await accionAgentes(db, { id: sesion.user.id, email: sesion.user.email ?? null, rol: String((perfil as any).rol ?? '') }, String(body?.accion ?? ''), body, {});
+  const r = await accionAgentes(db, { id: sesion.user.id, email: sesion.user.email ?? null, rol: String((perfil as any).rol ?? '') }, String(body?.accion ?? ''), body, { pausa: esperar });
   return res.status(r.code).json(r.body);
 }
 
@@ -2405,7 +2471,7 @@ async function agente(req: VercelRequest, res: VercelResponse, db: Db, raw: stri
     }
     // Cada `analizar_cada` conversaciones nuevas (10 por defecto) el Analista revisa todo y deja su informe.
     if (procesados > 0) {
-      try { await revisarAnalisisAutomatico(db); } catch (e) { console.error('[agentes] análisis automático', e); }
+      try { await revisarAnalisisAutomatico(db, { pausa: esperar }); } catch (e) { console.error('[agentes] análisis automático', e); }
     }
   })();
   // En Vercel se contesta 200 al instante (Kapso/Meta reintentan si tardamos más de ~10 s) y se sigue trabajando en segundo plano.
