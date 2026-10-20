@@ -286,6 +286,14 @@ export default function CaseModal({ open, onClose, caso, onSaved }: CaseModalPro
         updated_by: user?.id,
       };
 
+      // Seguridad: si la lista de casos no trajo estos campos (por ejemplo, una vista de la base desactualizada), NO se mandan al guardar:
+      // mandarlos vacíos borraría los que ya están guardados en el caso.
+      if (caso) {
+        for (const k of ['caratula', 'apoderado', 'estadisticas', 'actualizacion'] as const) {
+          if ((caso as any)[k] === undefined) delete (casoData as any)[k];
+        }
+      }
+
       let casoId = caso?.id;
 
       // Helper: save caso with graceful fallback if migration not yet applied
