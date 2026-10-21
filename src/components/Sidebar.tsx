@@ -27,6 +27,7 @@ import {
   Bot,
   Megaphone,
   Sparkles,
+  Gauge,
 } from 'lucide-react';
 import { usePermisos } from '../hooks/usePermisos';
 import { useAuth } from '../context/AuthContext';
@@ -170,6 +171,14 @@ export default function Sidebar({ open, onClose }: SidebarProps) {
             <Bot className="w-5 h-5" />
             Consultas WhatsApp
           </NavLink>
+
+          {/* Rendimiento del agente de WhatsApp (Noa): solo admin y socio */}
+          {(rol === 'admin' || rol === 'socio') && (
+            <NavLink to="/agente-whatsapp" onClick={onClose} className={({ isActive }) => linkClass(isActive)}>
+              <Gauge className="w-5 h-5" />
+              Agente WhatsApp
+            </NavLink>
+          )}
 
           {/* Agentes IA (analista, redactor, tester, auditor): solo admin y socio */}
           {(rol === 'admin' || rol === 'socio') && (

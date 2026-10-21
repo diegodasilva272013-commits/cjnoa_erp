@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { createHmac } from 'node:crypto';
 import handler, {
   clasificarRecibo, TIPOS_CONSULTA, promesaSinCumplir, separarDatosPago, mensajeApurado,
-  aMin, limpiarSecreto, camposDeLead, etapaAutomatica, fusionarLead, registrarMensaje, upsertLead, firmaMetaValida, firmaKapsoValida, extraerMensajesKapso, extraerMensajes, aMensajesLLM, procesarMensaje, motivoDeExclusion, resumenEnPalabras, ejecutarAnalista, revisarAnalisisAutomatico, codigosDeEstilo, etapaEmbudo, analizarConversacion, calcularMetricas, mascararDatos, textoParaEtiquetar, validarEtiquetas, promptDelAgente, limpiarCachePrompt, accionAgentes, problemasDeEstilo, textoNoLegible, firmaMercadoPagoValida, importeTexto, importeLindo, asignarImporteUnico, procesarPagoMP, montoMercadoPago, modalidadElegida, enmascarar, neutralizarMarcas, salidaInsegura, superaLimite, urlMediaSegura, resumenTurnosVigentes, HERRAMIENTAS_LLM, cuerpoNotaDeVoz, eligioTransferencia, notaDeImagen, montoValidadoDe, quitarEtiquetas, aMensajesOpenAI, deOpenAI, ejecutarHerramienta, PROMPT_AGENTE, type Deps, telefonoClave, historialDe, inferirNombre, normalizarFecha, normalizarHora, bloquesDelDia, huecosLibres, localDe, resolverProfesional, diaSemanaISO, fechaValida,
+  aMin, limpiarSecreto, camposDeLead, etapaAutomatica, fusionarLead, registrarMensaje, upsertLead, firmaMetaValida, firmaKapsoValida, extraerMensajesKapso, extraerMensajes, aMensajesLLM, procesarMensaje, clasificarMensajeCliente, categoriaMensajeAgente, personaMetrica, agregarMetricasAgente, calcularMetricasAgente, evaluarOptimizaciones, validarOptimizaciones, ejecutarOptimizacion, type MetricasAgente, motivoDeExclusion, resumenEnPalabras, ejecutarAnalista, revisarAnalisisAutomatico, codigosDeEstilo, etapaEmbudo, analizarConversacion, calcularMetricas, mascararDatos, textoParaEtiquetar, validarEtiquetas, promptDelAgente, limpiarCachePrompt, accionAgentes, problemasDeEstilo, textoNoLegible, firmaMercadoPagoValida, importeTexto, importeLindo, asignarImporteUnico, procesarPagoMP, montoMercadoPago, modalidadElegida, enmascarar, neutralizarMarcas, salidaInsegura, superaLimite, urlMediaSegura, resumenTurnosVigentes, HERRAMIENTAS_LLM, cuerpoNotaDeVoz, eligioTransferencia, notaDeImagen, montoValidadoDe, quitarEtiquetas, aMensajesOpenAI, deOpenAI, ejecutarHerramienta, PROMPT_AGENTE, type Deps, telefonoClave, historialDe, inferirNombre, normalizarFecha, normalizarHora, bloquesDelDia, huecosLibres, localDe, resolverProfesional, diaSemanaISO, fechaValida,
   type Bloque,
 } from '../../api/turnos/[accion]';
 
@@ -2026,5 +2026,285 @@ describe('agentes · analizar todo de nuevo', () => {
     expect(tablas.agentes_analisis).toHaveLength(2);
     expect(tablas.agentes_analisis.find((a: any) => a.id === 'viejo')).toBeTruthy();
     expect(tablas.agentes_registro.some((x: any) => x.accion.includes('analizar todo de nuevo'))).toBe(true);
+  });
+});
+
+
+// ------------------------------------------------------------------ métricas del agente de WhatsApp
+describe('metricas · qué mandó la persona', () => {
+  it('distingue texto, audio, fotos y documentos', () => {
+    expect(clasificarMensajeCliente('Hola, quiero información')).toEqual({ tipo: 'texto' });
+    expect(clasificarMensajeCliente('[Audio] hola buen día')).toEqual({ tipo: 'audio' });
+    expect(clasificarMensajeCliente('[El cliente envió un audio que no se pudo entender. Pedile…]')).toEqual({ tipo: 'audio' });
+    expect(clasificarMensajeCliente('[El cliente envió una foto]\n[SISTEMA ERP: otra cosa]').tipo).toBe('foto');
+    expect(clasificarMensajeCliente('[El cliente envió un documento]\n[SISTEMA ERP: otra cosa]').tipo).toBe('documento');
+    expect(clasificarMensajeCliente('[El cliente envió un mensaje de tipo "sticker" que no puedo leer]').tipo).toBe('no_leido');
+  });
+
+  it('reconoce el resultado de cada recibo', () => {
+    const f = (nota: string) => clasificarMensajeCliente(`[El cliente envió una foto]\n${nota}`).recibo;
+    expect(f('[SISTEMA ERP: Recibo validado. No se detectaron descuentos de Artículo 9 ni Ganancias.]')).toBe('sin_descuento');
+    expect(f('[SISTEMA ERP: Recibo validado correctamente: se detectaron descuentos. Criterio aplicado: Consulta sin cargo con el Dr. Alejandro Reyes]')).toBe('sin_cargo');
+    expect(f('[SISTEMA ERP: Recibo validado: Criterio aplicado: Consulta con valor de $100.000 y reserva de $50.000]')).toBe('con_cargo');
+    expect(f('[SISTEMA ERP: En el recibo SÍ figura el descuento de Artículo 9 / Ganancias, pero no se pudo leer el importe.]')).toBe('sin_importe');
+    expect(f('[SISTEMA ERP: No se pudo leer la imagen o no es un recibo de sueldo ni un comprobante de transferencia.]')).toBe('ilegible');
+  });
+
+  it('reconoce el resultado de cada comprobante', () => {
+    const f = (nota: string) => clasificarMensajeCliente(`[El cliente envió una foto]\n${nota}`).comprobante;
+    expect(f('[SISTEMA ERP: Comprobante de transferencia validado exitosamente por $50.000 hacia Arturo Reyes.]')).toBe('validado');
+    expect(f('[SISTEMA ERP: Se recibió un comprobante de transferencia. La reserva se confirma sola cuando Mercado Pago registra el pago]')).toBe('pendiente_mp');
+    expect(f('[SISTEMA ERP: Comprobante de transferencia por $20.000, menor a la reserva de $50.000. NO dar la seña por pagada.]')).toBe('insuficiente');
+    expect(f('[SISTEMA ERP: El comprobante figura a nombre de "Pedro", que no coincide con la cuenta del estudio.]')).toBe('otro_titular');
+    expect(f('[SISTEMA ERP: Se recibió un comprobante de transferencia pero no se pudo leer el importe.]')).toBe('ilegible');
+  });
+
+  it('ubica el último mensaje del agente: después de qué se enfría la gente', () => {
+    expect(categoriaMensajeAgente('Alias: centrojuridiconoa680\nCVU: 0000003100050009854368')).toBe('datos_de_pago');
+    expect(categoriaMensajeAgente('Tengo lugar el martes 20 a las 10:00 o a las 10:30.')).toBe('horarios');
+    expect(categoriaMensajeAgente('La consulta ya quedó agendada con el Dr. Alejandro Reyes.')).toBe('cierre');
+    expect(categoriaMensajeAgente('¿Prefiere abonar la reserva por transferencia o en efectivo?')).toBe('forma_de_pago');
+    expect(categoriaMensajeAgente('La consulta tiene un valor de $80.000 y la reserva es de $40.000.')).toBe('valor_de_la_consulta');
+    expect(categoriaMensajeAgente('¿Me podría enviar una foto de su último recibo?')).toBe('pidio_recibo');
+    expect(categoriaMensajeAgente('¿Me podría indicar su edad, por favor?')).toBe('pidio_datos');
+    expect(categoriaMensajeAgente('Muchas gracias por escribirnos.')).toBe('otro');
+  });
+});
+
+describe('metricas · el tablero del agente', () => {
+  const AHORA = Date.parse('2026-10-21T15:00:00Z');
+  const hace = (h: number) => new Date(AHORA - h * 3600000).toISOString();
+  const conv = (mensajes: any[], horasInactiva: number, nombre = 'Marta Gómez', creadaHace = horasInactiva + 1) => ({ nombre, mensajes, created_at: hace(creadaHace), updated_at: hace(horasInactiva) });
+  const persona = (c: any, lead: any = null, turnos: any[] = []) => personaMetrica(c, lead, turnos, AHORA);
+
+  const agendada = persona(conv([
+    mm('cliente', 'Hola, consulto por Artículo 9'), mm('agente', 'Hola, soy el asistente virtual. ¿Me podría enviar su recibo?'),
+    mm('cliente', '[El cliente envió una foto]\n[SISTEMA ERP: Recibo validado correctamente: Criterio aplicado: Consulta sin cargo con el Dr. Alejandro Reyes]'),
+    mm('agente', 'Perfecto. ¿Cuándo le quedaría cómodo?'), mm('cliente', 'El martes'), mm('agente', 'Listo, la consulta ya quedó agendada.'),
+  ], 2), { nombre: 'Marta', rama: 'Art 9', datos: {} }, [{ fecha_consulta: '2026-10-27', observaciones: '' }]);
+  const abandonoValor = persona(conv([
+    mm('cliente', 'Hola quiero jubilarme'), mm('agente', 'Hola. ¿Me indica su edad?'), mm('cliente', '58 y trabajo'),
+    mm('agente', 'La consulta vale $80.000 y la reserva $40.000. ¿Prefiere transferencia o efectivo?'),
+  ], 72), { nombre: 'Luis', rama: 'docente', datos: {} });
+  const sinContestar = persona(conv([mm('cliente', 'Hola'), mm('agente', 'Hola, soy el asistente virtual. ¿En qué puedo ayudarle?')], 50));
+  const esperando = persona(conv([mm('cliente', 'Hola'), mm('agente', 'Hola, ¿en qué le ayudo?'), mm('cliente', 'necesito ayuda')], 0.1));
+  const pagoYAudio = persona(conv([
+    mm('cliente', '[Audio] hola buen día'), mm('agente', 'Buen día. Alias: centrojuridiconoa680 CVU: 0000003100050009854368'),
+    mm('cliente', '[El cliente envió una foto]\n[SISTEMA ERP: Comprobante de transferencia validado exitosamente por $40.000 hacia Arturo Reyes.]'),
+  ], 30), { nombre: 'Eva', datos: { pago_base: 40000, pago_validado_mp: { id: '1', monto: 40000.1 } } });
+
+  it('arma la ficha de cada persona', () => {
+    expect(agendada).toMatchObject({ estado: 'agendada', etapa: 'agendada', contesto: true, recibos: ['sin_cargo'], fotos: 1, turnos: 1, nombre: 'Marta' });
+    expect(abandonoValor).toMatchObject({ estado: 'abandonada', ultimoDe: 'agente', ultimaCategoria: 'forma_de_pago', contesto: true });
+    expect(sinContestar).toMatchObject({ contesto: false, estado: 'abandonada' });
+    expect(esperando).toMatchObject({ estado: 'en_curso', ultimoDe: 'cliente' });
+    expect(pagoYAudio).toMatchObject({ audios: 1, datosDePagoEnviados: true, comprobantes: ['validado'], importeAsignado: true, reservaConfirmadaMP: true });
+  });
+
+  it('cuenta mensajes, respuestas, abandonos y pagos', () => {
+    const m = agregarMetricasAgente([agendada, abandonoValor, sinContestar, esperando, pagoYAudio], { ahoraMs: AHORA, dias: 30, turnosPorDia: { '2026-10-21': 1 } });
+    expect(m.personas).toBe(5);
+    expect(m.mensajes).toMatchObject({ recibidos: 3 + 2 + 1 + 2 + 2, audios: 1, fotos: 2 });
+    expect(m.primer_contacto).toMatchObject({ contestaron: 4, no_contestaron: 1, pct_contestaron: 80 });
+    expect(m.estados).toEqual({ agendadas: 1, en_curso: 1, abandonadas: 3 });
+    expect(m.sin_respuesta_del_agente).toBe(2); // quien espera respuesta ahora y quien mandó el comprobante sin contestación
+    expect(m.pagos).toMatchObject({ personas_con_datos_enviados: 1, links_mp_enviados: 0, importes_unicos_asignados: 1, reservas_confirmadas: 1 });
+    expect(m.recibos).toMatchObject({ total: 1, sin_cargo: 1 });
+    expect(m.comprobantes).toMatchObject({ total: 1, validados: 1 });
+    expect(m.turnos.agendados).toBe(1);
+    expect(m.donde_mueren.find(x => x.categoria === 'forma_de_pago')).toMatchObject({ cantidad: 1 });
+    expect(m.embudo[0]).toMatchObject({ etapa: 'consulto', alcanzaron: 5, pct_del_total: 100 });
+    expect(m.por_dia).toHaveLength(30);
+    expect(m.por_dia[m.por_dia.length - 1]).toMatchObject({ fecha: '2026-10-21', agendadas: 1 });
+    expect(m.actividad_reciente[0]).toMatchObject({ nombre: 'Marta', esperando_al_agente: true });
+    expect(m.confianza).toBe('baja');
+  });
+
+  it('con cero personas no divide por cero ni inventa', () => {
+    const m = agregarMetricasAgente([], { ahoraMs: AHORA, dias: 7 });
+    expect(m.personas).toBe(0);
+    expect(m.primer_contacto.pct_contestaron).toBe(0);
+    expect(m.embudo[0].pct_del_total).toBe(0);
+    expect(m.por_dia).toHaveLength(7);
+    expect(m.donde_mueren).toEqual([]);
+  });
+
+  it('lee la base: filtra el período, deja afuera al equipo y las pruebas, y cruza fichas y turnos', async () => {
+    const t = (h: number) => new Date(AHORA - h * 3600000).toISOString();
+    const { db } = dbAgenda({
+      perfiles: [{ nombre: 'Diego Da Silva' }],
+      conversaciones_whatsapp: [
+        { id: '1', telefono: '5493880000001', nombre: 'Marta Gómez', mensajes: [mm('cliente', 'hola'), mm('agente', 'Buen día. ¿Su edad?'), mm('cliente', '58')], created_at: t(5), updated_at: t(4) },
+        { id: '2', telefono: '5493880000002', nombre: 'Diego Da Silva', mensajes: [mm('cliente', 'hola'), mm('agente', 'Buen día')], created_at: t(5), updated_at: t(4) },
+        { id: '3', telefono: '5493880000003', nombre: 'kapso_test_user', mensajes: [mm('cliente', 'hola')], created_at: t(5), updated_at: t(4) },
+        { id: '4', telefono: '5493880000004', nombre: 'Vieja Charla', mensajes: [mm('cliente', 'hola'), mm('agente', 'Buen día')], created_at: t(24 * 60), updated_at: t(24 * 59) },
+        { id: '5', telefono: '5493880000005', nombre: 'Con Turno', mensajes: [mm('cliente', 'hola'), mm('agente', 'Buen día'), mm('cliente', 'ok')], created_at: t(10), updated_at: t(9) },
+      ],
+      leads: [{ telefono: '5493880000005', nombre: 'Con', rama: 'docente', datos: {} }],
+      consultas_agendadas: [{ telefono: '5493880000005', fecha_consulta: '2026-10-28', observaciones: '[Reprogramado por el cliente] algo', created_at: t(8) }],
+    });
+    const m30 = await calcularMetricasAgente(db, { dias: 30, ahora: new Date(AHORA) });
+    expect(m30.personas).toBe(2);
+    expect(m30.estados.agendadas).toBe(1);
+    expect(m30.turnos).toMatchObject({ agendados: 1, reprogramados: 1 });
+    const todo = await calcularMetricasAgente(db, { dias: null, ahora: new Date(AHORA) });
+    expect(todo.personas).toBe(3);
+  });
+
+  it('con muchísimas conversaciones lee las fichas por lotes', async () => {
+    const convs = Array.from({ length: 250 }, (_, i) => ({ id: String(i), telefono: `54938800${String(i).padStart(5, '0')}`, nombre: `Cliente ${i}`, mensajes: [mm('cliente', 'hola'), mm('agente', 'Buen día')], created_at: new Date(AHORA - 3600000).toISOString(), updated_at: new Date(AHORA - 1800000).toISOString() }));
+    const { db } = dbAgenda({ perfiles: [], conversaciones_whatsapp: convs, leads: [], consultas_agendadas: [] });
+    const m = await calcularMetricasAgente(db, { dias: 7, ahora: new Date(AHORA) });
+    expect(m.personas).toBe(250);
+    expect(m.confianza).toBe('alta');
+  });
+});
+
+describe('metricas · qué optimizar', () => {
+  const AHORA = Date.parse('2026-10-21T15:00:00Z');
+  const base = () => agregarMetricasAgente([], { ahoraMs: AHORA, dias: 30 });
+  const con = (o: Partial<MetricasAgente> & Record<string, any>): MetricasAgente => ({ ...base(), ...o } as MetricasAgente);
+
+  it('con pocas conversaciones no propone cambios por números que todavía son ruido', () => {
+    expect(evaluarOptimizaciones(con({ personas: 4, primer_contacto: { contestaron: 1, no_contestaron: 3, pct_contestaron: 25 } }))).toEqual([]);
+  });
+
+  it('detecta un primer mensaje que casi nadie contesta', () => {
+    const r = evaluarOptimizaciones(con({ personas: 40, primer_contacto: { contestaron: 12, no_contestaron: 28, pct_contestaron: 30 } }));
+    expect(r[0]).toMatchObject({ id: 'primer_mensaje', impacto: 'alto', afectadas: 28, fuente: 'reglas' });
+    expect(r[0].evidencia).toContain('12 de 40');
+  });
+
+  it('detecta en qué paso se pierde más gente y en qué mensaje se enfrían', () => {
+    const r = evaluarOptimizaciones(con({
+      personas: 50,
+      se_quedaron_en: [{ etapa: 'consulto', cantidad: 2 }, { etapa: 'datos', cantidad: 3 }, { etapa: 'propuesta', cantidad: 18 }, { etapa: 'forma_pago', cantidad: 4 }, { etapa: 'reserva', cantidad: 1 }],
+      donde_mueren: [{ categoria: 'valor_de_la_consulta', cantidad: 14, pct: 56 }, { categoria: 'pidio_datos', cantidad: 5, pct: 20 }],
+    }));
+    const ids = r.map(x => x.id);
+    expect(ids).toEqual(expect.arrayContaining(['caida_propuesta', 'silencio_valor_de_la_consulta']));
+    expect(r.find(x => x.id === 'silencio_valor_de_la_consulta')?.cambio).toContain('efectivo');
+    expect(r[0].impacto).toBe('alto');
+  });
+
+  it('detecta recibos ilegibles, comprobantes con problemas, pagos sin cierre y derivaciones', () => {
+    const r = evaluarOptimizaciones(con({
+      personas: 40,
+      recibos: { total: 10, sin_cargo: 2, con_cargo: 2, sin_descuento: 1, sin_importe: 3, ilegibles: 2 },
+      comprobantes: { total: 6, validados: 2, pendientes_mp: 0, insuficientes: 2, otro_titular: 1, ilegibles: 1 },
+      pagos: { personas_con_datos_enviados: 12, links_mp_enviados: 0, importes_unicos_asignados: 0, reservas_confirmadas: 0 },
+      estados: { agendadas: 4, en_curso: 5, abandonadas: 31 },
+      derivaciones: 9,
+    }));
+    expect(r.map(x => x.id)).toEqual(expect.arrayContaining(['recibos_ilegibles', 'comprobantes_con_problemas', 'pago_sin_cierre', 'muchas_derivaciones']));
+    expect(r.find(x => x.id === 'pago_sin_cierre')?.evidencia).toContain('12 personas');
+  });
+
+  it('avisa si hay gente esperando respuesta y si quedan errores de tono', () => {
+    const r = evaluarOptimizaciones(con({ personas: 30, sin_respuesta_del_agente: 5, errores: { tuteo: 4, reproche: 2 } }));
+    expect(r.map(x => x.id)).toEqual(expect.arrayContaining(['sin_respuesta', 'errores_de_estilo']));
+    expect(r.find(x => x.id === 'sin_respuesta')?.cambio).toContain('OpenAI');
+  });
+
+  it('ordena por impacto y, si empata, por cuánta gente afecta', () => {
+    const r = evaluarOptimizaciones(con({ personas: 40, derivaciones: 8, mensajes: { recibidos: 0, enviados: 0, audios: 0, fotos: 0, documentos: 0, no_leidos: 4 }, sin_respuesta_del_agente: 4 }));
+    expect(r[0].impacto).toBe('alto');
+    const orden = r.map(x => ['bajo', 'medio', 'alto'].indexOf(x.impacto));
+    expect([...orden].sort((a, b) => b - a)).toEqual(orden);
+  });
+
+  it('un agente que anda bien no genera propuestas', () => {
+    expect(evaluarOptimizaciones(con({ personas: 60, primer_contacto: { contestaron: 54, no_contestaron: 6, pct_contestaron: 90 } }))).toEqual([]);
+  });
+
+  it('la respuesta de la IA se acota y se filtra', () => {
+    const v = validarOptimizaciones({ mejoras: [
+      { titulo: 'A'.repeat(500), evidencia: 'x', cambio: 'Hacer X', impacto: 'extremo' },
+      { titulo: '', cambio: 'sin título' }, { titulo: 'Sin cambio', cambio: '' },
+      ...Array.from({ length: 9 }, (_, i) => ({ titulo: `M${i}`, cambio: 'c', impacto: 'alto' })),
+    ] });
+    expect(v).toHaveLength(6);
+    expect(v[0].titulo.length).toBe(140);
+    expect(v[0].impacto).toBe('medio');
+    expect(v.every(x => x.fuente === 'ia')).toBe(true);
+    expect(validarOptimizaciones('basura')).toEqual([]);
+  });
+});
+
+describe('metricas · el botón "analizar y proponer mejoras"', () => {
+  const ahora = new Date('2026-10-21T15:00:00Z');
+  const hs = (h: number) => new Date(ahora.getTime() - h * 3600000).toISOString();
+  const conversaciones = Array.from({ length: 24 }, (_, i) => ({
+    id: String(i), telefono: `54938811${String(i).padStart(4, '0')}`, nombre: `Cliente ${i}`, created_at: hs(100 + i), updated_at: hs(80 + i),
+    mensajes: [mm('cliente', 'Hola'), mm('agente', 'Hola, soy el asistente virtual. ¿En qué puedo ayudarle?')],
+  }));
+  const mundo = (extra: Record<string, any[]> = {}, config: any = {}) => dbAgenda({
+    agentes_config: [{ id: 1, pausado: false, analizar_cada: 10, max_ejecuciones_dia: 6, ultimo_analisis_at: null, conversaciones_analizadas: 0, ...config }],
+    agentes_estado: [{ agente: 'analista', estado: 'inactivo', tarea: 'Esperando', progreso: 0 }],
+    agentes_registro: [], agentes_ejecuciones: [], agentes_analisis: [], perfiles: [],
+    conversaciones_whatsapp: conversaciones, leads: [], consultas_agendadas: [], ...extra,
+  });
+
+  it('calcula, evalúa, guarda el informe, lo deja registrado y vuelve a descansar', async () => {
+    const { db, tablas } = mundo();
+    const r = await ejecutarOptimizacion(db, { ahora: () => ahora, refinar: async () => [] }, 'diego@estudio.com');
+    expect(r).toMatchObject({ ok: true, estado: 'ok', conversaciones: 24, fuente: 'reglas' });
+    expect(r.optimizaciones?.[0]).toMatchObject({ id: 'primer_mensaje', impacto: 'alto' });
+    const a = tablas.agentes_analisis[0];
+    expect(a.hallazgos).toMatchObject({ tipo: 'optimizacion', fuente: 'reglas' });
+    expect(a.metricas.personas).toBe(24);
+    expect(a.propuestas.length).toBeGreaterThan(0);
+    expect(tablas.agentes_ejecuciones[0]).toMatchObject({ estado: 'ok', pedido_por: 'diego@estudio.com' });
+    expect(tablas.agentes_registro.map((x: any) => x.accion)).toEqual(expect.arrayContaining(['Métricas del agente calculadas', 'Informe de mejoras guardado']));
+    expect(tablas.agentes_estado[0]).toMatchObject({ estado: 'inactivo', progreso: 0 });
+    expect(tablas.agentes_config[0].ultimo_analisis_at).toBeNull(); // no toca el punto de partida del otro análisis
+  });
+
+  it('usa la versión refinada con IA cuando está disponible', async () => {
+    const { db, tablas } = mundo();
+    const r = await ejecutarOptimizacion(db, { ahora: () => ahora, refinar: async () => [{ id: 'ia_1', titulo: 'Reescribir el saludo', evidencia: '12 de 24', cambio: 'Un saludo más corto', impacto: 'alto', afectadas: 0, fuente: 'ia' }] });
+    expect(r.fuente).toBe('ia');
+    expect(r.optimizaciones?.[0].titulo).toBe('Reescribir el saludo');
+    expect(tablas.agentes_analisis[0].hallazgos.fuente).toBe('ia');
+  });
+
+  it('si la IA falla (por ejemplo sin saldo), usa las mejoras por reglas y avisa en el registro', async () => {
+    const { db, tablas } = mundo();
+    const r = await ejecutarOptimizacion(db, { ahora: () => ahora, refinar: async () => { throw new Error('sin saldo'); } });
+    expect(r).toMatchObject({ ok: true, fuente: 'reglas' });
+    expect(tablas.agentes_registro.some((x: any) => x.nivel === 'aviso' && x.accion.includes('No se pudo refinar con IA'))).toBe(true);
+  });
+
+  it('con pocas conversaciones lo dice en vez de inventar problemas', async () => {
+    const { db } = mundo({ conversaciones_whatsapp: conversaciones.slice(0, 3) });
+    const r = await ejecutarOptimizacion(db, { ahora: () => ahora, refinar: async () => [] });
+    expect(r.resumen).toContain('muy pocas conversaciones (3)');
+    expect(r.optimizaciones).toEqual([]);
+  });
+
+  it('en pausa, con tope diario o ya trabajando, no hace nada', async () => {
+    expect((await ejecutarOptimizacion(mundo({}, { pausado: true }).db, { ahora: () => ahora })).estado).toBe('omitida');
+    const tope = mundo({ agentes_ejecuciones: [{ run_id: 'r1', agente: 'analista', estado: 'ok', inicio: '2026-10-21T10:00:00Z' }] }, { max_ejecuciones_dia: 1 });
+    expect((await ejecutarOptimizacion(tope.db, { ahora: () => ahora })).motivo).toContain('tope');
+    const ocupado = mundo({ agentes_ejecuciones: [{ run_id: 'r1', agente: 'analista', estado: 'en_curso', inicio: '2026-10-21T14:58:00Z' }] });
+    expect((await ejecutarOptimizacion(ocupado.db, { ahora: () => ahora })).motivo).toContain('ya está trabajando');
+  });
+
+  it('entre un paso y otro hace pausas para que se vea trabajar', async () => {
+    const { db } = mundo();
+    const pausas: number[] = [];
+    await ejecutarOptimizacion(db, { ahora: () => ahora, refinar: async () => [], pausa: async ms => { pausas.push(ms); } });
+    expect(pausas.length).toBeGreaterThanOrEqual(4);
+  });
+
+  it('desde los botones: las métricas y la evaluación solo las piden admin y socio', async () => {
+    const { db } = mundo();
+    expect((await accionAgentes(db, { id: 'u', email: 'a@b', rol: 'abogado' }, 'metricas', {}, {})).code).toBe(403);
+    const m: any = await accionAgentes(db, { id: 'u', email: 'a@b', rol: 'socio' }, 'metricas', { dias: 365 }, { ahora: () => ahora });
+    expect(m.code).toBe(200);
+    expect(m.body.personas).toBe(24);
+    const o: any = await accionAgentes(db, { id: 'u', email: 'a@b', rol: 'admin' }, 'optimizar', { dias: 30 }, { ahora: () => ahora, refinar: async () => [] });
+    expect(o.code).toBe(200);
+    expect(o.body.estado).toBe('ok');
   });
 });

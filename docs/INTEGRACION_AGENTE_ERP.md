@@ -134,3 +134,10 @@ Pantallas (solo admin y socio): **Agentes IA** (`/agentes`: en vivo, análisis, 
 - **Redactor, Tester y Auditor:** previstos para las próximas etapas. Ningún cambio llega al agente de WhatsApp sin aprobación.
 - **Prompt en la base:** el agente usa la versión activa de `agente_prompt_versiones` (solo administradores pueden leerla). Aplicar una versión archiva la anterior (backup); se puede volver atrás con un botón y nada se borra. Si la base no responde o no hay versión activa, usa el prompt de respaldo del código.
 - Las llamadas de la pantalla van a `/api/turnos/agentes` (misma función de Vercel: el plan gratuito tiene tope de funciones).
+
+## Tablero de Noa (`/agente-whatsapp`)
+
+Pantalla del agente de WhatsApp (solo admin y socio): ilustración del agente, períodos (7 / 30 / 90 días / todo) y, en tiempo real, personas que escribieron, mensajes recibidos y enviados, cuántas contestaron el primer mensaje, cómo terminó cada una (agendó / sigue / se enfrió), el recorrido hasta la cita con lo que se pierde en cada paso, **después de qué mensaje del agente se enfría la conversación**, audios / fotos / documentos, recibos y comprobantes (con su resultado), pagos (datos enviados, links y reservas de Mercado Pago), citas (reprogramadas, cancelaciones pedidas) y derivaciones.
+- Todo sale de lo ya guardado (conversaciones, fichas y turnos); no se envía nada a ninguna IA para calcular las métricas. Quedan afuera las conversaciones de prueba y las del equipo (`AGENTES_EXCLUIR` permite sumar teléfonos).
+- **Analizar y proponer mejoras:** evalúa las métricas con reglas (solo si hay muestra suficiente) y, si hay clave de OpenAI, las refina con IA usando solo números. Deja un informe ordenado por impacto con la evidencia y qué cambiar. No aplica nada: los cambios se cargan como propuesta en Agentes IA → Prompt del agente, con backup. El informe queda guardado y se ve en el registro de los agentes.
+- Acciones del servidor (`/api/turnos/agentes`): `metricas` y `optimizar`.

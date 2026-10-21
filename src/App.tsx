@@ -35,6 +35,7 @@ const MiDia = lazyWithRetry(() => import('./pages/MiDia'));
 const Chat = lazyWithRetry(() => import('./pages/Chat'));
 const ConsultasWhatsApp = lazyWithRetry(() => import('./pages/ConsultasWhatsApp'));
 const AgentesIA = lazyWithRetry(() => import('./pages/AgentesIA'));
+const AgenteWhatsApp = lazyWithRetry(() => import('./pages/AgenteWhatsApp'));
 const AgentesRegistro = lazyWithRetry(() => import('./pages/AgentesRegistro'));
 const LeadsCampanas = lazyWithRetry(() => import('./pages/LeadsCampanas'));
 
@@ -105,6 +106,7 @@ export default function App() {
           <Route path="/chat" element={<Chat />} />
           <Route path="/consultas-whatsapp" element={<ConsultasWhatsApp />} />
           <Route path="/agentes" element={<SoloAdminSocio><AgentesIA /></SoloAdminSocio>} />
+          <Route path="/agente-whatsapp" element={<SoloAdminSocio><AgenteWhatsApp /></SoloAdminSocio>} />
           <Route path="/agentes/registro" element={<SoloAdminSocio><AgentesRegistro /></SoloAdminSocio>} />
           <Route path="/leads-campanas" element={<LeadsCampanas />} />
           <Route path="/honorarios" element={<ProtectedRoute modulo="honorarios"><Honorarios /></ProtectedRoute>} />

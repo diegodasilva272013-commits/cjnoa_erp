@@ -47,3 +47,29 @@ export function hace(iso: string | null | undefined): string {
   if (s < 86400) return `hace ${Math.round(s / 3600)} h`;
   return `hace ${Math.round(s / 86400)} d`;
 }
+
+/** Métricas del agente de WhatsApp (las calcula el servidor: ver calcularMetricasAgente). */
+export type MetricasAgente = {
+  generado_at: string;
+  dias: number | null;
+  personas: number;
+  mensajes: { recibidos: number; enviados: number; audios: number; fotos: number; documentos: number; no_leidos: number };
+  primer_contacto: { contestaron: number; no_contestaron: number; pct_contestaron: number };
+  estados: { agendadas: number; en_curso: number; abandonadas: number };
+  embudo: { etapa: string; alcanzaron: number; pct_del_total: number; pct_del_paso_anterior: number }[];
+  se_quedaron_en: { etapa: string; cantidad: number }[];
+  donde_mueren: { categoria: string; cantidad: number; pct: number }[];
+  sin_respuesta_del_agente: number;
+  pagos: { personas_con_datos_enviados: number; links_mp_enviados: number; importes_unicos_asignados: number; reservas_confirmadas: number };
+  recibos: { total: number; sin_cargo: number; con_cargo: number; sin_descuento: number; sin_importe: number; ilegibles: number };
+  comprobantes: { total: number; validados: number; pendientes_mp: number; insuficientes: number; otro_titular: number; ilegibles: number };
+  turnos: { agendados: number; reprogramados: number; cancelaciones_solicitadas: number };
+  derivaciones: number;
+  errores: Record<string, number>;
+  por_dia: { fecha: string; nuevas: number; agendadas: number }[];
+  actividad_reciente: { nombre: string; hace_ms: number; estado: 'agendada' | 'en_curso' | 'abandonada'; etapa: string; esperando_al_agente: boolean }[];
+  confianza: 'baja' | 'media' | 'alta';
+};
+
+export type Optimizacion = { id: string; titulo: string; evidencia: string; cambio: string; impacto: 'alto' | 'medio' | 'bajo'; afectadas: number; fuente: 'reglas' | 'ia' };
+export type InformeMejoras = { id: string; creado_at: string; resumen: string; fuente: 'reglas' | 'ia'; personas: number; mejoras: Optimizacion[] };

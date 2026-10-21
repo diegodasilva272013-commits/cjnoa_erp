@@ -2174,6 +2174,363 @@ export async function revisarAnalisisAutomatico(db: Db, deps: DepsAgentes = {}):
   return (await ejecutarAnalista(db, deps, 'automatico')).estado;
 }
 
+// ---------------------------------------------------------------- métricas del agente de WhatsApp (pantalla "Agente WhatsApp")
+//
+// Todo se calcula con lo que ya queda guardado de cada conversación (mensajes, ficha y turnos). No se manda nada a ninguna IA para esto.
+
+export type TipoEntrante = { tipo: 'texto' | 'audio' | 'foto' | 'documento' | 'no_leido'; recibo?: 'sin_cargo' | 'con_cargo' | 'sin_descuento' | 'sin_importe' | 'ilegible'; comprobante?: 'validado' | 'pendiente_mp' | 'insuficiente' | 'otro_titular' | 'ilegible' };
+
+/** Qué mandó la persona (texto, audio, foto o documento) y, si era un recibo o un comprobante, qué resultado le dio el sistema. */
+export function clasificarMensajeCliente(texto: string): TipoEntrante {
+  const t = String(texto ?? '');
+  const esFoto = /^\[El cliente envió (una foto|un documento)/.test(t);
+  if (/^\[Audio\]/.test(t) || t.startsWith('[El cliente envió un audio')) return { tipo: 'audio' };
+  if (esFoto) {
+    const doc = t.startsWith('[El cliente envió un documento');
+    const r: TipoEntrante = { tipo: doc ? 'documento' : 'foto' };
+    if (/Comprobante de transferencia validado exitosamente/.test(t)) r.comprobante = 'validado';
+    else if (/La reserva se confirma sola cuando Mercado Pago/.test(t)) r.comprobante = 'pendiente_mp';
+    else if (/menor a la reserva|menor a la seña/.test(t)) r.comprobante = 'insuficiente';
+    else if (/no coincide con la cuenta del estudio/.test(t)) r.comprobante = 'otro_titular';
+    else if (/comprobante de transferencia pero no se pudo leer|No se pudo leer el destinatario|todavía no está definido qué consulta/.test(t)) r.comprobante = 'ilegible';
+    else if (/Recibo validado\. No se detectaron descuentos/.test(t)) r.recibo = 'sin_descuento';
+    else if (/Consulta sin cargo/.test(t)) r.recibo = 'sin_cargo';
+    else if (/Consulta con valor de/.test(t)) r.recibo = 'con_cargo';
+    else if (/SÍ figura el descuento/.test(t)) r.recibo = 'sin_importe';
+    else if (/No se pudo leer la imagen o no es un recibo|que no se pudo leer/.test(t)) r.recibo = 'ilegible';
+    return r;
+  }
+  if (t.includes('WhatsApp no permite recibir') || t.includes('que no puedo leer')) return { tipo: 'no_leido' };
+  return { tipo: 'texto' };
+}
+
+/** Qué estaba haciendo el agente en su último mensaje: sirve para ver DESPUÉS DE QUÉ se queda en silencio la gente. */
+export function categoriaMensajeAgente(txt: string): string {
+  const t = String(txt ?? '');
+  if (LINEA_DATOS_PAGO.test(t)) return 'datos_de_pago';
+  if (/\b\d{1,2}[:.]\d{2}\b/.test(t) && /martes|lunes|miércoles|jueves|viernes|disponib|horario|turno/i.test(t)) return 'horarios';
+  if (/quedó agendada|ya quedó agendad|turno agendado/i.test(t)) return 'cierre';
+  if (/transferencia/i.test(t) && /efectivo/i.test(t)) return 'forma_de_pago';
+  if (/\$\s?\d/.test(t) && /consulta|reserva/i.test(t)) return 'valor_de_la_consulta';
+  if (/recibo/i.test(t) && /\?|foto|pdf|envi/i.test(t)) return 'pidio_recibo';
+  if (/edad|nombre|apellido|dni|cuil|localidad|docente/i.test(t) && /\?/.test(t)) return 'pidio_datos';
+  if (/foto recibida|documento recibido/i.test(t)) return 'aviso_de_recepcion';
+  if (/\?/.test(t)) return 'otra_pregunta';
+  return 'otro';
+}
+
+export type PersonaMetrica = {
+  creadaEn: string; actualizadaEn: string; nombre: string; etapa: EtapaEmbudo; estado: 'agendada' | 'en_curso' | 'abandonada';
+  mensajesCliente: number; mensajesAgente: number; contesto: boolean; ultimoDe: 'cliente' | 'agente'; ultimaCategoria: string;
+  audios: number; fotos: number; documentos: number; noLeidos: number;
+  recibos: string[]; comprobantes: string[];
+  datosDePagoEnviados: boolean; linkMPEnviado: boolean; importeAsignado: boolean; reservaConfirmadaMP: boolean;
+  turnos: number; reprogramados: number; cancelaciones: number; derivada: boolean; errores: string[];
+};
+
+const HORAS_ENCURSO = 24;
+
+export function personaMetrica(c: { nombre?: string | null; mensajes: MsgGuardado[]; created_at: string; updated_at: string }, lead: any, turnos: any[], ahoraMs: number): PersonaMetrica {
+  const msgs = c.mensajes;
+  const cli = msgs.filter(m => m.from === 'cliente');
+  const ag = msgs.filter(m => m.from === 'agente');
+  const idxPrimerAgente = msgs.findIndex(m => m.from === 'agente');
+  const contesto = idxPrimerAgente >= 0 && msgs.slice(idxPrimerAgente + 1).some(m => m.from === 'cliente');
+  const r = analizarConversacion('x', msgs, lead, turnos);
+  const clasif = cli.map(m => clasificarMensajeCliente(m.texto));
+  const datos = lead?.datos ?? {};
+  const inactivaHs = (ahoraMs - Date.parse(c.updated_at)) / 3600000;
+  const estado: PersonaMetrica['estado'] = r.etapa === 'agendada' ? 'agendada' : inactivaHs < HORAS_ENCURSO ? 'en_curso' : 'abandonada';
+  const ultimoAg = [...ag].reverse().find(m => !/^(Foto recibida|Documento recibido)/.test(m.texto));
+  return {
+    creadaEn: c.created_at, actualizadaEn: c.updated_at, nombre: String(c.nombre ?? '').trim().split(/\s+/)[0] || 'Sin nombre',
+    etapa: r.etapa, estado, mensajesCliente: cli.length, mensajesAgente: ag.length, contesto,
+    ultimoDe: msgs[msgs.length - 1]?.from === 'cliente' ? 'cliente' : 'agente',
+    ultimaCategoria: ultimoAg ? categoriaMensajeAgente(ultimoAg.texto) : 'otro',
+    audios: clasif.filter(x => x.tipo === 'audio').length, fotos: clasif.filter(x => x.tipo === 'foto').length,
+    documentos: clasif.filter(x => x.tipo === 'documento').length, noLeidos: clasif.filter(x => x.tipo === 'no_leido').length,
+    recibos: clasif.map(x => x.recibo).filter(Boolean) as string[], comprobantes: clasif.map(x => x.comprobante).filter(Boolean) as string[],
+    datosDePagoEnviados: ag.some(m => LINEA_DATOS_PAGO.test(m.texto)),
+    linkMPEnviado: ag.some(m => /mpago\.la|mercadopago\.com/i.test(m.texto)),
+    importeAsignado: !!datos.pago_base || !!datos.pago_validado_mp,
+    reservaConfirmadaMP: !!datos.pago_validado_mp,
+    turnos: turnos.length,
+    reprogramados: turnos.filter(t => String(t.observaciones ?? '').includes(MARCA_REPROGRAMADO)).length,
+    cancelaciones: turnos.filter(t => String(t.observaciones ?? '').includes(MARCA_CANCELACION)).length,
+    derivada: !!datos.derivar_a_humano, errores: r.errores,
+  };
+}
+
+const sumar = (xs: number[]) => xs.reduce((a, b) => a + b, 0);
+const cuenta = <T,>(xs: T[], f: (x: T) => boolean) => xs.filter(f).length;
+
+/** Junta todo en el modelo que dibuja la pantalla. */
+export function agregarMetricasAgente(ps: PersonaMetrica[], o: { ahoraMs: number; dias: number | null; turnosPorDia?: Record<string, number> }) {
+  const n = ps.length;
+  const idx = (e: EtapaEmbudo) => ETAPAS_EMBUDO.indexOf(e);
+  const alcanzaron = ETAPAS_EMBUDO.map((_, i) => cuenta(ps, p => idx(p.etapa) >= i));
+  const embudo = ETAPAS_EMBUDO.map((etapa, i) => ({ etapa, alcanzaron: alcanzaron[i], pct_del_total: pct(alcanzaron[i], n), pct_del_paso_anterior: i === 0 ? (n ? 100 : 0) : pct(alcanzaron[i], alcanzaron[i - 1]) }));
+  const abandonadas = ps.filter(p => p.estado === 'abandonada');
+  const muerenCont: Record<string, number> = {};
+  for (const p of abandonadas.filter(x => x.ultimoDe === 'agente')) muerenCont[p.ultimaCategoria] = (muerenCont[p.ultimaCategoria] ?? 0) + 1;
+  const totalMueren = sumar(Object.values(muerenCont));
+  const contestaron = cuenta(ps, p => p.contesto);
+  const recibos = ps.flatMap(p => p.recibos), comps = ps.flatMap(p => p.comprobantes);
+  const errores: Record<string, number> = {};
+  for (const p of ps) for (const e of p.errores) errores[e] = (errores[e] ?? 0) + 1;
+
+  const dias = Math.min(o.dias ?? 30, 30);
+  const hoy = localDe(new Date(o.ahoraMs)).fecha;
+  const porDia = Array.from({ length: dias }, (_, i) => {
+    const fecha = sumarDias(hoy, -(dias - 1 - i));
+    return { fecha, nuevas: cuenta(ps, p => localDe(p.creadaEn).fecha === fecha), agendadas: o.turnosPorDia?.[fecha] ?? 0 };
+  });
+
+  const recientes = [...ps].sort((a, b) => Date.parse(b.actualizadaEn) - Date.parse(a.actualizadaEn)).slice(0, 8).map(p => ({
+    nombre: p.nombre, hace_ms: Math.max(0, o.ahoraMs - Date.parse(p.actualizadaEn)), estado: p.estado, etapa: p.etapa, esperando_al_agente: p.ultimoDe === 'cliente',
+  }));
+
+  return {
+    generado_at: new Date(o.ahoraMs).toISOString(),
+    dias: o.dias,
+    personas: n,
+    mensajes: { recibidos: sumar(ps.map(p => p.mensajesCliente)), enviados: sumar(ps.map(p => p.mensajesAgente)), audios: sumar(ps.map(p => p.audios)), fotos: sumar(ps.map(p => p.fotos)), documentos: sumar(ps.map(p => p.documentos)), no_leidos: sumar(ps.map(p => p.noLeidos)) },
+    primer_contacto: { contestaron, no_contestaron: n - contestaron, pct_contestaron: pct(contestaron, n) },
+    estados: { agendadas: cuenta(ps, p => p.estado === 'agendada'), en_curso: cuenta(ps, p => p.estado === 'en_curso'), abandonadas: abandonadas.length },
+    embudo,
+    se_quedaron_en: ETAPAS_EMBUDO.slice(0, 5).map(etapa => ({ etapa, cantidad: cuenta(abandonadas, p => p.etapa === etapa) })),
+    donde_mueren: Object.entries(muerenCont).sort((a, b) => b[1] - a[1]).map(([categoria, cantidad]) => ({ categoria, cantidad, pct: pct(cantidad, totalMueren) })),
+    sin_respuesta_del_agente: cuenta(ps, p => p.ultimoDe === 'cliente' && p.estado !== 'agendada'),
+    pagos: {
+      personas_con_datos_enviados: cuenta(ps, p => p.datosDePagoEnviados), links_mp_enviados: cuenta(ps, p => p.linkMPEnviado),
+      importes_unicos_asignados: cuenta(ps, p => p.importeAsignado), reservas_confirmadas: cuenta(ps, p => p.reservaConfirmadaMP),
+    },
+    recibos: { total: recibos.length, sin_cargo: cuenta(recibos, x => x === 'sin_cargo'), con_cargo: cuenta(recibos, x => x === 'con_cargo'), sin_descuento: cuenta(recibos, x => x === 'sin_descuento'), sin_importe: cuenta(recibos, x => x === 'sin_importe'), ilegibles: cuenta(recibos, x => x === 'ilegible') },
+    comprobantes: { total: comps.length, validados: cuenta(comps, x => x === 'validado'), pendientes_mp: cuenta(comps, x => x === 'pendiente_mp'), insuficientes: cuenta(comps, x => x === 'insuficiente'), otro_titular: cuenta(comps, x => x === 'otro_titular'), ilegibles: cuenta(comps, x => x === 'ilegible') },
+    turnos: { agendados: sumar(ps.map(p => p.turnos)), reprogramados: sumar(ps.map(p => p.reprogramados)), cancelaciones_solicitadas: sumar(ps.map(p => p.cancelaciones)) },
+    derivaciones: cuenta(ps, p => p.derivada),
+    errores,
+    por_dia: porDia,
+    actividad_reciente: recientes,
+    confianza: (n < 30 ? 'baja' : n < 100 ? 'media' : 'alta') as 'baja' | 'media' | 'alta',
+  };
+}
+export type MetricasAgente = ReturnType<typeof agregarMetricasAgente>;
+
+async function enLotes<T>(claves: string[], tam: number, f: (lote: string[]) => PromiseLike<{ data: any; error: any }>): Promise<T[]> {
+  const out: T[] = [];
+  for (let i = 0; i < claves.length; i += tam) {
+    const r = await f(claves.slice(i, i + tam));
+    if (!r.error && Array.isArray(r.data)) out.push(...(r.data as T[]));
+  }
+  return out;
+}
+
+/** Lee las conversaciones del período (sin pruebas ni equipo), cruza fichas y turnos, y arma las métricas. */
+export async function calcularMetricasAgente(db: Db, o: { dias: number | null; ahora?: Date }): Promise<MetricasAgente> {
+  const ahora = o.ahora ?? new Date();
+  const desde = o.dias ? new Date(ahora.getTime() - o.dias * 86400000).toISOString() : '1970-01-01T00:00:00.000Z';
+  const { data, error } = await db.from('conversaciones_whatsapp').select('id, telefono, nombre, mensajes, created_at, updated_at').gte('created_at', desde).order('created_at', { ascending: false }).limit(1500);
+  if (error) throw new Error(`conversaciones: ${error.message}`);
+  const { data: perfiles } = await db.from('perfiles').select('nombre');
+  const equipo = new Set(((Array.isArray(perfiles) ? perfiles : []) as any[]).map(x => normalizar(x.nombre)).filter(n => n.length >= 6));
+  const excluidos = new Set(String(process.env.AGENTES_EXCLUIR ?? '').split(/[,;\s]+/).map(x => telefonoClave(x)).filter(Boolean));
+  const convs = ((Array.isArray(data) ? data : []) as any[]).filter(c => Array.isArray(c.mensajes) && c.mensajes.length && !motivoDeExclusion(c.nombre, c.telefono, equipo, excluidos));
+  const claves = [...new Set(convs.map(c => telefonoClave(c.telefono)).filter(Boolean))];
+  const leads = await enLotes<any>(claves, 100, l => db.from('leads').select('telefono_clave, nombre, rama, dni_cuil, calificacion, campana, datos').in('telefono_clave', l));
+  const turnos = await enLotes<any>(claves, 100, l => db.from('consultas_agendadas').select('telefono_clave, fecha_consulta, reserva_pagada, origen, abogado_asignado, observaciones, created_at').in('telefono_clave', l));
+  const leadPor = new Map(leads.map(x => [x.telefono_clave, x]));
+  const turnosPor = new Map<string, any[]>();
+  for (const t of turnos) turnosPor.set(t.telefono_clave, [...(turnosPor.get(t.telefono_clave) ?? []), t]);
+  const turnosPorDia: Record<string, number> = {};
+  for (const t of turnos) if (t.created_at) { const f = localDe(t.created_at).fecha; turnosPorDia[f] = (turnosPorDia[f] ?? 0) + 1; }
+  const personas = convs.map(c => { const k = telefonoClave(c.telefono); return personaMetrica(c, leadPor.get(k) ?? null, turnosPor.get(k) ?? [], ahora.getTime()); });
+  return agregarMetricasAgente(personas, { ahoraMs: ahora.getTime(), dias: o.dias, turnosPorDia });
+}
+
+// ---------------------------------------------------------------- qué optimizar, a partir de las métricas del agente
+
+export type Optimizacion = { id: string; titulo: string; evidencia: string; cambio: string; impacto: 'alto' | 'medio' | 'bajo'; afectadas: number; fuente: 'reglas' | 'ia' };
+
+const MIN_MUESTRA = 10;
+const NOMBRE_CATEGORIA: Record<string, string> = {
+  datos_de_pago: 'pasarle los datos de pago', horarios: 'ofrecerle horarios', cierre: 'confirmarle el turno', forma_de_pago: 'preguntarle cómo prefiere pagar',
+  valor_de_la_consulta: 'decirle el valor de la consulta', pidio_recibo: 'pedirle el recibo', pidio_datos: 'pedirle sus datos', aviso_de_recepcion: 'avisarle que recibió su archivo', otra_pregunta: 'hacerle otra pregunta', otro: 'otro mensaje',
+};
+const CAMBIO_POR_CATEGORIA: Record<string, string> = {
+  valor_de_la_consulta: 'Antes de decir el valor, explicar qué incluye la consulta y qué va a resolver el abogado; y ofrecer también la opción de efectivo en las oficinas.',
+  forma_de_pago: 'Ofrecer una sola opción recomendada (transferencia) y mencionar el efectivo solo si duda; reducir la decisión a un paso.',
+  datos_de_pago: 'Pasar el importe exacto con los datos y avisar que el pago se confirma solo; hacer un seguimiento a las 24 horas (requiere una plantilla aprobada de WhatsApp).',
+  horarios: 'Ofrecer solo 2 horarios concretos y preguntar cuál le queda mejor, en vez de preguntar abierto.',
+  pidio_recibo: 'Explicar para qué se pide el recibo y que es confidencial; aceptar foto o PDF y dar instrucciones simples para sacarlo.',
+  pidio_datos: 'Pedir un solo dato por mensaje y explicar brevemente por qué se pide.',
+  otra_pregunta: 'Revisar esas preguntas: si la persona no entiende qué se le pide, reformularlas con un ejemplo.',
+};
+const CAMBIO_POR_ETAPA: Record<string, string> = {
+  consulto: 'Simplificar el primer contacto: un saludo breve y una sola pregunta fácil de contestar.',
+  datos: 'Adelantar el valor de la consulta apenas la persona confirma que es del perfil, para que no abandone antes de saber de qué se trata.',
+  propuesta: 'Presentar la consulta con más valor y empatía antes del precio, y ofrecer ambas formas de pago.',
+  forma_pago: 'Acortar el paso del pago: una sola indicación clara, con el importe exacto y los datos juntos en un mensaje aparte.',
+  reserva: 'Hacer seguimiento a quienes pagaron y no coordinaron el turno, y ofrecer horarios apenas se confirma el pago.',
+};
+const peso = { alto: 3, medio: 2, bajo: 1 } as const;
+
+/** Mejoras candidatas a partir de los números (sin IA). Solo se dispara una regla si hay muestra suficiente. */
+export function evaluarOptimizaciones(m: MetricasAgente): Optimizacion[] {
+  const out: Optimizacion[] = [];
+  const n = m.personas;
+  const add = (o: Omit<Optimizacion, 'fuente'>) => out.push({ ...o, fuente: 'reglas' });
+  if (n >= MIN_MUESTRA && m.primer_contacto.pct_contestaron < 60) {
+    add({ id: 'primer_mensaje', titulo: 'Mejorar el primer mensaje', impacto: m.primer_contacto.pct_contestaron < 40 ? 'alto' : 'medio', afectadas: m.primer_contacto.no_contestaron,
+      evidencia: `Solo ${m.primer_contacto.contestaron} de ${n} personas (${m.primer_contacto.pct_contestaron}%) contestaron después del primer mensaje del agente.`,
+      cambio: 'Acortar el primer mensaje y hacer una sola pregunta fácil de contestar; evitar pedir dos datos juntos.' });
+  }
+  const caida = [...m.se_quedaron_en].sort((a, b) => b.cantidad - a.cantidad)[0];
+  if (caida && caida.cantidad >= 3 && n >= MIN_MUESTRA && pct(caida.cantidad, n) >= 15) {
+    add({ id: `caida_${caida.etapa}`, titulo: `Se pierde mucha gente al ${caida.etapa === 'consulto' ? 'principio' : 'avanzar'}: ${NOMBRE_ETAPA_TXT[caida.etapa] ?? caida.etapa}`, impacto: pct(caida.cantidad, n) >= 30 ? 'alto' : 'medio', afectadas: caida.cantidad,
+      evidencia: `${caida.cantidad} de ${n} personas (${pct(caida.cantidad, n)}%) quedaron en este punto y no avanzaron: ${NOMBRE_ETAPA_TXT[caida.etapa] ?? caida.etapa}.`,
+      cambio: CAMBIO_POR_ETAPA[caida.etapa] ?? 'Revisar ese paso de la conversación.' });
+  }
+  const muere = m.donde_mueren[0];
+  if (n >= MIN_MUESTRA && muere && muere.cantidad >= 3 && muere.pct >= 30) {
+    add({ id: `silencio_${muere.categoria}`, titulo: `Dejan de contestar después de ${NOMBRE_CATEGORIA[muere.categoria] ?? muere.categoria}`, impacto: muere.pct >= 50 ? 'alto' : 'medio', afectadas: muere.cantidad,
+      evidencia: `${muere.cantidad} conversaciones (${muere.pct}% de las que se enfriaron) terminaron justo después de que el agente fue a ${NOMBRE_CATEGORIA[muere.categoria] ?? muere.categoria}.`,
+      cambio: CAMBIO_POR_CATEGORIA[muere.categoria] ?? 'Revisar cómo se presenta ese mensaje.' });
+  }
+  const malLeidos = m.recibos.ilegibles + m.recibos.sin_importe;
+  if (m.recibos.total >= 5 && pct(malLeidos, m.recibos.total) >= 25) {
+    add({ id: 'recibos_ilegibles', titulo: 'Muchos recibos no se pueden leer bien', impacto: 'medio', afectadas: malLeidos,
+      evidencia: `${malLeidos} de ${m.recibos.total} recibos (${pct(malLeidos, m.recibos.total)}%) llegaron ilegibles o sin el importe.`,
+      cambio: 'Pedir el recibo con instrucciones simples: foto completa, derecha y con buena luz, o directamente el PDF.' });
+  }
+  const malos = m.comprobantes.insuficientes + m.comprobantes.otro_titular + m.comprobantes.ilegibles;
+  if (m.comprobantes.total >= 3 && pct(malos, m.comprobantes.total) >= 30) {
+    add({ id: 'comprobantes_con_problemas', titulo: 'Varios comprobantes llegan con problemas', impacto: 'medio', afectadas: malos,
+      evidencia: `${malos} de ${m.comprobantes.total} comprobantes (${pct(malos, m.comprobantes.total)}%) no se pudieron dar por buenos (importe menor, otro titular o ilegible).`,
+      cambio: 'Decir el importe exacto y el titular antes de que transfiera; con el importe único de Mercado Pago el sistema lo reconoce solo.' });
+  }
+  const enviados = m.pagos.personas_con_datos_enviados;
+  const cerraron = m.estados.agendadas;
+  if (enviados >= 5 && pct(cerraron, enviados) < 50) {
+    add({ id: 'pago_sin_cierre', titulo: 'Reciben los datos de pago y no concretan', impacto: 'alto', afectadas: enviados - cerraron,
+      evidencia: `A ${enviados} personas se les pasaron los datos de pago y solo ${cerraron} terminaron agendando (${pct(cerraron, enviados)}%).`,
+      cambio: 'Hacer seguimiento del pago a las 24 horas (con plantilla aprobada de WhatsApp) y facilitar el pago con link o con importe exacto.' });
+  }
+  if (n >= MIN_MUESTRA && m.derivaciones >= 3 && pct(m.derivaciones, n) >= 15) {
+    add({ id: 'muchas_derivaciones', titulo: 'Se deriva a una persona más de lo esperado', impacto: 'medio', afectadas: m.derivaciones,
+      evidencia: `${m.derivaciones} de ${n} personas (${pct(m.derivaciones, n)}%) fueron derivadas al equipo.`,
+      cambio: 'Revisar los motivos de esas derivaciones y cubrir los casos más repetidos en el prompt del agente.' });
+  }
+  const estilo = (m.errores.tuteo ?? 0) + (m.errores.reproche ?? 0) + (m.errores.sin_valor ?? 0) + (m.errores.pregunta_repetida ?? 0);
+  if (estilo >= 2) {
+    add({ id: 'errores_de_estilo', titulo: 'Quedan errores de tono y de orden', impacto: estilo >= 5 ? 'alto' : 'medio', afectadas: estilo,
+      evidencia: `Se detectaron ${estilo} mensajes con errores (tuteo ${m.errores.tuteo ?? 0}, reproches ${m.errores.reproche ?? 0}, sin decir el valor ${m.errores.sin_valor ?? 0}, preguntas repetidas ${m.errores.pregunta_repetida ?? 0}).`,
+      cambio: 'Reforzar esas reglas en el prompt con ejemplos concretos de cómo SÍ decirlo.' });
+  }
+  if (m.sin_respuesta_del_agente >= 3 && pct(m.sin_respuesta_del_agente, Math.max(n, 1)) >= 5) {
+    add({ id: 'sin_respuesta', titulo: 'Hay personas esperando una respuesta', impacto: 'alto', afectadas: m.sin_respuesta_del_agente,
+      evidencia: `${m.sin_respuesta_del_agente} personas escribieron y no recibieron respuesta del agente.`,
+      cambio: 'Revisar si hubo fallos: saldo de OpenAI, errores en el registro de los agentes o mensajes no enviados.' });
+  }
+  if (m.mensajes.no_leidos >= 3) {
+    add({ id: 'mensajes_no_leidos', titulo: 'Hay mensajes que el agente no puede leer', impacto: 'bajo', afectadas: m.mensajes.no_leidos,
+      evidencia: `${m.mensajes.no_leidos} mensajes llegaron en un formato que WhatsApp no permite leer (encuestas, "ver una vez", etc.).`,
+      cambio: 'Avisar en el primer contacto que se puede escribir, mandar un audio o una foto.' });
+  }
+  return out.sort((a, b) => peso[b.impacto] - peso[a.impacto] || b.afectadas - a.afectadas);
+}
+
+export type Refinador = (m: MetricasAgente, reglas: Optimizacion[]) => Promise<Optimizacion[]>;
+
+/** La respuesta de la IA es un dato no confiable: se acotan largos y valores. */
+export function validarOptimizaciones(crudo: any): Optimizacion[] {
+  const lista = Array.isArray(crudo?.mejoras) ? crudo.mejoras : [];
+  const out: Optimizacion[] = [];
+  for (const x of lista) {
+    if (out.length >= 6) break;
+    const titulo = String(x?.titulo ?? '').trim().slice(0, 140), cambio = String(x?.cambio ?? '').trim().slice(0, 420);
+    if (!titulo || !cambio) continue;
+    out.push({ id: `ia_${out.length + 1}`, titulo, evidencia: String(x?.evidencia ?? '').trim().slice(0, 320), cambio, impacto: ['alto', 'medio', 'bajo'].includes(x?.impacto) ? x.impacto : 'medio', afectadas: 0, fuente: 'ia' });
+  }
+  return out;
+}
+
+const SISTEMA_OPTIMIZADOR = 'Sos un consultor de conversión para un agente de WhatsApp de un estudio jurídico previsional. El objetivo del agente es que la persona agende una consulta con el abogado. Recibís MÉTRICAS (solo números) y MEJORAS candidatas detectadas por reglas. Devolvé SOLO un JSON {"mejoras":[{"titulo":"...","evidencia":"...","cambio":"...","impacto":"alto|medio|bajo"}]} con hasta 6 mejoras ordenadas por impacto, en español simple y tono profesional. Cada evidencia debe citar números que estén en las métricas: no inventes ninguno. Cada cambio tiene que ser concreto (qué decir o hacer distinto). Nunca sugieras prometer resultados, cambiar los precios que fija el sistema ni pedir claves.';
+
+async function refinarConOpenAI(m: MetricasAgente, reglas: Optimizacion[]): Promise<Optimizacion[]> {
+  const r = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${claveOpenAI()}` },
+    body: JSON.stringify({
+      model: limpiarSecreto(process.env.AGENTES_MODELO ?? '') || 'gpt-4o-mini',
+      temperature: 0.2,
+      response_format: { type: 'json_object' },
+      messages: [
+        { role: 'system', content: SISTEMA_OPTIMIZADOR },
+        { role: 'user', content: JSON.stringify({ metricas: { ...m, actividad_reciente: undefined, por_dia: undefined }, mejoras_candidatas: reglas.map(x => ({ titulo: x.titulo, evidencia: x.evidencia, cambio: x.cambio, impacto: x.impacto })) }) },
+      ],
+    }),
+  });
+  if (!r.ok) throw new Error(`optimizador ${r.status}: ${(await r.text()).slice(0, 160)}`);
+  return validarOptimizaciones(JSON.parse(((await r.json()) as any)?.choices?.[0]?.message?.content ?? '{}'));
+}
+
+export type DepsOptimizacion = DepsAgentes & { refinar?: Refinador; dias?: number | null };
+
+/** El botón "Analizar y proponer mejoras": calcula las métricas, evalúa qué optimizar y guarda el informe. No cambia nada del agente. */
+export async function ejecutarOptimizacion(db: Db, deps: DepsOptimizacion, pedidoPor?: string): Promise<ResumenCorrida & { optimizaciones?: Optimizacion[]; fuente?: 'reglas' | 'ia'; resumen?: string }> {
+  const ahora = (deps.ahora ?? (() => new Date()))();
+  const { instalado, config } = await leerConfigAgentes(db);
+  if (!instalado) return { ok: false, estado: 'omitida', motivo: 'Las tablas de los agentes no están creadas: falta correr la migración migration_agentes_maestros.sql.' };
+  if (config.pausado) return { ok: false, estado: 'omitida', motivo: 'Los agentes están en pausa.' };
+  const inicioDia = new Date(Date.UTC(ahora.getUTCFullYear(), ahora.getUTCMonth(), ahora.getUTCDate())).toISOString();
+  const hoy = await db.from('agentes_ejecuciones').select('run_id, estado, inicio').eq('agente', 'analista').gte('inicio', inicioDia).order('inicio', { ascending: false }).limit(100);
+  const corridas = (Array.isArray(hoy.data) ? hoy.data : []) as any[];
+  if (corridas.length >= config.max_ejecuciones_dia) return { ok: false, estado: 'omitida', motivo: `Se alcanzó el tope de ${config.max_ejecuciones_dia} análisis por día.` };
+  if (corridas[0]?.estado === 'en_curso' && ahora.getTime() - Date.parse(corridas[0].inicio) < 5 * 60 * 1000) return { ok: false, estado: 'omitida', motivo: 'El Analista ya está trabajando.' };
+
+  const runId = randomUUID();
+  await db.from('agentes_ejecuciones').insert({ run_id: runId, agente: 'analista', disparador: 'manual', pedido_por: pedidoPor ?? null, estado: 'en_curso', resumen: { tipo: 'optimizacion' } });
+  const fin = async (estado: 'ok' | 'omitida' | 'error', resumen: Record<string, unknown>) => { await db.from('agentes_ejecuciones').update({ estado, fin: new Date().toISOString(), resumen: { tipo: 'optimizacion', ...resumen } }).eq('run_id', runId); };
+  const paso = async () => { if (deps.pausa) await deps.pausa(PAUSA_PASO_MS); };
+  try {
+    await registrarAgente(db, 'analista', 'Empezó a evaluar qué optimizar en el agente de WhatsApp', { pedido_por: pedidoPor ?? 'automático' }, { runId });
+    await estadoAgente(db, 'analista', 'trabajando', 'Calculando las métricas del agente…', 15, runId); await paso();
+    const m = await calcularMetricasAgente(db, { dias: deps.dias === undefined ? 30 : deps.dias, ahora });
+    await registrarAgente(db, 'analista', 'Métricas del agente calculadas', { personas: m.personas, agendadas: m.estados.agendadas, abandonadas: m.estados.abandonadas }, { runId });
+    await estadoAgente(db, 'analista', 'trabajando', 'Buscando dónde se pierde más gente…', 45, runId); await paso();
+    const reglas = evaluarOptimizaciones(m);
+    await registrarAgente(db, 'analista', `Se detectaron ${reglas.length} puntos para mejorar`, { ids: reglas.map(x => x.id) }, { runId });
+    await estadoAgente(db, 'analista', 'trabajando', 'Armando las mejoras para el agente…', 70, runId); await paso();
+    let mejoras = reglas, fuente: 'reglas' | 'ia' = 'reglas';
+    const refinar = deps.refinar ?? (claveOpenAI() ? refinarConOpenAI : undefined);
+    if (refinar && reglas.length) {
+      try { const ia = await refinar(m, reglas); if (ia.length) { mejoras = ia; fuente = 'ia'; } }
+      catch (e) { await registrarAgente(db, 'analista', 'No se pudo refinar con IA: se usan las mejoras calculadas por reglas', { error: e instanceof Error ? e.message.slice(0, 160) : 'error' }, { runId, nivel: 'aviso' }); }
+    }
+    const resumen = m.personas < MIN_MUESTRA
+      ? `Todavía hay muy pocas conversaciones (${m.personas}) para decidir cambios con seguridad. Conviene esperar a tener al menos 30.`
+      : mejoras.length ? `Se encontraron ${mejoras.length} cosas para mejorar a partir de ${m.personas} conversaciones. La más importante: ${mejoras[0].titulo.toLowerCase()}.` : `Con ${m.personas} conversaciones no se detectó nada urgente para optimizar.`;
+    await estadoAgente(db, 'analista', 'trabajando', 'Guardando el informe…', 90, runId); await paso();
+    const { data: guardado, error: eG } = await db.from('agentes_analisis').insert({
+      run_id: runId, conversaciones: m.personas, desde: m.dias ? new Date(ahora.getTime() - m.dias * 86400000).toISOString() : null, hasta: ahora.toISOString(),
+      metricas: m, hallazgos: { tipo: 'optimizacion', resumen, fuente }, propuestas: mejoras,
+    }).select('id').single();
+    if (eG) throw new Error(`guardar informe: ${eG.message}`);
+    await registrarAgente(db, 'analista', 'Informe de mejoras guardado', { analisis_id: (guardado as any)?.id, mejoras: mejoras.length, fuente }, { runId });
+    await estadoAgente(db, 'analista', 'inactivo', 'Esperando conversaciones nuevas', 0);
+    await fin('ok', { conversaciones: m.personas, mejoras: mejoras.length, fuente });
+    return { ok: true, estado: 'ok', conversaciones: m.personas, analisis_id: (guardado as any)?.id, optimizaciones: mejoras, fuente, resumen };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message.slice(0, 300) : 'error';
+    console.error('[agentes] optimización', e);
+    await registrarAgente(db, 'analista', 'La evaluación falló', { error: msg }, { runId, nivel: 'error' });
+    await estadoAgente(db, 'analista', 'error', `Falló: ${msg.slice(0, 80)}`, 0);
+    await fin('error', { error: msg });
+    return { ok: false, estado: 'error', motivo: msg };
+  }
+}
+
 // ---------------------------------------------------------------- prompt del agente en la base (versiones, backup, volver atrás)
 
 let promptCache: { texto: string; hasta: number } | null = null;
@@ -2197,7 +2554,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const hashPrompt = (t: string) => createHash('sha256').update(t).digest('hex').slice(0, 16);
 
 /** Acciones que el ERP pide a los agentes (botones de la pantalla). Solo admin y socio; lo del prompt, solo admin. */
-export async function accionAgentes(db: Db, u: UsuarioAgentes, accion: string, p: any, deps: DepsAgentes): Promise<Resp> {
+export async function accionAgentes(db: Db, u: UsuarioAgentes, accion: string, p: any, deps: DepsOptimizacion): Promise<Resp> {
   const esAdmin = u.rol === 'admin';
   if (!esAdmin && u.rol !== 'socio') return { code: 403, body: { error: 'No autorizado' } };
   const quien = u.email ?? u.id;
@@ -2210,6 +2567,15 @@ export async function accionAgentes(db: Db, u: UsuarioAgentes, accion: string, p
     }
     const r = await ejecutarAnalista(db, deps, 'manual', quien);
     return { code: 200, body: r };
+  }
+
+  if (accion === 'metricas' || accion === 'optimizar') {
+    const dias = p?.dias === null ? null : Math.min(365, Math.max(1, Number(p?.dias) || 30));
+    if (accion === 'metricas') {
+      try { return { code: 200, body: await calcularMetricasAgente(db, { dias, ahora: deps.ahora?.() }) }; }
+      catch (e) { return { code: 500, body: { error: e instanceof Error ? e.message : 'No se pudieron calcular las métricas' } }; }
+    }
+    return { code: 200, body: await ejecutarOptimizacion(db, { ...deps, dias }, quien) };
   }
 
   if (accion === 'pausar') {
