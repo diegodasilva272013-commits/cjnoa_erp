@@ -190,8 +190,8 @@ function BotonCopiar({ telefono, nombre }: { telefono: string; nombre: string })
     setTimeout(() => setListo('no'), 1600);
   };
   return (
-    <button type="button" onClick={copiar} title={listo === 'si' ? 'Copiado' : listo === 'error' ? 'No se pudo copiar' : 'Copiar el número'} aria-label={`Copiar el número de ${nombre}`}
-      className={`inline-flex size-6 shrink-0 items-center justify-center rounded-md border transition ${listo === 'si' ? 'border-emerald-400/60 bg-emerald-400/15 text-emerald-300' : listo === 'error' ? 'border-rose-400/60 text-rose-300' : 'border-white/10 text-gray-500 hover:border-white/25 hover:bg-white/5 hover:text-gray-200'}`}>
+    <button type="button" onClick={copiar} style={{ width: 24, height: 24, minWidth: 24, minHeight: 24, padding: 0 }} title={listo === 'si' ? 'Copiado' : listo === 'error' ? 'No se pudo copiar' : 'Copiar el número'} aria-label={`Copiar el número de ${nombre}`}
+      className={`inline-flex shrink-0 items-center justify-center rounded-md border transition ${listo === 'si' ? 'border-emerald-400/60 bg-emerald-400/15 text-emerald-300' : listo === 'error' ? 'border-rose-400/60 text-rose-300' : 'border-white/10 text-gray-500 hover:border-white/25 hover:bg-white/5 hover:text-gray-200'}`}>
       {listo === 'si' ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
     </button>
   );
@@ -313,7 +313,7 @@ function TablaPersonas({ filas }: { filas: FilaPersona[] }) {
         })}
       </div>
 
-      <div className="hidden grid-cols-[2.1fr_1.5fr_1.4fr_1.1fr_1.9fr_1.8fr_2fr_auto] gap-x-4 px-3.5 pb-2 text-[10px] uppercase tracking-wider text-gray-600 xl:grid">
+      <div className="hidden grid-cols-[2fr_1.9fr_1.4fr_1.1fr_1.8fr_1.7fr_1.9fr_auto] gap-x-4 px-3.5 pb-2 text-[10px] uppercase tracking-wider text-gray-600 xl:grid">
         <span>Persona</span><span>Teléfono</span><span>Actividad</span><span>Mensajes</span><span>Cómo va</span><span>Lo que mandó</span><span>Pago y cita</span><span className="w-[118px]" />
       </div>
 
@@ -322,7 +322,7 @@ function TablaPersonas({ filas }: { filas: FilaPersona[] }) {
       ) : (
         <ul className="space-y-2">
           {visibles.slice(0, mostrar).map((f, i) => (
-            <li key={`${f.whatsapp}-${i}`} className="grid gap-3 rounded-2xl border border-transparent bg-white/[0.035] p-3.5 transition hover:border-white/10 hover:bg-white/[0.06] xl:grid-cols-[2.1fr_1.5fr_1.4fr_1.1fr_1.9fr_1.8fr_2fr_auto] xl:items-center xl:gap-x-4">
+            <li key={`${f.whatsapp}-${i}`} className="grid gap-3 rounded-2xl border border-transparent bg-white/[0.035] p-3.5 transition hover:border-white/10 hover:bg-white/[0.06] xl:grid-cols-[2fr_1.9fr_1.4fr_1.1fr_1.8fr_1.7fr_1.9fr_auto] xl:items-center xl:gap-x-4">
               <Celda titulo="Persona">
                 <div className="flex items-center gap-3">
                   <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-emerald-400/30 to-sky-400/30 text-sm font-semibold text-white">{f.nombre.slice(0, 1).toUpperCase()}</span>
@@ -332,7 +332,7 @@ function TablaPersonas({ filas }: { filas: FilaPersona[] }) {
                   </div>
                 </div>
               </Celda>
-              <Celda titulo="Teléfono"><div className="flex items-center gap-2"><p className="font-mono text-[13px] tracking-tight text-gray-200">{formatearTelefono(f.telefono)}</p><BotonCopiar telefono={f.telefono} nombre={f.nombre} /></div></Celda>
+              <Celda titulo="Teléfono"><div className="flex items-center gap-1.5"><p className="whitespace-nowrap font-mono text-[13px] tracking-tight text-gray-200">{formatearTelefono(f.telefono)}</p><BotonCopiar telefono={f.telefono} nombre={f.nombre} /></div></Celda>
               <Celda titulo="Actividad"><p className="text-[12px] text-gray-300">Escribió {fechaCorta(f.primer_mensaje)}</p><p className="text-[11px] text-gray-500">Último mensaje {haceMs(ahora - Date.parse(f.ultimo_mensaje))}</p></Celda>
               <Celda titulo="Mensajes">
                 <p className="text-[12px] tabular-nums text-gray-300"><span title="Recibidos">↓ {num(f.recibidos)}</span> <span className="text-gray-600">·</span> <span title="Enviados por Noa">↑ {num(f.enviados)}</span></p>
