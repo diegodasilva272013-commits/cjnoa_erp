@@ -1989,6 +1989,17 @@ export function motivoDeExclusion(nombre: string | null | undefined, telefono: s
   return null;
 }
 
+/** Nombres con los que aparece una persona en el sistema: conversación, ficha y turnos. Si alguno es del equipo o de prueba, no cuenta. */
+export function nombresDePersona(c: { nombre?: string | null }, lead: any, turnos: any[]): (string | null | undefined)[] {
+  return [c?.nombre, lead ? [lead.nombre, lead.apellido].filter(Boolean).join(' ') : null, ...turnos.map(t => t?.cliente_nombre)];
+}
+export function esPruebaOEquipo(nombres: (string | null | undefined)[], telefono: string | null | undefined, equipo: Set<string>, excluidos: Set<string>): 'equipo' | 'prueba' | 'excluida' | null {
+  for (const n of nombres) { const m = motivoDeExclusion(n, null, equipo, excluidos); if (m) return m; }
+  return motivoDeExclusion(null, telefono, equipo, excluidos);
+}
+/** Las citas que cargó el agente de WhatsApp (no las que cargó el equipo a mano). */
+export const soloCitasDelAgente = (ts: any[]) => ts.filter(t => t?.origen === 'agente');
+
 const NOMBRE_ETAPA_TXT: Record<string, string> = { consulto: 'consultó pero no dio sus datos', datos: 'dio sus datos pero no recibió el valor de la consulta', propuesta: 'recibió el valor de la consulta pero no eligió cómo pagar', forma_pago: 'eligió cómo pagar pero no pagó la reserva', reserva: 'pagó la reserva pero no agendó' };
 const NOMBRE_ERROR_TXT: Record<string, string> = {
   tuteo: 'tutea', reproche: 'reprocha o apura', pregunta_repetida: 'repite preguntas', sin_valor: 'pregunta cómo pagar sin decir el valor', no_enviado: 'mensajes que no se pudieron enviar',
@@ -2068,7 +2079,19 @@ export async function ejecutarAnalista(db: Db, deps: DepsAgentes, disparador: 'm
     const { data: perfilesEquipo } = await db.from('perfiles').select('nombre');
     const nombresEquipo = new Set(((Array.isArray(perfilesEquipo) ? perfilesEquipo : []) as any[]).map(x => normalizar(x.nombre)).filter(n => n.length >= 6));
     const telefonosExcluidos = new Set(String(process.env.AGENTES_EXCLUIR ?? '').split(/[,;\s]+/).map(x => telefonoClave(x)).filter(Boolean));
-    const motivos = todas.map(c => motivoDeExclusion(c.nombre, c.telefono, nombresEquipo, telefonosExcluidos));
+    // Se miran también el nombre de la ficha y el de los turnos: una prueba del equipo puede aparecer en WhatsApp con otro nombre.
+    const clavesTodas = [...new Set(todas.map(c => telefonoClave(c.telefono)).filter(Boolean))];
+    const leadsPor = new Map<string, any>(), turnosPor = new Map<string, any[]>(), turnosTodosPor = new Map<string, any[]>();
+    if (clavesTodas.length) {
+      const l = await db.from('leads').select('telefono_clave, nombre, apellido, rama, dni_cuil, calificacion, campana, datos').in('telefono_clave', clavesTodas);
+      if (l.error) await registrarAgente(db, 'analista', 'No se pudieron leer las fichas', { error: l.error.message }, { runId, nivel: 'aviso' });
+      for (const x of (Array.isArray(l.data) ? l.data : []) as any[]) leadsPor.set(x.telefono_clave, x);
+      const t = await db.from('consultas_agendadas').select('telefono_clave, cliente_nombre, fecha_consulta, reserva_pagada, origen, abogado_asignado').in('telefono_clave', clavesTodas);
+      if (t.error) await registrarAgente(db, 'analista', 'No se pudieron leer los turnos', { error: t.error.message }, { runId, nivel: 'aviso' });
+      for (const x of (Array.isArray(t.data) ? t.data : []) as any[]) turnosTodosPor.set(x.telefono_clave, [...(turnosTodosPor.get(x.telefono_clave) ?? []), x]);
+      for (const [k, ts] of turnosTodosPor) turnosPor.set(k, soloCitasDelAgente(ts));
+    }
+    const motivos = todas.map(c => { const k = telefonoClave(c.telefono); return esPruebaOEquipo(nombresDePersona(c, leadsPor.get(k) ?? null, turnosTodosPor.get(k) ?? []), c.telefono, nombresEquipo, telefonosExcluidos); });
     const lista = todas.filter((_, i) => !motivos[i]);
     const excluidas = todas.length - lista.length;
     if (excluidas) {
@@ -2086,17 +2109,6 @@ export async function ejecutarAnalista(db: Db, deps: DepsAgentes, disparador: 'm
     await registrarAgente(db, 'analista', `Leyendo ${lista.length} conversaciones`, { cantidad: lista.length }, { runId });
     await estadoAgente(db, 'analista', 'trabajando', `Leyendo ${lista.length} conversaciones…`, 20, runId);
     await paso();
-
-    const claves = [...new Set(lista.map(c => telefonoClave(c.telefono)).filter(Boolean))];
-    const leadsPor = new Map<string, any>(), turnosPor = new Map<string, any[]>();
-    if (claves.length) {
-      const l = await db.from('leads').select('telefono_clave, nombre, rama, dni_cuil, calificacion, campana, datos').in('telefono_clave', claves);
-      if (l.error) await registrarAgente(db, 'analista', 'No se pudieron leer las fichas', { error: l.error.message }, { runId, nivel: 'aviso' });
-      for (const x of (Array.isArray(l.data) ? l.data : []) as any[]) leadsPor.set(x.telefono_clave, x);
-      const t = await db.from('consultas_agendadas').select('telefono_clave, fecha_consulta, reserva_pagada, origen, abogado_asignado').in('telefono_clave', claves);
-      if (t.error) await registrarAgente(db, 'analista', 'No se pudieron leer los turnos', { error: t.error.message }, { runId, nivel: 'aviso' });
-      for (const x of (Array.isArray(t.data) ? t.data : []) as any[]) turnosPor.set(x.telefono_clave, [...(turnosPor.get(x.telefono_clave) ?? []), x]);
-    }
 
     await estadoAgente(db, 'analista', 'trabajando', 'Midiendo el embudo hasta la cita…', 45, runId);
 
@@ -2225,7 +2237,7 @@ export type PersonaMetrica = {
   audios: number; fotos: number; documentos: number; noLeidos: number;
   recibos: string[]; comprobantes: string[];
   datosDePagoEnviados: boolean; linkMPEnviado: boolean; importeAsignado: boolean; reservaConfirmadaMP: boolean;
-  turnos: number; reprogramados: number; cancelaciones: number; derivada: boolean; errores: string[];
+  turnos: number; reservasPagadas: number; reprogramados: number; cancelaciones: number; derivada: boolean; errores: string[];
 };
 
 const HORAS_ENCURSO = 24;
@@ -2255,6 +2267,7 @@ export function personaMetrica(c: { nombre?: string | null; mensajes: MsgGuardad
     importeAsignado: !!datos.pago_base || !!datos.pago_validado_mp,
     reservaConfirmadaMP: !!datos.pago_validado_mp,
     turnos: turnos.length,
+    reservasPagadas: turnos.filter(t => t.reserva_pagada === true).length,
     reprogramados: turnos.filter(t => String(t.observaciones ?? '').includes(MARCA_REPROGRAMADO)).length,
     cancelaciones: turnos.filter(t => String(t.observaciones ?? '').includes(MARCA_CANCELACION)).length,
     derivada: !!datos.derivar_a_humano, errores: r.errores,
@@ -2307,7 +2320,7 @@ export function agregarMetricasAgente(ps: PersonaMetrica[], o: { ahoraMs: number
     },
     recibos: { total: recibos.length, sin_cargo: cuenta(recibos, x => x === 'sin_cargo'), con_cargo: cuenta(recibos, x => x === 'con_cargo'), sin_descuento: cuenta(recibos, x => x === 'sin_descuento'), sin_importe: cuenta(recibos, x => x === 'sin_importe'), ilegibles: cuenta(recibos, x => x === 'ilegible') },
     comprobantes: { total: comps.length, validados: cuenta(comps, x => x === 'validado'), pendientes_mp: cuenta(comps, x => x === 'pendiente_mp'), insuficientes: cuenta(comps, x => x === 'insuficiente'), otro_titular: cuenta(comps, x => x === 'otro_titular'), ilegibles: cuenta(comps, x => x === 'ilegible') },
-    turnos: { agendados: sumar(ps.map(p => p.turnos)), reprogramados: sumar(ps.map(p => p.reprogramados)), cancelaciones_solicitadas: sumar(ps.map(p => p.cancelaciones)) },
+    turnos: { agendados: sumar(ps.map(p => p.turnos)), con_reserva_pagada: sumar(ps.map(p => p.reservasPagadas)), reprogramados: sumar(ps.map(p => p.reprogramados)), cancelaciones_solicitadas: sumar(ps.map(p => p.cancelaciones)) },
     derivaciones: cuenta(ps, p => p.derivada),
     errores,
     por_dia: porDia,
@@ -2335,16 +2348,23 @@ export async function calcularMetricasAgente(db: Db, o: { dias: number | null; a
   const { data: perfiles } = await db.from('perfiles').select('nombre');
   const equipo = new Set(((Array.isArray(perfiles) ? perfiles : []) as any[]).map(x => normalizar(x.nombre)).filter(n => n.length >= 6));
   const excluidos = new Set(String(process.env.AGENTES_EXCLUIR ?? '').split(/[,;\s]+/).map(x => telefonoClave(x)).filter(Boolean));
-  const convs = ((Array.isArray(data) ? data : []) as any[]).filter(c => Array.isArray(c.mensajes) && c.mensajes.length && !motivoDeExclusion(c.nombre, c.telefono, equipo, excluidos));
-  const claves = [...new Set(convs.map(c => telefonoClave(c.telefono)).filter(Boolean))];
-  const leads = await enLotes<any>(claves, 100, l => db.from('leads').select('telefono_clave, nombre, rama, dni_cuil, calificacion, campana, datos').in('telefono_clave', l));
-  const turnos = await enLotes<any>(claves, 100, l => db.from('consultas_agendadas').select('telefono_clave, fecha_consulta, reserva_pagada, origen, abogado_asignado, observaciones, created_at').in('telefono_clave', l));
+  const todas = ((Array.isArray(data) ? data : []) as any[]).filter(c => Array.isArray(c.mensajes) && c.mensajes.length);
+  const claves = [...new Set(todas.map(c => telefonoClave(c.telefono)).filter(Boolean))];
+  const leads = await enLotes<any>(claves, 100, l => db.from('leads').select('telefono_clave, nombre, apellido, rama, dni_cuil, calificacion, campana, datos').in('telefono_clave', l));
+  const turnosTodos = await enLotes<any>(claves, 100, l => db.from('consultas_agendadas').select('telefono_clave, cliente_nombre, fecha_consulta, reserva_pagada, origen, abogado_asignado, observaciones, created_at').in('telefono_clave', l));
   const leadPor = new Map(leads.map(x => [x.telefono_clave, x]));
-  const turnosPor = new Map<string, any[]>();
-  for (const t of turnos) turnosPor.set(t.telefono_clave, [...(turnosPor.get(t.telefono_clave) ?? []), t]);
+  const turnosTodosPor = new Map<string, any[]>();
+  for (const t of turnosTodos) turnosTodosPor.set(t.telefono_clave, [...(turnosTodosPor.get(t.telefono_clave) ?? []), t]);
+  // Una prueba del equipo puede aparecer en WhatsApp con otro nombre: se miran también el nombre de la ficha y el de los turnos.
+  const convs = todas.filter(c => { const k = telefonoClave(c.telefono); return !esPruebaOEquipo(nombresDePersona(c, leadPor.get(k) ?? null, turnosTodosPor.get(k) ?? []), c.telefono, equipo, excluidos); });
+  // Las citas que cuentan son las que cargó Noa, no las que cargó el equipo a mano.
   const turnosPorDia: Record<string, number> = {};
-  for (const t of turnos) if (t.created_at) { const f = localDe(t.created_at).fecha; turnosPorDia[f] = (turnosPorDia[f] ?? 0) + 1; }
-  const personas = convs.map(c => { const k = telefonoClave(c.telefono); return personaMetrica(c, leadPor.get(k) ?? null, turnosPor.get(k) ?? [], ahora.getTime()); });
+  const personas = convs.map(c => {
+    const k = telefonoClave(c.telefono);
+    const citas = soloCitasDelAgente(turnosTodosPor.get(k) ?? []);
+    for (const t of citas) if (t.created_at) { const f = localDe(t.created_at).fecha; turnosPorDia[f] = (turnosPorDia[f] ?? 0) + 1; }
+    return personaMetrica(c, leadPor.get(k) ?? null, citas, ahora.getTime());
+  });
   return agregarMetricasAgente(personas, { ahoraMs: ahora.getTime(), dias: o.dias, turnosPorDia });
 }
 
@@ -2415,11 +2435,6 @@ export function evaluarOptimizaciones(m: MetricasAgente): Optimizacion[] {
     add({ id: 'pago_sin_cierre', titulo: 'Reciben los datos de pago y no concretan', impacto: 'alto', afectadas: enviados - cerraron,
       evidencia: `A ${enviados} personas se les pasaron los datos de pago y solo ${cerraron} terminaron agendando (${pct(cerraron, enviados)}%).`,
       cambio: 'Hacer seguimiento del pago a las 24 horas (con plantilla aprobada de WhatsApp) y facilitar el pago con link o con importe exacto.' });
-  }
-  if (n >= MIN_MUESTRA && m.derivaciones >= 3 && pct(m.derivaciones, n) >= 15) {
-    add({ id: 'muchas_derivaciones', titulo: 'Se deriva a una persona más de lo esperado', impacto: 'medio', afectadas: m.derivaciones,
-      evidencia: `${m.derivaciones} de ${n} personas (${pct(m.derivaciones, n)}%) fueron derivadas al equipo.`,
-      cambio: 'Revisar los motivos de esas derivaciones y cubrir los casos más repetidos en el prompt del agente.' });
   }
   const estilo = (m.errores.tuteo ?? 0) + (m.errores.reproche ?? 0) + (m.errores.sin_valor ?? 0) + (m.errores.pregunta_repetida ?? 0);
   if (estilo >= 2) {

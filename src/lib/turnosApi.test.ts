@@ -2141,7 +2141,7 @@ describe('metricas · el tablero del agente', () => {
         { id: '5', telefono: '5493880000005', nombre: 'Con Turno', mensajes: [mm('cliente', 'hola'), mm('agente', 'Buen día'), mm('cliente', 'ok')], created_at: t(10), updated_at: t(9) },
       ],
       leads: [{ telefono: '5493880000005', nombre: 'Con', rama: 'docente', datos: {} }],
-      consultas_agendadas: [{ telefono: '5493880000005', fecha_consulta: '2026-10-28', observaciones: '[Reprogramado por el cliente] algo', created_at: t(8) }],
+      consultas_agendadas: [{ telefono: '5493880000005', fecha_consulta: '2026-10-28', origen: 'agente', observaciones: '[Reprogramado por el cliente] algo', created_at: t(8) }],
     });
     const m30 = await calcularMetricasAgente(db, { dias: 30, ahora: new Date(AHORA) });
     expect(m30.personas).toBe(2);
@@ -2196,7 +2196,7 @@ describe('metricas · qué optimizar', () => {
       estados: { agendadas: 4, en_curso: 5, abandonadas: 31 },
       derivaciones: 9,
     }));
-    expect(r.map(x => x.id)).toEqual(expect.arrayContaining(['recibos_ilegibles', 'comprobantes_con_problemas', 'pago_sin_cierre', 'muchas_derivaciones']));
+    expect(r.map(x => x.id)).toEqual(expect.arrayContaining(['recibos_ilegibles', 'comprobantes_con_problemas', 'pago_sin_cierre']));
     expect(r.find(x => x.id === 'pago_sin_cierre')?.evidencia).toContain('12 personas');
   });
 
@@ -2306,5 +2306,78 @@ describe('metricas · el botón "analizar y proponer mejoras"', () => {
     const o: any = await accionAgentes(db, { id: 'u', email: 'a@b', rol: 'admin' }, 'optimizar', { dias: 30 }, { ahora: () => ahora, refinar: async () => [] });
     expect(o.code).toBe(200);
     expect(o.body.estado).toBe('ok');
+  });
+});
+
+
+describe('metricas · una sola forma de contar las citas (el error del "4" contra el "2")', () => {
+  const AHORA = Date.parse('2026-10-21T15:00:00Z');
+  const t = (h: number) => new Date(AHORA - h * 3600000).toISOString();
+  const dos = (nombre: string, tel: string, h = 5) => ({ id: tel, telefono: tel, nombre, mensajes: [mm('cliente', 'hola'), mm('agente', 'Buen día'), mm('cliente', 'ok')], created_at: t(h), updated_at: t(h - 1) });
+  const cita = (tel: string, extra: any = {}) => ({ telefono: tel, cliente_nombre: 'Cliente', fecha_consulta: '2026-10-28', origen: 'agente', reserva_pagada: false, observaciones: '', created_at: t(3), ...extra });
+  const mundo = (convs: any[], turnos: any[], leads: any[] = []) => dbAgenda({ perfiles: [{ nombre: 'Diego Da Silva' }, { nombre: 'Rodrigo Reyes' }], conversaciones_whatsapp: convs, leads, consultas_agendadas: turnos });
+
+  it('las personas con cita y las citas coinciden con lo que se ve en el gráfico', async () => {
+    const { db } = mundo([dos('Marta', '5493880000001'), dos('Luis', '5493880000002'), dos('Eva', '5493880000003')], [cita('5493880000001'), cita('5493880000002')]);
+    const m = await calcularMetricasAgente(db, { dias: 30, ahora: new Date(AHORA) });
+    expect(m.estados.agendadas).toBe(2);
+    expect(m.turnos.agendados).toBe(2);
+    expect(m.embudo.find(e => e.etapa === 'agendada')?.alcanzaron).toBe(2);
+  });
+
+  it('las citas que cargó el equipo a mano NO cuentan como logro de Noa', async () => {
+    const { db } = mundo([dos('Marta', '5493880000001'), dos('Luis', '5493880000002')], [cita('5493880000001'), cita('5493880000002', { origen: 'manual' }), cita('5493880000002', { origen: null })]);
+    const m = await calcularMetricasAgente(db, { dias: 30, ahora: new Date(AHORA) });
+    expect(m.estados.agendadas).toBe(1);
+    expect(m.turnos.agendados).toBe(1);
+  });
+
+  it('si una persona agendó dos veces, es una persona con cita pero dos citas (y la pantalla lo aclara)', async () => {
+    const { db } = mundo([dos('Marta', '5493880000001')], [cita('5493880000001'), cita('5493880000001', { fecha_consulta: '2026-11-03' })]);
+    const m = await calcularMetricasAgente(db, { dias: 30, ahora: new Date(AHORA) });
+    expect(m.estados.agendadas).toBe(1);
+    expect(m.turnos.agendados).toBe(2);
+  });
+
+  it('una prueba del equipo no cuenta aunque en WhatsApp aparezca con otro nombre (se reconoce por la ficha o por la cita)', async () => {
+    const { db } = mundo(
+      [dos('Dieguito', '5493880000001'), dos('Rodri', '5493880000002'), dos('Marta', '5493880000003')],
+      [cita('5493880000002', { cliente_nombre: 'Rodrigo Reyes' }), cita('5493880000003', { cliente_nombre: 'Marta Gómez' })],
+      [{ telefono: '5493880000001', nombre: 'Diego', apellido: 'Da Silva', datos: {} }],
+    );
+    const m = await calcularMetricasAgente(db, { dias: 30, ahora: new Date(AHORA) });
+    expect(m.personas).toBe(1);
+    expect(m.estados.agendadas).toBe(1);
+    expect(m.turnos.agendados).toBe(1);
+  });
+
+  it('cuenta las citas con reserva pagada', async () => {
+    const { db } = mundo([dos('Marta', '5493880000001'), dos('Luis', '5493880000002')], [cita('5493880000001', { reserva_pagada: true }), cita('5493880000002')]);
+    const m = await calcularMetricasAgente(db, { dias: 30, ahora: new Date(AHORA) });
+    expect(m.turnos.con_reserva_pagada).toBe(1);
+  });
+
+  it('el Analista también deja afuera las pruebas que se reconocen por la ficha o la cita, y mira solo las citas de Noa', async () => {
+    const ahora = new Date(AHORA);
+    const { db, tablas } = dbAgenda({
+      agentes_config: [{ id: 1, pausado: false, analizar_cada: 10, max_ejecuciones_dia: 6, ultimo_analisis_at: null, conversaciones_analizadas: 0 }],
+      agentes_estado: [{ agente: 'analista', estado: 'inactivo' }], agentes_registro: [], agentes_ejecuciones: [], agentes_analisis: [],
+      perfiles: [{ nombre: 'Diego Da Silva' }, { nombre: 'Rodrigo Reyes' }],
+      conversaciones_whatsapp: [dos('Dieguito', '5493880000001'), dos('Rodri', '5493880000002'), dos('Marta', '5493880000003'), dos('Luis', '5493880000004')],
+      leads: [{ telefono: '5493880000001', nombre: 'Diego', apellido: 'Da Silva', datos: {} }],
+      consultas_agendadas: [cita('5493880000002', { cliente_nombre: 'Rodrigo Reyes' }), cita('5493880000003'), cita('5493880000004', { origen: 'manual' })],
+    });
+    const r = await ejecutarAnalista(db, { ahora: () => ahora, etiquetar: async () => [] }, 'manual');
+    expect(r.conversaciones).toBe(2);
+    expect(tablas.agentes_analisis[0].metricas.agendadas).toBe(1); // Marta; la de Luis la cargó el equipo a mano
+    expect(tablas.agentes_analisis[0].hallazgos.excluidas).toBe(2);
+  });
+});
+
+describe('metricas · lo que todavía no está armado no se muestra', () => {
+  it('no hay regla de "muchas derivaciones": la derivación a una persona todavía no es un proceso', () => {
+    const m = agregarMetricasAgente(Array.from({ length: 20 }, () => personaMetrica({ nombre: 'X', mensajes: [mm('cliente', 'hola'), mm('agente', 'Buen día'), mm('cliente', 'ok')], created_at: new Date().toISOString(), updated_at: new Date().toISOString() }, { datos: { derivar_a_humano: 'x' } }, [], Date.now())), { ahoraMs: Date.now(), dias: 30 });
+    expect(m.derivaciones).toBe(20);
+    expect(evaluarOptimizaciones(m as any).map(x => x.id)).not.toContain('muchas_derivaciones');
   });
 });

@@ -243,16 +243,17 @@ export default function TableroAgente({ m, dias, onDias, informe, optimizando, p
           <p className="text-center text-xs text-rose-300/90">{num(m.primer_contacto.no_contestaron)} no contestaron</p>
         </Tarjeta>
         <Tarjeta titulo="Cómo terminaron" subtitulo="Qué pasó con cada persona" icono={<Gauge className="size-4" />} className="flex flex-col items-center" retraso={160}>
-          <Dona partes={estadosPartes} tam={150} grosor={16} centro={<><Contador valor={m.estados.agendadas} className="text-3xl font-semibold tabular-nums text-white" /><span className="text-[11px] text-gray-500">citas</span></>} />
+          <Dona partes={estadosPartes} tam={150} grosor={16} centro={<><Contador valor={m.estados.agendadas} className="text-3xl font-semibold tabular-nums text-white" /><span className="text-[11px] text-gray-500">con cita</span></>} />
           <div className="w-full"><Leyenda partes={estadosPartes} /></div>
         </Tarjeta>
-        <Tarjeta titulo="Citas agendadas" subtitulo="Lo que Noa logró cerrar" icono={<CalendarCheck className="size-4" />} className="flex flex-col justify-between" retraso={240}>
+        <Tarjeta titulo="Personas con cita agendada" subtitulo="Lo que Noa logró cerrar" icono={<CalendarCheck className="size-4" />} className="flex flex-col justify-between" retraso={240}>
           <div>
-            <Contador valor={m.turnos.agendados} className="block text-5xl font-semibold tabular-nums text-white" />
+            <Contador valor={m.estados.agendadas} className="block text-5xl font-semibold tabular-nums text-white" />
             <p className="mt-1 text-sm text-emerald-300">{m.personas ? `${Math.round((m.estados.agendadas / m.personas) * 1000) / 10}% de las personas que escribieron` : 'Sin datos todavía'}</p>
+            {m.turnos.agendados > m.estados.agendadas && <p className="mt-1 text-[11px] text-gray-500">{num(m.turnos.agendados)} citas en total: algunas personas agendaron más de una.</p>}
           </div>
           <div className="mt-4 grid grid-cols-3 gap-2 text-center">
-            {[{ t: 'Reprogramadas', v: m.turnos.reprogramados, i: <Repeat className="mx-auto size-4" /> }, { t: 'Piden cancelar', v: m.turnos.cancelaciones_solicitadas, i: <UserX className="mx-auto size-4" /> }, { t: 'Pasadas a una persona', v: m.derivaciones, i: <Hand className="mx-auto size-4" /> }].map(x => (
+            {[{ t: 'Reprogramadas', v: m.turnos.reprogramados, i: <Repeat className="mx-auto size-4" /> }, { t: 'Piden cancelar', v: m.turnos.cancelaciones_solicitadas, i: <UserX className="mx-auto size-4" /> }, { t: 'Con reserva pagada', v: m.turnos.con_reserva_pagada, i: <ShieldCheck className="mx-auto size-4" /> }].map(x => (
               <div key={x.t} className="rounded-xl bg-white/[0.04] px-1.5 py-2.5 text-gray-400">{x.i}<Contador valor={x.v} className="mt-1 block text-lg font-semibold text-white" /><span className="block text-[10px] leading-tight">{x.t}</span></div>
             ))}
           </div>

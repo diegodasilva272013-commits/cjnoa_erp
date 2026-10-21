@@ -137,3 +137,26 @@ describe('tablero de Noa · la ilustración', () => {
     expect(renderToStaticMarkup(React.createElement(AgenteAvatar, { activo: false }))).not.toContain('class="nw-pulso"');
   });
 });
+
+describe('tablero de Noa · números consistentes y sin datos de más', () => {
+  it('el número grande de citas es el de personas con cita, el mismo del gráfico', () => {
+    const html = dibujar(props());
+    expect(html).toContain('Personas con cita agendada');
+    expect(html).toContain('con cita');
+    expect(html).not.toContain('>Citas agendadas<');
+  });
+
+  it('avisa cuando hay más citas que personas', () => {
+    const m2: MetricasAgente = { ...metricas, turnos: { ...metricas.turnos, agendados: metricas.estados.agendadas + 2 } };
+    expect(dibujar(props({ m: m2 }))).toContain('algunas personas agendaron más de una');
+    expect(dibujar(props())).not.toContain('algunas personas agendaron más de una');
+  });
+
+  it('no muestra lo de "pasadas a una persona" (todavía no está armado) y sí las reservas pagadas', () => {
+    const html = dibujar(props());
+    expect(html).not.toContain('Pasadas a una');
+    expect(html).toContain('Con reserva pagada');
+    expect(html).toContain('Reprogramadas');
+    expect(html).toContain('Piden cancelar');
+  });
+});

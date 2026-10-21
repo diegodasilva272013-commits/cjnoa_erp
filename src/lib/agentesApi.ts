@@ -63,7 +63,7 @@ export type MetricasAgente = {
   pagos: { personas_con_datos_enviados: number; links_mp_enviados: number; importes_unicos_asignados: number; reservas_confirmadas: number };
   recibos: { total: number; sin_cargo: number; con_cargo: number; sin_descuento: number; sin_importe: number; ilegibles: number };
   comprobantes: { total: number; validados: number; pendientes_mp: number; insuficientes: number; otro_titular: number; ilegibles: number };
-  turnos: { agendados: number; reprogramados: number; cancelaciones_solicitadas: number };
+  turnos: { agendados: number; con_reserva_pagada: number; reprogramados: number; cancelaciones_solicitadas: number };
   derivaciones: number;
   errores: Record<string, number>;
   por_dia: { fecha: string; nuevas: number; agendadas: number }[];

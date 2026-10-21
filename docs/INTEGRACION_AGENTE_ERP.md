@@ -141,3 +141,8 @@ Pantalla del agente de WhatsApp (solo admin y socio): ilustración del agente, p
 - Todo sale de lo ya guardado (conversaciones, fichas y turnos); no se envía nada a ninguna IA para calcular las métricas. Quedan afuera las conversaciones de prueba y las del equipo (`AGENTES_EXCLUIR` permite sumar teléfonos).
 - **Analizar y proponer mejoras:** evalúa las métricas con reglas (solo si hay muestra suficiente) y, si hay clave de OpenAI, las refina con IA usando solo números. Deja un informe ordenado por impacto con la evidencia y qué cambiar. No aplica nada: los cambios se cargan como propuesta en Agentes IA → Prompt del agente, con backup. El informe queda guardado y se ve en el registro de los agentes.
 - Acciones del servidor (`/api/turnos/agentes`): `metricas` y `optimizar`.
+
+**Cómo se cuenta (tablero y Analista):** una sola forma, para que los números coincidan.
+- *Persona con cita* = una persona de la que Noa cargó al menos una cita (`consultas_agendadas.origen = 'agente'`). Las citas cargadas a mano por el equipo no cuentan como logro de Noa. Si una persona agendó dos veces, es una persona con cita pero dos citas (la pantalla lo aclara).
+- Una conversación no cuenta (ni sus citas) si el nombre de la conversación, de la ficha o de alguna cita es de un integrante del equipo o de prueba, o si su teléfono está en `AGENTES_EXCLUIR`.
+- No se muestra lo de "derivadas a una persona": todavía no es un proceso armado (el agente deja una marca, pero nadie la atiende desde una pantalla).
