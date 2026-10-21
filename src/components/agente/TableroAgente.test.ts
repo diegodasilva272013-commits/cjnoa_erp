@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 vi.mock('../../lib/supabase', () => ({ supabase: {} }));
 
-import TableroAgente, { type PropsTablero } from './TableroAgente';
+import TableroAgente, { formatearTelefono, type PropsTablero } from './TableroAgente';
 import AgenteAvatar from './AgenteAvatar';
 import type { InformeMejoras, MetricasAgente } from '../../lib/agentesApi';
 import { agregarMetricasAgente, personaMetrica, evaluarOptimizaciones } from '../../../api/turnos/[accion]';
@@ -158,5 +158,72 @@ describe('tablero de Noa · números consistentes y sin datos de más', () => {
     expect(html).toContain('Con reserva pagada');
     expect(html).toContain('Reprogramadas');
     expect(html).toContain('Piden cancelar');
+  });
+});
+
+
+describe('tablero de Noa · la tabla de personas', () => {
+  const fila = (i: number, o: any = {}) => ({
+    nombre: `Persona ${i}`, telefono: `54938800${String(i).padStart(5, '0')}`, whatsapp: `54938800${String(i).padStart(5, '0')}`, primer_mensaje: hace(30), ultimo_mensaje: hace(2),
+    recibidos: 4, enviados: 5, contesto: true, estado: 'en_curso' as const, etapa: 'datos', se_enfrio_despues_de: null, esperando_respuesta: false,
+    audios: 0, fotos: 0, documentos: 0, recibos: [], comprobantes: [], datos_de_pago: false, link_mp: false, importe_asignado: false, reserva_mp: false, cita: null, campana: null, rama: null, errores: [], ...o,
+  });
+  const conFilas = (filas: any[]): MetricasAgente => ({ ...metricas, personas_detalle: filas });
+
+  it('muestra a cada persona con su teléfono real y un botón que abre su WhatsApp', () => {
+    const html = dibujar(props({ m: conFilas([fila(1, { nombre: 'Marta Gómez', telefono: '5493884867965', whatsapp: '5493884867965' })]) }));
+    expect(html).toContain('Todas las personas');
+    expect(html).toContain('Marta Gómez');
+    expect(html).toContain('+54 9 388 486-7965');
+    expect(html).toContain('href="https://wa.me/5493884867965"');
+    expect(html).toContain('target="_blank"');
+    expect(html).toContain('rel="noopener noreferrer"');
+    expect(html).toContain('aria-label="Abrir el WhatsApp de Marta Gómez"');
+  });
+
+  it('muestra toda la información: actividad, mensajes, cómo va, lo que mandó, pago y cita', () => {
+    const html = dibujar(props({ m: conFilas([fila(1, {
+      estado: 'agendada', etapa: 'agendada', audios: 2, fotos: 1, recibos: ['con_cargo'], comprobantes: ['validado'], datos_de_pago: true, importe_asignado: true, reserva_mp: true,
+      cita: { fecha: '2026-10-28', hora: '10:30', abogado: 'Fabricio', reserva_pagada: true, reprogramada: true, cancelacion: false }, campana: 'DOCENTE', rama: 'jubilación docente',
+    }), fila(2, { estado: 'abandonada', contesto: false, se_enfrio_despues_de: 'valor_de_la_consulta', esperando_respuesta: true, errores: ['tuteo'] })]) }));
+    for (const t of ['DOCENTE', 'jubilación docente', 'Contestó', 'No contestó', 'Agendó su cita', 'Se enfrió', 'Espera respuesta', 'Llegó a: Agendaron su cita', 'Después de decirles el valor', 'Falló: tutea',
+      'Recibo: Consulta con reserva', 'Comprobante: Validado', 'Datos de pago enviados', 'Importe exacto asignado', 'Reserva confirmada', 'Cita 28/10/2026 10:30 · Fabricio', 'reserva pagada', 'reprogramada', 'Sin cita']) expect(html).toContain(t);
+  });
+
+  it('trae los filtros con cuántas personas hay en cada uno, para comprobar cada métrica', () => {
+    const html = dibujar(props({ m: conFilas([fila(1, { estado: 'agendada' }), fila(2, { contesto: false }), fila(3, { audios: 1 })]) }));
+    for (const t of ['Todas', 'Agendaron', 'Conversando', 'Se enfriaron', 'No contestaron', 'Esperan respuesta', 'Mandaron recibo', 'Mandaron comprobante', 'Recibieron datos de pago', 'Mandaron audio', 'Con errores']) expect(html).toContain(t);
+    expect(html).toContain('Mostrando 3 de 3');
+  });
+
+  it('pagina de a 20 y avisa cuántas hay en total', () => {
+    const html = dibujar(props({ m: conFilas(Array.from({ length: 45 }, (_, i) => fila(i))) }));
+    expect(html).toContain('Mostrando 20 de 45');
+    expect(html).toContain('Mostrar 20 más');
+    expect((html.match(/https:\/\/wa\.me\//g) ?? []).length).toBe(20);
+  });
+
+  it('sin personas lo dice, y sin NaN ni undefined', () => {
+    const html = dibujar(props({ m: conFilas([]) }));
+    expect(html).toContain('Todavía no hay personas en este período');
+    expect(html).not.toMatch(/NaN|undefined/);
+  });
+
+  it('el comprobante del conteo lleva a la tabla y muestra la cuenta', () => {
+    const m2: MetricasAgente = { ...metricas, detalle: { filas_en_periodo: 9, de_noa: 7, agente_anterior: 2, fichas_en_periodo: 8, excluidas: [{ nombre: 'Rodrigo Reyes', tel: '***1234', motivo: 'equipo' }], fichas_sin_conversacion: [{ nombre: 'Sin Conversación', tel: '***0077', creada: hace(5) }] } };
+    const html = dibujar(props({ m: m2 }));
+    expect(html).toContain('Comprobante del conteo');
+    expect(html).toContain('Conversaciones con Noa');
+    expect(html).toContain('href="#personas"');
+    expect(html).toContain('No se cuentan 2 conversaciones del agente anterior (ElevenLabs)');
+    expect(html).toContain('1 no tienen conversación con Noa');
+    expect(html).toContain('id="personas"');
+  });
+
+  it('el teléfono se muestra prolijo, y si no es argentino móvil se muestra con +', () => {
+    expect(formatearTelefono('5493884867965')).toBe('+54 9 388 486-7965');
+    expect(formatearTelefono('+54 9 388 486-7965')).toBe('+54 9 388 486-7965');
+    expect(formatearTelefono('59899123456')).toBe('+59899123456');
+    expect(formatearTelefono('')).toBe('—');
   });
 });

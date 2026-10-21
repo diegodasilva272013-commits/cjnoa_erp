@@ -146,3 +146,7 @@ Pantalla del agente de WhatsApp (solo admin y socio): ilustración del agente, p
 - *Persona con cita* = una persona de la que Noa cargó al menos una cita (`consultas_agendadas.origen = 'agente'`). Las citas cargadas a mano por el equipo no cuentan como logro de Noa. Si una persona agendó dos veces, es una persona con cita pero dos citas (la pantalla lo aclara).
 - Una conversación no cuenta (ni sus citas) si el nombre de la conversación, de la ficha o de alguna cita es de un integrante del equipo o de prueba, o si su teléfono está en `AGENTES_EXCLUIR`.
 - No se muestra lo de "derivadas a una persona": todavía no es un proceso armado (el agente deja una marca, pero nadie la atiende desde una pantalla).
+
+**Cuenta solo a Noa y se puede comprobar.** El tablero cuenta únicamente las conversaciones de Noa (las guardadas como `respaldo-<teléfono>`); las del agente anterior (ElevenLabs) eran pruebas y no cuentan. Abajo de todo trae:
+- *Comprobante del conteo*: conversaciones con Noa − pruebas o del equipo = personas contadas, con los nombres de lo que quedó afuera y las fichas (Leads de campañas) del período que no tienen conversación con Noa.
+- *Todas las personas*: una tabla con cada persona que cuenta (nombre, teléfono real, actividad, mensajes, cómo va, qué mandó, recibos y comprobantes, pago y cita) con filtros que corresponden a cada métrica, búsqueda y un botón que abre su WhatsApp real (`https://wa.me/<número>`). Solo la ven admin y socio.

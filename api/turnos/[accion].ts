@@ -1997,6 +1997,10 @@ export function esPruebaOEquipo(nombres: (string | null | undefined)[], telefono
   for (const n of nombres) { const m = motivoDeExclusion(n, null, equipo, excluidos); if (m) return m; }
   return motivoDeExclusion(null, telefono, equipo, excluidos);
 }
+/** Noa guarda cada conversación con id `respaldo-<teléfono>`; las del agente anterior (ElevenLabs) tienen otro id y fueron pruebas. */
+export const esConversacionDeNoa = (c: { conversation_id?: string | null }) => !c?.conversation_id || String(c.conversation_id).startsWith('respaldo-');
+const telEnmascarado = (tel: unknown) => { const d = String(tel ?? '').replace(/\D/g, ''); return d.length > 4 ? `***${d.slice(-4)}` : '***'; };
+
 /** Las citas que cargó el agente de WhatsApp (no las que cargó el equipo a mano). */
 export const soloCitasDelAgente = (ts: any[]) => ts.filter(t => t?.origen === 'agente');
 
@@ -2072,9 +2076,9 @@ export async function ejecutarAnalista(db: Db, deps: DepsAgentes, disparador: 'm
 
     const desde = config.ultimo_analisis_at ?? '1970-01-01T00:00:00.000Z';
     const { data: convs, error: eConv } = await db.from('conversaciones_whatsapp')
-      .select('id, telefono, nombre, mensajes, created_at, updated_at').gt('updated_at', desde).order('updated_at', { ascending: false }).limit(MAX_CONVERSACIONES_ANALISIS);
+      .select('id, conversation_id, telefono, nombre, mensajes, created_at, updated_at').gt('updated_at', desde).order('updated_at', { ascending: false }).limit(MAX_CONVERSACIONES_ANALISIS);
     if (eConv) throw new Error(`conversaciones: ${eConv.message}`);
-    const todas = ((Array.isArray(convs) ? convs : []) as any[]).filter(c => Array.isArray(c.mensajes) && c.mensajes.length);
+    const todas = ((Array.isArray(convs) ? convs : []) as any[]).filter(c => Array.isArray(c.mensajes) && c.mensajes.length && esConversacionDeNoa(c)); // las del agente anterior (ElevenLabs) no cuentan
     // Las pruebas del equipo y las conversaciones de prueba no cuentan: ensucian las estadísticas.
     const { data: perfilesEquipo } = await db.from('perfiles').select('nombre');
     const nombresEquipo = new Set(((Array.isArray(perfilesEquipo) ? perfilesEquipo : []) as any[]).map(x => normalizar(x.nombre)).filter(n => n.length >= 6));
@@ -2238,11 +2242,13 @@ export type PersonaMetrica = {
   recibos: string[]; comprobantes: string[];
   datosDePagoEnviados: boolean; linkMPEnviado: boolean; importeAsignado: boolean; reservaConfirmadaMP: boolean;
   turnos: number; reservasPagadas: number; reprogramados: number; cancelaciones: number; derivada: boolean; errores: string[];
+  telefono: string; nombreCompleto: string; campana: string | null; rama: string | null;
+  cita: { fecha: string; hora: string | null; abogado: string | null; reservaPagada: boolean; reprogramada: boolean; cancelacion: boolean } | null;
 };
 
 const HORAS_ENCURSO = 24;
 
-export function personaMetrica(c: { nombre?: string | null; mensajes: MsgGuardado[]; created_at: string; updated_at: string }, lead: any, turnos: any[], ahoraMs: number): PersonaMetrica {
+export function personaMetrica(c: { nombre?: string | null; telefono?: string | null; mensajes: MsgGuardado[]; created_at: string; updated_at: string }, lead: any, turnos: any[], ahoraMs: number): PersonaMetrica {
   const msgs = c.mensajes;
   const cli = msgs.filter(m => m.from === 'cliente');
   const ag = msgs.filter(m => m.from === 'agente');
@@ -2254,6 +2260,7 @@ export function personaMetrica(c: { nombre?: string | null; mensajes: MsgGuardad
   const inactivaHs = (ahoraMs - Date.parse(c.updated_at)) / 3600000;
   const estado: PersonaMetrica['estado'] = r.etapa === 'agendada' ? 'agendada' : inactivaHs < HORAS_ENCURSO ? 'en_curso' : 'abandonada';
   const ultimoAg = [...ag].reverse().find(m => !/^(Foto recibida|Documento recibido)/.test(m.texto));
+  const ultimaCita = [...turnos].sort((a, b) => String(b.fecha_consulta ?? '').localeCompare(String(a.fecha_consulta ?? '')))[0];
   return {
     creadaEn: c.created_at, actualizadaEn: c.updated_at, nombre: String(c.nombre ?? '').trim().split(/\s+/)[0] || 'Sin nombre',
     etapa: r.etapa, estado, mensajesCliente: cli.length, mensajesAgente: ag.length, contesto,
@@ -2271,6 +2278,11 @@ export function personaMetrica(c: { nombre?: string | null; mensajes: MsgGuardad
     reprogramados: turnos.filter(t => String(t.observaciones ?? '').includes(MARCA_REPROGRAMADO)).length,
     cancelaciones: turnos.filter(t => String(t.observaciones ?? '').includes(MARCA_CANCELACION)).length,
     derivada: !!datos.derivar_a_humano, errores: r.errores,
+    telefono: String(c.telefono ?? ''),
+    nombreCompleto: [lead?.nombre, lead?.apellido].filter(Boolean).join(' ').trim() || String(c.nombre ?? '').trim() || 'Sin nombre',
+    campana: lead?.campana ? String(lead.campana) : null, rama: lead?.rama ? String(lead.rama) : null,
+    cita: ultimaCita ? { fecha: String(ultimaCita.fecha_consulta ?? ''), hora: ultimaCita.hora_consulta ? String(ultimaCita.hora_consulta).slice(0, 5) : null, abogado: ultimaCita.abogado_asignado ? String(ultimaCita.abogado_asignado) : null,
+      reservaPagada: ultimaCita.reserva_pagada === true, reprogramada: String(ultimaCita.observaciones ?? '').includes(MARCA_REPROGRAMADO), cancelacion: String(ultimaCita.observaciones ?? '').includes(MARCA_CANCELACION) } : null,
   };
 }
 
@@ -2278,7 +2290,35 @@ const sumar = (xs: number[]) => xs.reduce((a, b) => a + b, 0);
 const cuenta = <T,>(xs: T[], f: (x: T) => boolean) => xs.filter(f).length;
 
 /** Junta todo en el modelo que dibuja la pantalla. */
-export function agregarMetricasAgente(ps: PersonaMetrica[], o: { ahoraMs: number; dias: number | null; turnosPorDia?: Record<string, number> }) {
+export type FilaPersona = {
+  nombre: string; telefono: string; whatsapp: string; primer_mensaje: string; ultimo_mensaje: string;
+  recibidos: number; enviados: number; contesto: boolean; estado: 'agendada' | 'en_curso' | 'abandonada'; etapa: string; se_enfrio_despues_de: string | null; esperando_respuesta: boolean;
+  audios: number; fotos: number; documentos: number; recibos: string[]; comprobantes: string[];
+  datos_de_pago: boolean; link_mp: boolean; importe_asignado: boolean; reserva_mp: boolean;
+  cita: { fecha: string; hora: string | null; abogado: string | null; reserva_pagada: boolean; reprogramada: boolean; cancelacion: boolean } | null;
+  campana: string | null; rama: string | null; errores: string[];
+};
+
+/** Todo lo que se sabe de una persona, para la tabla del tablero (con su teléfono real y el enlace a su WhatsApp). */
+export function filaDePersona(p: PersonaMetrica): FilaPersona {
+  return {
+    nombre: p.nombreCompleto, telefono: p.telefono, whatsapp: p.telefono.replace(/\D/g, ''), primer_mensaje: p.creadaEn, ultimo_mensaje: p.actualizadaEn,
+    recibidos: p.mensajesCliente, enviados: p.mensajesAgente, contesto: p.contesto, estado: p.estado, etapa: p.etapa,
+    se_enfrio_despues_de: p.estado === 'abandonada' && p.ultimoDe === 'agente' ? p.ultimaCategoria : null, esperando_respuesta: p.ultimoDe === 'cliente' && p.estado !== 'agendada',
+    audios: p.audios, fotos: p.fotos, documentos: p.documentos, recibos: p.recibos, comprobantes: p.comprobantes,
+    datos_de_pago: p.datosDePagoEnviados, link_mp: p.linkMPEnviado, importe_asignado: p.importeAsignado, reserva_mp: p.reservaConfirmadaMP,
+    cita: p.cita ? { fecha: p.cita.fecha, hora: p.cita.hora, abogado: p.cita.abogado, reserva_pagada: p.cita.reservaPagada, reprogramada: p.cita.reprogramada, cancelacion: p.cita.cancelacion } : null,
+    campana: p.campana, rama: p.rama, errores: p.errores,
+  };
+}
+
+export type DetalleConteo = {
+  filas_en_periodo: number; de_noa: number; agente_anterior: number; fichas_en_periodo: number;
+  excluidas: { nombre: string; tel: string; motivo: 'equipo' | 'prueba' | 'excluida' }[];
+  fichas_sin_conversacion: { nombre: string; tel: string; creada: string }[];
+};
+
+export function agregarMetricasAgente(ps: PersonaMetrica[], o: { ahoraMs: number; dias: number | null; turnosPorDia?: Record<string, number>; detalle?: DetalleConteo }) {
   const n = ps.length;
   const idx = (e: EtapaEmbudo) => ETAPAS_EMBUDO.indexOf(e);
   const alcanzaron = ETAPAS_EMBUDO.map((_, i) => cuenta(ps, p => idx(p.etapa) >= i));
@@ -2326,6 +2366,8 @@ export function agregarMetricasAgente(ps: PersonaMetrica[], o: { ahoraMs: number
     por_dia: porDia,
     actividad_reciente: recientes,
     confianza: (n < 30 ? 'baja' : n < 100 ? 'media' : 'alta') as 'baja' | 'media' | 'alta',
+    detalle: (o.detalle ?? null) as DetalleConteo | null,
+    personas_detalle: [...ps].sort((a, b) => Date.parse(b.actualizadaEn) - Date.parse(a.actualizadaEn)).slice(0, 600).map(filaDePersona),
   };
 }
 export type MetricasAgente = ReturnType<typeof agregarMetricasAgente>;
@@ -2343,20 +2385,22 @@ async function enLotes<T>(claves: string[], tam: number, f: (lote: string[]) => 
 export async function calcularMetricasAgente(db: Db, o: { dias: number | null; ahora?: Date }): Promise<MetricasAgente> {
   const ahora = o.ahora ?? new Date();
   const desde = o.dias ? new Date(ahora.getTime() - o.dias * 86400000).toISOString() : '1970-01-01T00:00:00.000Z';
-  const { data, error } = await db.from('conversaciones_whatsapp').select('id, telefono, nombre, mensajes, created_at, updated_at').gte('created_at', desde).order('created_at', { ascending: false }).limit(1500);
+  const { data, error } = await db.from('conversaciones_whatsapp').select('id, conversation_id, telefono, nombre, mensajes, created_at, updated_at').gte('created_at', desde).order('created_at', { ascending: false }).limit(1500);
   if (error) throw new Error(`conversaciones: ${error.message}`);
   const { data: perfiles } = await db.from('perfiles').select('nombre');
   const equipo = new Set(((Array.isArray(perfiles) ? perfiles : []) as any[]).map(x => normalizar(x.nombre)).filter(n => n.length >= 6));
   const excluidos = new Set(String(process.env.AGENTES_EXCLUIR ?? '').split(/[,;\s]+/).map(x => telefonoClave(x)).filter(Boolean));
-  const todas = ((Array.isArray(data) ? data : []) as any[]).filter(c => Array.isArray(c.mensajes) && c.mensajes.length);
+  const filas = ((Array.isArray(data) ? data : []) as any[]).filter(c => Array.isArray(c.mensajes) && c.mensajes.length);
+  const todas = filas.filter(esConversacionDeNoa); // las del agente anterior (ElevenLabs) no son de Noa
   const claves = [...new Set(todas.map(c => telefonoClave(c.telefono)).filter(Boolean))];
   const leads = await enLotes<any>(claves, 100, l => db.from('leads').select('telefono_clave, nombre, apellido, rama, dni_cuil, calificacion, campana, datos').in('telefono_clave', l));
-  const turnosTodos = await enLotes<any>(claves, 100, l => db.from('consultas_agendadas').select('telefono_clave, cliente_nombre, fecha_consulta, reserva_pagada, origen, abogado_asignado, observaciones, created_at').in('telefono_clave', l));
+  const turnosTodos = await enLotes<any>(claves, 100, l => db.from('consultas_agendadas').select('telefono_clave, cliente_nombre, fecha_consulta, hora_consulta, reserva_pagada, origen, abogado_asignado, observaciones, created_at').in('telefono_clave', l));
   const leadPor = new Map(leads.map(x => [x.telefono_clave, x]));
   const turnosTodosPor = new Map<string, any[]>();
   for (const t of turnosTodos) turnosTodosPor.set(t.telefono_clave, [...(turnosTodosPor.get(t.telefono_clave) ?? []), t]);
   // Una prueba del equipo puede aparecer en WhatsApp con otro nombre: se miran también el nombre de la ficha y el de los turnos.
-  const convs = todas.filter(c => { const k = telefonoClave(c.telefono); return !esPruebaOEquipo(nombresDePersona(c, leadPor.get(k) ?? null, turnosTodosPor.get(k) ?? []), c.telefono, equipo, excluidos); });
+  const motivos = todas.map(c => { const k = telefonoClave(c.telefono); return esPruebaOEquipo(nombresDePersona(c, leadPor.get(k) ?? null, turnosTodosPor.get(k) ?? []), c.telefono, equipo, excluidos); });
+  const convs = todas.filter((_, i) => !motivos[i]);
   // Las citas que cuentan son las que cargó Noa, no las que cargó el equipo a mano.
   const turnosPorDia: Record<string, number> = {};
   const personas = convs.map(c => {
@@ -2365,7 +2409,19 @@ export async function calcularMetricasAgente(db: Db, o: { dias: number | null; a
     for (const t of citas) if (t.created_at) { const f = localDe(t.created_at).fecha; turnosPorDia[f] = (turnosPorDia[f] ?? 0) + 1; }
     return personaMetrica(c, leadPor.get(k) ?? null, citas, ahora.getTime());
   });
-  return agregarMetricasAgente(personas, { ahoraMs: ahora.getTime(), dias: o.dias, turnosPorDia });
+  // Comprobante del conteo: de dónde sale cada número, con nombres, para poder contrastarlo con lo que la gente ve en las fichas.
+  const todasClaves = new Set(filas.map(c => telefonoClave(c.telefono)).filter(Boolean));
+  const { data: fichasPeriodo } = await db.from('leads').select('telefono_clave, nombre, apellido, created_at').gte('created_at', desde).limit(5000);
+  const fichas = ((Array.isArray(fichasPeriodo) ? fichasPeriodo : []) as any[]);
+  const detalle: DetalleConteo = {
+    filas_en_periodo: filas.length,
+    de_noa: todas.length,
+    agente_anterior: filas.length - todas.length,
+    fichas_en_periodo: fichas.length,
+    excluidas: todas.map((c, i) => ({ c, m: motivos[i] })).filter(x => x.m).map(x => ({ nombre: String(x.c.nombre ?? '').trim() || 'Sin nombre', tel: telEnmascarado(x.c.telefono), motivo: x.m as 'equipo' | 'prueba' | 'excluida' })).slice(0, 400),
+    fichas_sin_conversacion: fichas.filter(f => !todasClaves.has(f.telefono_clave)).map(f => ({ nombre: [f.nombre, f.apellido].filter(Boolean).join(' ').trim() || 'Sin nombre', tel: telEnmascarado(f.telefono_clave), creada: f.created_at })).slice(0, 400),
+  };
+  return agregarMetricasAgente(personas, { ahoraMs: ahora.getTime(), dias: o.dias, turnosPorDia, detalle });
 }
 
 // ---------------------------------------------------------------- qué optimizar, a partir de las métricas del agente

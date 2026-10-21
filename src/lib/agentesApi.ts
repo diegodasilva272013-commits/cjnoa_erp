@@ -48,6 +48,23 @@ export function hace(iso: string | null | undefined): string {
   return `hace ${Math.round(s / 86400)} d`;
 }
 
+/** Todo lo que se sabe de una persona que cuenta en las métricas (con su teléfono real y el número para abrir su WhatsApp). */
+export type FilaPersona = {
+  nombre: string; telefono: string; whatsapp: string; primer_mensaje: string; ultimo_mensaje: string;
+  recibidos: number; enviados: number; contesto: boolean; estado: 'agendada' | 'en_curso' | 'abandonada'; etapa: string; se_enfrio_despues_de: string | null; esperando_respuesta: boolean;
+  audios: number; fotos: number; documentos: number; recibos: string[]; comprobantes: string[];
+  datos_de_pago: boolean; link_mp: boolean; importe_asignado: boolean; reserva_mp: boolean;
+  cita: { fecha: string; hora: string | null; abogado: string | null; reserva_pagada: boolean; reprogramada: boolean; cancelacion: boolean } | null;
+  campana: string | null; rama: string | null; errores: string[];
+};
+
+/** De dónde sale cada número, con nombres (teléfonos enmascarados), para poder comprobarlo. */
+export type DetalleConteo = {
+  filas_en_periodo: number; de_noa: number; agente_anterior: number; fichas_en_periodo: number;
+  excluidas: { nombre: string; tel: string; motivo: 'equipo' | 'prueba' | 'excluida' }[];
+  fichas_sin_conversacion: { nombre: string; tel: string; creada: string }[];
+};
+
 /** Métricas del agente de WhatsApp (las calcula el servidor: ver calcularMetricasAgente). */
 export type MetricasAgente = {
   generado_at: string;
@@ -69,6 +86,8 @@ export type MetricasAgente = {
   por_dia: { fecha: string; nuevas: number; agendadas: number }[];
   actividad_reciente: { nombre: string; hace_ms: number; estado: 'agendada' | 'en_curso' | 'abandonada'; etapa: string; esperando_al_agente: boolean }[];
   confianza: 'baja' | 'media' | 'alta';
+  detalle: DetalleConteo | null;
+  personas_detalle: FilaPersona[];
 };
 
 export type Optimizacion = { id: string; titulo: string; evidencia: string; cambio: string; impacto: 'alto' | 'medio' | 'bajo'; afectadas: number; fuente: 'reglas' | 'ia' };

@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { createHmac } from 'node:crypto';
 import handler, {
   clasificarRecibo, TIPOS_CONSULTA, promesaSinCumplir, separarDatosPago, mensajeApurado,
-  aMin, limpiarSecreto, camposDeLead, etapaAutomatica, fusionarLead, registrarMensaje, upsertLead, firmaMetaValida, firmaKapsoValida, extraerMensajesKapso, extraerMensajes, aMensajesLLM, procesarMensaje, clasificarMensajeCliente, categoriaMensajeAgente, personaMetrica, agregarMetricasAgente, calcularMetricasAgente, evaluarOptimizaciones, validarOptimizaciones, ejecutarOptimizacion, type MetricasAgente, motivoDeExclusion, resumenEnPalabras, ejecutarAnalista, revisarAnalisisAutomatico, codigosDeEstilo, etapaEmbudo, analizarConversacion, calcularMetricas, mascararDatos, textoParaEtiquetar, validarEtiquetas, promptDelAgente, limpiarCachePrompt, accionAgentes, problemasDeEstilo, textoNoLegible, firmaMercadoPagoValida, importeTexto, importeLindo, asignarImporteUnico, procesarPagoMP, montoMercadoPago, modalidadElegida, enmascarar, neutralizarMarcas, salidaInsegura, superaLimite, urlMediaSegura, resumenTurnosVigentes, HERRAMIENTAS_LLM, cuerpoNotaDeVoz, eligioTransferencia, notaDeImagen, montoValidadoDe, quitarEtiquetas, aMensajesOpenAI, deOpenAI, ejecutarHerramienta, PROMPT_AGENTE, type Deps, telefonoClave, historialDe, inferirNombre, normalizarFecha, normalizarHora, bloquesDelDia, huecosLibres, localDe, resolverProfesional, diaSemanaISO, fechaValida,
+  aMin, limpiarSecreto, camposDeLead, etapaAutomatica, fusionarLead, registrarMensaje, upsertLead, firmaMetaValida, firmaKapsoValida, extraerMensajesKapso, extraerMensajes, aMensajesLLM, procesarMensaje, filaDePersona, esConversacionDeNoa, clasificarMensajeCliente, categoriaMensajeAgente, personaMetrica, agregarMetricasAgente, calcularMetricasAgente, evaluarOptimizaciones, validarOptimizaciones, ejecutarOptimizacion, type MetricasAgente, motivoDeExclusion, resumenEnPalabras, ejecutarAnalista, revisarAnalisisAutomatico, codigosDeEstilo, etapaEmbudo, analizarConversacion, calcularMetricas, mascararDatos, textoParaEtiquetar, validarEtiquetas, promptDelAgente, limpiarCachePrompt, accionAgentes, problemasDeEstilo, textoNoLegible, firmaMercadoPagoValida, importeTexto, importeLindo, asignarImporteUnico, procesarPagoMP, montoMercadoPago, modalidadElegida, enmascarar, neutralizarMarcas, salidaInsegura, superaLimite, urlMediaSegura, resumenTurnosVigentes, HERRAMIENTAS_LLM, cuerpoNotaDeVoz, eligioTransferencia, notaDeImagen, montoValidadoDe, quitarEtiquetas, aMensajesOpenAI, deOpenAI, ejecutarHerramienta, PROMPT_AGENTE, type Deps, telefonoClave, historialDe, inferirNombre, normalizarFecha, normalizarHora, bloquesDelDia, huecosLibres, localDe, resolverProfesional, diaSemanaISO, fechaValida,
   type Bloque,
 } from '../../api/turnos/[accion]';
 
@@ -2379,5 +2379,93 @@ describe('metricas · lo que todavía no está armado no se muestra', () => {
     const m = agregarMetricasAgente(Array.from({ length: 20 }, () => personaMetrica({ nombre: 'X', mensajes: [mm('cliente', 'hola'), mm('agente', 'Buen día'), mm('cliente', 'ok')], created_at: new Date().toISOString(), updated_at: new Date().toISOString() }, { datos: { derivar_a_humano: 'x' } }, [], Date.now())), { ahoraMs: Date.now(), dias: 30 });
     expect(m.derivaciones).toBe(20);
     expect(evaluarOptimizaciones(m as any).map(x => x.id)).not.toContain('muchas_derivaciones');
+  });
+});
+
+
+describe('metricas · la tabla de personas y el comprobante del conteo', () => {
+  const AHORA = Date.parse('2026-10-21T15:00:00Z');
+  const t = (h: number) => new Date(AHORA - h * 3600000).toISOString();
+  const conv = (id: string, tel: string, nombre: string, extra: any = {}) => ({ id, conversation_id: `respaldo-${tel}`, telefono: tel, nombre, mensajes: [mm('cliente', 'hola'), mm('agente', 'Buen día'), mm('cliente', 'ok')], created_at: t(5), updated_at: t(4), ...extra });
+  const mundo = (convs: any[], leads: any[] = [], turnos: any[] = []) => dbAgenda({ perfiles: [{ nombre: 'Diego Da Silva' }], conversaciones_whatsapp: convs, leads, consultas_agendadas: turnos });
+
+  it('cada fila trae el teléfono real, el enlace a WhatsApp y toda la información de la persona', async () => {
+    const { db } = mundo(
+      [conv('1', '5493884867965', 'Marta')],
+      [{ telefono: '5493884867965', nombre: 'Marta', apellido: 'Gómez', campana: 'DOCENTE', rama: 'jubilación docente', datos: { pago_base: 40000 } }],
+      [{ telefono: '5493884867965', fecha_consulta: '2026-10-28', hora_consulta: '10:30:00', abogado_asignado: 'Fabricio', origen: 'agente', reserva_pagada: true, observaciones: '[Reprogramado por el cliente] x', created_at: t(3) }],
+    );
+    const m = await calcularMetricasAgente(db, { dias: 30, ahora: new Date(AHORA) });
+    expect(m.personas_detalle).toHaveLength(1);
+    expect(m.personas_detalle[0]).toMatchObject({
+      nombre: 'Marta Gómez', telefono: '5493884867965', whatsapp: '5493884867965', recibidos: 2, enviados: 1, contesto: true, estado: 'agendada', etapa: 'agendada',
+      campana: 'DOCENTE', rama: 'jubilación docente', importe_asignado: true,
+      cita: { fecha: '2026-10-28', hora: '10:30', abogado: 'Fabricio', reserva_pagada: true, reprogramada: true, cancelacion: false },
+    });
+    expect(m.personas_detalle[0].primer_mensaje).toBe(t(5));
+  });
+
+  it('el enlace a WhatsApp son solo los dígitos, aunque el teléfono venga con signos', () => {
+    const p = personaMetrica({ nombre: 'Ana', telefono: '+54 9 388 486-7965', mensajes: [mm('cliente', 'hola')], created_at: t(2), updated_at: t(1) }, null, [], AHORA);
+    expect(filaDePersona(p).whatsapp).toBe('5493884867965');
+    expect(filaDePersona(p).telefono).toBe('+54 9 388 486-7965');
+  });
+
+  it('muestra lo que mandó, cómo terminó y en qué punto se enfrió', () => {
+    const p = personaMetrica({ nombre: 'Luis', telefono: '5493880000009', created_at: t(80), updated_at: t(72), mensajes: [
+      mm('cliente', '[Audio] hola'), mm('agente', 'Buen día'), mm('cliente', '[El cliente envió una foto]\n[SISTEMA ERP: Recibo validado: Criterio aplicado: Consulta con valor de $100.000 y reserva de $50.000]'),
+      mm('agente', 'La consulta vale $100.000 y la reserva $50.000. ¿Prefiere transferencia o efectivo?'),
+    ] }, null, [], AHORA);
+    const f = filaDePersona(p);
+    expect(f).toMatchObject({ estado: 'abandonada', audios: 1, fotos: 1, recibos: ['con_cargo'], se_enfrio_despues_de: 'forma_de_pago', esperando_respuesta: false, cita: null });
+  });
+
+  it('ordena de la más reciente a la más antigua', async () => {
+    const { db } = mundo([conv('1', '5493880000001', 'Vieja', { updated_at: t(40), created_at: t(50) }), conv('2', '5493880000002', 'Nueva', { updated_at: t(1), created_at: t(10) })]);
+    const m = await calcularMetricasAgente(db, { dias: 30, ahora: new Date(AHORA) });
+    expect(m.personas_detalle.map(f => f.nombre)).toEqual(['Nueva', 'Vieja']);
+  });
+
+  it('las conversaciones del agente anterior (ElevenLabs) no cuentan; las de Noa sí', async () => {
+    const { db } = mundo([
+      conv('1', '5493880000001', 'Marta'),
+      conv('2', '5493880000002', 'Vieja pruebita', { conversation_id: 'conv_01abcd' }),
+      conv('3', '5493880000003', 'Luis'),
+    ]);
+    const m = await calcularMetricasAgente(db, { dias: 30, ahora: new Date(AHORA) });
+    expect(m.personas).toBe(2);
+    expect(m.detalle).toMatchObject({ filas_en_periodo: 3, de_noa: 2, agente_anterior: 1 });
+    expect(m.personas_detalle.map(f => f.nombre).sort()).toEqual(['Luis', 'Marta']);
+    expect(esConversacionDeNoa({ conversation_id: 'respaldo-5493880000001' })).toBe(true);
+    expect(esConversacionDeNoa({ conversation_id: 'conv_9' })).toBe(false);
+    expect(esConversacionDeNoa({})).toBe(true);
+  });
+
+  it('el comprobante del conteo suma: conversaciones con Noa − pruebas = personas, con los nombres de lo que quedó afuera', async () => {
+    const { db } = mundo([
+      conv('1', '5493880000001', 'Marta'), conv('2', '5493880000002', 'Diego Da Silva'), conv('3', '5493880000003', 'kapso_test_user'), conv('4', '5493880000004', 'Luis'),
+    ]);
+    const m = await calcularMetricasAgente(db, { dias: 30, ahora: new Date(AHORA) });
+    const d = m.detalle!;
+    expect(d.de_noa - d.excluidas.length).toBe(m.personas);
+    expect(d.excluidas.map(x => x.nombre).sort()).toEqual(['Diego Da Silva', 'kapso_test_user']);
+    expect(d.excluidas.find(x => x.nombre === 'Diego Da Silva')?.motivo).toBe('equipo');
+    expect(d.excluidas.find(x => x.nombre === 'kapso_test_user')?.motivo).toBe('prueba');
+    expect(JSON.stringify(d)).not.toMatch(/5493880000002|5493880000003/); // los teléfonos de las listas de afuera salen enmascarados
+    expect(d.excluidas[0].tel).toMatch(/^\*\*\*\d{4}$/);
+  });
+
+  it('detecta fichas (leads) que no tienen conversación con Noa, para poder cruzar contra "Leads de campañas"', async () => {
+    const { db } = mundo(
+      [conv('1', '5493880000001', 'Marta')],
+      [
+        { telefono: '5493880000001', nombre: 'Marta', created_at: t(5), datos: {} },
+        { telefono: '5493880000077', nombre: 'Sin', apellido: 'Conversación', created_at: t(6), datos: {} },
+      ],
+    );
+    const m = await calcularMetricasAgente(db, { dias: 30, ahora: new Date(AHORA) });
+    expect(m.detalle!.fichas_en_periodo).toBe(2);
+    expect(m.detalle!.fichas_sin_conversacion.map(f => f.nombre)).toEqual(['Sin Conversación']);
+    expect(m.detalle!.fichas_sin_conversacion[0].tel).toBe('***0077');
   });
 });

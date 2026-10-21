@@ -2,10 +2,10 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import {
   Users, MessageCircle, Send, Inbox, Mic, Image as ImagenIcon, FileText, Link2, Wallet, CalendarCheck, Sparkles, Snowflake, TrendingDown, Receipt, Banknote,
-  UserCheck, RefreshCw, Lightbulb, Gauge, Hand, Repeat, UserX, AlertTriangle, Activity, Zap, Target, ShieldCheck,
+  UserCheck, RefreshCw, Lightbulb, Gauge, Hand, Repeat, UserX, AlertTriangle, Activity, Zap, Target, ShieldCheck, ListChecks, Search,
 } from 'lucide-react';
 import AgenteAvatar from './AgenteAvatar';
-import type { MetricasAgente, InformeMejoras } from '../../lib/agentesApi';
+import type { MetricasAgente, InformeMejoras, DetalleConteo, FilaPersona } from '../../lib/agentesApi';
 
 const ESTILOS = `
 .tw-barra { transition: width 1s cubic-bezier(.2,.8,.2,1), opacity .6s; }
@@ -162,6 +162,197 @@ function Cifra({ icono, titulo, valor, detalle, acento = 'text-emerald-300' }: {
 
 const PERIODOS: { dias: number | null; texto: string }[] = [{ dias: 7, texto: '7 días' }, { dias: 30, texto: '30 días' }, { dias: 90, texto: '90 días' }, { dias: null, texto: 'Todo' }];
 
+const MOTIVO_EXCLUSION = { equipo: 'Es del equipo', prueba: 'Es una prueba', excluida: 'Teléfono en la lista de excluidos' } as const;
+const fechaCorta = (iso: string) => new Date(iso).toLocaleString('es-AR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false });
+
+/** El comprobante del conteo: de dónde sale el número de personas, con los nombres, para contrastarlo con lo que se ve en las fichas. */
+function Comprobante({ d, personas }: { d: DetalleConteo; personas: number }) {
+  const [ver, setVer] = useState<'excluidas' | 'fichas' | null>(null);
+  const alternar = (k: 'excluidas' | 'fichas') => setVer(v => (v === k ? null : k));
+  const boton = (k: 'excluidas' | 'fichas', texto: string, n: number) => (
+    <button onClick={() => alternar(k)} aria-expanded={ver === k} className={`rounded-full border px-3.5 py-1.5 text-xs transition ${ver === k ? 'border-emerald-400/60 bg-emerald-400/10 text-emerald-200' : 'border-white/15 text-gray-300 hover:bg-white/5'}`}>{texto} <b className="text-white">{num(n)}</b></button>
+  );
+  return (
+    <section id="comprobante" className="tw-aparece rounded-3xl border border-white/10 bg-gradient-to-b from-white/[0.05] to-white/[0.015] p-5">
+      <header className="mb-4 flex items-start gap-3">
+        <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-white/[0.06] text-emerald-300"><ListChecks className="size-4" /></span>
+        <div><h2 className="text-[15px] font-semibold text-white">Comprobante del conteo</h2><p className="mt-0.5 text-xs text-gray-500">De dónde sale el número de personas, para que lo puedas comprobar con las fichas</p></div>
+      </header>
+      <div className="flex flex-wrap items-center gap-2 text-sm">
+        <span className="rounded-xl bg-white/[0.05] px-3 py-2 text-gray-300">Conversaciones con Noa <b className="ml-1 text-white">{num(d.de_noa)}</b></span>
+        <span className="text-gray-500">−</span>
+        <span className="rounded-xl bg-white/[0.05] px-3 py-2 text-gray-300">Pruebas o del equipo <b className="ml-1 text-white">{num(d.excluidas.length)}</b></span>
+        <span className="text-gray-500">=</span>
+        <span className="rounded-xl bg-emerald-400/10 px-3 py-2 text-emerald-200">Personas contadas <b className="ml-1 text-white">{num(personas)}</b></span>
+      </div>
+      <ul className="mt-3 space-y-1 text-[12px] text-gray-500">
+        {d.agente_anterior > 0 && <li>No se cuentan {num(d.agente_anterior)} conversaciones del agente anterior (ElevenLabs): eran pruebas.</li>}
+        <li>Fichas creadas en el mismo período (Leads de campañas): <b className="text-gray-300">{num(d.fichas_en_periodo)}</b>{d.fichas_sin_conversacion.length > 0 && <> · <b className="text-amber-300">{num(d.fichas_sin_conversacion.length)} no tienen conversación con Noa</b></>}.</li>
+      </ul>
+      <div className="mt-4 flex flex-wrap gap-2">
+        <a href="#personas" className="rounded-full border border-emerald-400/40 bg-emerald-400/10 px-3.5 py-1.5 text-xs text-emerald-200 transition hover:bg-emerald-400/20">Ver las personas contadas <b className="text-white">{num(personas)}</b></a>
+        {boton('excluidas', 'Ver las que quedaron afuera', d.excluidas.length)}
+        {boton('fichas', 'Ver fichas sin conversación', d.fichas_sin_conversacion.length)}
+      </div>
+      {ver && (
+        <div className="mt-3 max-h-80 overflow-y-auto rounded-2xl bg-black/30 p-1.5">
+          {ver === 'excluidas' && (d.excluidas.length === 0 ? <p className="p-3 text-sm text-gray-500">No se dejó afuera a nadie.</p> : d.excluidas.map((x, i) => (
+            <div key={i} className="flex items-center justify-between gap-3 rounded-xl px-3 py-2 text-[13px] hover:bg-white/[0.04]"><span className="min-w-0 truncate text-gray-100">{x.nombre} <span className="text-gray-600">{x.tel}</span></span><span className="shrink-0 text-xs text-amber-300/90">{MOTIVO_EXCLUSION[x.motivo]}</span></div>
+          )))}
+          {ver === 'fichas' && (d.fichas_sin_conversacion.length === 0 ? <p className="p-3 text-sm text-gray-500">Todas las fichas del período tienen su conversación con Noa.</p> : d.fichas_sin_conversacion.map((x, i) => (
+            <div key={i} className="flex items-center justify-between gap-3 rounded-xl px-3 py-2 text-[13px] hover:bg-white/[0.04]"><span className="min-w-0 truncate text-gray-100">{x.nombre} <span className="text-gray-600">{x.tel}</span></span><span className="shrink-0 text-xs text-gray-500">{fechaCorta(x.creada)}</span></div>
+          )))}
+        </div>
+      )}
+      <p className="mt-3 text-[11px] text-gray-600">Los teléfonos se muestran solo con los últimos 4 dígitos. Si falta alguien o sobra alguien en estas listas, avisame con el nombre y lo reviso.</p>
+    </section>
+  );
+}
+
+const NOMBRE_RECIBO: Record<string, string> = { sin_cargo: 'Consulta sin cargo', con_cargo: 'Consulta con reserva', sin_descuento: 'Sin descuento', sin_importe: 'No se leyó el importe', ilegible: 'Ilegible' };
+const COLOR_RECIBO: Record<string, string> = { sin_cargo: 'bg-emerald-500/15 text-emerald-300', con_cargo: 'bg-sky-500/15 text-sky-300', sin_descuento: 'bg-violet-500/15 text-violet-300', sin_importe: 'bg-amber-500/15 text-amber-300', ilegible: 'bg-rose-500/15 text-rose-300' };
+const NOMBRE_COMPROBANTE: Record<string, string> = { validado: 'Validado', pendiente_mp: 'Esperando a Mercado Pago', insuficiente: 'Importe menor', otro_titular: 'A otro titular', ilegible: 'Ilegible' };
+const COLOR_COMPROBANTE: Record<string, string> = { validado: 'bg-emerald-500/15 text-emerald-300', pendiente_mp: 'bg-sky-500/15 text-sky-300', insuficiente: 'bg-amber-500/15 text-amber-300', otro_titular: 'bg-pink-500/15 text-pink-300', ilegible: 'bg-rose-500/15 text-rose-300' };
+const NOMBRE_ERROR: Record<string, string> = { tuteo: 'tutea', reproche: 'reprocha', pregunta_repetida: 'repite preguntas', sin_valor: 'sin decir el valor', no_enviado: 'mensaje no enviado', respuesta_generica: 'respuesta de emergencia', mensaje_no_leido: 'mensaje que no pudo leer' };
+
+/** +5493884867965 → +54 9 388 486-7965 (solo para mostrar; el enlace usa los dígitos tal cual). */
+export function formatearTelefono(t: string) {
+  const d = String(t ?? '').replace(/\D/g, '');
+  if (/^549\d{10}$/.test(d)) return `+54 9 ${d.slice(3, 6)} ${d.slice(6, 9)}-${d.slice(9)}`;
+  return d ? `+${d}` : '—';
+}
+
+type Filtro = { id: string; texto: string; pasa: (f: FilaPersona) => boolean };
+const FILTROS: Filtro[] = [
+  { id: 'todas', texto: 'Todas', pasa: () => true },
+  { id: 'agendaron', texto: 'Agendaron', pasa: f => f.estado === 'agendada' },
+  { id: 'conversando', texto: 'Conversando', pasa: f => f.estado === 'en_curso' },
+  { id: 'enfriaron', texto: 'Se enfriaron', pasa: f => f.estado === 'abandonada' },
+  { id: 'nocontestaron', texto: 'No contestaron', pasa: f => !f.contesto },
+  { id: 'esperan', texto: 'Esperan respuesta', pasa: f => f.esperando_respuesta },
+  { id: 'recibo', texto: 'Mandaron recibo', pasa: f => f.recibos.length > 0 },
+  { id: 'comprobante', texto: 'Mandaron comprobante', pasa: f => f.comprobantes.length > 0 },
+  { id: 'datospago', texto: 'Recibieron datos de pago', pasa: f => f.datos_de_pago },
+  { id: 'audio', texto: 'Mandaron audio', pasa: f => f.audios > 0 },
+  { id: 'errores', texto: 'Con errores', pasa: f => f.errores.length > 0 },
+];
+const POR_PAGINA = 20;
+
+function Etiqueta({ children, clase }: { children: ReactNode; clase: string }) {
+  return <span className={`inline-block rounded-full px-2 py-0.5 text-[10px] font-medium leading-4 ${clase}`}>{children}</span>;
+}
+function Celda({ titulo, children, className = '' }: { titulo: string; children: ReactNode; className?: string }) {
+  return <div className={`min-w-0 ${className}`}><p className="mb-1 text-[10px] uppercase tracking-wider text-gray-600 xl:hidden">{titulo}</p>{children}</div>;
+}
+
+/** Todas las personas que cuentan en los números de arriba, con sus datos y un botón para abrir su WhatsApp real. */
+function TablaPersonas({ filas }: { filas: FilaPersona[] }) {
+  const [filtro, setFiltro] = useState('todas');
+  const [buscar, setBuscar] = useState('');
+  const [mostrar, setMostrar] = useState(POR_PAGINA);
+  const q = normalizarBusqueda(buscar);
+  const activo = FILTROS.find(f => f.id === filtro) ?? FILTROS[0];
+  const visibles = filas.filter(f => activo.pasa(f) && (!q || normalizarBusqueda(`${f.nombre} ${f.telefono} ${f.campana ?? ''} ${f.rama ?? ''}`).includes(q)));
+  const ahora = Date.now();
+  return (
+    <section id="personas" className="tw-aparece rounded-3xl border border-white/10 bg-gradient-to-b from-white/[0.05] to-white/[0.015] p-5">
+      <header className="mb-4 flex flex-wrap items-start justify-between gap-3">
+        <div className="flex items-start gap-3">
+          <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-white/[0.06] text-emerald-300"><Users className="size-4" /></span>
+          <div><h2 className="text-[15px] font-semibold text-white">Todas las personas</h2><p className="mt-0.5 text-xs text-gray-500">Cada persona que cuenta en los números de arriba, con sus datos reales. Abrí su WhatsApp para comprobarlo.</p></div>
+        </div>
+        <label className="relative block w-full sm:w-72">
+          <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-gray-500" />
+          <input value={buscar} onChange={e => { setBuscar(e.target.value); setMostrar(POR_PAGINA); }} placeholder="Buscar por nombre o teléfono…" className="w-full rounded-xl border border-white/10 bg-black/30 py-2 pl-9 pr-3 text-sm text-gray-100 outline-none placeholder:text-gray-600 focus:border-emerald-400/60" />
+        </label>
+      </header>
+
+      <div className="mb-4 flex flex-wrap gap-1.5">
+        {FILTROS.map(f => {
+          const n = filas.filter(f.pasa).length;
+          return (
+            <button key={f.id} onClick={() => { setFiltro(f.id); setMostrar(POR_PAGINA); }} aria-pressed={filtro === f.id} className={`rounded-full border px-3 py-1 text-xs transition ${filtro === f.id ? 'border-emerald-400/60 bg-emerald-400/10 text-emerald-200' : 'border-white/10 text-gray-400 hover:bg-white/5 hover:text-gray-200'}`}>
+              {f.texto} <b className={filtro === f.id ? 'text-white' : 'text-gray-300'}>{num(n)}</b>
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="hidden grid-cols-[2.1fr_1.5fr_1.4fr_1.1fr_1.9fr_1.8fr_2fr_auto] gap-x-4 px-3.5 pb-2 text-[10px] uppercase tracking-wider text-gray-600 xl:grid">
+        <span>Persona</span><span>Teléfono</span><span>Actividad</span><span>Mensajes</span><span>Cómo va</span><span>Lo que mandó</span><span>Pago y cita</span><span className="w-[118px]" />
+      </div>
+
+      {visibles.length === 0 ? (
+        <p className="rounded-2xl bg-white/[0.04] p-6 text-center text-sm text-gray-500">{filas.length === 0 ? 'Todavía no hay personas en este período.' : 'Ninguna persona coincide con ese filtro o esa búsqueda.'}</p>
+      ) : (
+        <ul className="space-y-2">
+          {visibles.slice(0, mostrar).map((f, i) => (
+            <li key={`${f.whatsapp}-${i}`} className="grid gap-3 rounded-2xl border border-transparent bg-white/[0.035] p-3.5 transition hover:border-white/10 hover:bg-white/[0.06] xl:grid-cols-[2.1fr_1.5fr_1.4fr_1.1fr_1.9fr_1.8fr_2fr_auto] xl:items-center xl:gap-x-4">
+              <Celda titulo="Persona">
+                <div className="flex items-center gap-3">
+                  <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-emerald-400/30 to-sky-400/30 text-sm font-semibold text-white">{f.nombre.slice(0, 1).toUpperCase()}</span>
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium text-gray-100">{f.nombre}</p>
+                    <div className="mt-0.5 flex flex-wrap gap-1">{f.campana && <Etiqueta clase="bg-white/[0.08] text-gray-300">{f.campana}</Etiqueta>}{f.rama && <Etiqueta clase="bg-white/[0.06] text-gray-400">{f.rama}</Etiqueta>}{!f.campana && !f.rama && <span className="text-[11px] text-gray-600">Sin ficha completa</span>}</div>
+                  </div>
+                </div>
+              </Celda>
+              <Celda titulo="Teléfono"><p className="font-mono text-[13px] tracking-tight text-gray-200">{formatearTelefono(f.telefono)}</p></Celda>
+              <Celda titulo="Actividad"><p className="text-[12px] text-gray-300">Escribió {fechaCorta(f.primer_mensaje)}</p><p className="text-[11px] text-gray-500">Último mensaje {haceMs(ahora - Date.parse(f.ultimo_mensaje))}</p></Celda>
+              <Celda titulo="Mensajes">
+                <p className="text-[12px] tabular-nums text-gray-300"><span title="Recibidos">↓ {num(f.recibidos)}</span> <span className="text-gray-600">·</span> <span title="Enviados por Noa">↑ {num(f.enviados)}</span></p>
+                <div className="mt-1">{f.contesto ? <Etiqueta clase="bg-emerald-500/15 text-emerald-300">Contestó</Etiqueta> : <Etiqueta clase="bg-rose-500/15 text-rose-300">No contestó</Etiqueta>}</div>
+              </Celda>
+              <Celda titulo="Cómo va">
+                <div className="flex flex-wrap items-center gap-1"><Etiqueta clase={ESTADO_PERSONA[f.estado].c}>{ESTADO_PERSONA[f.estado].t}</Etiqueta>{f.esperando_respuesta && <Etiqueta clase="bg-amber-500/15 text-amber-300">Espera respuesta</Etiqueta>}</div>
+                <p className="mt-1 text-[11px] text-gray-400">Llegó a: {ETAPAS[f.etapa]?.nombre ?? f.etapa}</p>
+                {f.se_enfrio_despues_de && <p className="text-[11px] text-rose-300/80">{FRENOS[f.se_enfrio_despues_de] ?? f.se_enfrio_despues_de}</p>}
+                {f.errores.length > 0 && <p className="text-[11px] text-amber-300/80">Falló: {f.errores.map(e => NOMBRE_ERROR[e] ?? e).join(', ')}</p>}
+              </Celda>
+              <Celda titulo="Lo que mandó">
+                <div className="flex flex-wrap gap-x-3 gap-y-1 text-[12px] text-gray-300">
+                  {f.audios > 0 && <span className="inline-flex items-center gap-1" title="Audios"><Mic className="size-3.5 text-violet-300" />{f.audios}</span>}
+                  {f.fotos > 0 && <span className="inline-flex items-center gap-1" title="Fotos"><ImagenIcon className="size-3.5 text-sky-300" />{f.fotos}</span>}
+                  {f.documentos > 0 && <span className="inline-flex items-center gap-1" title="Documentos"><FileText className="size-3.5 text-amber-300" />{f.documentos}</span>}
+                  {f.audios + f.fotos + f.documentos === 0 && <span className="text-gray-600">Solo texto</span>}
+                </div>
+                <div className="mt-1 flex flex-wrap gap-1">
+                  {f.recibos.map((r, k) => <Etiqueta key={`r${k}`} clase={COLOR_RECIBO[r] ?? 'bg-white/10 text-gray-300'}>Recibo: {NOMBRE_RECIBO[r] ?? r}</Etiqueta>)}
+                  {f.comprobantes.map((c, k) => <Etiqueta key={`c${k}`} clase={COLOR_COMPROBANTE[c] ?? 'bg-white/10 text-gray-300'}>Comprobante: {NOMBRE_COMPROBANTE[c] ?? c}</Etiqueta>)}
+                </div>
+              </Celda>
+              <Celda titulo="Pago y cita">
+                <div className="flex flex-wrap gap-1">
+                  {f.datos_de_pago && <Etiqueta clase="bg-sky-500/15 text-sky-300">Datos de pago enviados</Etiqueta>}
+                  {f.link_mp && <Etiqueta clase="bg-violet-500/15 text-violet-300">Link de pago enviado</Etiqueta>}
+                  {f.importe_asignado && <Etiqueta clase="bg-amber-500/15 text-amber-300">Importe exacto asignado</Etiqueta>}
+                  {f.reserva_mp && <Etiqueta clase="bg-emerald-500/15 text-emerald-300">Reserva confirmada</Etiqueta>}
+                </div>
+                {f.cita ? (
+                  <p className="mt-1 text-[12px] text-emerald-300">Cita {f.cita.fecha.split('-').reverse().join('/')}{f.cita.hora ? ` ${f.cita.hora}` : ''}{f.cita.abogado ? ` · ${f.cita.abogado}` : ''}
+                    {f.cita.reserva_pagada && <span className="ml-1 text-emerald-200">· reserva pagada</span>}{f.cita.reprogramada && <span className="ml-1 text-gray-400">· reprogramada</span>}{f.cita.cancelacion && <span className="ml-1 text-rose-300">· pidió cancelar</span>}</p>
+                ) : <p className="mt-1 text-[12px] text-gray-600">Sin cita</p>}
+              </Celda>
+              <div className="xl:w-[118px]">
+                <a href={`https://wa.me/${f.whatsapp}`} target="_blank" rel="noopener noreferrer" aria-label={`Abrir el WhatsApp de ${f.nombre}`} className="inline-flex w-full items-center justify-center gap-1.5 rounded-xl bg-[#25d366] px-3 py-2 text-xs font-semibold text-black transition hover:brightness-110">
+                  <MessageCircle className="size-3.5" /> WhatsApp
+                </a>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+        <p className="text-xs text-gray-500">Mostrando {num(Math.min(mostrar, visibles.length))} de {num(visibles.length)}{visibles.length !== filas.length ? ` (hay ${num(filas.length)} en total)` : ''}</p>
+        {visibles.length > mostrar && <button onClick={() => setMostrar(n => n + POR_PAGINA)} className="rounded-full border border-white/15 px-4 py-1.5 text-xs text-gray-200 transition hover:bg-white/5">Mostrar {Math.min(POR_PAGINA, visibles.length - mostrar)} más</button>}
+      </div>
+    </section>
+  );
+}
+
+const normalizarBusqueda = (t: string) => t.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '');
+
 export type PropsTablero = {
   m: MetricasAgente; dias: number | null; onDias: (d: number | null) => void;
   informe: InformeMejoras | null; optimizando: boolean; progreso: { tarea: string; porcentaje: number } | null; onOptimizar: () => void; actualizando?: boolean;
@@ -204,6 +395,7 @@ export default function TableroAgente({ m, dias, onDias, informe, optimizando, p
             <div className="mt-4 flex flex-wrap items-center justify-center gap-2 md:justify-start">
               <span className="inline-flex items-center gap-2 rounded-full bg-emerald-500/15 px-3 py-1 text-xs font-medium text-emerald-300"><i className="tw-latido size-2 rounded-full bg-emerald-400" /> En línea</span>
               <span className="rounded-full bg-white/[0.07] px-3 py-1 text-xs text-gray-300">{num(m.personas)} personas · {periodoTexto}</span>
+              {m.detalle && <a href="#comprobante" className="rounded-full bg-white/[0.07] px-3 py-1 text-xs text-emerald-300 transition hover:bg-white/[0.12]">¿De dónde sale este número?</a>}
               {ultimaAct && <span className="rounded-full bg-white/[0.07] px-3 py-1 text-xs text-gray-400">Última actividad {haceMs(ultimaAct.hace_ms)}</span>}
               {actualizando && <span className="inline-flex items-center gap-1.5 rounded-full bg-white/[0.07] px-3 py-1 text-xs text-gray-400"><RefreshCw className="size-3 animate-spin" /> Actualizando</span>}
             </div>
@@ -425,6 +617,10 @@ export default function TableroAgente({ m, dias, onDias, informe, optimizando, p
           </ul>
         )}
       </Tarjeta>
+
+      {m.detalle && <Comprobante d={m.detalle} personas={m.personas} />}
+
+      <TablaPersonas filas={m.personas_detalle ?? []} />
     </div>
   );
 }
