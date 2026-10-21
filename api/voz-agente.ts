@@ -234,6 +234,18 @@ const TOOLS: ToolDef[] = [
     destructiva: false,
   },
   {
+    name: 'analizar_campana',
+    description: 'SOLO LECTURA. Usar SIEMPRE que pidan métricas, resultados, números o un análisis de una campaña, de los leads o del agente de WhatsApp (Noa): cuántos escribieron, cuántos contestaron, cuántos agendaron, cómo viene la campaña. El servidor calcula las cifras reales y arma el análisis; vos NO inventes ni estimes ninguna cifra. NO requiere confirmacion.',
+    parameters: {
+      type: 'object',
+      properties: {
+        dias: { type: 'number', description: 'Período en días (por defecto 30). "esta semana" = 7, "último mes" = 30.' },
+        campana: { type: 'string', enum: ['art9_ganancias', 'jubilacion_docente'], description: 'Solo si piden una campaña puntual (Artículo 9 / Ganancias o jubilación docente). Si no, omitir para ver todas.' },
+      },
+    },
+    destructiva: false,
+  },
+  {
     name: 'listar_tareas_pendientes',
     description: 'Listar tareas pendientes del usuario actual (o de un responsable_id especifico si lo aclaran). NO requiere confirmacion.',
     parameters: {
@@ -308,6 +320,7 @@ Tu trabajo:
 4. Si la pregunta es general ("que tengo hoy", "como vamos"), usa "consultar" con respuesta breve basada en el contexto.
 
 Reglas clave:
+- NUNCA des cifras, porcentajes ni estadísticas de memoria ni por tu cuenta. Si piden métricas o análisis de campañas, leads o del agente de WhatsApp, usá analizar_campana (el servidor trae los datos reales). Con "consultar" solo podés responder con datos que figuren LITERALMENTE en el contexto de abajo; si el dato no está, respondé que no lo tenés y qué podés hacer. Jamás supongas.
 - Cuando menciona personas o casos por nombre parcial ("el caso de Perez", "Karina", "Mendez"), HACE FUZZY MATCH contra la lista del contexto y elegi el id mas probable. NO inventes UUIDs.
 - Si hay AMBIGUEDAD real (ej: dos casos con el mismo apellido), usa "consultar" preguntando cual de ellos.
 - Si el usuario dice "el caso" o "esa tarea" sin nombre, asumi que se refiere al ultimo mencionado o al mas reciente del contexto.

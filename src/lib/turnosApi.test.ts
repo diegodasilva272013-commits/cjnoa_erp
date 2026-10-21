@@ -3,7 +3,7 @@ import { createHmac } from 'node:crypto';
 import handler, {
   clasificarRecibo, TIPOS_CONSULTA, promesaSinCumplir, separarDatosPago, mensajeApurado,
   aMin, limpiarSecreto, camposDeLead, etapaAutomatica, fusionarLead, registrarMensaje, upsertLead, firmaMetaValida, firmaKapsoValida, extraerMensajesKapso, extraerMensajes, aMensajesLLM, procesarMensaje, filaDePersona, esConversacionDeNoa, clasificarMensajeCliente, categoriaMensajeAgente, personaMetrica, agregarMetricasAgente, calcularMetricasAgente, evaluarOptimizaciones, validarOptimizaciones, ejecutarOptimizacion, type MetricasAgente, motivoDeExclusion, resumenEnPalabras, ejecutarAnalista, revisarAnalisisAutomatico, codigosDeEstilo, etapaEmbudo, analizarConversacion, calcularMetricas, mascararDatos, textoParaEtiquetar, validarEtiquetas, promptDelAgente, limpiarCachePrompt, accionAgentes, problemasDeEstilo, textoNoLegible, firmaMercadoPagoValida, importeTexto, importeLindo, asignarImporteUnico, procesarPagoMP, montoMercadoPago, modalidadElegida, enmascarar, neutralizarMarcas, salidaInsegura, superaLimite, urlMediaSegura, resumenTurnosVigentes, HERRAMIENTAS_LLM, cuerpoNotaDeVoz, eligioTransferencia, notaDeImagen, montoValidadoDe, quitarEtiquetas, aMensajesOpenAI, deOpenAI, ejecutarHerramienta, PROMPT_AGENTE, type Deps, telefonoClave, historialDe, inferirNombre, normalizarFecha, normalizarHora, bloquesDelDia, huecosLibres, localDe, resolverProfesional, diaSemanaISO, fechaValida,
-  registrarMensajeHumano, extraerHumanosKapso, responderDesdeErp,
+  registrarMensajeHumano, extraerHumanosKapso, responderDesdeErp, resumenCampana, analizarCampana, analisisSoloConCifrasReales,
   type Bloque,
 } from '../../api/turnos/[accion]';
 
@@ -2532,5 +2532,53 @@ describe('respuesta manual del equipo', () => {
     const p = personaMetrica({ nombre: 'X', telefono: '5493884867965', mensajes: msgs, created_at: new Date().toISOString(), updated_at: new Date().toISOString() }, null, [], Date.now());
     expect(p.mensajesAgente).toBe(0);
     expect(p.contesto).toBe(false);
+  });
+});
+
+describe('CJ · métricas de campaña reales y análisis sin cifras inventadas', () => {
+  const ahora = Date.parse('2026-10-20T15:00:00Z');
+  const conv = (campana: string | null, mensajes: any[]) => personaMetrica(
+    { nombre: 'X', telefono: '5493880000001', mensajes, created_at: '2026-10-19T12:00:00Z', updated_at: '2026-10-19T12:30:00Z' },
+    campana ? { nombre: 'Ana', campana } : null, [], ahora);
+  const habla = [{ from: 'cliente', texto: 'Hola' }, { from: 'agente', texto: 'Buen día' }, { from: 'cliente', texto: 'Sí' }];
+  const calla = [{ from: 'cliente', texto: 'Hola' }, { from: 'agente', texto: 'Buen día' }];
+  const metricas = () => agregarMetricasAgente(
+    [conv('art9_ganancias', habla), conv('art9_ganancias', calla), conv('art9_ganancias', calla), conv('jubilacion_docente', habla), conv(null, calla)],
+    { ahoraMs: ahora, dias: 30 });
+
+  it('agrupa por campaña con todas las personas y las cifras salen de los datos', () => {
+    const m = metricas();
+    expect(m.por_campana.find(g => g.campana === 'art9_ganancias')).toMatchObject({ personas: 3, contestaron: 1 });
+    const r = resumenCampana(m);
+    expect(r.ok && r.texto).toContain('5 personas escribieron');
+    expect(r.ok && r.texto).toContain('Artículo 9 / Ganancias: 3 personas escribieron; 1 contestó (33%)');
+    const una = resumenCampana(m, 'jubilacion_docente');
+    expect(una.ok && una.texto).toContain('1 persona escribió');
+  });
+
+  it('si no hay datos de esa campaña lo dice, no inventa', () => {
+    const r = resumenCampana(metricas(), 'campana_que_no_existe');
+    expect(r.ok).toBe(false);
+    expect(resumenCampana(agregarMetricasAgente([], { ahoraMs: ahora, dias: 30 })).ok).toBe(false);
+  });
+
+  it('el análisis con cifras que están en los datos pasa', async () => {
+    const r = await analizarCampana(metricas(), { llm: async () => 'De las 5 personas, 1 contestó en Artículo 9 / Ganancias; conviene revisar el primer mensaje.' });
+    expect(r.analisis).toContain('conviene revisar');
+  });
+
+  it('el análisis con una cifra inventada se descarta y quedan solo las cifras reales', async () => {
+    const r = await analizarCampana(metricas(), { llm: async () => 'La campaña convirtió el 87% de los contactos.' });
+    expect(r.analisis).toBeNull();
+    expect(r.motivo_sin_analisis).toContain('no está en los datos');
+    expect(r.texto_metricas).toContain('5 personas escribieron');
+    expect(analisisSoloConCifrasReales('Hubo 12 consultas', 'Hubo 5 consultas')).toBe(false);
+  });
+
+  it('si el analista falla igual se entregan las cifras reales', async () => {
+    const r = await analizarCampana(metricas(), { llm: async () => { throw new Error('sin saldo'); } });
+    expect(r.ok).toBe(true);
+    expect(r.analisis).toBeNull();
+    expect(r.texto_metricas).toBeTruthy();
   });
 });

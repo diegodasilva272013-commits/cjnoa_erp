@@ -2411,6 +2411,9 @@ export function agregarMetricasAgente(ps: PersonaMetrica[], o: { ahoraMs: number
     turnos: { agendados: sumar(ps.map(p => p.turnos)), con_reserva_pagada: sumar(ps.map(p => p.reservasPagadas)), reprogramados: sumar(ps.map(p => p.reprogramados)), cancelaciones_solicitadas: sumar(ps.map(p => p.cancelaciones)) },
     derivaciones: cuenta(ps, p => p.derivada),
     errores,
+    por_campana: [...ps.reduce((mapa, p) => { const k = p.campana || 'sin dato'; (mapa.get(k) ?? mapa.set(k, []).get(k)!).push(p); return mapa; }, new Map<string, PersonaMetrica[]>())]
+      .map(([campana, g]) => ({ campana, personas: g.length, contestaron: cuenta(g, p => p.contesto), agendadas: cuenta(g, p => p.estado === 'agendada'), en_curso: cuenta(g, p => p.estado === 'en_curso'), abandonadas: cuenta(g, p => p.estado === 'abandonada'), con_reserva_pagada: cuenta(g, p => p.reservasPagadas > 0) }))
+      .sort((a, b) => b.personas - a.personas),
     por_dia: porDia,
     actividad_reciente: recientes,
     confianza: (n < 30 ? 'baja' : n < 100 ? 'media' : 'alta') as 'baja' | 'media' | 'alta',
@@ -2470,6 +2473,94 @@ export async function calcularMetricasAgente(db: Db, o: { dias: number | null; a
     fichas_sin_conversacion: fichas.filter(f => !todasClaves.has(f.telefono_clave)).map(f => ({ nombre: [f.nombre, f.apellido].filter(Boolean).join(' ').trim() || 'Sin nombre', tel: String(f.telefono ?? f.telefono_clave ?? ''), creada: f.created_at })).slice(0, 400),
   };
   return agregarMetricasAgente(personas, { ahoraMs: ahora.getTime(), dias: o.dias, turnosPorDia, detalle });
+}
+
+
+// ---------------------------------------------------------------- CJ: métricas de campaña exactas + análisis que no puede inventar cifras
+
+const NOMBRE_CAMPANA: Record<string, string> = { art9_ganancias: 'Artículo 9 / Ganancias', jubilacion_docente: 'Jubilación docente', 'sin dato': 'Sin campaña registrada' };
+const nombreDeCampana = (c: string) => NOMBRE_CAMPANA[c] ?? c;
+
+/** Las cifras de la campaña, escritas por código a partir de las métricas reales (nada pasa por un modelo). */
+export function resumenCampana(m: MetricasAgente, campana?: string | null): { ok: true; texto: string } | { ok: false; error: string } {
+  const periodo = m.dias ? `últimos ${m.dias} días` : 'todo el historial';
+  const norm = (x: string) => normalizar(x).replace(/[^a-z0-9]+/g, ' ').trim();
+  const pc = (a: number, b: number) => `${b ? Math.round((a / b) * 100) : 0}%`;
+  const filaTxt = (g: { campana: string; personas: number; contestaron: number; agendadas: number; en_curso: number; abandonadas: number; con_reserva_pagada: number }) =>
+    `${nombreDeCampana(g.campana)}: ${g.personas} ${g.personas === 1 ? 'persona escribió' : 'personas escribieron'}; ${g.contestaron} ${g.contestaron === 1 ? 'contestó' : 'contestaron'} (${pc(g.contestaron, g.personas)}); ${g.agendadas} ${g.agendadas === 1 ? 'agendó' : 'agendaron'} (${pc(g.agendadas, g.personas)}); ${g.en_curso} en curso; ${g.abandonadas} ${g.abandonadas === 1 ? 'se enfrió' : 'se enfriaron'}; ${g.con_reserva_pagada} con reserva pagada.`;
+  const grupos = m.por_campana;
+  const pedida = campana ? String(campana).trim() : '';
+  if (pedida) {
+    const g = grupos.find(x => norm(x.campana) === norm(pedida) || norm(nombreDeCampana(x.campana)) === norm(pedida));
+    if (!g) return { ok: false, error: `No hay conversaciones de la campaña "${pedida}" en ${periodo}.` };
+    return { ok: true, texto: `Campaña ${nombreDeCampana(g.campana)}, ${periodo} (solo conversaciones de Noa, sin pruebas ni equipo). ${filaTxt(g)}` };
+  }
+  if (!m.personas) return { ok: false, error: `No hay conversaciones de Noa en ${periodo}.` };
+  const t = m.turnos;
+  const partes = [
+    `Resumen de ${periodo} (solo conversaciones de Noa, sin pruebas ni equipo): ${m.personas} ${m.personas === 1 ? 'persona escribió' : 'personas escribieron'}; ${m.primer_contacto.contestaron} contestaron el primer mensaje (${m.primer_contacto.pct_contestaron}%); ${m.estados.agendadas} agendaron; ${m.estados.en_curso} en curso; ${m.estados.abandonadas} se enfriaron.`,
+    `Turnos agendados: ${t.agendados}, con reserva pagada: ${t.con_reserva_pagada}. Recibos analizados: ${m.recibos.total}; comprobantes: ${m.comprobantes.total}.`,
+    ...(grupos.length ? ['Por campaña:', ...grupos.map(filaTxt)] : []),
+  ];
+  if (m.confianza === 'baja') partes.push(`Ojo: son pocas conversaciones (${m.personas}); las conclusiones todavía no son firmes.`);
+  return { ok: true, texto: partes.join(' ') };
+}
+
+const numerosDe = (t: string) => (t.match(/\d+(?:[.,]\d+)?/g) ?? []).map(x => x.replace(',', '.'));
+
+/** El análisis solo vale si TODAS las cifras que trae están en los datos reales. */
+export function analisisSoloConCifrasReales(analisis: string, datos: string): boolean {
+  const permitidas = new Set(numerosDe(datos));
+  return numerosDe(analisis).every(n => permitidas.has(n));
+}
+
+export type LlmTexto = (sistema: string, usuario: string) => Promise<string>;
+
+async function llamarTextoOpenAI(sistema: string, usuario: string): Promise<string> {
+  const r = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${claveOpenAI()}` },
+    body: JSON.stringify({ model: limpiarSecreto(process.env.AGENTE_MODELO_ANALISIS ?? '') || 'gpt-4o', temperature: 0.2, max_tokens: 500, messages: [{ role: 'system', content: sistema }, { role: 'user', content: usuario }] }),
+  });
+  if (!r.ok) throw new Error(`analisis ${r.status}`);
+  return String((await r.json() as any)?.choices?.[0]?.message?.content ?? '').trim();
+}
+
+const SISTEMA_ANALISIS_CAMPANA = `Sos el analista del Centro Jurídico NOA. Recibís las cifras REALES de una campaña de WhatsApp y escribís un análisis breve y profesional en español rioplatense, tratando de usted al equipo solo si hace falta.
+REGLAS ESTRICTAS:
+- Usá ÚNICAMENTE las cifras que figuran en los datos. No inventes ningún número, porcentaje, fecha, nombre ni comparación que no esté literal.
+- No calcules ni redondees cifras nuevas: si querés citar un número, copialo tal cual de los datos.
+- No afirmes causas como si fueran un hecho: decí qué muestran los datos y qué conviene revisar.
+- Si hay pocas conversaciones, decilo.
+- Máximo 110 palabras, un solo párrafo, sin listas, sin markdown, sin emojis.`;
+
+export async function analizarCampana(m: MetricasAgente, o: { campana?: string | null; llm?: LlmTexto }): Promise<{ ok: boolean; texto_metricas?: string; analisis?: string | null; motivo_sin_analisis?: string; error?: string }> {
+  const r = resumenCampana(m, o.campana);
+  if (!r.ok) return { ok: false, error: r.error };
+  try {
+    const dicho = (await (o.llm ?? llamarTextoOpenAI)(SISTEMA_ANALISIS_CAMPANA, `DATOS REALES:\n${r.texto}`)).replace(/[*_#`]/g, '').trim();
+    if (!dicho) return { ok: true, texto_metricas: r.texto, analisis: null, motivo_sin_analisis: 'El analista no devolvió texto.' };
+    if (!analisisSoloConCifrasReales(dicho, r.texto)) return { ok: true, texto_metricas: r.texto, analisis: null, motivo_sin_analisis: 'El análisis traía una cifra que no está en los datos, así que se descartó. Estas son las cifras reales.' };
+    return { ok: true, texto_metricas: r.texto, analisis: dicho };
+  } catch {
+    return { ok: true, texto_metricas: r.texto, analisis: null, motivo_sin_analisis: 'No se pudo generar el análisis ahora; estas son las cifras reales.' };
+  }
+}
+
+/** Texto → audio (ElevenLabs, la voz de Noa) en mp3, para reproducir en el navegador. */
+export async function sintetizarVozNavegador(texto: string): Promise<{ audio_base64: string; mime: string }> {
+  const key = limpiarSecreto(process.env.ELEVENLABS_API_KEY ?? ''), voz = limpiarSecreto(process.env.ELEVENLABS_VOICE_ID ?? '') || VOZ_DEFAULT;
+  if (!key) throw new Error('Falta ELEVENLABS_API_KEY');
+  const limpio = texto.replace(/[*_#`]/g, '').replace(/\s+/g, ' ').trim();
+  let corto = limpio.slice(0, 2200);
+  if (limpio.length > 2200) corto = corto.slice(0, Math.max(corto.lastIndexOf('. ') + 1, 600));
+  const tts = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(voz)}?output_format=mp3_44100_128`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'xi-api-key': key },
+    body: JSON.stringify({ text: corto, model_id: limpiarSecreto(process.env.ELEVENLABS_MODEL ?? '') || 'eleven_v3' }),
+  });
+  if (!tts.ok) throw new Error(`voz ${tts.status}`);
+  return { audio_base64: Buffer.from(await tts.arrayBuffer()).toString('base64'), mime: 'audio/mpeg' };
 }
 
 // ---------------------------------------------------------------- qué optimizar, a partir de las métricas del agente
@@ -2770,6 +2861,22 @@ async function agentesHttp(req: VercelRequest, res: VercelResponse, db: Db, raw:
     const r = await responderDesdeErp(db, quien, String(body?.telefono ?? ''), String(body?.texto ?? ''), enviarWhatsApp);
     if (r.code === 200) await registrarAgente(db, 'auditor', 'Mensaje manual desde el ERP', { por: quien, telefono_final: String(body?.telefono ?? '').replace(/\D/g, '').slice(-4) });
     return res.status(r.code).json(r.body);
+  }
+  if (body?.accion === 'hablar') {
+    const texto = String(body?.texto ?? '').trim();
+    if (!texto) return res.status(400).json({ error: 'Falta el texto.' });
+    try { return res.status(200).json(await sintetizarVozNavegador(texto)); }
+    catch (e) { return res.status(502).json({ error: 'No se pudo generar la voz.' }); }
+  }
+  if (body?.accion === 'campana') {
+    const rol = String((perfil as any).rol ?? '');
+    if (rol !== 'admin' && rol !== 'socio') return res.status(403).json({ error: 'No tenés permiso para ver las métricas de campaña.' });
+    const dias = body?.dias == null || body.dias === '' ? 30 : Math.round(Number(body.dias));
+    if (!Number.isFinite(dias) || dias < 1 || dias > 365) return res.status(400).json({ error: 'Los días tienen que estar entre 1 y 365.' });
+    const m = await calcularMetricasAgente(db, { dias });
+    const r = await analizarCampana(m, { campana: body?.campana ? String(body.campana) : null });
+    if (r.ok) await registrarAgente(db, 'auditor', 'Consulta de campaña por voz (CJ)', { por: sesion.user.email ?? null, dias, campana: body?.campana ?? null, con_analisis: !!r.analisis });
+    return res.status(r.ok ? 200 : 404).json(r);
   }
   const r = await accionAgentes(db, { id: sesion.user.id, email: sesion.user.email ?? null, rol: String((perfil as any).rol ?? '') }, String(body?.accion ?? ''), body, { pausa: esperar });
   return res.status(r.code).json(r.body);

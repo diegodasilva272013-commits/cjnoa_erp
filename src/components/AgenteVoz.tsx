@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import { Mic, Loader2, X, Check, Volume2, Ear, EarOff } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
+import { llamarAgentes } from '../lib/agentesApi';
 import { useToast } from '../context/ToastContext';
 
 // Wake-word: el usuario dice "CJ" (CE JOTA) y el agente arranca a escuchar el comando
@@ -152,15 +153,35 @@ export default function AgenteVoz() {
   const estadoRef = useRef<Estado>('idle');
   useEffect(() => { estadoRef.current = estado; }, [estado]);
 
-  function hablar(texto: string) {
-    try {
-      if (!('speechSynthesis' in window)) return;
-      const u = new SpeechSynthesisUtterance(texto);
-      u.lang = 'es-AR';
-      u.rate = 1.05;
-      window.speechSynthesis.cancel();
-      window.speechSynthesis.speak(u);
-    } catch { /* noop */ }
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  /** Voz del agente: la de Noa (ElevenLabs). Si no se puede, cae a la voz del navegador. Resuelve cuando termina de hablar. */
+  function hablar(texto: string): Promise<void> {
+    const vozNavegador = () => new Promise<void>(resolve => {
+      try {
+        if (!('speechSynthesis' in window)) return resolve();
+        const u = new SpeechSynthesisUtterance(texto);
+        u.lang = 'es-AR';
+        u.rate = 1.05;
+        u.onend = () => resolve();
+        u.onerror = () => resolve();
+        window.speechSynthesis.cancel();
+        window.speechSynthesis.speak(u);
+      } catch { resolve(); }
+    });
+    try { audioRef.current?.pause(); window.speechSynthesis?.cancel(); } catch { /* noop */ }
+    return (async () => {
+      try {
+        const r = await llamarAgentes<{ audio_base64: string; mime: string }>('hablar', { texto });
+        const audio = new Audio(`data:${r.mime};base64,${r.audio_base64}`);
+        audioRef.current = audio;
+        await new Promise<void>((resolve, reject) => {
+          audio.onended = () => resolve();
+          audio.onerror = () => reject(new Error('audio'));
+          audio.play().catch(reject);
+        });
+      } catch { await vozNavegador(); }
+    })();
   }
 
   const reset = useCallback(() => {
@@ -366,9 +387,8 @@ export default function AgenteVoz() {
   const onWakeDetectado = useCallback(() => {
     if (estadoRef.current !== 'idle') return;
     const nombre = (perfil?.nombre || 'Usuario').split(' ')[0];
-    hablar(`Acá estoy ${nombre}, ¿en qué puedo ayudarte?`);
-    // pequeño delay para que termine de hablar antes de empezar a grabar
-    setTimeout(() => { iniciarGrabacion(); }, 1400);
+    // empieza a grabar cuando termina de hablar (así no se graba a sí mismo)
+    void hablar(`Acá estoy ${nombre}, ¿en qué puedo ayudarte?`).then(() => iniciarGrabacion());
   }, [perfil?.nombre]);
 
   // Crea una instancia fresca de SpeechRecognition y la arranca.
@@ -614,7 +634,7 @@ export default function AgenteVoz() {
                 <div className="text-[10px] text-emerald-300 uppercase tracking-wider mb-1 flex items-center gap-1">
                   <Volume2 className="w-3 h-3" /> Respuesta
                 </div>
-                <div className="text-sm text-white">{resultado}</div>
+                <div className="whitespace-pre-line text-sm text-white">{resultado}</div>
               </div>
             )}
 
@@ -954,6 +974,11 @@ async function ejecutarTool(plan: Plan, userId: string): Promise<{ ok: boolean; 
         }
         if (tt.culminacion) partes.push(`Culminación: ${tt.culminacion}`);
         return { ok: true, mensaje: partes.join(' ') };
+      }
+      case 'analizar_campana': {
+        const r = await llamarAgentes<{ texto_metricas: string; analisis: string | null; motivo_sin_analisis?: string }>('campana', { dias: a.dias ?? 30, campana: a.campana || undefined });
+        const analisis = r.analisis ? `Análisis: ${r.analisis}` : (r.motivo_sin_analisis ?? '');
+        return { ok: true, mensaje: [r.texto_metricas, analisis].filter(Boolean).join('\n\n') };
       }
       case 'listar_tareas_pendientes': {
         const respId = a.responsable_id || userId;
