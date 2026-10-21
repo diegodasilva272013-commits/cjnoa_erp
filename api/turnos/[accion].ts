@@ -494,6 +494,53 @@ export async function registrarMensaje(db: Db, p: Record<string, unknown>): Prom
   return { code: 200, body: { registrado: true, conversation_id: conversationId } };
 }
 
+/** Guarda lo que escribió una persona del equipo en la conversación. El agente NO contesta esto: espera a que la persona responda. */
+export async function registrarMensajeHumano(db: Db, p: { telefono: string; texto: string; quien: string; wid?: string }): Promise<Resp> {
+  const clave = telefonoClave(p.telefono);
+  const texto = textoLimpio(p.texto);
+  if (!clave || !texto) return { code: 400, body: { registrado: false, error: 'Falta el teléfono o el texto' } };
+  const fila = await filaPorTelefono(db, clave);
+  if (!fila) return { code: 404, body: { registrado: false, error: 'No hay una conversación con ese número' } };
+  if (p.wid && fila.mensajes.some(m => m.wid === p.wid)) return { code: 200, body: { registrado: true, repetido: true } };
+  const nuevo: MsgGuardado = { from: 'agente', texto, humano: p.quien || 'Equipo', at: Date.now(), ...(p.wid ? { wid: p.wid } : {}) };
+  const { error } = await db.from('conversaciones_whatsapp').update({ mensajes: [...fila.mensajes, nuevo], updated_at: new Date().toISOString() }).eq('conversation_id', fila.conversation_id);
+  if (error) throw new Error(`registrar humano: ${error.message}`);
+  return { code: 200, body: { registrado: true } };
+}
+
+/** Mensajes que una persona escribió desde la app del celular (coexistencia de Kapso). No son del cliente ni del agente. */
+export function extraerHumanosKapso(payload: any): { telefono: string; texto: string; wid: string }[] {
+  const items: any[] = payload?.batch === true && Array.isArray(payload?.data) ? payload.data : [payload];
+  const out: { telefono: string; texto: string; wid: string }[] = [];
+  for (const it of items) {
+    const m = it?.message;
+    if (!m?.id || m?.kapso?.origin !== 'business_app') continue;
+    const telefono = String(it?.conversation?.phone_number ?? (m?.kapso?.direction === 'outbound' ? m.to : m.from) ?? '');
+    if (!telefono) continue;
+    const texto = m.type === 'text' && typeof m.text?.body === 'string' ? String(m.text.body) : `[Envió un mensaje de tipo ${m.type ?? 'desconocido'}]`;
+    out.push({ telefono, texto, wid: String(m.id) });
+  }
+  return out;
+}
+
+/** El ERP manda un mensaje a la persona con la cuenta del estudio y lo deja anotado como mensaje del equipo. */
+export async function responderDesdeErp(db: Db, quien: string, telefono: string, texto: string, enviar: (to: string, t: string) => Promise<void>): Promise<Resp> {
+  const limpio = textoLimpio(texto);
+  const digitos = String(telefono ?? '').replace(/\D/g, '');
+  if (!digitos || !limpio) return { code: 400, body: { error: 'Escribí el mensaje.' } };
+  if (limpio.length > 3800) return { code: 400, body: { error: 'El mensaje es demasiado largo.' } };
+  const fila = await filaPorTelefono(db, telefonoClave(digitos));
+  if (!fila) return { code: 404, body: { error: 'No hay una conversación con ese número.' } };
+  try { await enviar(digitos, limpio); }
+  catch (e) {
+    const t = e instanceof Error ? e.message : '';
+    const fuera = /131047|24 hours|re-engagement/i.test(t);
+    return { code: 502, body: { error: fuera ? 'Pasaron más de 24 horas desde que la persona escribió: WhatsApp no deja mandar un mensaje libre, hace falta una plantilla aprobada.' : 'WhatsApp no aceptó el mensaje. Probá de nuevo en un momento.' } };
+  }
+  const r = await registrarMensajeHumano(db, { telefono: digitos, texto: limpio, quien });
+  return r.code === 200 ? { code: 200, body: { ok: true } } : r;
+}
+
 // =====================================================================================
 // LEADS DE CAMPAÑAS: cada persona que escribe queda registrada (una fila por teléfono)
 // =====================================================================================
@@ -691,7 +738,8 @@ export const DATOS_PAGO_DEFAULT = 'Alias: centrojuridiconoa680 · CVU: 000000310
 export const TITULAR_DEFAULT = 'Arturo Reyes';
 
 export type MsgEntrante = { id: string; from: string; nombre: string | null; texto: string; esTexto: boolean; tipo?: string; mediaId?: string; mediaUrl?: string; caption?: string; phoneNumberId?: string; referral?: string; archivo?: string; mime?: string };
-export type MsgGuardado = { from: 'cliente' | 'agente'; texto: string; t?: number | null; wid?: string; at?: number };
+/** `humano`: si lo escribió una persona del equipo (desde el ERP o desde el celular) en vez del agente; trae quién. */
+export type MsgGuardado = { from: 'cliente' | 'agente'; texto: string; t?: number | null; wid?: string; at?: number; humano?: string };
 type BloqueLLM = { type: string; [k: string]: any };
 type MsgLLM = { role: 'user' | 'assistant'; content: string | BloqueLLM[] };
 type CtxHerramienta = { telefono: string; conversationId: string; montoValidado?: number | null; pagoMpId?: string; pasarDatos?: boolean; modalidad?: 'transferencia' | 'efectivo' | null };
@@ -795,9 +843,10 @@ export function aMensajesLLM(guardados: MsgGuardado[], max = MAX_MENSAJES_CONTEX
   const out: MsgLLM[] = [];
   for (const g of guardados.slice(-max)) {
     const role: 'user' | 'assistant' = g.from === 'cliente' ? 'user' : 'assistant';
+    const texto = g.humano ? `[Mensaje escrito por una persona del equipo, no por usted: ${g.texto}]` : g.texto;
     const prev = out[out.length - 1];
-    if (prev && prev.role === role) prev.content = `${prev.content as string}\n${g.texto}`;
-    else out.push({ role, content: g.texto });
+    if (prev && prev.role === role) prev.content = `${prev.content as string}\n${texto}`;
+    else out.push({ role, content: texto });
   }
   while (out.length && out[0].role !== 'user') out.shift();
   return out;
@@ -1858,7 +1907,7 @@ export function etapaEmbudo(mensajes: MsgGuardado[], lead: LeadAnalisis, turnos:
   const d = lead?.datos ?? {};
   if (d.pago_validado_mp || d.pago_mp_usado) return 'reserva';
   const cli = mensajes.filter(m => m.from === 'cliente').map(m => m.texto);
-  const ag = mensajes.filter(m => m.from === 'agente').map(m => m.texto);
+  const ag = mensajes.filter(m => m.from === 'agente' && !m.humano).map(m => m.texto);
   if (modalidadElegida(cli)) return 'forma_pago';
   if (ag.some(t => /consulta/i.test(t) && /\$\s?\d/.test(t))) return 'propuesta';
   if (lead && lead.nombre && (lead.rama || lead.dni_cuil || lead.calificacion)) return 'datos';
@@ -1869,7 +1918,7 @@ export type ResultadoConv = { ref: string; campana: string; abogado: string; eta
 
 export function analizarConversacion(ref: string, mensajes: MsgGuardado[], lead: LeadAnalisis, turnos: TurnoAnalisis[]): ResultadoConv {
   const cli = mensajes.filter(m => m.from === 'cliente').map(m => m.texto);
-  const ag = mensajes.filter(m => m.from === 'agente').map(m => m.texto);
+  const ag = mensajes.filter(m => m.from === 'agente' && !m.humano).map(m => m.texto);
   const errores = new Set<string>();
   for (const t of ag) {
     codigosDeEstilo(t).forEach(c => errores.add(c));
@@ -2250,8 +2299,8 @@ const HORAS_ENCURSO = 24;
 export function personaMetrica(c: { nombre?: string | null; telefono?: string | null; mensajes: MsgGuardado[]; created_at: string; updated_at: string }, lead: any, turnos: any[], ahoraMs: number): PersonaMetrica {
   const msgs = c.mensajes;
   const cli = msgs.filter(m => m.from === 'cliente');
-  const ag = msgs.filter(m => m.from === 'agente');
-  const idxPrimerAgente = msgs.findIndex(m => m.from === 'agente');
+  const ag = msgs.filter(m => m.from === 'agente' && !m.humano);
+  const idxPrimerAgente = msgs.findIndex(m => m.from === 'agente' && !m.humano);
   const contesto = idxPrimerAgente >= 0 && msgs.slice(idxPrimerAgente + 1).some(m => m.from === 'cliente');
   const r = analizarConversacion('x', msgs, lead, turnos);
   const clasif = cli.map(m => clasificarMensajeCliente(m.texto));
@@ -2714,6 +2763,14 @@ async function agentesHttp(req: VercelRequest, res: VercelResponse, db: Db, raw:
   if (!perfil || (perfil as any).activo === false) return res.status(403).json({ error: 'No autorizado' });
   let body: any = {};
   try { body = JSON.parse(raw || '{}'); } catch { return res.status(400).json({ error: 'JSON inválido' }); }
+  if (body?.accion === 'responder') {
+    const rol = String((perfil as any).rol ?? '');
+    if (rol !== 'admin' && rol !== 'socio') return res.status(403).json({ error: 'No tenés permiso para responder desde acá.' });
+    const quien = String(sesion.user.email ?? 'Equipo').split('@')[0];
+    const r = await responderDesdeErp(db, quien, String(body?.telefono ?? ''), String(body?.texto ?? ''), enviarWhatsApp);
+    if (r.code === 200) await registrarAgente(db, 'auditor', 'Mensaje manual desde el ERP', { por: quien, telefono_final: String(body?.telefono ?? '').replace(/\D/g, '').slice(-4) });
+    return res.status(r.code).json(r.body);
+  }
   const r = await accionAgentes(db, { id: sesion.user.id, email: sesion.user.email ?? null, rol: String((perfil as any).rol ?? '') }, String(body?.accion ?? ''), body, { pausa: esperar });
   return res.status(r.code).json(r.body);
 }
@@ -2880,6 +2937,12 @@ async function agente(req: VercelRequest, res: VercelResponse, db: Db, raw: stri
   const evento = String(req.headers['x-webhook-event'] ?? '');
   if (kapso && payload?.message?.type === 'unsupported') console.log('[agente] mensaje no soportado por WhatsApp:', JSON.stringify({ unsupported: payload.message.unsupported, errors: payload.message.errors }).slice(0, 400));
   if (kapso) console.log('[agente] evento', evento, 'campos:', Object.keys(payload ?? {}).join(','), 'message:', Object.keys(payload?.message ?? {}).join(','), 'kapso:', Object.keys(payload?.message?.kapso ?? {}).join(','));
+  if (kapso) {
+    for (const h of extraerHumanosKapso(payload)) {
+      try { await registrarMensajeHumano(db, { telefono: h.telefono, texto: h.texto, quien: 'WhatsApp del celular', wid: h.wid }); }
+      catch (e) { console.error('[agente] mensaje humano', e); }
+    }
+  }
   if (kapso && evento && evento !== 'whatsapp.message.received') return res.status(200).send('OK');
 
   const deps: Deps = {

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, useCallback } from 'react';
-import { Plus, Pencil, Search, Download, Trash2, Upload } from 'lucide-react';
+import { Plus, Pencil, Search, Download, Trash2 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
@@ -10,21 +10,11 @@ import {
 } from '../types/finanzas';
 import Modal from '../components/Modal';
 import FinanceMiniCharts from '../components/finance/FinanceMiniCharts';
-import PeriodoSelector from '../components/finance/PeriodoSelector';
-import EmptyPeriodHint from '../components/finance/EmptyPeriodHint';
-import { usePeriodoFinanciero } from '../hooks/usePeriodoFinanciero';
 import { formatMoney } from '../lib/financeFormat';
 import { exportToExcel } from '../lib/exportExcel';
-import ImportarExcelModal from '../components/finance/ImportarExcelModal';
 
-function hoyLocalISO(): string {
-  const d = new Date();
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
-}
-const HOY = hoyLocalISO;
+const HOY = () => new Date().toISOString().slice(0, 10);
+const INICIO_MES = () => new Date().toISOString().slice(0, 7) + '-01';
 
 interface FormState {
   fecha: string;
@@ -67,7 +57,6 @@ export default function Egresos() {
   const [items, setItems] = useState<EgresoV2[]>([]);
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
-  const [importModalOpen, setImportModalOpen] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const [form, setForm] = useState<FormState>(FORM_VACIO);
   const [saving, setSaving] = useState(false);
@@ -77,7 +66,8 @@ export default function Egresos() {
   const [filtroTipo, setFiltroTipo] = useState<TipoEgreso | ''>('');
   const [filtroPagador, setFiltroPagador] = useState<SocioFinanzas | ''>('');
   const [filtroModalidad, setFiltroModalidad] = useState<ModalidadPago | ''>('');
-  const periodo = usePeriodoFinanciero('egresos');
+  const [desde, setDesde] = useState(INICIO_MES());
+  const [hasta, setHasta] = useState('');
 
   const cargar = useCallback(async () => {
     setLoading(true);
@@ -112,11 +102,11 @@ export default function Egresos() {
       if (filtroTipo && e.tipo !== filtroTipo) return false;
       if (filtroPagador && e.pagador !== filtroPagador) return false;
       if (filtroModalidad && e.modalidad !== filtroModalidad) return false;
-      if (periodo.desde && e.fecha < periodo.desde) return false;
-      if (periodo.hasta && e.fecha > periodo.hasta) return false;
+      if (desde && e.fecha < desde) return false;
+      if (hasta && e.fecha > hasta) return false;
       return true;
     });
-  }, [items, busqueda, filtroTipo, filtroPagador, filtroModalidad, periodo.desde, periodo.hasta]);
+  }, [items, busqueda, filtroTipo, filtroPagador, filtroModalidad, desde, hasta]);
 
   const totales = useMemo(() => {
     const total = filtrados.reduce((s, e) => s + Number(e.monto || 0), 0);
@@ -251,16 +241,11 @@ export default function Egresos() {
           <button onClick={exportar} className="px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-sm text-white hover:bg-white/10 flex items-center gap-2">
             <Download className="w-4 h-4" /> Excel
           </button>
-          <button onClick={() => setImportModalOpen(true)} className="px-3 py-2 rounded-lg bg-sky-600/80 hover:bg-sky-500 text-sm text-white flex items-center gap-2" title="Cargar egresos de meses anteriores desde un Excel">
-            <Upload className="w-4 h-4" /> Importar Excel
-          </button>
           <button onClick={abrirNuevo} className="px-3 py-2 rounded-lg bg-rose-600 hover:bg-rose-500 text-sm text-white flex items-center gap-2">
             <Plus className="w-4 h-4" /> Nuevo egreso
           </button>
         </div>
       </header>
-
-      <ImportarExcelModal target="egresos" open={importModalOpen} onClose={() => setImportModalOpen(false)} onImportado={cargar} />
 
       {/* Métricas */}
       <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
@@ -295,8 +280,7 @@ export default function Egresos() {
 
       {/* Filtros */}
       <div className="bg-white/[0.02] border border-white/10 rounded-xl p-4 space-y-3">
-        <PeriodoSelector periodo={periodo} />
-        <div className="flex items-center gap-2 pt-1">
+        <div className="flex items-center gap-2">
           <Search className="w-4 h-4 text-zinc-400" />
           <input
             value={busqueda}
@@ -305,17 +289,14 @@ export default function Egresos() {
             className="flex-1 bg-transparent outline-none text-sm text-white placeholder:text-zinc-500"
           />
         </div>
-        <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+        <div className="grid grid-cols-2 md:grid-cols-6 gap-2">
           <SelectFilter label="Tipo" value={filtroTipo} onChange={v => setFiltroTipo(v as TipoEgreso | '')} options={TIPOS_EGRESO} />
           <SelectFilter label="Pagador" value={filtroPagador} onChange={v => setFiltroPagador(v as SocioFinanzas | '')} options={SOCIOS_FINANZAS} />
           <SelectFilter label="Modalidad" value={filtroModalidad} onChange={v => setFiltroModalidad(v as ModalidadPago | '')} options={MODALIDADES} />
+          <DateFilter label="Desde" value={desde} onChange={setDesde} />
+          <DateFilter label="Hasta" value={hasta} onChange={setHasta} />
         </div>
       </div>
-
-      {/* Aviso si el período seleccionado está vacío */}
-      {!loading && filtrados.length === 0 && items.length > 0 && (
-        <EmptyPeriodHint periodo={periodo} recurso="egresos" />
-      )}
 
       {/* Tabla */}
       <div className="bg-white/[0.02] border border-white/10 rounded-xl overflow-hidden">
@@ -512,6 +493,15 @@ function SelectFilter({ label, value, onChange, options }: { label: string; valu
         <option value="">Todos</option>
         {options.map(o => <option key={o} value={o}>{o}</option>)}
       </select>
+    </label>
+  );
+}
+
+function DateFilter({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
+  return (
+    <label className="block">
+      <span className="block text-[10px] uppercase text-zinc-500 mb-1">{label}</span>
+      <input type="date" value={value} onChange={e => onChange(e.target.value)} className="w-full px-2 py-1.5 rounded-lg bg-black/40 border border-white/10 text-xs text-white" />
     </label>
   );
 }

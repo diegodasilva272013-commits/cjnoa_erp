@@ -3,6 +3,7 @@ import { createHmac } from 'node:crypto';
 import handler, {
   clasificarRecibo, TIPOS_CONSULTA, promesaSinCumplir, separarDatosPago, mensajeApurado,
   aMin, limpiarSecreto, camposDeLead, etapaAutomatica, fusionarLead, registrarMensaje, upsertLead, firmaMetaValida, firmaKapsoValida, extraerMensajesKapso, extraerMensajes, aMensajesLLM, procesarMensaje, filaDePersona, esConversacionDeNoa, clasificarMensajeCliente, categoriaMensajeAgente, personaMetrica, agregarMetricasAgente, calcularMetricasAgente, evaluarOptimizaciones, validarOptimizaciones, ejecutarOptimizacion, type MetricasAgente, motivoDeExclusion, resumenEnPalabras, ejecutarAnalista, revisarAnalisisAutomatico, codigosDeEstilo, etapaEmbudo, analizarConversacion, calcularMetricas, mascararDatos, textoParaEtiquetar, validarEtiquetas, promptDelAgente, limpiarCachePrompt, accionAgentes, problemasDeEstilo, textoNoLegible, firmaMercadoPagoValida, importeTexto, importeLindo, asignarImporteUnico, procesarPagoMP, montoMercadoPago, modalidadElegida, enmascarar, neutralizarMarcas, salidaInsegura, superaLimite, urlMediaSegura, resumenTurnosVigentes, HERRAMIENTAS_LLM, cuerpoNotaDeVoz, eligioTransferencia, notaDeImagen, montoValidadoDe, quitarEtiquetas, aMensajesOpenAI, deOpenAI, ejecutarHerramienta, PROMPT_AGENTE, type Deps, telefonoClave, historialDe, inferirNombre, normalizarFecha, normalizarHora, bloquesDelDia, huecosLibres, localDe, resolverProfesional, diaSemanaISO, fechaValida,
+  registrarMensajeHumano, extraerHumanosKapso, responderDesdeErp,
   type Bloque,
 } from '../../api/turnos/[accion]';
 
@@ -2468,5 +2469,68 @@ describe('metricas · la tabla de personas y el comprobante del conteo', () => {
     expect(m.detalle!.fichas_en_periodo).toBe(2);
     expect(m.detalle!.fichas_sin_conversacion.map(f => f.nombre)).toEqual(['Sin Conversación']);
     expect(m.detalle!.fichas_sin_conversacion[0].tel).toBe('5493880000077');
+  });
+});
+
+describe('respuesta manual del equipo', () => {
+  const dbConv = (mensajes: any[]) => {
+    const estado = { fila: { conversation_id: 'respaldo-1', mensajes, conversation_ids: [] as string[] } as any | null, updates: [] as any[] };
+    const cadena: any = { eq: () => cadena, order: () => cadena, limit: () => Promise.resolve({ data: estado.fila ? [estado.fila] : [], error: null }) };
+    const db = {
+      from: () => ({
+        select: () => cadena,
+        update: (row: any) => ({ eq: () => { estado.updates.push(row); estado.fila = { ...estado.fila, mensajes: row.mensajes }; return Promise.resolve({ error: null }); } }),
+      }),
+    } as any;
+    return { db, estado };
+  };
+
+  it('el mensaje del equipo se guarda marcado y el modelo sabe que no lo escribió el agente', async () => {
+    const { db, estado } = dbConv([{ from: 'cliente', texto: 'Hola' }, { from: 'agente', texto: 'Buen día' }]);
+    const r = await registrarMensajeHumano(db, { telefono: '5493884867965', texto: 'Hola, soy Marta del estudio, ¿pudo ver lo que le pasamos?', quien: 'marta' });
+    expect(r.code).toBe(200);
+    const ult = estado.fila.mensajes.at(-1);
+    expect(ult).toMatchObject({ from: 'agente', humano: 'marta' });
+    const paraModelo = aMensajesLLM([...estado.fila.mensajes, { from: 'cliente', texto: 'Sí, gracias' }]);
+    expect(JSON.stringify(paraModelo)).toContain('escrito por una persona del equipo');
+  });
+
+  it('no repite el mismo mensaje del celular (mismo id) y no inventa conversaciones', async () => {
+    const { db, estado } = dbConv([{ from: 'cliente', texto: 'Hola' }]);
+    await registrarMensajeHumano(db, { telefono: '5493884867965', texto: 'Buen día', quien: 'WhatsApp del celular', wid: 'w1' });
+    await registrarMensajeHumano(db, { telefono: '5493884867965', texto: 'Buen día', quien: 'WhatsApp del celular', wid: 'w1' });
+    expect(estado.fila.mensajes.length).toBe(2);
+    const vacia = dbConv([]); vacia.estado.fila = null;
+    expect((await registrarMensajeHumano(vacia.db, { telefono: '5493880000000', texto: 'x', quien: 'a' })).code).toBe(404);
+  });
+
+  it('reconoce lo que escribe una persona desde la app del celular y no lo confunde con el cliente', () => {
+    const p = { message: { id: 'w9', type: 'text', text: { body: 'Le escribo yo' }, from: '5493884867965', kapso: { direction: 'inbound', origin: 'business_app' } }, conversation: { phone_number: '5493884867965' } };
+    expect(extraerHumanosKapso(p)).toEqual([{ telefono: '5493884867965', texto: 'Le escribo yo', wid: 'w9' }]);
+    expect(extraerMensajesKapso(p)).toEqual([]); // el agente no lo contesta
+    const cliente = { message: { id: 'w10', type: 'text', text: { body: 'Hola' }, from: '5493884867965', kapso: { direction: 'inbound' } } };
+    expect(extraerHumanosKapso(cliente)).toEqual([]);
+  });
+
+  it('desde el ERP: manda por WhatsApp y lo anota; si WhatsApp lo rechaza por las 24 h, no lo anota y avisa claro', async () => {
+    const { db, estado } = dbConv([{ from: 'cliente', texto: 'Hola' }]);
+    const enviados: string[] = [];
+    const ok = await responderDesdeErp(db, 'marta', '+54 9 388 486-7965', '  Buen día  ', async (to, t) => { enviados.push(`${to}|${t}`); });
+    expect(ok.code).toBe(200);
+    expect(enviados).toEqual(['5493884867965|Buen día']);
+    expect(estado.fila.mensajes.at(-1)).toMatchObject({ humano: 'marta', texto: 'Buen día' });
+    const antes = estado.fila.mensajes.length;
+    const fuera = await responderDesdeErp(db, 'marta', '5493884867965', 'Otra vez', async () => { throw new Error('whatsapp 400 {"code":131047}'); });
+    expect(fuera.code).toBe(502);
+    expect(fuera.body.error).toContain('24 horas');
+    expect(estado.fila.mensajes.length).toBe(antes);
+    expect((await responderDesdeErp(db, 'marta', '5493884867965', '   ', async () => {})).code).toBe(400);
+  });
+
+  it('el análisis y las métricas no cuentan lo que escribió una persona como si fuera del agente', () => {
+    const msgs: any[] = [{ from: 'cliente', texto: 'Hola' }, { from: 'agente', texto: 'Le escribo yo, Marta', humano: 'marta' }];
+    const p = personaMetrica({ nombre: 'X', telefono: '5493884867965', mensajes: msgs, created_at: new Date().toISOString(), updated_at: new Date().toISOString() }, null, [], Date.now());
+    expect(p.mensajesAgente).toBe(0);
+    expect(p.contesto).toBe(false);
   });
 });

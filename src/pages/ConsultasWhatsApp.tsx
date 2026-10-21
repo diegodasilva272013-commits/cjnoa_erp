@@ -1,7 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
+import { Send } from 'lucide-react';
 import { supabase } from '../lib/supabase';
+import { llamarAgentes } from '../lib/agentesApi';
+import { usePermisos } from '../hooks/usePermisos';
 
-type Mensaje = { from: 'cliente' | 'agente'; texto: string; t?: number | null };
+type Mensaje = { from: 'cliente' | 'agente'; texto: string; t?: number | null; humano?: string };
 
 type Conversacion = {
   id: string;
@@ -70,6 +73,11 @@ export default function ConsultasWhatsApp() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [, setTick] = useState(0);
+  const { rol } = usePermisos();
+  const puedeResponder = rol === 'admin' || rol === 'socio';
+  const [borrador, setBorrador] = useState('');
+  const [enviando, setEnviando] = useState(false);
+  const [errorEnvio, setErrorEnvio] = useState('');
 
   useEffect(() => {
     let activo = true;
@@ -139,6 +147,19 @@ export default function ConsultasWhatsApp() {
     return () => { activo = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [audioKey]);
+
+  const enviar = async () => {
+    const texto = borrador.trim();
+    if (!texto || !selected?.telefono || enviando) return;
+    setEnviando(true); setErrorEnvio('');
+    try {
+      await llamarAgentes('responder', { telefono: selected.telefono, texto });
+      setBorrador('');
+      setConsultas((prev) => prev.map((c) => c.id === selected.id ? { ...c, mensajes: [...(c.mensajes ?? []), { from: 'agente', texto, humano: 'Equipo' }], updated_at: new Date().toISOString() } : c));
+    } catch (e) {
+      setErrorEnvio(e instanceof Error ? e.message : 'No se pudo enviar.');
+    } finally { setEnviando(false); }
+  };
 
   if (loading) {
     return (
@@ -226,9 +247,12 @@ export default function ConsultasWhatsApp() {
                         className={`max-w-[75%] rounded-2xl px-4 py-2 text-sm leading-relaxed ${
                           b.from === 'cliente'
                             ? 'rounded-br-sm bg-blue-600 text-white'
-                            : 'rounded-bl-sm bg-white/10 text-white'
+                            : b.humano
+                              ? 'rounded-bl-sm border border-emerald-400/30 bg-emerald-500/15 text-white'
+                              : 'rounded-bl-sm bg-white/10 text-white'
                         }`}
                       >
+                        {b.humano && <span className="mb-0.5 block text-[10px] font-medium uppercase tracking-wide text-emerald-300">Equipo · {b.humano}</span>}
                         {b.texto}
                       </div>
                     </div>
@@ -237,6 +261,29 @@ export default function ConsultasWhatsApp() {
                   <p className="text-sm text-gray-500">Sin mensajes registrados todavía.</p>
                 )}
               </div>
+
+              {puedeResponder && selected.telefono && (
+                <div className="shrink-0 border-t border-white/10 bg-[#0a0a0a] px-5 py-3">
+                  <div className="flex items-end gap-2">
+                    <textarea
+                      value={borrador}
+                      onChange={(e) => setBorrador(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void enviar(); } }}
+                      rows={2}
+                      maxLength={3800}
+                      placeholder="Escribir a esta persona por WhatsApp…"
+                      className="min-h-0 flex-1 resize-none rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-sm text-white placeholder:text-gray-600 focus:border-emerald-400/50 focus:outline-none"
+                    />
+                    <button type="button" onClick={() => void enviar()} disabled={enviando || !borrador.trim()} style={{ height: 40, minHeight: 40 }}
+                      className="inline-flex shrink-0 items-center gap-2 rounded-xl bg-emerald-500 px-4 text-sm font-semibold text-black transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-40">
+                      <Send className="size-4" /> {enviando ? 'Enviando…' : 'Enviar'}
+                    </button>
+                  </div>
+                  {errorEnvio
+                    ? <p className="mt-2 text-xs text-rose-300">{errorEnvio}</p>
+                    : <p className="mt-2 text-[11px] text-gray-600">El agente no contesta lo que escribas vos: espera a que la persona responda y ahí retoma la conversación.</p>}
+                </div>
+              )}
 
               {(selected.resumen || turnosSel.length > 0) && (
                 <footer className="shrink-0 space-y-1 border-t border-white/10 bg-[#0a0a0a] px-5 py-3 text-xs text-gray-400">
