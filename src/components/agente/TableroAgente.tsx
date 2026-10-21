@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import {
   Users, MessageCircle, Send, Inbox, Mic, Image as ImagenIcon, FileText, Link2, Wallet, CalendarCheck, Sparkles, Snowflake, TrendingDown, Receipt, Banknote,
-  UserCheck, RefreshCw, Lightbulb, Gauge, Hand, Repeat, UserX, AlertTriangle, Activity, Zap, Target, ShieldCheck, ListChecks, Search,
+  UserCheck, RefreshCw, Lightbulb, Gauge, Hand, Repeat, UserX, AlertTriangle, Activity, Zap, Target, ShieldCheck, ListChecks, Search, Copy, Check,
 } from 'lucide-react';
 import AgenteAvatar from './AgenteAvatar';
 import type { MetricasAgente, InformeMejoras, DetalleConteo, FilaPersona } from '../../lib/agentesApi';
@@ -162,6 +162,41 @@ function Cifra({ icono, titulo, valor, detalle, acento = 'text-emerald-300' }: {
 
 const PERIODOS: { dias: number | null; texto: string }[] = [{ dias: 7, texto: '7 días' }, { dias: 30, texto: '30 días' }, { dias: 90, texto: '90 días' }, { dias: null, texto: 'Todo' }];
 
+/** Copia un texto al portapapeles. Devuelve si se pudo. */
+export async function copiarAlPortapapeles(texto: string): Promise<boolean> {
+  try {
+    if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) { await navigator.clipboard.writeText(texto); return true; }
+  } catch { /* se prueba el otro camino */ }
+  try {
+    if (typeof document === 'undefined') return false;
+    const a = document.createElement('textarea');
+    a.value = texto; a.setAttribute('readonly', ''); a.style.position = 'fixed'; a.style.opacity = '0';
+    document.body.appendChild(a); a.select();
+    const ok = document.execCommand('copy');
+    document.body.removeChild(a);
+    return ok;
+  } catch { return false; }
+}
+
+/** El número listo para pegar en WhatsApp, en una agenda o en un buscador: +5493884867965. */
+export const numeroParaCopiar = (t: string) => { const d = String(t ?? '').replace(/\D/g, ''); return d ? `+${d}` : ''; };
+
+/** Botón chico para copiar el teléfono. Avisa "Copiado" un instante. */
+function BotonCopiar({ telefono, nombre }: { telefono: string; nombre: string }) {
+  const [listo, setListo] = useState<'no' | 'si' | 'error'>('no');
+  const copiar = async () => {
+    const ok = await copiarAlPortapapeles(numeroParaCopiar(telefono));
+    setListo(ok ? 'si' : 'error');
+    setTimeout(() => setListo('no'), 1600);
+  };
+  return (
+    <button type="button" onClick={copiar} title={listo === 'si' ? 'Copiado' : listo === 'error' ? 'No se pudo copiar' : 'Copiar el número'} aria-label={`Copiar el número de ${nombre}`}
+      className={`inline-flex size-6 shrink-0 items-center justify-center rounded-md border transition ${listo === 'si' ? 'border-emerald-400/60 bg-emerald-400/15 text-emerald-300' : listo === 'error' ? 'border-rose-400/60 text-rose-300' : 'border-white/10 text-gray-500 hover:border-white/25 hover:bg-white/5 hover:text-gray-200'}`}>
+      {listo === 'si' ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
+    </button>
+  );
+}
+
 const MOTIVO_EXCLUSION = { equipo: 'Es del equipo', prueba: 'Es una prueba', excluida: 'Teléfono en la lista de excluidos' } as const;
 const fechaCorta = (iso: string) => new Date(iso).toLocaleString('es-AR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false });
 
@@ -197,14 +232,14 @@ function Comprobante({ d, personas }: { d: DetalleConteo; personas: number }) {
       {ver && (
         <div className="mt-3 max-h-80 overflow-y-auto rounded-2xl bg-black/30 p-1.5">
           {ver === 'excluidas' && (d.excluidas.length === 0 ? <p className="p-3 text-sm text-gray-500">No se dejó afuera a nadie.</p> : d.excluidas.map((x, i) => (
-            <div key={i} className="flex items-center justify-between gap-3 rounded-xl px-3 py-2 text-[13px] hover:bg-white/[0.04]"><span className="min-w-0 truncate text-gray-100">{x.nombre} <span className="text-gray-600">{x.tel}</span></span><span className="shrink-0 text-xs text-amber-300/90">{MOTIVO_EXCLUSION[x.motivo]}</span></div>
+            <div key={i} className="flex items-center justify-between gap-3 rounded-xl px-3 py-2 text-[13px] hover:bg-white/[0.04]"><span className="flex min-w-0 items-center gap-2"><span className="truncate text-gray-100">{x.nombre}</span><span className="shrink-0 font-mono text-[12px] text-gray-400">{formatearTelefono(x.tel)}</span><BotonCopiar telefono={x.tel} nombre={x.nombre} /></span><span className="shrink-0 text-xs text-amber-300/90">{MOTIVO_EXCLUSION[x.motivo]}</span></div>
           )))}
           {ver === 'fichas' && (d.fichas_sin_conversacion.length === 0 ? <p className="p-3 text-sm text-gray-500">Todas las fichas del período tienen su conversación con Noa.</p> : d.fichas_sin_conversacion.map((x, i) => (
-            <div key={i} className="flex items-center justify-between gap-3 rounded-xl px-3 py-2 text-[13px] hover:bg-white/[0.04]"><span className="min-w-0 truncate text-gray-100">{x.nombre} <span className="text-gray-600">{x.tel}</span></span><span className="shrink-0 text-xs text-gray-500">{fechaCorta(x.creada)}</span></div>
+            <div key={i} className="flex items-center justify-between gap-3 rounded-xl px-3 py-2 text-[13px] hover:bg-white/[0.04]"><span className="flex min-w-0 items-center gap-2"><span className="truncate text-gray-100">{x.nombre}</span><span className="shrink-0 font-mono text-[12px] text-gray-400">{formatearTelefono(x.tel)}</span><BotonCopiar telefono={x.tel} nombre={x.nombre} /></span><span className="shrink-0 text-xs text-gray-500">{fechaCorta(x.creada)}</span></div>
           )))}
         </div>
       )}
-      <p className="mt-3 text-[11px] text-gray-600">Los teléfonos se muestran solo con los últimos 4 dígitos. Si falta alguien o sobra alguien en estas listas, avisame con el nombre y lo reviso.</p>
+      <p className="mt-3 text-[11px] text-gray-600">Si falta alguien o sobra alguien en estas listas, avisame con el nombre y lo reviso.</p>
     </section>
   );
 }
@@ -297,7 +332,7 @@ function TablaPersonas({ filas }: { filas: FilaPersona[] }) {
                   </div>
                 </div>
               </Celda>
-              <Celda titulo="Teléfono"><p className="font-mono text-[13px] tracking-tight text-gray-200">{formatearTelefono(f.telefono)}</p></Celda>
+              <Celda titulo="Teléfono"><div className="flex items-center gap-2"><p className="font-mono text-[13px] tracking-tight text-gray-200">{formatearTelefono(f.telefono)}</p><BotonCopiar telefono={f.telefono} nombre={f.nombre} /></div></Celda>
               <Celda titulo="Actividad"><p className="text-[12px] text-gray-300">Escribió {fechaCorta(f.primer_mensaje)}</p><p className="text-[11px] text-gray-500">Último mensaje {haceMs(ahora - Date.parse(f.ultimo_mensaje))}</p></Celda>
               <Celda titulo="Mensajes">
                 <p className="text-[12px] tabular-nums text-gray-300"><span title="Recibidos">↓ {num(f.recibidos)}</span> <span className="text-gray-600">·</span> <span title="Enviados por Noa">↑ {num(f.enviados)}</span></p>

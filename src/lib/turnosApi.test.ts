@@ -2451,8 +2451,9 @@ describe('metricas · la tabla de personas y el comprobante del conteo', () => {
     expect(d.excluidas.map(x => x.nombre).sort()).toEqual(['Diego Da Silva', 'kapso_test_user']);
     expect(d.excluidas.find(x => x.nombre === 'Diego Da Silva')?.motivo).toBe('equipo');
     expect(d.excluidas.find(x => x.nombre === 'kapso_test_user')?.motivo).toBe('prueba');
-    expect(JSON.stringify(d)).not.toMatch(/5493880000002|5493880000003/); // los teléfonos de las listas de afuera salen enmascarados
-    expect(d.excluidas[0].tel).toMatch(/^\*\*\*\d{4}$/);
+    // el teléfono sale completo para poder comprobar cada caso
+    expect(d.excluidas.find(x => x.nombre === 'Diego Da Silva')?.tel).toBe('5493880000002');
+    expect(d.excluidas.find(x => x.nombre === 'kapso_test_user')?.tel).toBe('5493880000003');
   });
 
   it('detecta fichas (leads) que no tienen conversación con Noa, para poder cruzar contra "Leads de campañas"', async () => {
@@ -2466,6 +2467,6 @@ describe('metricas · la tabla de personas y el comprobante del conteo', () => {
     const m = await calcularMetricasAgente(db, { dias: 30, ahora: new Date(AHORA) });
     expect(m.detalle!.fichas_en_periodo).toBe(2);
     expect(m.detalle!.fichas_sin_conversacion.map(f => f.nombre)).toEqual(['Sin Conversación']);
-    expect(m.detalle!.fichas_sin_conversacion[0].tel).toBe('***0077');
+    expect(m.detalle!.fichas_sin_conversacion[0].tel).toBe('5493880000077');
   });
 });

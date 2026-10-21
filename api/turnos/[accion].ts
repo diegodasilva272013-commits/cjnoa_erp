@@ -1999,7 +1999,6 @@ export function esPruebaOEquipo(nombres: (string | null | undefined)[], telefono
 }
 /** Noa guarda cada conversación con id `respaldo-<teléfono>`; las del agente anterior (ElevenLabs) tienen otro id y fueron pruebas. */
 export const esConversacionDeNoa = (c: { conversation_id?: string | null }) => !c?.conversation_id || String(c.conversation_id).startsWith('respaldo-');
-const telEnmascarado = (tel: unknown) => { const d = String(tel ?? '').replace(/\D/g, ''); return d.length > 4 ? `***${d.slice(-4)}` : '***'; };
 
 /** Las citas que cargó el agente de WhatsApp (no las que cargó el equipo a mano). */
 export const soloCitasDelAgente = (ts: any[]) => ts.filter(t => t?.origen === 'agente');
@@ -2411,15 +2410,15 @@ export async function calcularMetricasAgente(db: Db, o: { dias: number | null; a
   });
   // Comprobante del conteo: de dónde sale cada número, con nombres, para poder contrastarlo con lo que la gente ve en las fichas.
   const todasClaves = new Set(filas.map(c => telefonoClave(c.telefono)).filter(Boolean));
-  const { data: fichasPeriodo } = await db.from('leads').select('telefono_clave, nombre, apellido, created_at').gte('created_at', desde).limit(5000);
+  const { data: fichasPeriodo } = await db.from('leads').select('telefono_clave, telefono, nombre, apellido, created_at').gte('created_at', desde).limit(5000);
   const fichas = ((Array.isArray(fichasPeriodo) ? fichasPeriodo : []) as any[]);
   const detalle: DetalleConteo = {
     filas_en_periodo: filas.length,
     de_noa: todas.length,
     agente_anterior: filas.length - todas.length,
     fichas_en_periodo: fichas.length,
-    excluidas: todas.map((c, i) => ({ c, m: motivos[i] })).filter(x => x.m).map(x => ({ nombre: String(x.c.nombre ?? '').trim() || 'Sin nombre', tel: telEnmascarado(x.c.telefono), motivo: x.m as 'equipo' | 'prueba' | 'excluida' })).slice(0, 400),
-    fichas_sin_conversacion: fichas.filter(f => !todasClaves.has(f.telefono_clave)).map(f => ({ nombre: [f.nombre, f.apellido].filter(Boolean).join(' ').trim() || 'Sin nombre', tel: telEnmascarado(f.telefono_clave), creada: f.created_at })).slice(0, 400),
+    excluidas: todas.map((c, i) => ({ c, m: motivos[i] })).filter(x => x.m).map(x => ({ nombre: String(x.c.nombre ?? '').trim() || 'Sin nombre', tel: String(x.c.telefono ?? ''), motivo: x.m as 'equipo' | 'prueba' | 'excluida' })).slice(0, 400),
+    fichas_sin_conversacion: fichas.filter(f => !todasClaves.has(f.telefono_clave)).map(f => ({ nombre: [f.nombre, f.apellido].filter(Boolean).join(' ').trim() || 'Sin nombre', tel: String(f.telefono ?? f.telefono_clave ?? ''), creada: f.created_at })).slice(0, 400),
   };
   return agregarMetricasAgente(personas, { ahoraMs: ahora.getTime(), dias: o.dias, turnosPorDia, detalle });
 }

@@ -58,7 +58,7 @@ export type FilaPersona = {
   campana: string | null; rama: string | null; errores: string[];
 };
 
-/** De dónde sale cada número, con nombres (teléfonos enmascarados), para poder comprobarlo. */
+/** De dónde sale cada número, con nombres y teléfonos completos, para poder comprobarlo. */
 export type DetalleConteo = {
   filas_en_periodo: number; de_noa: number; agente_anterior: number; fichas_en_periodo: number;
   excluidas: { nombre: string; tel: string; motivo: 'equipo' | 'prueba' | 'excluida' }[];

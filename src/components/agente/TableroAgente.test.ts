@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 vi.mock('../../lib/supabase', () => ({ supabase: {} }));
 
-import TableroAgente, { formatearTelefono, type PropsTablero } from './TableroAgente';
+import TableroAgente, { formatearTelefono, numeroParaCopiar, copiarAlPortapapeles, type PropsTablero } from './TableroAgente';
 import AgenteAvatar from './AgenteAvatar';
 import type { InformeMejoras, MetricasAgente } from '../../lib/agentesApi';
 import { agregarMetricasAgente, personaMetrica, evaluarOptimizaciones } from '../../../api/turnos/[accion]';
@@ -210,7 +210,7 @@ describe('tablero de Noa · la tabla de personas', () => {
   });
 
   it('el comprobante del conteo lleva a la tabla y muestra la cuenta', () => {
-    const m2: MetricasAgente = { ...metricas, detalle: { filas_en_periodo: 9, de_noa: 7, agente_anterior: 2, fichas_en_periodo: 8, excluidas: [{ nombre: 'Rodrigo Reyes', tel: '***1234', motivo: 'equipo' }], fichas_sin_conversacion: [{ nombre: 'Sin Conversación', tel: '***0077', creada: hace(5) }] } };
+    const m2: MetricasAgente = { ...metricas, detalle: { filas_en_periodo: 9, de_noa: 7, agente_anterior: 2, fichas_en_periodo: 8, excluidas: [{ nombre: 'Rodrigo Reyes', tel: '5493885551234', motivo: 'equipo' }], fichas_sin_conversacion: [{ nombre: 'Sin Conversación', tel: '5493880000077', creada: hace(5) }] } };
     const html = dibujar(props({ m: m2 }));
     expect(html).toContain('Comprobante del conteo');
     expect(html).toContain('Conversaciones con Noa');
@@ -225,5 +225,45 @@ describe('tablero de Noa · la tabla de personas', () => {
     expect(formatearTelefono('+54 9 388 486-7965')).toBe('+54 9 388 486-7965');
     expect(formatearTelefono('59899123456')).toBe('+59899123456');
     expect(formatearTelefono('')).toBe('—');
+  });
+});
+
+describe('tablero de Noa · números completos y botón de copiar', () => {
+  const fila = (nombre: string, tel: string) => ({
+    nombre, telefono: tel, whatsapp: tel.replace(/\D/g, ''), primer_mensaje: hace(30), ultimo_mensaje: hace(2), recibidos: 4, enviados: 5, contesto: true, estado: 'en_curso' as const, etapa: 'datos',
+    se_enfrio_despues_de: null, esperando_respuesta: false, audios: 0, fotos: 0, documentos: 0, recibos: [], comprobantes: [], datos_de_pago: false, link_mp: false, importe_asignado: false, reserva_mp: false, cita: null, campana: null, rama: null, errores: [],
+  });
+
+  it('cada número de la tabla tiene su botón de copiar, al lado', () => {
+    const m2: MetricasAgente = { ...metricas, personas_detalle: [fila('Marta Gómez', '5493884867965'), fila('Luis Paz', '5493885551122')] };
+    const html = dibujar(props({ m: m2 }));
+    expect(html).toContain('aria-label="Copiar el número de Marta Gómez"');
+    expect(html).toContain('aria-label="Copiar el número de Luis Paz"');
+    expect(html).toContain('+54 9 388 486-7965');
+    expect(html.indexOf('+54 9 388 486-7965')).toBeLessThan(html.indexOf('aria-label="Copiar el número de Marta Gómez"'));
+    expect(html.indexOf('aria-label="Copiar el número de Marta Gómez"')).toBeLessThan(html.indexOf('+54 9 388 555-1122'));
+  });
+
+  it('las listas de "quedaron afuera" y de fichas sin conversación muestran el teléfono completo y también se puede copiar', () => {
+    const m2: MetricasAgente = { ...metricas, detalle: { filas_en_periodo: 9, de_noa: 7, agente_anterior: 2, fichas_en_periodo: 8, excluidas: [{ nombre: 'Rodrigo Reyes', tel: '5493885551234', motivo: 'equipo' }], fichas_sin_conversacion: [{ nombre: 'Sin Conversación', tel: '5493880000077', creada: hace(5) }] } };
+    const html = dibujar(props({ m: m2 }));
+    expect(html).not.toContain('***');
+    expect(html).not.toContain('últimos 4 dígitos');
+  });
+
+  it('el número que se copia está listo para pegar, con el +', () => {
+    expect(numeroParaCopiar('5493884867965')).toBe('+5493884867965');
+    expect(numeroParaCopiar('+54 9 388 486-7965')).toBe('+5493884867965');
+    expect(numeroParaCopiar('')).toBe('');
+  });
+
+  it('copia al portapapeles y avisa si se pudo', async () => {
+    const copiados: string[] = [];
+    vi.stubGlobal('navigator', { clipboard: { writeText: async (t: string) => { copiados.push(t); } } });
+    expect(await copiarAlPortapapeles('+5493884867965')).toBe(true);
+    expect(copiados).toEqual(['+5493884867965']);
+    vi.stubGlobal('navigator', { clipboard: { writeText: async () => { throw new Error('sin permiso'); } } });
+    expect(await copiarAlPortapapeles('x')).toBe(false); // sin portapapeles ni página: no se pudo, y no rompe
+    vi.unstubAllGlobals();
   });
 });
