@@ -3015,6 +3015,9 @@ async function agente(req: VercelRequest, res: VercelResponse, db: Db, raw: stri
   }
   if (req.method !== 'POST') return res.status(405).json({ error: 'Método no permitido' });
 
+  // AGENTE EN PAUSA (pedido del dueño): no contesta nada. Para reanudar: variable AGENTE_PAUSADO=0 en Vercel (o sacar este bloque).
+  if (!['0', 'false', 'no'].includes(env('AGENTE_PAUSADO').toLowerCase())) { console.log('[agente] PAUSADO: mensaje recibido y no atendido'); return res.status(200).send('OK'); }
+
   const faltan = (kapso ? ['KAPSO_API_KEY', 'KAPSO_WEBHOOK_SECRET'] : ['META_APP_SECRET', 'WHATSAPP_TOKEN', 'WHATSAPP_PHONE_ID']).filter(k => !env(k));
   if (!claveOpenAI()) faltan.push('api_openai (u OPENAI_API_KEY)');
   if (faltan.length) return res.status(500).json({ error: `Faltan variables: ${faltan.join(', ')}` });
