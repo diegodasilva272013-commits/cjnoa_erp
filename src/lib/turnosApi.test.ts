@@ -506,31 +506,31 @@ describe('agente · reglas de plata (notaDeImagen)', () => {
     expect(n).toContain('Consulta sin cargo con el Dr. Alejandro Reyes');
     expect(n).not.toContain('$125.000'); // el monto del descuento no le llega al modelo
   });
-  it('descuento menor a $100.000: consulta de $100.000 con reserva de $50.000', () => {
-    const n = notaDeImagen(rec(45000));
-    expect(n).not.toContain('$45.000');
-    expect(n).toContain('valor de $100.000');
-    expect(n).toContain('reserva de $50.000');
-    expect(n).toContain('saldo de $50.000');
+  it('cualquier descuento (aunque sea chico): consulta sin cargo, sin valor ni reserva', () => {
+    for (const monto of [20000, 45000, 100000]) {
+      const n = notaDeImagen(rec(monto));
+      expect(n).toContain('SIN CARGO');
+      expect(n).not.toContain('reserva de');
+      expect(n).not.toContain('valor de');
+      expect(n).not.toContain(`$${String(monto).replace(/\B(?=(\d{3})+$)/g, '.')}`);
+    }
   });
-  it('exactamente $100.000 no supera el umbral', () => expect(notaDeImagen(rec(100000))).toContain('reserva de $50.000'));
-  it('si el recibo nombra Ganancias o Art. 9 pero no se lee el importe, SÍ tiene el descuento', () => {
+  it('si el recibo nombra Ganancias o Art. 9 pero no se lee el importe, SÍ tiene el descuento y la consulta es sin cargo', () => {
     const r = { ...rec(null), menciona_ganancias: true };
-    expect(clasificarRecibo(r).categoria).toBe('descuento_sin_importe');
+    expect(clasificarRecibo(r)).toMatchObject({ categoria: 'art9_sin_cargo', valor: 0, reserva: 0 });
     const n = notaDeImagen(r);
-    expect(n).toContain('SÍ figura el descuento');
+    expect(n).toContain('SIN CARGO');
     expect(n).not.toContain('No se detectaron descuentos');
-    expect(clasificarRecibo({ ...rec(null), menciona_articulo_9: true }).categoria).toBe('descuento_sin_importe');
-    expect(clasificarRecibo({ ...rec(80000), menciona_ganancias: true }).categoria).toBe('art9_con_cargo');
+    expect(clasificarRecibo({ ...rec(null), menciona_articulo_9: true }).categoria).toBe('art9_sin_cargo');
     expect(clasificarRecibo(rec(null)).categoria).toBe('sin_descuento');
   });
-  it('clasifica el recibo por el descuento individual más alto', () => {
-    expect(clasificarRecibo(rec(100001))).toMatchObject({ categoria: 'art9_sin_cargo', valor: 0, reserva: 0 });
-    expect(clasificarRecibo(rec(100000))).toMatchObject({ categoria: 'art9_con_cargo', valor: 100000, reserva: 50000, descuento: 100000 });
+  it('sin recibo con descuento no hay consulta sin cargo; con cualquier descuento sí', () => {
+    expect(clasificarRecibo(rec(1))).toMatchObject({ categoria: 'art9_sin_cargo', valor: 0, reserva: 0 });
+    expect(clasificarRecibo(rec(100000))).toMatchObject({ categoria: 'art9_sin_cargo', valor: 0, reserva: 0, descuento: 100000 });
     expect(clasificarRecibo(rec(20000, 130000))).toMatchObject({ categoria: 'art9_sin_cargo', descuento: 130000 });
     expect(clasificarRecibo(rec(null))).toMatchObject({ categoria: 'sin_descuento' });
   });
-  it('toma el mayor entre Artículo 9 y Ganancias', () => expect(notaDeImagen(rec(30000, 150000))).toContain('sin cargo'));
+  it('toma el mayor entre Artículo 9 y Ganancias', () => expect(notaDeImagen(rec(30000, 150000))).toContain('SIN CARGO'));
   it('sin descuentos', () => expect(notaDeImagen(rec(null))).toContain('No se detectaron descuentos'));
   it('transferencia válida', () => {
     const n = notaDeImagen(trf(250000), 'Arturo Reyes', 50000);
@@ -1223,7 +1223,7 @@ describe('agente · no se agenda sin reserva abonada', () => {
   });
 
   it('si todavía no está definido qué consulta le corresponde, no agenda', async () => {
-    for (const lead of [null, {}, { categoria_recibo: 'descuento_sin_importe' }]) {
+    for (const lead of [null, {}]) {
       const { db, tablas } = mundo(lead);
       const r: any = await ejecutarHerramienta(db, 'agendar_turno', pedir, base);
       expect(r.status).toBe('requiere_reserva');
@@ -2582,5 +2582,15 @@ describe('CJ · métricas de campaña reales y análisis sin cifras inventadas',
     expect(r.ok).toBe(true);
     expect(r.analisis).toBeNull();
     expect(r.texto_metricas).toBeTruthy();
+  });
+});
+
+describe('agente · prompt de Artículo 9 / Ganancias sin cargo en todos los casos', () => {
+  it('el prompt dice sin cargo en todos los casos, exige el recibo sin excepción y no deja ninguna regla de precio para este flujo', () => {
+    expect(PROMPT_AGENTE).toContain('es SIN CARGO en TODOS los casos');
+    expect(PROMPT_AGENTE).toContain('El ÚNICO requisito, sin excepción, es que mande el recibo');
+    expect(PROMPT_AGENTE).toContain('NO se ofrecen horarios ni se agenda');
+    expect(PROMPT_AGENTE).toContain('Artículo 9 / Ganancias NUNCA lleva reserva');
+    expect(PROMPT_AGENTE).not.toMatch(/umbral|Si el sistema indica consulta con valor y reserva|Art\. 9 \/ Ganancias con valor/);
   });
 });
