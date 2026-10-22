@@ -9,5 +9,5 @@ preview-login-ok.png
 .vercel
 .env*.local
 
-# respaldos de limpiezas (datos de clientes, no se versionan)
-backups/
+# graphify
+graphify-out/
