@@ -3059,7 +3059,8 @@ async function agente(req: VercelRequest, res: VercelResponse, db: Db, raw: stri
   const trabajo = (async () => {
     let procesados = 0;
     const entrantes = kapso ? extraerMensajesKapso(payload) : extraerMensajes(payload);
-    if (entrantes.length) deps.prompt = await promptDelAgente(db, env('AGENTE_PROMPT') || env('RESPALDO_PROMPT') || PROMPT_AGENTE);
+    // El prompt del código es el que manda (el de la base solo si AGENTE_PROMPT_DB=1): así lo que se cambia acá es lo que contesta el agente.
+    if (entrantes.length) { const delCodigo = env('AGENTE_PROMPT') || env('RESPALDO_PROMPT') || PROMPT_AGENTE; deps.prompt = env('AGENTE_PROMPT_DB') === '1' ? await promptDelAgente(db, delCodigo) : delCodigo; }
     for (const m of entrantes) {
       if (kapso) emisorKapso = m.phoneNumberId || '';
       try { await procesarMensaje(deps, m); procesados++; }
