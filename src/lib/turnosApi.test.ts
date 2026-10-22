@@ -581,7 +581,7 @@ describe('agente · OpenAI', () => {
     expect(r.content[1].input).toEqual({});
   });
   it('el prompt por defecto trae el flujo del brief y no filtra los precios', () => {
-    expect(PROMPT_AGENTE).toContain('Hola, soy Carina, del Centro Jurídico NOA.');
+    expect(PROMPT_AGENTE).toContain('Hola, soy Karina, del Centro Jurídico NOA.');
     expect(PROMPT_AGENTE).toContain('Nunca afirmes ser una persona ni lo niegues');
     expect(PROMPT_AGENTE).toContain('definir_tipo_consulta');
     expect(PROMPT_AGENTE).toContain('NUNCA la pidas de entrada');
