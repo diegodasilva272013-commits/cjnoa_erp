@@ -3,7 +3,7 @@ import { createHmac } from 'node:crypto';
 import handler, {
   clasificarRecibo, TIPOS_CONSULTA, promesaSinCumplir, separarDatosPago, mensajeApurado,
   aMin, limpiarSecreto, camposDeLead, etapaAutomatica, fusionarLead, registrarMensaje, upsertLead, firmaMetaValida, firmaKapsoValida, extraerMensajesKapso, extraerMensajes, aMensajesLLM, procesarMensaje, filaDePersona, esConversacionDeNoa, clasificarMensajeCliente, categoriaMensajeAgente, personaMetrica, agregarMetricasAgente, calcularMetricasAgente, evaluarOptimizaciones, validarOptimizaciones, ejecutarOptimizacion, type MetricasAgente, motivoDeExclusion, resumenEnPalabras, ejecutarAnalista, revisarAnalisisAutomatico, codigosDeEstilo, etapaEmbudo, analizarConversacion, calcularMetricas, mascararDatos, textoParaEtiquetar, validarEtiquetas, promptDelAgente, limpiarCachePrompt, accionAgentes, problemasDeEstilo, textoNoLegible, firmaMercadoPagoValida, importeTexto, importeLindo, asignarImporteUnico, procesarPagoMP, montoMercadoPago, modalidadElegida, enmascarar, neutralizarMarcas, salidaInsegura, superaLimite, urlMediaSegura, resumenTurnosVigentes, HERRAMIENTAS_LLM, cuerpoNotaDeVoz, eligioTransferencia, notaDeImagen, montoValidadoDe, quitarEtiquetas, aMensajesOpenAI, deOpenAI, ejecutarHerramienta, PROMPT_AGENTE, type Deps, telefonoClave, historialDe, inferirNombre, normalizarFecha, normalizarHora, bloquesDelDia, huecosLibres, localDe, resolverProfesional, diaSemanaISO, fechaValida,
-  registrarMensajeHumano, extraerHumanosKapso, responderDesdeErp, resumenCampana, analizarCampana, analisisSoloConCifrasReales,
+  registrarSinResponder, registrarMensajeHumano, extraerHumanosKapso, responderDesdeErp, resumenCampana, analizarCampana, analisisSoloConCifrasReales,
   type Bloque,
 } from '../../api/turnos/[accion]';
 
@@ -2592,5 +2592,18 @@ describe('agente · prompt de Artículo 9 / Ganancias sin cargo en todos los cas
     expect(PROMPT_AGENTE).toContain('NO se ofrecen horarios ni se agenda');
     expect(PROMPT_AGENTE).toContain('Artículo 9 / Ganancias NUNCA lleva reserva');
     expect(PROMPT_AGENTE).not.toMatch(/umbral|Si el sistema indica consulta con valor y reserva|Art\. 9 \/ Ganancias con valor/);
+  });
+});
+
+describe('agente en pausa · guarda y no contesta', () => {
+  it('guarda el mensaje del cliente (texto o archivo) sin repetirlo y sin leer nada', async () => {
+    const { db, estado } = dbConversaciones();
+    expect(await registrarSinResponder(db, { id: 'w1', from: '5493884867965', nombre: 'Elisa', texto: 'Hola, quiero información', esTexto: true })).toBe('guardado');
+    expect(await registrarSinResponder(db, { id: 'w2', from: '5493884867965', nombre: 'Elisa', texto: '', esTexto: false, tipo: 'image', caption: 'mi recibo' })).toBe('guardado');
+    expect(await registrarSinResponder(db, { id: 'w1', from: '5493884867965', nombre: 'Elisa', texto: 'Hola, quiero información', esTexto: true })).toBe('duplicado');
+    const m = estado.fila.mensajes;
+    expect(m.map((x: any) => x.texto)).toEqual(['Hola, quiero información', '[El cliente envió una foto con el texto: "mi recibo"]']);
+    expect(m.every((x: any) => x.from === 'cliente')).toBe(true);
+    expect(estado.upserts[0].conversation_id).toBe('respaldo-5493884867965');
   });
 });

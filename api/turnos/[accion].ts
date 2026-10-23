@@ -508,6 +508,23 @@ export async function registrarMensajeHumano(db: Db, p: { telefono: string; text
   return { code: 200, body: { registrado: true } };
 }
 
+/** Agente en pausa: el mensaje del cliente se guarda igual (conversación y ficha) pero NO se contesta, no se lee ninguna foto ni se llama a ningún modelo. */
+export async function registrarSinResponder(db: Db, m: MsgEntrante): Promise<'guardado' | 'duplicado'> {
+  const conversationId = `respaldo-${m.from}`;
+  const { data: fila, error: eLeer } = await db.from('conversaciones_whatsapp').select('mensajes, nombre').eq('conversation_id', conversationId).maybeSingle();
+  if (eLeer) throw new Error(`pausa leer: ${eLeer.message}`);
+  const previos: MsgGuardado[] = Array.isArray((fila as any)?.mensajes) ? (fila as any).mensajes : [];
+  if (previos.some(x => x.wid === m.id)) return 'duplicado';
+  const que = m.tipo === 'audio' ? 'un audio' : m.tipo === 'image' ? 'una foto' : m.tipo === 'document' ? 'un documento' : '';
+  const texto = que ? `[El cliente envió ${que}${m.caption ? ` con el texto: "${neutralizarMarcas(m.caption)}"` : ''}]` : neutralizarMarcas(m.texto);
+  const upd: Record<string, unknown> = { conversation_id: conversationId, telefono: m.from, mensajes: [...previos, { from: 'cliente', texto, wid: m.id, at: Date.now() }], updated_at: new Date().toISOString() };
+  if (m.nombre && !(fila as any)?.nombre) upd.nombre = m.nombre;
+  const { error } = await db.from('conversaciones_whatsapp').upsert(upd, { onConflict: 'conversation_id' });
+  if (error) throw new Error(`pausa guardar: ${error.message}`);
+  await upsertLeadSeguro(db, m.from, camposDeLead({ ...(m.nombre ? { nombre: m.nombre } : {}), ...(m.referral ? { datos: { anuncio_origen: m.referral } } : {}) }));
+  return 'guardado';
+}
+
 /** Mensajes que una persona escribió desde la app del celular (coexistencia de Kapso). No son del cliente ni del agente. */
 export function extraerHumanosKapso(payload: any): { telefono: string; texto: string; wid: string }[] {
   const items: any[] = payload?.batch === true && Array.isArray(payload?.data) ? payload.data : [payload];
@@ -3015,9 +3032,6 @@ async function agente(req: VercelRequest, res: VercelResponse, db: Db, raw: stri
   }
   if (req.method !== 'POST') return res.status(405).json({ error: 'Método no permitido' });
 
-  // AGENTE EN PAUSA (pedido del dueño): no contesta nada. Para reanudar: variable AGENTE_PAUSADO=0 en Vercel (o sacar este bloque).
-  if (!['0', 'false', 'no'].includes(env('AGENTE_PAUSADO').toLowerCase())) { console.log('[agente] PAUSADO: mensaje recibido y no atendido'); return res.status(200).send('OK'); }
-
   const faltan = (kapso ? ['KAPSO_API_KEY', 'KAPSO_WEBHOOK_SECRET'] : ['META_APP_SECRET', 'WHATSAPP_TOKEN', 'WHATSAPP_PHONE_ID']).filter(k => !env(k));
   if (!claveOpenAI()) faltan.push('api_openai (u OPENAI_API_KEY)');
   if (faltan.length) return res.status(500).json({ error: `Faltan variables: ${faltan.join(', ')}` });
@@ -3041,6 +3055,15 @@ async function agente(req: VercelRequest, res: VercelResponse, db: Db, raw: stri
     }
   }
   if (kapso && evento && evento !== 'whatsapp.message.received') return res.status(200).send('OK');
+
+  // AGENTE EN PAUSA (pedido del dueño): se guarda todo lo que llega y no se contesta nada. Para reanudar: AGENTE_PAUSADO=0 en Vercel.
+  if (!['0', 'false', 'no'].includes(env('AGENTE_PAUSADO').toLowerCase())) {
+    for (const m of (kapso ? extraerMensajesKapso(payload) : extraerMensajes(payload))) {
+      try { await registrarSinResponder(db, m); } catch (e) { console.error('[agente] pausa: no se pudo guardar', m.id, e); }
+    }
+    console.log('[agente] PAUSADO: mensajes guardados, sin responder');
+    return res.status(200).send('OK');
+  }
 
   const deps: Deps = {
     db,
