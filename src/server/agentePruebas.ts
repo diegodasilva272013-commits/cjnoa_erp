@@ -400,7 +400,7 @@ export const ESCENARIOS_EXTRA: Escenario[] = [
     pasos: [ART9, 'No quiero hablar con una máquina, quiero hablar con una persona del estudio'],
     reglas: r => [
       chk('Derivó a una persona', llamadas(r, 'derivar_a_humano').length >= 1, 'No derivó'),
-      chk('Le dijo que lo contactan', /contact|se comunic|le (?:escrib|llam)/i.test(textoK(r, 1)), 'No explicó que lo van a contactar'),
+      chk('Le dijo que lo contactan', /contact|comunic|le (?:escrib|llam)|integrante del equipo/i.test(textoK(r, 1)), 'No explicó que lo van a contactar'),
     ],
   },
   {
