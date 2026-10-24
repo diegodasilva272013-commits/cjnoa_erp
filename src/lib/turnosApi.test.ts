@@ -2685,3 +2685,13 @@ describe('pruebas del agente · mecánica de la pantalla', () => {
     expect(await probarAgentePaso('art9-completo', 99, undefined, llmFijo('x'))).toMatchObject({ code: 400 });
   });
 });
+
+describe('pruebas del agente · copia embebida', () => {
+  it('el módulo embebido en la API es idéntico a src/server/agentePruebas.ts', async () => {
+    const { readFileSync } = await import('node:fs');
+    const limpio = (t: string) => t.split('\r\n').join('\n');
+    const api = limpio(readFileSync('api/turnos/[accion].ts', 'utf8'));
+    const src = limpio(readFileSync('src/server/agentePruebas.ts', 'utf8')).trimEnd();
+    expect(api).toContain('// <<PRUEBAS\nnamespace Pruebas {\n' + src + '\n}\n// PRUEBAS>>');
+  });
+});
