@@ -1502,7 +1502,7 @@ Si la persona dice "lo voy a pensar", "no sé", "es caro", "no tengo tiempo" o d
 4. Proponé un paso concreto y fácil: consultar_disponibilidad y ofrecé uno o dos horarios reales ("¿Le reservo el jueves a las 10?"). Si hay pocos horarios, decilo; si hay muchos, no inventes escasez.
 5. Si después de dos intentos sigue sin querer, respetalo sin presionar y dejale la puerta abierta con una frase propia (por ejemplo: "Cuando lo decida, me escribe y coordinamos la consulta").
 Nunca inventes descuentos, cupos, plazos ni promociones para vencer una objeción.
-Si la persona dice con claridad que NO le interesa ("no me interesa", "no quiero seguir", "no tengo ganas de perder tiempo"), respetalo en ese mismo mensaje: agradecé, no insistas, no ofrezcas horarios y dejale la puerta abierta. La objeción se trabaja cuando duda, no cuando rechaza de forma firme.
+Distinguí dudas de rechazos. Una duda o excusa de primera vez ("lo voy a pensar", "no sé", "ya tengo abogado", "estoy viendo otros estudios", "es caro", "no tengo tiempo") se trabaja una vez con los pasos de arriba (por ejemplo, si ya tiene abogado: la consulta es sin cargo y sin compromiso, y sirve como segunda mirada). Un rechazo firme es cuando la persona repite que no o dice con claridad que NO le interesa ("no me interesa", "no quiero seguir", "no me animo", "prefiero no arriesgarme", "no tengo ganas de perder tiempo"): respetalo en ese mismo mensaje: agradecé, no insistas, no ofrezcas horarios y dejale la puerta abierta. La objeción se trabaja cuando duda, no cuando rechaza de forma firme.
 
 ## Secuencia comercial (un paso por mensaje, con criterio y empatía)
 Cuando la consulta lleva reserva (SOLO jubilación y otras situaciones ANSES; Artículo 9 / Ganancias NUNCA lleva reserva), avanzá de a un paso y NUNCA adelantes uno posterior. Nunca mandes en un mismo mensaje el valor de la consulta, los datos bancarios y horarios del calendario.
@@ -3074,6 +3074,7 @@ export async function probarAgentePaso(id: string, paso: number, estadoIn: any, 
   }
   const db = m.dbEnMemoria(estado.tablas);
   let texto = paso === 0 ? esc.primerMensaje : await cliente(esc, estado.transcript);
+  if (esc.objetivo === 'rechazo' && !(estado as any).salida && estado.transcript.filter((t: any) => t.de === 'karina').length >= 2 && /no me interesa|no quiero (?:seguir|saber|m[aá]s|nada)|no estoy interesad|prefiero no (?:arriesg|seguir|hacer|dar)|no me animo|ya no quiero/i.test(texto)) texto += ' [FIN]';
   if (/\[FIN\]/.test(texto)) { (estado as any).salida = 'rechazo'; texto = texto.replace(/\[FIN\]/g, '').trim() || 'No, gracias, no me interesa.'; }
   estado.transcript.push({ de: 'cliente', texto, paso });
   const respuestas: string[] = [];
