@@ -3,7 +3,7 @@ import { createHmac } from 'node:crypto';
 import handler, {
   clasificarRecibo, TIPOS_CONSULTA, promesaSinCumplir, separarDatosPago, mensajeApurado,
   aMin, limpiarSecreto, camposDeLead, etapaAutomatica, fusionarLead, registrarMensaje, upsertLead, firmaMetaValida, firmaKapsoValida, extraerMensajesKapso, extraerMensajes, aMensajesLLM, procesarMensaje, filaDePersona, esConversacionDeNoa, clasificarMensajeCliente, categoriaMensajeAgente, personaMetrica, agregarMetricasAgente, calcularMetricasAgente, evaluarOptimizaciones, validarOptimizaciones, ejecutarOptimizacion, type MetricasAgente, motivoDeExclusion, resumenEnPalabras, ejecutarAnalista, revisarAnalisisAutomatico, codigosDeEstilo, etapaEmbudo, analizarConversacion, calcularMetricas, mascararDatos, textoParaEtiquetar, validarEtiquetas, promptDelAgente, limpiarCachePrompt, accionAgentes, problemasDeEstilo, textoNoLegible, firmaMercadoPagoValida, importeTexto, importeLindo, asignarImporteUnico, procesarPagoMP, montoMercadoPago, modalidadElegida, enmascarar, neutralizarMarcas, salidaInsegura, superaLimite, urlMediaSegura, resumenTurnosVigentes, HERRAMIENTAS_LLM, cuerpoNotaDeVoz, eligioTransferencia, notaDeImagen, montoValidadoDe, quitarEtiquetas, aMensajesOpenAI, deOpenAI, ejecutarHerramienta, PROMPT_AGENTE, type Deps, telefonoClave, historialDe, inferirNombre, normalizarFecha, normalizarHora, bloquesDelDia, huecosLibres, localDe, resolverProfesional, diaSemanaISO, fechaValida,
-  registrarSinResponder, quitarFrasesHechas, REGEX_CLICHE, condicionesArt9Confirmadas, campanaDelTexto, probarAgentePaso, condicionDeAgenda, registrarMensajeHumano, extraerHumanosKapso, responderDesdeErp, resumenCampana, analizarCampana, analisisSoloConCifrasReales,
+  registrarSinResponder, horasEnTexto, quitarFrasesHechas, REGEX_CLICHE, condicionesArt9Confirmadas, campanaDelTexto, probarAgentePaso, condicionDeAgenda, registrarMensajeHumano, extraerHumanosKapso, responderDesdeErp, resumenCampana, analizarCampana, analisisSoloConCifrasReales,
   type Bloque,
 } from '../../api/turnos/[accion]';
 
@@ -691,12 +691,12 @@ describe('agente · seguimiento (no se queda en una promesa)', () => {
     const { d, enviados } = deps(db, {
       llm: async () => {
         llamadas++;
-        return llamadas === 1 ? texto('Perfecto, voy a chequear la disponibilidad ahora mismo.') : texto('El Dr. Fabricio tiene lugar el martes 20 a las 10:00. ¿Le sirve?');
+        return llamadas === 1 ? texto('Perfecto, voy a chequear la disponibilidad ahora mismo.') : texto('El Dr. Fabricio atiende los martes. ¿Le sirve?');
       },
     });
     await procesarMensaje(d, msg);
     expect(llamadas).toBe(2);
-    expect(enviados).toEqual(['El Dr. Fabricio tiene lugar el martes 20 a las 10:00. ¿Le sirve?']);
+    expect(enviados).toEqual(['El Dr. Fabricio atiende los martes. ¿Le sirve?']);
   });
   it('reintenta una sola vez aunque siga prometiendo', async () => {
     const { db } = dbConversaciones();
@@ -2876,3 +2876,34 @@ describe('frases hechas · si todo el mensaje eran frases hechas se reescriben',
   });
 });
 
+
+describe('agente · horarios: solo los que devolvió la agenda', () => {
+  it('detecta los horarios de un texto', () => {
+    expect(horasEnTexto('Tengo lugar a las 9:00, 9:30 o a las 15 del lunes, y $25.000 de reserva')).toEqual(['09:00', '09:30', '15:00']);
+  });
+  it('si el modelo ofrece un horario que la agenda no devolvió, se corrige; y si insiste, se reemplaza por los reales', async () => {
+    const { db } = dbConversaciones();
+    let n = 0;
+    const { d, enviados } = deps(db, {
+      llm: async () => {
+        n++;
+        if (n === 1) return { stop_reason: 'tool_use', content: [{ type: 'tool_use', id: 't1', name: 'consultar_disponibilidad', input: { profesional: 'alejandro' } }] } as any;
+        return texto('Tengo lugar a las 14:00, 14:30 o 15:00.');
+      },
+      ejecutar: async () => ({ proximos_dias: [{ fecha: '2099-01-05', horarios_disponibles: ['14:00', '14:30'] }] }),
+    });
+    await procesarMensaje(d, msg);
+    expect(enviados[0]).toBe('Tengo lugar a las 14:00, 14:30. ¿Cuál le viene mejor?');
+    expect(enviados[0]).not.toContain('15:00');
+  });
+  it('un horario que sí devolvió la agenda pasa sin tocarse', async () => {
+    const { db } = dbConversaciones();
+    let n = 0;
+    const { d, enviados } = deps(db, {
+      llm: async () => (n++ === 0 ? { stop_reason: 'tool_use', content: [{ type: 'tool_use', id: 't1', name: 'consultar_disponibilidad', input: {} }] } as any : texto('Tengo lugar el lunes a las 14:00 o 14:30. ¿Cuál le viene mejor?')),
+      ejecutar: async () => ({ proximos_dias: [{ fecha: '2099-01-05', horarios_disponibles: ['14:00', '14:30'] }] }),
+    });
+    await procesarMensaje(d, msg);
+    expect(enviados[0]).toBe('Tengo lugar el lunes a las 14:00 o 14:30. ¿Cuál le viene mejor?');
+  });
+});

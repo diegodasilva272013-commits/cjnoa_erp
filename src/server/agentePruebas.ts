@@ -216,6 +216,8 @@ const sinUrgenciaFalsa = (r: Resultado): Chequeo => chk('No presionó con urgenc
 const sinTurno = (r: Resultado): Chequeo => chk('No agendó ningún turno', turnosAgendados(r).length === 0, `Agendó ${turnosAgendados(r).length}`);
 const puertaAbierta = (r: Resultado): Chequeo => {
   const ultimo = [...r.transcript].reverse().find(t => t.de === 'karina')?.texto ?? '';
+  // Si la persona dijo que no desde el segundo mensaje, el agente todavía no pudo trabajar la objeción: se le exige respeto solo cuando hubo margen.
+  if (r.transcript.filter(t => t.de === 'karina').length < 4) return chk('Despidió con respeto (sin volver a ofrecer ni preguntar nada)', true);
   if (/\d{1,2}[:.]\d{2}|¿[^¿?]*(?:reserv|agend|coordin|horario)[^¿?]*\?/i.test(ultimo)) return chk('Respetó el "no" (no volvió a ofrecer horarios ni a insistir en el último mensaje)', false, 'Siguió insistiendo después de un "no" firme');
   return chk('Despidió con respeto (sin volver a ofrecer ni preguntar nada)', ultimo.trim().length >= 15 && !/\?\s*$/.test(ultimo.trim()), 'No se despidió con respeto');
 };

@@ -1520,7 +1520,7 @@ Distinguí dudas de rechazos. Una duda o excusa de primera vez ("lo voy a pensar
 Cuando la consulta lleva reserva (SOLO jubilación y otras situaciones ANSES; Artículo 9 / Ganancias NUNCA lleva reserva), avanzá de a un paso y NUNCA adelantes uno posterior. Nunca mandes en un mismo mensaje el valor de la consulta, los datos bancarios y horarios del calendario.
 1. Cuando la persona quiere agendar, decí el valor (el que te dio definir_tipo_consulta), que la reserva es la mitad y que el resto se abona el día de la consulta, y preguntá cómo prefiere abonar la reserva: transferencia o efectivo. Todavía NO pases datos bancarios ni horarios.
 2. Solo si elige transferencia: si tenés la herramienta pedir_reserva_transferencia, usala: te da el importe EXACTO con centavos y los datos; decile que transfiera exactamente ese importe, que el pago se confirma solo y que se lo avisamos apenas se acredite (no hace falta comprobante). Pasá siempre también los datos (Alias, CVU y Titular), cada uno en su propia línea con el formato "Alias: ...", sin viñetas ni negritas. Si no tenés esa herramienta, pasale los datos para transferir (alias, CVU y titular) con el importe de la reserva y pedile el comprobante. Nada de horarios todavía.
-3. Si elige efectivo: explicale que puede acercarse a las oficinas, previo acuerdo de día y hora, para abonar la reserva ahí y dejar el turno confirmado; preguntale cuándo le queda cómodo y coordiná con la agenda.
+3. Si elige efectivo: explicale que abona la reserva en las oficinas. El turno se agenda en este mismo paso: preguntale qué día o franja le queda cómodo, usá consultar_disponibilidad, ofrecé horarios reales y, cuando elija, usá agendar_turno. Nunca des por hecho un encuentro ("nos vemos") sin haber agendado.
 4. Solo después de que el sistema valide el comprobante: agradecé que recibieron el pago y preguntá cuándo le quedaría más cómodo coordinar la consulta (sin listar el calendario). Recién con su respuesta consultá la disponibilidad.
 La consulta de Artículo 9 / Ganancias no pasa por estos pasos: directo a preguntar cuándo le queda cómodo.
 
@@ -1602,6 +1602,14 @@ function sistema(prompt: string, hist: Awaited<ReturnType<typeof historialDe>>, 
 
 /** Procesa un mensaje entrante: lo entiende, arma contexto, deja al modelo usar herramientas, contesta y guarda la conversación. */
 /** El modelo prometió verificar o chequear algo en vez de hacerlo (y no preguntó nada): hay que obligarlo a cumplir en el mismo turno. */
+/** Horarios que aparecen en un texto, como HH:MM ("9:30", "09:30", "a las 15"). */
+export function horasEnTexto(txt: string): string[] {
+  const out = new Set<string>();
+  for (const m of txt.matchAll(/\b(\d{1,2})[:.](\d{2})\b/g)) out.add(`${m[1].padStart(2, '0')}:${m[2]}`);
+  for (const m of txt.matchAll(/\ba\s+las\s+(\d{1,2})(?![\d:.])/gi)) out.add(`${m[1].padStart(2, '0')}:00`);
+  return [...out];
+}
+
 /** La persona dice con claridad que no le interesa (sin condicionales ni preguntas). */
 export function esRechazoFirme(x: string): boolean {
   return !/\?/.test(x) && !/\bsi\b[^.!]{0,70}(?:no me interesa|no quiero)/i.test(x)
@@ -1610,7 +1618,7 @@ export function esRechazoFirme(x: string): boolean {
 
 /** El texto da por hecho un turno ("ya quedó agendada", "nos vemos mañana a las 16"). */
 export function afirmaTurnoAgendado(txt: string): boolean {
-  return /qued[oó]\s+agendad|ya\s+est[aá]\s+agendad|est[aá]\s+confirmad[ao]|(?:su|la)\s+consulta\s+(?:es|queda)\s+(?:el|este|ma[ñn]ana|pasado)|nos\s+vemos\s+(?:el|este|ma[ñn]ana|pasado|ese|entonces)|lo\s+espero\s+(?:el|ma[ñn]ana)|la\s+espero\s+(?:el|ma[ñn]ana)|su\s+turno\s+(?:es|queda)/i.test(txt);
+  return /qued[oó]\s+agendad|ya\s+est[aá]\s+agendad|est[aá]\s+confirmad[ao]|(?:su|la)\s+consulta\s+(?:es|queda)\s+(?:el|este|ma[ñn]ana|pasado)|nos\s+vemos|lo\s+espero\s+(?:el|ma[ñn]ana)|la\s+espero\s+(?:el|ma[ñn]ana)|su\s+turno\s+(?:es|queda)/i.test(txt);
 }
 
 export function promesaSinCumplir(txt: string): boolean {
@@ -1703,7 +1711,10 @@ export async function procesarMensaje(deps: Deps, m: MsgEntrante) {
   let reintentoApuro = false;
   let reintentoEstilo = false;
   let reintentoAgenda = false;
+  let reintentoHoras = false;
   let agendoOk = false;
+  const horasAgenda = new Set<string>();
+  const horasPermitidas = new Set<string>([...horasEnTexto(textosCliente.join(' ')), ...vigentes.map(v => String(v.hora_consulta ?? '').slice(0, 5))]);
   let ultimoTexto = '';
   try {
     for (let i = 0; i < MAX_VUELTAS_HERRAMIENTAS + 2; i++) {
@@ -1722,6 +1733,14 @@ export async function procesarMensaje(deps: Deps, m: MsgEntrante) {
           reintentoAgenda = true;
           mensajes.push({ role: 'assistant', content: txt });
           mensajes.push({ role: 'user', content: '[SISTEMA ERP: Todavía NO se agendó ningún turno: no digas que quedó agendado ni que se ven. Si la persona ya eligió día y hora y se puede agendar, usá agendar_turno ahora y confirmá solo si devuelve success; si falta algo (la reserva, el día, la hora), pedilo con amabilidad.]' });
+          continue;
+        }
+        // Nunca se ofrece un horario que la agenda no devolvió.
+        const horasMalas = txt ? horasEnTexto(txt).filter(h => !horasPermitidas.has(h)) : [];
+        if (horasMalas.length && !reintentoHoras) {
+          reintentoHoras = true;
+          mensajes.push({ role: 'assistant', content: txt });
+          mensajes.push({ role: 'user', content: `[SISTEMA ERP: Mencionaste horarios que la agenda no devolvió (${horasMalas.join(', ')}). Ofrecé SOLO horarios que devolvió consultar_disponibilidad${horasAgenda.size ? ': ' + [...horasAgenda].slice(0, 12).join(', ') : ' (todavía no la consultaste: consultala ahora)'}.]` });
           continue;
         }
         // Un paso por mensaje: datos bancarios y horarios del calendario nunca juntos.
@@ -1755,6 +1774,7 @@ export async function procesarMensaje(deps: Deps, m: MsgEntrante) {
         catch (e) { console.error('[agente] herramienta', b.name, JSON.stringify(b.input ?? {}).slice(0, 400), e); out = { error: e instanceof Error ? e.message : 'falló la herramienta' }; }
         if ((out as any)?.error || (out as any)?.status === 'conflict') console.warn('[agente] herramienta sin éxito', b.name, JSON.stringify(out).slice(0, 300));
         if ((b.name === 'agendar_turno' || b.name === 'reprogramar_turno') && (out as any)?.status === 'success') agendoOk = true;
+        if (b.name === 'consultar_disponibilidad' || b.name === 'agendar_turno' || b.name === 'reprogramar_turno' || b.name === 'consultar_mis_turnos') for (const h of horasEnTexto(JSON.stringify(out).replace(/"/g, ' '))) { horasPermitidas.add(h); if (b.name === 'consultar_disponibilidad') horasAgenda.add(h); }
         resultados.push({ type: 'tool_result', tool_use_id: b.id, content: JSON.stringify(out) });
       }
       mensajes.push({ role: 'user', content: resultados });
@@ -1764,6 +1784,8 @@ export async function procesarMensaje(deps: Deps, m: MsgEntrante) {
   }
   if (!respuesta && ultimoTexto) respuesta = ultimoTexto; // si se agotaron las vueltas, mejor el último mensaje que el aviso genérico
   if (respuesta) respuesta = quitarFrasesHechas(respuesta).replace(/\*\*/g, '').replace(/^[ \t]*[-•*][ \t]+/gm, '');
+  // Último recurso: si igual menciona un horario que la agenda no devolvió, se reemplaza por lo que sí hay.
+  if (respuesta && horasEnTexto(respuesta).some(h => !horasPermitidas.has(h))) respuesta = horasAgenda.size ? `Tengo lugar a las ${[...horasAgenda].slice(0, 3).join(', ')}. ¿Cuál le viene mejor?` : 'Para ofrecerle un horario necesito revisar la agenda. ¿Qué día y qué franja le queda más cómoda?';
   // Último recurso: nunca sale un mensaje que da por agendado un turno que no existe.
   if (respuesta && !agendoOk && vigentes.length === 0 && afirmaTurnoAgendado(respuesta)) respuesta = 'Para dejar reservado su turno todavía necesito confirmar con usted el día y la hora. ¿Qué día y qué franja horaria le queda más cómoda?';
   // Si la persona recién eligió transferencia y el modelo habló de transferir sin pasar los datos, se los agrega el sistema.
@@ -2916,6 +2938,8 @@ const sinUrgenciaFalsa = (r: Resultado): Chequeo => chk('No presionó con urgenc
 const sinTurno = (r: Resultado): Chequeo => chk('No agendó ningún turno', turnosAgendados(r).length === 0, `Agendó ${turnosAgendados(r).length}`);
 const puertaAbierta = (r: Resultado): Chequeo => {
   const ultimo = [...r.transcript].reverse().find(t => t.de === 'karina')?.texto ?? '';
+  // Si la persona dijo que no desde el segundo mensaje, el agente todavía no pudo trabajar la objeción: se le exige respeto solo cuando hubo margen.
+  if (r.transcript.filter(t => t.de === 'karina').length < 4) return chk('Despidió con respeto (sin volver a ofrecer ni preguntar nada)', true);
   if (/\d{1,2}[:.]\d{2}|¿[^¿?]*(?:reserv|agend|coordin|horario)[^¿?]*\?/i.test(ultimo)) return chk('Respetó el "no" (no volvió a ofrecer horarios ni a insistir en el último mensaje)', false, 'Siguió insistiendo después de un "no" firme');
   return chk('Despidió con respeto (sin volver a ofrecer ni preguntar nada)', ultimo.trim().length >= 15 && !/\?\s*$/.test(ultimo.trim()), 'No se despidió con respeto');
 };
