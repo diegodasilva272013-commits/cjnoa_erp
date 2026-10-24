@@ -2813,3 +2813,29 @@ describe('pruebas del agente · recorridos completos con un agente que sigue las
   });
 });
 
+
+describe('pruebas del agente · usa la agenda real (solo lectura)', () => {
+  it('toma la disponibilidad y los turnos reales, sin datos personales, y no escribe nada en la base real', async () => {
+    const escrituras: string[] = [];
+    const tablasReales: Record<string, any[]> = {
+      disponibilidad_horarios: [{ profesional: 'Alejandro', dia_semana: 1, fecha: null, hora_desde: '08:00', hora_hasta: '09:00', duracion_min: 30 }],
+      consultas_agendadas: [{ id: 'real1', fecha_consulta: '2099-01-05', hora_consulta: '08:00', abogado_asignado: 'Alejandro', telefono: '5493881112222', cliente_nombre: 'Persona Real', observaciones: 'dato privado' }],
+      perfiles: [{ id: 'p1', nombre: 'Equipo', email: 'x@y.com' }],
+    };
+    const real: any = {
+      from: (t: string) => {
+        const q: any = { select: () => q, gte: () => q, limit: () => Promise.resolve({ data: tablasReales[t] ?? [], error: null }), insert: () => { escrituras.push(t); return q; }, update: () => { escrituras.push(t); return q; }, upsert: () => { escrituras.push(t); return q; } };
+        return q;
+      },
+    };
+    const llm = async () => ({ stop_reason: 'end_turn', content: [{ type: 'text', text: 'Hola, soy Karina, del Centro Jurídico NOA. Estamos en Hipólito Yrigoyen 680.' }] } as any);
+    const r = await probarAgentePaso('pregunta-direccion', 0, undefined, llm, real);
+    expect(r.code).toBe(200);
+    const t = r.body.estado.tablas;
+    expect(t.disponibilidad_horarios).toHaveLength(1);
+    expect(t.disponibilidad_horarios[0].hora_desde).toBe('08:00');
+    expect(t.consultas_agendadas[0]).toMatchObject({ id: 'real1', hora_consulta: '08:00', telefono: '', cliente_nombre: '', observaciones: '' });
+    expect(t.perfiles[0].email).toBeUndefined();
+    expect(escrituras).toEqual([]);
+  });
+});

@@ -2926,12 +2926,40 @@ export const ESCENARIOS: Escenario[] = [
 
 
 /** Un mensaje del cliente a través del agente REAL (mismo prompt, modelo y herramientas) sobre una base en memoria: no toca datos reales ni manda nada por WhatsApp. */
-export async function probarAgentePaso(id: string, paso: number, estadoIn: any, llm: Deps['llm'] = llamarModelo): Promise<Resp> {
+/** Agenda REAL del ERP (solo lectura) para la prueba: disponibilidad, turnos ya tomados, audiencias y eventos. Sin datos personales de nadie. */
+async function agendaRealParaPrueba(real: Db): Promise<Record<string, any[]>> {
+  const hoy = localDe(new Date()).fecha;
+  const out: Record<string, any[]> = {};
+  const leer = async (tabla: string, filtro?: (q: any) => any) => {
+    try {
+      let q: any = real.from(tabla).select('*');
+      if (filtro) q = filtro(q);
+      const { data, error } = await q.limit(5000);
+      if (!error && Array.isArray(data)) out[tabla] = data as any[];
+    } catch (e) { console.error('[pruebas] agenda real', tabla, e); }
+  };
+  await leer('disponibilidad_horarios');
+  await leer('consultas_agendadas', q => q.gte('fecha_consulta', hoy));
+  await leer('perfiles');
+  await leer('audiencias');
+  await leer('audiencias_general');
+  await leer('eventos_internos');
+  for (const f of out.consultas_agendadas ?? []) { f.telefono = ''; f.cliente_nombre = ''; f.detalle_consulta = ''; f.observaciones = ''; f.conversation_id = null; }
+  for (const f of out.perfiles ?? []) { delete f.email; delete f.telefono; }
+  return out;
+}
+
+export async function probarAgentePaso(id: string, paso: number, estadoIn: any, llm: Deps['llm'] = llamarModelo, real?: Db): Promise<Resp> {
   const m = Pruebas;
   const esc = m.ESCENARIOS.find(e => e.id === id);
   if (!esc) return { code: 404, body: { error: 'Esa prueba no existe.' } };
   if (!Number.isInteger(paso) || paso < 0 || paso >= esc.pasos.length) return { code: 400, body: { error: 'Paso inválido.' } };
-  const estado = (paso === 0 || !estadoIn?.tablas) ? m.estadoInicial(esc) : { tablas: estadoIn.tablas, transcript: estadoIn.transcript ?? [], herramientas: estadoIn.herramientas ?? [], videos: Number(estadoIn.videos ?? 0) };
+  const inicial = () => { const e = m.estadoInicial(esc); return e; };
+  const estado = (paso === 0 || !estadoIn?.tablas) ? inicial() : { tablas: estadoIn.tablas, transcript: estadoIn.transcript ?? [], herramientas: estadoIn.herramientas ?? [], videos: Number(estadoIn.videos ?? 0) };
+  if ((paso === 0 || !estadoIn?.tablas) && real) {
+    const agenda = await agendaRealParaPrueba(real);
+    for (const k of Object.keys(agenda)) estado.tablas[k] = [...agenda[k], ...(estado.tablas[k] ?? []).filter((f: any) => String(f.id ?? '').startsWith('turno-previo'))];
+  }
   const db = m.dbEnMemoria(estado.tablas);
   const ultima = [...estado.transcript].reverse().find((t: any) => t.de === 'karina')?.texto ?? '';
   const texto = m.textoDelPaso(esc, paso, { ultima, herramientas: estado.herramientas });
@@ -3339,7 +3367,7 @@ async function agentesHttp(req: VercelRequest, res: VercelResponse, db: Db, raw:
   if (body?.accion === 'probar_agente') {
     const rol = String((perfil as any).rol ?? '');
     if (rol !== 'admin' && rol !== 'socio') return res.status(403).json({ error: 'No tenés permiso para correr las pruebas.' });
-    try { const r = await probarAgentePaso(String(body?.id ?? ''), Number(body?.paso ?? 0), body?.estado); return res.status(r.code).json(r.body); }
+    try { const r = await probarAgentePaso(String(body?.id ?? ''), Number(body?.paso ?? 0), body?.estado, llamarModelo, db); return res.status(r.code).json(r.body); }
     catch (e) { console.error('[pruebas] ', e); return res.status(500).json({ error: e instanceof Error ? e.message.slice(0, 200) : 'Error en la prueba' }); }
   }
   if (body?.accion === 'hablar') {

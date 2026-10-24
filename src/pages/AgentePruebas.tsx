@@ -73,7 +73,7 @@ export default function AgentePruebas() {
       <h1 className="mt-2 text-xl font-semibold text-white md:text-2xl">Pruebas del agente</h1>
       <p className="mt-2 max-w-3xl text-sm leading-relaxed text-gray-400">
         Cada prueba le manda una conversación distinta al <span className="text-gray-200">agente real</span> (el mismo prompt, el mismo modelo y las mismas herramientas que atienden por WhatsApp).
-        Corre sobre una base de prueba: no toca clientes, turnos ni fichas reales y no envía nada por WhatsApp. Una prueba falla si el agente no agenda cuando debía, inventa una cifra o un horario,
+        Es el mismo agente y lee la agenda real del ERP (solo lectura): ofrece los horarios que de verdad están libres. Lo único distinto es que no escribe por WhatsApp y que lo que agenda queda solo en la prueba: no crea turnos, fichas ni mensajes reales. Una prueba falla si el agente no agenda cuando debía, inventa una cifra o un horario,
         usa una frase hecha, tutea, se presenta mal, filtra algo interno o divaga. Usa créditos de OpenAI en cada corrida.
       </p>
 
