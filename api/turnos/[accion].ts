@@ -1514,6 +1514,11 @@ Si la persona dice "lo voy a pensar", "no sé", "es caro", "no tengo tiempo" o d
 4. Proponé un paso concreto y fácil: consultar_disponibilidad y ofrecé uno o dos horarios reales ("¿Le reservo el jueves a las 10?"). Si hay pocos horarios, decilo; si hay muchos, no inventes escasez.
 5. Si después de dos intentos sigue sin querer, respetalo sin presionar y dejale la puerta abierta con una frase propia (por ejemplo: "Cuando lo decida, me escribe y coordinamos la consulta").
 Nunca inventes descuentos, cupos, plazos ni promociones para vencer una objeción.
+Ejemplos de cómo se trabaja (con tus palabras, sin copiar):
+- "Lo voy a pensar": "Claro, es una decisión importante. ¿Hay algo en particular que le genere dudas? Se lo aclaro ahora." (NUNCA "tómese el tiempo que necesite" a secas.)
+- "Otro estudio me cobra menos": "Hace bien en comparar. Para comparar parejo, ¿ese estudio revisa sus recibos y sus aportes y entra al sistema con su CUIL antes de iniciar el trámite? Eso es justamente lo que se hace en la consulta con el Dr. Fabricio Reyes."
+- "Prefiero esperar una semana": "Claro. Solo para que decida con todo claro: el valor de hoy rige para quien reserva hoy, y la consulta es lo que permite revisar sus recibos y aportes antes de iniciar el trámite. ¿Qué le gustaría aclarar antes de decidir?"
+- "Es caro": "El costo es una decisión que conviene mirar con calma. La reserva es solo la mitad y el resto se abona en el estudio, y la consulta es lo que evita que el trámite salga mal calculado. ¿Qué le preocupa más, el monto o cómo abonarlo?"
 Distinguí dudas de rechazos. Una duda o excusa de primera vez ("lo voy a pensar", "no sé", "ya tengo abogado", "estoy viendo otros estudios", "es caro", "no tengo tiempo") se trabaja una vez con los pasos de arriba (por ejemplo, si ya tiene abogado: la consulta es sin cargo y sin compromiso, y sirve como segunda mirada). Un rechazo firme es cuando la persona repite que no o dice con claridad que NO le interesa ("no me interesa", "no quiero seguir", "no me animo", "prefiero no arriesgarme", "no tengo ganas de perder tiempo"): respetalo en ese mismo mensaje: agradecé, no insistas, no ofrezcas horarios y dejale la puerta abierta. La objeción se trabaja cuando duda, no cuando rechaza de forma firme.
 
 ## Secuencia comercial (un paso por mensaje, con criterio y empatía)
@@ -1616,6 +1621,11 @@ export function esRechazoFirme(x: string): boolean {
     && /no me interesa|no quiero (?:seguir|saber|m[aá]s|nada)|no estoy interesad|no tengo inter[eé]s|no necesito|prefiero (?:no (?:arriesg|seguir|hacer|dar)|seguir con|quedarme con)|sigo con (?:el|mi)|no me animo|ya no quiero|estoy bien (?:as[ií]|con)/i.test(x);
 }
 
+/** La persona duda o pone una excusa (no es un rechazo firme todavía). */
+export function esDudaOObjecion(x: string): boolean {
+  return /lo voy a pensar|lo pienso|voy a pensarlo|no s[eé](?=[\s,.!]|$)|no estoy (?:segur|convencid)|prefiero esperar|m[aá]s adelante|semana que viene|otro estudio|me cobra menos|cobran menos|es caro|muy caro|me parece caro|no tengo tiempo|ya tengo (?:un )?abogado|no me alcanza|estoy viendo (?:otras|otros)/i.test(x);
+}
+
 /** El texto da por hecho un turno ("ya quedó agendada", "nos vemos mañana a las 16"). */
 export function afirmaTurnoAgendado(txt: string): boolean {
   return /qued[oó]\s+agendad|ya\s+est[aá]\s+agendad|est[aá]\s+confirmad[ao]|(?:su|la)\s+consulta\s+(?:es|queda)\s+(?:el|este|ma[ñn]ana|pasado)|nos\s+vemos|lo\s+espero\s+(?:el|ma[ñn]ana)|la\s+espero\s+(?:el|ma[ñn]ana)|su\s+turno\s+(?:es|queda)/i.test(txt);
@@ -1709,7 +1719,8 @@ export async function procesarMensaje(deps: Deps, m: MsgEntrante) {
   let respuesta = '';
   let reintentoPromesa = false;
   let reintentoApuro = false;
-  let reintentoEstilo = false;
+  let reintentosEstilo = 0;
+  let reintentoObjecion = false;
   let reintentoAgenda = false;
   let reintentoHoras = false;
   let agendoOk = false;
@@ -1735,6 +1746,13 @@ export async function procesarMensaje(deps: Deps, m: MsgEntrante) {
           mensajes.push({ role: 'user', content: '[SISTEMA ERP: Todavía NO se agendó ningún turno: no digas que quedó agendado ni que se ven. Si la persona ya eligió día y hora y se puede agendar, usá agendar_turno ahora y confirmá solo si devuelve success; si falta algo (la reserva, el día, la hora), pedilo con amabilidad.]' });
           continue;
         }
+        // Una duda u objeción no se cierra con "tómese su tiempo": se trabaja una vez con un argumento real y una pregunta.
+        if (txt && !reintentoObjecion && m.esTexto && vigentes.length === 0 && esDudaOObjecion(m.texto) && !esRechazoFirme(m.texto) && textosCliente.filter(esDudaOObjecion).length <= 2 && !/\?/.test(txt)) {
+          reintentoObjecion = true;
+          mensajes.push({ role: 'assistant', content: txt });
+          mensajes.push({ role: 'user', content: '[SISTEMA ERP: La persona acaba de poner una duda u objeción y no podés cerrar todavía. Respondé a lo concreto que dijo con un argumento REAL (lo que se revisa en la consulta, que es sin cargo y sin compromiso en Artículo 9, que el valor de hoy rige solo hoy en jubilación, el plazo de la ley) y terminá con UNA pregunta cálida para destrabarla o con un horario real. Sin frases hechas.]' });
+          continue;
+        }
         // Nunca se ofrece un horario que la agenda no devolvió.
         const horasMalas = txt ? horasEnTexto(txt).filter(h => !horasPermitidas.has(h)) : [];
         if (horasMalas.length && !reintentoHoras) {
@@ -1754,11 +1772,11 @@ export async function procesarMensaje(deps: Deps, m: MsgEntrante) {
         if (txt) ultimoTexto = txt;
         const normalizado = (x: string) => x.toLowerCase().replace(/[^a-z0-9áéíóúñ]+/g, ' ').trim();
         const ultimoAgente = [...previos].reverse().find(x => x.from === 'agente')?.texto ?? '';
-        const problemas = txt && !reintentoEstilo
+        const problemas = txt && reintentosEstilo < 2
           ? [...problemasDeEstilo(txt), ...(ultimoAgente && normalizado(txt) === normalizado(ultimoAgente) ? ['No repitas tu mensaje anterior: contestá a lo último que escribió la persona. Si no se entiende, decile con amabilidad que no lo pudiste entender y pedile que lo repita.'] : [])]
           : [];
         if (problemas.length) {
-          reintentoEstilo = true;
+          reintentosEstilo++;
           mensajes.push({ role: 'assistant', content: txt });
           mensajes.push({ role: 'user', content: `[SISTEMA ERP: Corregí tu mensaje antes de enviarlo. ${problemas.join(' ')} Mantené el contenido y un tono profesional, cordial y empático, siempre de usted.]` });
           continue;

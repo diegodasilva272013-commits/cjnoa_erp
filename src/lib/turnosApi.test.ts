@@ -3,7 +3,7 @@ import { createHmac } from 'node:crypto';
 import handler, {
   clasificarRecibo, TIPOS_CONSULTA, promesaSinCumplir, separarDatosPago, mensajeApurado,
   aMin, limpiarSecreto, camposDeLead, etapaAutomatica, fusionarLead, registrarMensaje, upsertLead, firmaMetaValida, firmaKapsoValida, extraerMensajesKapso, extraerMensajes, aMensajesLLM, procesarMensaje, filaDePersona, esConversacionDeNoa, clasificarMensajeCliente, categoriaMensajeAgente, personaMetrica, agregarMetricasAgente, calcularMetricasAgente, evaluarOptimizaciones, validarOptimizaciones, ejecutarOptimizacion, type MetricasAgente, motivoDeExclusion, resumenEnPalabras, ejecutarAnalista, revisarAnalisisAutomatico, codigosDeEstilo, etapaEmbudo, analizarConversacion, calcularMetricas, mascararDatos, textoParaEtiquetar, validarEtiquetas, promptDelAgente, limpiarCachePrompt, accionAgentes, problemasDeEstilo, textoNoLegible, firmaMercadoPagoValida, importeTexto, importeLindo, asignarImporteUnico, procesarPagoMP, montoMercadoPago, modalidadElegida, enmascarar, neutralizarMarcas, salidaInsegura, superaLimite, urlMediaSegura, resumenTurnosVigentes, HERRAMIENTAS_LLM, cuerpoNotaDeVoz, eligioTransferencia, notaDeImagen, montoValidadoDe, quitarEtiquetas, aMensajesOpenAI, deOpenAI, ejecutarHerramienta, PROMPT_AGENTE, type Deps, telefonoClave, historialDe, inferirNombre, normalizarFecha, normalizarHora, bloquesDelDia, huecosLibres, localDe, resolverProfesional, diaSemanaISO, fechaValida,
-  registrarSinResponder, horasEnTexto, quitarFrasesHechas, REGEX_CLICHE, condicionesArt9Confirmadas, campanaDelTexto, probarAgentePaso, condicionDeAgenda, registrarMensajeHumano, extraerHumanosKapso, responderDesdeErp, resumenCampana, analizarCampana, analisisSoloConCifrasReales,
+  registrarSinResponder, esDudaOObjecion, esRechazoFirme, horasEnTexto, quitarFrasesHechas, REGEX_CLICHE, condicionesArt9Confirmadas, campanaDelTexto, probarAgentePaso, condicionDeAgenda, registrarMensajeHumano, extraerHumanosKapso, responderDesdeErp, resumenCampana, analizarCampana, analisisSoloConCifrasReales,
   type Bloque,
 } from '../../api/turnos/[accion]';
 
@@ -1549,12 +1549,12 @@ describe('agente · tono profesional (siempre de usted)', () => {
     expect(enviados[0]).toContain('$80.000');
   });
 
-  it('solo corrige una vez: si sigue mal, se envía igual y no hay bucle', async () => {
+  it('corrige hasta dos veces: si sigue mal, se envía igual y no hay bucle', async () => {
     const { db } = dbConversaciones();
     let llamadas = 0;
     const { d, enviados } = deps(db, { llm: async () => { llamadas++; return texto('¿Podrías decirme tu edad?'); } });
     await procesarMensaje(d, msg);
-    expect(llamadas).toBe(2);
+    expect(llamadas).toBe(3);
     expect(enviados).toHaveLength(1);
   });
 
@@ -2905,5 +2905,21 @@ describe('agente · horarios: solo los que devolvió la agenda', () => {
     });
     await procesarMensaje(d, msg);
     expect(enviados[0]).toBe('Tengo lugar el lunes a las 14:00 o 14:30. ¿Cuál le viene mejor?');
+  });
+});
+
+describe('agente · dudas y objeciones no se cierran con "tómese su tiempo"', () => {
+  it('detecta dudas y excusas, pero no un rechazo firme', () => {
+    for (const x of ['Lo voy a pensar', 'No sé si me conviene', 'Otro estudio me cobra menos', 'Me parece caro', 'Prefiero esperar una semana', 'Ya tengo abogado']) expect(esDudaOObjecion(x)).toBe(true);
+    expect(esDudaOObjecion('Quiero agendar para el lunes')).toBe(false);
+    expect(esRechazoFirme('No me interesa, gracias')).toBe(true);
+    expect(esRechazoFirme('Si no es gratis, no me interesa')).toBe(false);
+  });
+  it('si ante una duda el modelo cierra sin preguntar, se le pide que la trabaje', async () => {
+    const { db } = dbConversaciones();
+    let n = 0;
+    const { d, enviados } = deps(db, { llm: async () => (n++ === 0 ? texto('Tómese el tiempo que necesite.') : texto('Claro, es una decisión importante. ¿Hay algo en particular que le genere dudas?')) });
+    await procesarMensaje(d, { ...msg, id: 'wamid.duda', texto: 'Lo voy a pensar' });
+    expect(enviados).toEqual(['Claro, es una decisión importante. ¿Hay algo en particular que le genere dudas?']);
   });
 });
