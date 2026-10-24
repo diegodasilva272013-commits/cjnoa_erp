@@ -990,7 +990,17 @@ export const REGEX_CLICHE = /\b(?:quedo\s+a\s+su\s+disposici[oó]n|es\s+(?:compl
 export function quitarFrasesHechas(txt: string): string {
   const partes = txt.split(/(?<=[.!?])\s+/);
   const limpias = partes.filter(x => !REGEX_CLICHE.test(x));
-  return limpias.length && limpias.length < partes.length ? limpias.join(' ').trim() : txt;
+  if (limpias.length && limpias.length < partes.length) return limpias.join(' ').trim();
+  if (limpias.length === partes.length) return txt;
+  // Todo el mensaje eran frases hechas: se reescriben las frases en vez de dejarlas pasar.
+  const reescrito = txt
+    .replace(/no\s+dude\s+en\s+(escribirme|contactarme|avisarme|consultarme|comunicarse|escribirnos|preguntar)/gi, (_m, v) => ({ escribirme: 'puede escribirme', contactarme: 'puede escribirme', avisarme: 'puede avisarme', consultarme: 'puede escribirme', comunicarse: 'puede comunicarse', escribirnos: 'puede escribirnos', preguntar: 'puede preguntar' } as Record<string, string>)[v.toLowerCase()] ?? 'puede escribirme')
+    .replace(/[,;]?\s*(?:y\s+)?(?:estoy|estar[eé]|quedo)\s+(?:aqu[ií]|disponible|a\s+su\s+disposici[oó]n)(?:\s+para\s+(?:ayudarle|ayudarla|asistirle|asistirla|lo\s+que\s+necesite|cualquier\s+consulta))?[^.!?]*/gi, '')
+    .replace(/[,;]?\s*(?:y\s+)?aqu[ií]\s+(?:estar[eé]|estamos)\s+para\s+(?:ayudarle|ayudarla|asistirle|asistirla)[^.!?]*/gi, '')
+    .replace(/\b(?:es\s+)?(?:completamente\s+|totalmente\s+)?(?:v[aá]lido|comprensible|normal|entendible)\s+que\s+(?:usted\s+)?(quiera|prefiera|desee|necesite|tenga|se\s+sienta|dude)/gi, 'Está bien que $1')
+    .replace(/\b(?:le|lo|la|te)\s+entiendo(?:\s+(?:perfectamente|completamente|totalmente))?[,.]?\s*/gi, '')
+    .replace(/\s+([.,;!?])/g, '$1').replace(/,\s*([.!?])/g, '$1').replace(/\s{2,}/g, ' ').trim();
+  return reescrito.length >= 10 ? reescrito : txt;
 }
 
 export function problemasDeEstilo(txt: string): string[] {

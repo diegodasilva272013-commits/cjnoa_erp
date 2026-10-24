@@ -3,7 +3,7 @@ import { createHmac } from 'node:crypto';
 import handler, {
   clasificarRecibo, TIPOS_CONSULTA, promesaSinCumplir, separarDatosPago, mensajeApurado,
   aMin, limpiarSecreto, camposDeLead, etapaAutomatica, fusionarLead, registrarMensaje, upsertLead, firmaMetaValida, firmaKapsoValida, extraerMensajesKapso, extraerMensajes, aMensajesLLM, procesarMensaje, filaDePersona, esConversacionDeNoa, clasificarMensajeCliente, categoriaMensajeAgente, personaMetrica, agregarMetricasAgente, calcularMetricasAgente, evaluarOptimizaciones, validarOptimizaciones, ejecutarOptimizacion, type MetricasAgente, motivoDeExclusion, resumenEnPalabras, ejecutarAnalista, revisarAnalisisAutomatico, codigosDeEstilo, etapaEmbudo, analizarConversacion, calcularMetricas, mascararDatos, textoParaEtiquetar, validarEtiquetas, promptDelAgente, limpiarCachePrompt, accionAgentes, problemasDeEstilo, textoNoLegible, firmaMercadoPagoValida, importeTexto, importeLindo, asignarImporteUnico, procesarPagoMP, montoMercadoPago, modalidadElegida, enmascarar, neutralizarMarcas, salidaInsegura, superaLimite, urlMediaSegura, resumenTurnosVigentes, HERRAMIENTAS_LLM, cuerpoNotaDeVoz, eligioTransferencia, notaDeImagen, montoValidadoDe, quitarEtiquetas, aMensajesOpenAI, deOpenAI, ejecutarHerramienta, PROMPT_AGENTE, type Deps, telefonoClave, historialDe, inferirNombre, normalizarFecha, normalizarHora, bloquesDelDia, huecosLibres, localDe, resolverProfesional, diaSemanaISO, fechaValida,
-  registrarSinResponder, condicionesArt9Confirmadas, campanaDelTexto, probarAgentePaso, condicionDeAgenda, registrarMensajeHumano, extraerHumanosKapso, responderDesdeErp, resumenCampana, analizarCampana, analisisSoloConCifrasReales,
+  registrarSinResponder, quitarFrasesHechas, REGEX_CLICHE, condicionesArt9Confirmadas, campanaDelTexto, probarAgentePaso, condicionDeAgenda, registrarMensajeHumano, extraerHumanosKapso, responderDesdeErp, resumenCampana, analizarCampana, analisisSoloConCifrasReales,
   type Bloque,
 } from '../../api/turnos/[accion]';
 
@@ -2859,6 +2859,20 @@ describe('pruebas del agente · 60 conversaciones que terminan en un resultado',
     expect(b.fin).toBe(true);
     expect(b.ok).toBe(false);
     expect(fallas(b).join(' ')).toContain('AGENDADO');
+  });
+});
+
+describe('frases hechas · si todo el mensaje eran frases hechas se reescriben', () => {
+  it('quita las oraciones con frases hechas cuando queda contenido útil', () => {
+    expect(quitarFrasesHechas('La consulta es sin cargo. Estoy aquí para ayudarle. ¿Cuándo le queda cómodo?')).toBe('La consulta es sin cargo. ¿Cuándo le queda cómodo?');
+  });
+  it('si todas las oraciones las tienen, reescribe las frases y no deja ninguna', () => {
+    const original = 'Es comprensible que quiera tomarse su tiempo para pensar en el tema. Cuando decida avanzar, no dude en escribirme y coordinamos la consulta. Si tiene alguna otra pregunta, estoy aquí para ayudarle.';
+    const r = quitarFrasesHechas(original);
+    expect(REGEX_CLICHE.test(r)).toBe(false);
+    expect(r).toContain('Está bien que quiera tomarse su tiempo');
+    expect(r).toContain('puede escribirme y coordinamos la consulta');
+    expect(quitarFrasesHechas('Gracias por contarme eso.')).toBe('Gracias por contarme eso.');
   });
 });
 
