@@ -1790,23 +1790,31 @@ export function deOpenAI(msg: any): { stop_reason: string; content: BloqueLLM[] 
   return { stop_reason: content.some(b => b.type === 'tool_use') ? 'tool_use' : 'end_turn', content };
 }
 
-async function llamarModelo(system: string, mensajes: MsgLLM[]) {
+/** Modelo de respaldo para cuando el principal está saturado (tiene su propio cupo de uso en OpenAI). */
+const MODELO_RESPALDO = 'gpt-4o-mini';
+
+async function llamarModelo(system: string, mensajes: MsgLLM[], opts: { respaldo?: boolean } = { respaldo: true }) {
   let r!: Response;
-  for (let intento = 1; intento <= 4; intento++) {
+  for (let intento = 1; intento <= 3; intento++) {
     r = await fetchModelo(system, mensajes);
     if (r.status !== 429 && r.status < 500) break;
-    if (intento < 4) await esperar(intento * 4000);
+    if (intento < 3) await esperar(intento * 3000);
+  }
+  // Si el modelo principal sigue saturado, se contesta con el de respaldo antes que dejar a la persona con el aviso de error.
+  if (!r.ok && opts.respaldo !== false && (r.status === 429 || r.status >= 500)) {
+    console.error('[agente] modelo principal saturado: se usa el de respaldo');
+    r = await fetchModelo(system, mensajes, MODELO_RESPALDO);
   }
   if (!r.ok) throw new Error(`modelo ${r.status}: ${(await r.text()).slice(0, 200)}`);
   return deOpenAI(((await r.json()) as any)?.choices?.[0]?.message);
 }
 
-function fetchModelo(system: string, mensajes: MsgLLM[]) {
+function fetchModelo(system: string, mensajes: MsgLLM[], modelo?: string) {
   return fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
     headers: { 'content-type': 'application/json', authorization: `Bearer ${claveOpenAI()}` },
     body: JSON.stringify({
-      model: limpiarSecreto(process.env.AGENTE_MODELO ?? '') || MODELO_DEFAULT,
+      model: modelo || limpiarSecreto(process.env.AGENTE_MODELO ?? '') || MODELO_DEFAULT,
       temperature: 0.3,
       max_tokens: 600,
       messages: aMensajesOpenAI(system, mensajes),
@@ -3215,7 +3223,7 @@ async function agendaRealParaPrueba(real: Db): Promise<Record<string, any[]>> {
   return out;
 }
 
-export async function probarAgentePaso(id: string, paso: number, estadoIn: any, llm: Deps['llm'] = llamarModelo, real?: Db): Promise<Resp> {
+export async function probarAgentePaso(id: string, paso: number, estadoIn: any, llm: Deps['llm'] = (sis, msgs) => llamarModelo(sis, msgs, { respaldo: false }), real?: Db): Promise<Resp> {
   const m = Pruebas;
   const esc = m.ESCENARIOS.find(e => e.id === id);
   if (!esc) return { code: 404, body: { error: 'Esa prueba no existe.' } };
