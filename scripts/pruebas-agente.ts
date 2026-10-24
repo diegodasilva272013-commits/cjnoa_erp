@@ -38,7 +38,8 @@ async function main() {
       log(`FALLO  ${r.id}${r.error ? ' ERROR: ' + r.error : ''}  (${hechas}/${lista.length})`);
       for (const c of (r.chequeos ?? []).filter((x: any) => !x.ok)) log(`   ✗ ${c.nombre}${c.detalle ? ' → ' + String(c.detalle).slice(0, 160) : ''}`);
       if (r.herramientas) log(`   herramientas: ${r.herramientas.join(' · ')}`);
-      for (const t of (r.transcript ?? []).slice(-16)) log(`   ${t.de === 'cliente' ? 'Cliente' : 'Karina '}: ${String(t.texto).replace(/\n/g, ' / ').slice(0, 260)}`);
+      const tr = r.transcript ?? [];
+      for (const t of (tr.length > 22 ? [...tr.slice(0, 6), { de: 'karina', texto: '[…]' }, ...tr.slice(-14)] : tr)) log(`   ${t.de === 'cliente' ? 'Cliente' : 'Karina '}: ${String(t.texto).replace(/\n/g, ' / ').slice(0, 260)}`);
     }
   };
   await Promise.all([trabajador(), trabajador(), trabajador()]);

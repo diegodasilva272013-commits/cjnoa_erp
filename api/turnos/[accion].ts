@@ -1390,6 +1390,7 @@ export async function ejecutarHerramienta(db: Db, nombre: string, input: any, ct
     if (t === 'jubilacion_docente') {
       // El valor de hoy rige el mismo día en que se le ofreció (el video lo anuncia); al día siguiente vale el normal.
       const d = await datosDeLead(db, ctx.telefono);
+      if (!d.video_enviado && ctx.enviarVideo) return { error: 'Primero hay que enviar el video del Dr. Fabricio Reyes: necesitás el nombre, la edad y si trabaja como docente; con eso usá enviar_video_jubilacion. Recién después de que lo vea, decile el valor.' };
       const dia = localDe(new Date()).fecha;
       const desde = String(d.promo_dia ?? dia);
       hoy = desde === dia;
@@ -1508,7 +1509,7 @@ Distinguí dudas de rechazos. Una duda o excusa de primera vez ("lo voy a pensar
 ## Secuencia comercial (un paso por mensaje, con criterio y empatía)
 Cuando la consulta lleva reserva (SOLO jubilación y otras situaciones ANSES; Artículo 9 / Ganancias NUNCA lleva reserva), avanzá de a un paso y NUNCA adelantes uno posterior. Nunca mandes en un mismo mensaje el valor de la consulta, los datos bancarios y horarios del calendario.
 1. Cuando la persona quiere agendar, decí el valor (el que te dio definir_tipo_consulta), que la reserva es la mitad y que el resto se abona el día de la consulta, y preguntá cómo prefiere abonar la reserva: transferencia o efectivo. Todavía NO pases datos bancarios ni horarios.
-2. Solo si elige transferencia: si tenés la herramienta pedir_reserva_transferencia, usala: te da el importe EXACTO con centavos y los datos; decile que transfiera exactamente ese importe, que el pago se confirma solo y que se lo avisamos apenas se acredite (no hace falta comprobante). Si no tenés esa herramienta, pasale los datos para transferir (alias, CVU y titular) con el importe de la reserva y pedile el comprobante. Nada de horarios todavía.
+2. Solo si elige transferencia: si tenés la herramienta pedir_reserva_transferencia, usala: te da el importe EXACTO con centavos y los datos; decile que transfiera exactamente ese importe, que el pago se confirma solo y que se lo avisamos apenas se acredite (no hace falta comprobante). Pasá siempre también los datos (Alias, CVU y Titular), cada uno en su propia línea con el formato "Alias: ...", sin viñetas ni negritas. Si no tenés esa herramienta, pasale los datos para transferir (alias, CVU y titular) con el importe de la reserva y pedile el comprobante. Nada de horarios todavía.
 3. Si elige efectivo: explicale que puede acercarse a las oficinas, previo acuerdo de día y hora, para abonar la reserva ahí y dejar el turno confirmado; preguntale cuándo le queda cómodo y coordiná con la agenda.
 4. Solo después de que el sistema valide el comprobante: agradecé que recibieron el pago y preguntá cuándo le quedaría más cómodo coordinar la consulta (sin listar el calendario). Recién con su respuesta consultá la disponibilidad.
 La consulta de Artículo 9 / Ganancias no pasa por estos pasos: directo a preguntar cuándo le queda cómodo.
@@ -1741,7 +1742,7 @@ export async function procesarMensaje(deps: Deps, m: MsgEntrante) {
     console.error('[agente] modelo', e);
   }
   if (!respuesta && ultimoTexto) respuesta = ultimoTexto; // si se agotaron las vueltas, mejor el último mensaje que el aviso genérico
-  if (respuesta) respuesta = quitarFrasesHechas(respuesta);
+  if (respuesta) respuesta = quitarFrasesHechas(respuesta).replace(/\*\*/g, '').replace(/^[ \t]*[-•*][ \t]+/gm, '');
   // Último recurso: nunca sale un mensaje que da por agendado un turno que no existe.
   if (respuesta && !agendoOk && vigentes.length === 0 && afirmaTurnoAgendado(respuesta)) respuesta = 'Para dejar reservado su turno todavía necesito confirmar con usted el día y la hora. ¿Qué día y qué franja horaria le queda más cómoda?';
   // Si la persona recién eligió transferencia y el modelo habló de transferir sin pasar los datos, se los agrega el sistema.
