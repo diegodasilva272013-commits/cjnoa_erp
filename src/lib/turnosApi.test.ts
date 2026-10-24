@@ -3,7 +3,7 @@ import { createHmac } from 'node:crypto';
 import handler, {
   clasificarRecibo, TIPOS_CONSULTA, promesaSinCumplir, separarDatosPago, mensajeApurado,
   aMin, limpiarSecreto, camposDeLead, etapaAutomatica, fusionarLead, registrarMensaje, upsertLead, firmaMetaValida, firmaKapsoValida, extraerMensajesKapso, extraerMensajes, aMensajesLLM, procesarMensaje, filaDePersona, esConversacionDeNoa, clasificarMensajeCliente, categoriaMensajeAgente, personaMetrica, agregarMetricasAgente, calcularMetricasAgente, evaluarOptimizaciones, validarOptimizaciones, ejecutarOptimizacion, type MetricasAgente, motivoDeExclusion, resumenEnPalabras, ejecutarAnalista, revisarAnalisisAutomatico, codigosDeEstilo, etapaEmbudo, analizarConversacion, calcularMetricas, mascararDatos, textoParaEtiquetar, validarEtiquetas, promptDelAgente, limpiarCachePrompt, accionAgentes, problemasDeEstilo, textoNoLegible, firmaMercadoPagoValida, importeTexto, importeLindo, asignarImporteUnico, procesarPagoMP, montoMercadoPago, modalidadElegida, enmascarar, neutralizarMarcas, salidaInsegura, superaLimite, urlMediaSegura, resumenTurnosVigentes, HERRAMIENTAS_LLM, cuerpoNotaDeVoz, eligioTransferencia, notaDeImagen, montoValidadoDe, quitarEtiquetas, aMensajesOpenAI, deOpenAI, ejecutarHerramienta, PROMPT_AGENTE, type Deps, telefonoClave, historialDe, inferirNombre, normalizarFecha, normalizarHora, bloquesDelDia, huecosLibres, localDe, resolverProfesional, diaSemanaISO, fechaValida,
-  registrarSinResponder, probarAgentePaso, condicionDeAgenda, registrarMensajeHumano, extraerHumanosKapso, responderDesdeErp, resumenCampana, analizarCampana, analisisSoloConCifrasReales,
+  registrarSinResponder, campanaDelTexto, probarAgentePaso, condicionDeAgenda, registrarMensajeHumano, extraerHumanosKapso, responderDesdeErp, resumenCampana, analizarCampana, analisisSoloConCifrasReales,
   type Bloque,
 } from '../../api/turnos/[accion]';
 
@@ -2616,6 +2616,22 @@ describe('agente · nuevo flujo (Art. 9 sin recibo, jubilación con video y valo
     expect((await condicionDeAgenda(otro.db, ctx)).ok).toBe(false);
   });
 
+  it('Art. 9 se puede agendar aunque el modelo no haya llamado a ninguna herramienta, mientras no haya una reserva pendiente', async () => {
+    const solo = dbMemoria({ leads: [{ telefono: tel, campana: 'art9_ganancias', datos: {} }] });
+    expect(await condicionDeAgenda(solo.db, ctx)).toEqual({ ok: true });
+    const conReserva = dbMemoria({ leads: [{ telefono: tel, campana: 'art9_ganancias', datos: { reserva_esperada: 75000 } }] });
+    expect((await condicionDeAgenda(conReserva.db, ctx)).ok).toBe(false);
+    const jub = dbMemoria({ leads: [{ telefono: tel, campana: 'jubilacion_docente', datos: {} }] });
+    expect((await condicionDeAgenda(jub.db, ctx)).ok).toBe(false);
+  });
+
+  it('la campaña se detecta por código desde el texto de la persona', () => {
+    expect(campanaDelTexto('Hola, quiero información sobre el descuento de Artículo 9 y Ganancias en mi jubilación')).toBe('art9_ganancias');
+    expect(campanaDelTexto('me descuentan Ganancias')).toBe('art9_ganancias');
+    expect(campanaDelTexto('¡Hola! Quiero más información para tramitar mi jubilación docente')).toBe('jubilacion_docente');
+    expect(campanaDelTexto('Hola, buenas tardes')).toBeNull();
+  });
+
   it('jubilación: el valor de hoy rige el mismo día; otro día vale el normal', async () => {
     const hoy = dbMemoria();
     const a: any = await ejecutarHerramienta(hoy.db, 'definir_tipo_consulta', { tipo: 'jubilacion_docente' }, ctx);
@@ -2695,3 +2711,105 @@ describe('pruebas del agente · copia embebida', () => {
     expect(api).toContain('// <<PRUEBAS\nnamespace Pruebas {\n' + src + '\n}\n// PRUEBAS>>');
   });
 });
+
+describe('pruebas del agente · recorridos completos con un agente que sigue las instrucciones (verifica herramientas, reglas y chequeos)', () => {
+  type Accion = { tool: string; input: any } | { text: string };
+  const fake = (acciones: Accion[]) => {
+    const cola = [...acciones];
+    return async (_s: string, mensajes: any[]) => {
+      const a = cola.shift() as Accion | undefined;
+      if (!a) return { stop_reason: 'end_turn', content: [{ type: 'text', text: 'Muchas gracias.' }] } as any;
+      if ('tool' in a) return { stop_reason: 'tool_use', content: [{ type: 'tool_use', id: `t${cola.length}`, name: a.tool, input: a.input }] } as any;
+      void mensajes;
+      return { stop_reason: 'end_turn', content: [{ type: 'text', text: a.text }] } as any;
+    };
+  };
+  const vistoEnMensajes = (mensajes: any[]) => {
+    const s = JSON.stringify(mensajes);
+    const fecha = /fecha\\*":\\*"(\d{4}-\d{2}-\d{2})/.exec(s)?.[1] ?? '';
+    const lista = /horarios_disponibles\\*":\[([^\]]*)\]/.exec(s)?.[1] ?? '';
+    return { fecha, horas: lista.match(/\d{2}:\d{2}/g) ?? [] };
+  };
+  // Un agente que, tras consultar la agenda, ofrece lo que la herramienta devolvió.
+  const conAgenda = (prof: string) => {
+    let visto = false;
+    return async (_s: string, mensajes: any[]) => {
+      if (!visto) { visto = true; return { stop_reason: 'tool_use', content: [{ type: 'tool_use', id: 'd1', name: 'consultar_disponibilidad', input: { profesional: prof } }] } as any; }
+      const v = vistoEnMensajes(mensajes);
+      return { stop_reason: 'end_turn', content: [{ type: 'text', text: `El ${v.fecha} tengo lugar a las ${v.horas.slice(0, 3).join(', ')}. ¿Cuál le viene mejor?` }] } as any;
+    };
+  };
+
+  async function correr(id: string, paso: (n: number, estado: any, cliente: string) => any) {
+    let estado: any;
+    let ultimo: any;
+    const { ESCENARIOS } = await import('../server/agentePruebas');
+    const esc = ESCENARIOS.find(e => e.id === id)!;
+    for (let n = 0; n < esc.pasos.length; n++) {
+      ultimo = await probarAgentePaso(id, n, estado, paso(n, estado, n === 0 ? '' : (estado.transcript.filter((t: any) => t.de === 'cliente').at(-1)?.texto ?? '')));
+      expect(ultimo.code).toBe(200);
+      estado = ultimo.body.estado;
+    }
+    return ultimo.body;
+  }
+  const fallas = (b: any) => (b.chequeos ?? []).filter((c: any) => !c.ok).map((c: any) => `${c.nombre}: ${c.detalle ?? ''}`);
+
+  it('Artículo 9 completo: sin recibo, sin cargo, sin hablar de pagos, agenda con Alejandro y pasa la dirección', async () => {
+    const b = await correr('art9-completo', (n, estado) => {
+      if (n === 0) return fake([{ text: 'Hola, soy Karina, del Centro Jurídico NOA. ¿Es usted jubilada docente?' }]);
+      if (n === 1) return fake([{ text: 'Gracias por contarme que es docente. ¿Se jubiló por ANSES?' }]);
+      if (n === 2) return fake([{ text: 'Perfecto. ¿Tiene los descuentos por Artículo 9 e Impuesto a las Ganancias?' }]);
+      if (n === 3) return fake([{ tool: 'definir_tipo_consulta', input: { tipo: 'articulo9_ganancias' } }, { text: 'Gracias por confirmármelo. La consulta con el Dr. Alejandro Reyes es sin cargo y puede ser presencial en San Salvador de Jujuy o virtual. ¿Cuál prefiere?' }]);
+      if (n === 4) return fake([{ text: 'Perfecto, presencial. ¿Qué días de la semana le quedan cómodos?' }]);
+      if (n === 5) return conAgenda('alejandro');
+      if (n === 6) {
+        const d = estado.herramientas.find((h: any) => h.nombre === 'consultar_disponibilidad').resultado;
+        const fecha = d?.proximos_dias?.[0]?.fecha ?? d?.fecha;
+        const hora = d?.proximos_dias?.[0]?.horarios_disponibles?.[0] ?? d?.horarios_disponibles?.[0];
+        return fake([{ tool: 'agendar_turno', input: { profesional: 'alejandro', nombre: 'Ana Gómez', fecha, hora, modalidad: 'presencial' } }, { text: `Listo, su consulta YA QUEDÓ AGENDADA el ${fecha} a las ${hora} con el Dr. Alejandro Reyes, de forma presencial, en Hipólito Yrigoyen 680, San Salvador de Jujuy.` }]);
+      }
+      return fake([{ text: 'Muchas gracias a usted. Hasta pronto.' }]);
+    });
+    expect(fallas(b)).toEqual([]);
+    expect(b.ok).toBe(true);
+  });
+
+  it('Jubilación con efectivo: datos, video una vez, valor de hoy, sin datos bancarios', async () => {
+    const b = await correr('jub-video-efectivo', (n) => {
+      if (n === 0) return fake([{ text: 'Hola, soy Karina, del Centro Jurídico NOA. ¿Me indica su nombre, por favor?' }]);
+      if (n === 1) return fake([{ tool: 'guardar_datos_cliente', input: { nombre: 'Elisa', apellido: 'Paz' } }, { text: 'Gracias, Elisa. ¿Qué edad tiene?' }]);
+      if (n === 2) return fake([{ text: 'Gracias por contármelo. ¿Sigue trabajando como docente?' }]);
+      if (n === 3) return fake([{ tool: 'enviar_video_jubilacion', input: {} }, { text: 'Le acabo de enviar un video del Dr. Fabricio Reyes. ¿Qué le pareció?' }]);
+      if (n === 4) return fake([{ tool: 'definir_tipo_consulta', input: { tipo: 'jubilacion_docente' } }, { text: 'Me alegra que le haya servido. El valor de hoy es de $50.000; para reservar se abona la mitad, $25.000, y el resto el día de la consulta. ¿Prefiere transferencia o efectivo?' }]);
+      return fake([{ text: 'Perfecto, puede acercarse a nuestras oficinas para abonar la reserva. ¿Qué día le queda cómodo?' }]);
+    });
+    expect(fallas(b)).toEqual([]);
+    expect(b.ok).toBe(true);
+  });
+
+  it('Jubilación con transferencia: los datos aparecen solo después de elegir y no se agenda sin pago', async () => {
+    const b = await correr('jub-video-transferencia', (n) => {
+      if (n === 0) return fake([{ text: 'Hola, soy Karina, del Centro Jurídico NOA. ¿Me indica su nombre?' }]);
+      if (n === 1) return fake([{ tool: 'guardar_datos_cliente', input: { nombre: 'Marta', apellido: 'Gómez' } }, { tool: 'enviar_video_jubilacion', input: {} }, { text: 'Gracias, Marta. Le envié un video del Dr. Fabricio Reyes. ¿Le gustaría agendar?' }]);
+      if (n === 2) return fake([{ tool: 'definir_tipo_consulta', input: { tipo: 'jubilacion_docente' } }, { text: 'Con gusto. El valor de hoy es de $50.000; la reserva es de $25.000 y el resto se abona el día de la consulta. ¿Prefiere transferencia o efectivo?' }]);
+      return fake([{ tool: 'definir_tipo_consulta', input: { tipo: 'jubilacion_docente' } }, { text: 'Perfecto. Alias: centrojuridiconoa680. Transfiera $25.000 y envíeme el comprobante, por favor.' }]);
+    });
+    expect(fallas(b)).toEqual([]);
+    expect(b.ok).toBe(true);
+  });
+
+  it('las 20 pruebas corren de punta a punta en la base de prueba sin romperse (el agente de este test solo saluda)', async () => {
+    const { ESCENARIOS } = await import('../server/agentePruebas');
+    for (const e of ESCENARIOS) {
+      let estado: any; let b: any;
+      for (let n = 0; n < e.pasos.length; n++) {
+        const r = await probarAgentePaso(e.id, n, estado, fake([{ text: 'Hola, soy Karina, del Centro Jurídico NOA.' }]));
+        expect(r.code, e.id).toBe(200);
+        estado = r.body.estado; b = r.body;
+      }
+      expect(b.fin, e.id).toBe(true);
+      expect(Array.isArray(b.chequeos), e.id).toBe(true);
+    }
+  });
+});
+

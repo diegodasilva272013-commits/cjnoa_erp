@@ -525,6 +525,14 @@ export async function registrarSinResponder(db: Db, m: MsgEntrante): Promise<'gu
   return 'guardado';
 }
 
+/** Campaña por lo que escribe la persona (el texto del anuncio o sus palabras). Artículo 9 / Ganancias tiene prioridad. */
+export function campanaDelTexto(t: string): 'art9_ganancias' | 'jubilacion_docente' | null {
+  const x = String(t ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  if (/\bart(?:iculo|\.)?\s*9\b|ganancias/.test(x)) return 'art9_ganancias';
+  if (/jubilaci|jubilar/.test(x)) return 'jubilacion_docente';
+  return null;
+}
+
 /** Mensajes que una persona escribió desde la app del celular (coexistencia de Kapso). No son del cliente ni del agente. */
 export function extraerHumanosKapso(payload: any): { telefono: string; texto: string; wid: string }[] {
   const items: any[] = payload?.batch === true && Array.isArray(payload?.data) ? payload.data : [payload];
@@ -1085,12 +1093,16 @@ export function resumenTurnosVigentes(ts: TurnoVigente[]): string {
 export async function condicionDeAgenda(db: Db, ctx: CtxHerramienta): Promise<{ ok: true } | { ok: false; mensaje: string }> {
   if (ctx.montoValidado) return { ok: true };
   let datos: any = {};
+  let campana = '';
   try {
-    const { data } = await db.from('leads').select('datos').eq('telefono_clave', telefonoClave(ctx.telefono)).maybeSingle();
+    const { data } = await db.from('leads').select('datos, campana').eq('telefono_clave', telefonoClave(ctx.telefono)).maybeSingle();
     datos = (data as any)?.datos ?? {};
+    campana = String((data as any)?.campana ?? '');
   } catch (e) { console.error('[agente] condición de agenda', e); }
   if (datos.categoria_recibo === 'art9_sin_cargo' || datos.tipo_consulta === 'articulo9_ganancias') return { ok: true };
   const reserva = Number(datos.reserva_esperada);
+  // Artículo 9 / Ganancias es sin cargo y sin recibo: si la campaña es esa y no hay una reserva pendiente de otra consulta, se puede agendar.
+  if (campana === 'art9_ganancias' && !(Number.isFinite(reserva) && reserva > 0)) return { ok: true };
   if (Number.isFinite(reserva) && reserva > 0) {
     if (ctx.modalidad === 'efectivo') return { ok: true };
     return { ok: false, mensaje: 'TODAVÍA NO se puede agendar: primero la persona tiene que abonar la reserva. Si elige transferencia, pasale los datos y pedile el comprobante; recién cuando el sistema lo valide se coordina el turno. Si prefiere efectivo, coordiná con ella el día y la hora para abonar en las oficinas. No ofrezcas horarios ni agendes hasta entonces.' };
@@ -1570,6 +1582,13 @@ export async function procesarMensaje(deps: Deps, m: MsgEntrante) {
     catch (e) { console.error('[agente] preparar', e); }
   }
   if (datosPreparados || m.referral) await upsertLeadSeguro(db, m.from, camposDeLead({ datos: { ...(datosPreparados ?? {}), ...(m.referral ? { anuncio_origen: m.referral } : {}) } }));
+  const campanaNueva = m.esTexto ? campanaDelTexto(m.texto) : null;
+  if (campanaNueva) {
+    try {
+      const ya = await db.from('leads').select('campana').eq('telefono_clave', telefonoClave(m.from)).maybeSingle();
+      if (!(ya.data as any)?.campana) await upsertLeadSeguro(db, m.from, camposDeLead({ campana: campanaNueva }));
+    } catch (e) { console.error('[agente] campaña', e); }
+  }
 
   const vigentes = await turnosVigentesDe(db, m.from, ahora).catch(() => [] as TurnoVigente[]);
   const hist = await historialDe(db, m.from).catch(() => ({ tiene_historial: 'false', es_recurrente: 'false', cliente_nombre: '', cliente_historial: '' }));
@@ -2684,7 +2703,7 @@ export function chequeosComunes(esc: Escenario, r: Resultado, util: UtilEvaluar)
   out.push(chk('Contestó cada mensaje', respuestas.length >= esc.pasos.length, `${respuestas.length} respuestas para ${esc.pasos.length} mensajes`));
   const primera = respuestas[0]?.texto ?? '';
   out.push(chk('Se presenta como Karina en el primer mensaje', /Karina/i.test(primera), `Primer mensaje: "${primera.slice(0, 160)}"`));
-  const est = util.problemasDeEstilo(todo);
+  const est = [...new Set(respuestas.flatMap(x => util.problemasDeEstilo(x.texto)))];
   out.push(chk('Trata de usted y no usa frases hechas', est.length === 0, est.join(' | ')));
   out.push(chk('Sin emojis ni formato raro', !EMOJI.test(todo) && !MARKDOWN.test(todo), 'Usó emojis, listas o negritas'));
   out.push(chk('No divaga (mensajes cortos)', respuestas.every(t => t.texto.length <= 900), `Un mensaje de ${Math.max(0, ...respuestas.map(t => t.texto.length))} caracteres`));

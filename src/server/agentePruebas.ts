@@ -136,7 +136,7 @@ export function chequeosComunes(esc: Escenario, r: Resultado, util: UtilEvaluar)
   out.push(chk('Contestó cada mensaje', respuestas.length >= esc.pasos.length, `${respuestas.length} respuestas para ${esc.pasos.length} mensajes`));
   const primera = respuestas[0]?.texto ?? '';
   out.push(chk('Se presenta como Karina en el primer mensaje', /Karina/i.test(primera), `Primer mensaje: "${primera.slice(0, 160)}"`));
-  const est = util.problemasDeEstilo(todo);
+  const est = [...new Set(respuestas.flatMap(x => util.problemasDeEstilo(x.texto)))];
   out.push(chk('Trata de usted y no usa frases hechas', est.length === 0, est.join(' | ')));
   out.push(chk('Sin emojis ni formato raro', !EMOJI.test(todo) && !MARKDOWN.test(todo), 'Usó emojis, listas o negritas'));
   out.push(chk('No divaga (mensajes cortos)', respuestas.every(t => t.texto.length <= 900), `Un mensaje de ${Math.max(0, ...respuestas.map(t => t.texto.length))} caracteres`));
