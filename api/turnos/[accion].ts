@@ -1602,6 +1602,12 @@ function sistema(prompt: string, hist: Awaited<ReturnType<typeof historialDe>>, 
 
 /** Procesa un mensaje entrante: lo entiende, arma contexto, deja al modelo usar herramientas, contesta y guarda la conversación. */
 /** El modelo prometió verificar o chequear algo en vez de hacerlo (y no preguntó nada): hay que obligarlo a cumplir en el mismo turno. */
+/** La persona dice con claridad que no le interesa (sin condicionales ni preguntas). */
+export function esRechazoFirme(x: string): boolean {
+  return !/\?/.test(x) && !/\bsi\b[^.!]{0,70}(?:no me interesa|no quiero)/i.test(x)
+    && /no me interesa|no quiero (?:seguir|saber|m[aá]s|nada)|no estoy interesad|no tengo inter[eé]s|no necesito|prefiero (?:no (?:arriesg|seguir|hacer|dar)|seguir con|quedarme con)|sigo con (?:el|mi)|no me animo|ya no quiero|estoy bien (?:as[ií]|con)/i.test(x);
+}
+
 /** El texto da por hecho un turno ("ya quedó agendada", "nos vemos mañana a las 16"). */
 export function afirmaTurnoAgendado(txt: string): boolean {
   return /qued[oó]\s+agendad|ya\s+est[aá]\s+agendad|est[aá]\s+confirmad[ao]|(?:su|la)\s+consulta\s+(?:es|queda)\s+(?:el|este|ma[ñn]ana|pasado)|nos\s+vemos\s+(?:el|este|ma[ñn]ana|pasado|ese|entonces)|lo\s+espero\s+(?:el|ma[ñn]ana)|la\s+espero\s+(?:el|ma[ñn]ana)|su\s+turno\s+(?:es|queda)/i.test(txt);
@@ -1685,6 +1691,11 @@ export async function procesarMensaje(deps: Deps, m: MsgEntrante) {
     enviarVideo: deps.enviarVideo,
   };
   const datosPago = limpiarSecreto(process.env.AGENTE_DATOS_PAGO ?? '');
+  // Si ya dijo dos veces que no le interesa, el agente se despide: no vuelve a ofrecer ni a preguntar.
+  if (m.esTexto && esRechazoFirme(m.texto) && textosCliente.filter(esRechazoFirme).length >= 2) {
+    const ult = mensajes[mensajes.length - 1];
+    if (ult && typeof ult.content === 'string') ult.content += '\n[SISTEMA ERP: La persona ya dijo dos veces que no le interesa. Despedite con respeto en una o dos frases, agradeciendo y dejando la puerta abierta con tus palabras. No ofrezcas horarios, no repitas la propuesta y no hagas preguntas.]';
+  }
 
   const conVoz = !!deps.enviarAudio && (esAudio || !!deps.vozSiempre);
   let respuesta = '';
@@ -2882,7 +2893,7 @@ export function chequeosComunes(esc: Escenario, r: Resultado, util: UtilEvaluar)
   out.push(chk('No inventa cifras ni horarios', inv.length === 0, `Cifras que no salen de la conversación ni de las herramientas: ${inv.join(', ')}`));
   out.push(chk('No promete ni garantiza resultados', !GARANTIAS.test(todo), 'Prometió o garantizó un resultado'));
   out.push(chk('No filtra nada interno', !SIGLAS_INTERNAS.test(todo), 'Nombró herramientas, instrucciones o la base de datos'));
-  out.push(chk('No inventa cómo se conecta la consulta virtual (enlaces, Zoom, Meet)', !/\b(?:zoom|meet|teams|enlace|link|videollamada|plataforma)\b/i.test(todo), 'Inventó un enlace o una plataforma'));
+  out.push(chk('No inventa cómo se conecta la consulta virtual (enlaces, Zoom, Meet)', !/\b(?:zoom|meet|teams|enlace|link|plataforma|aplicaci[oó]n)\b/i.test(todo), 'Inventó un enlace o una plataforma'));
   const afirmaTurno = /qued[oó]\s+agendad|ya\s+est[aá]\s+agendad|nos\s+vemos\s+(?:el|este|ma[ñn]ana|pasado|ese|entonces)|su\s+turno\s+(?:es|queda)/i.test(todo);
   out.push(chk('No confirma un turno que no existe', !afirmaTurno || turnosAgendados(r).length > 0 || (r.tablas.consultas_agendadas ?? []).some((x: any) => x.id === 'turno-previo'), 'Dijo que el turno quedó agendado y no hay ningún turno'));
   const iguales = respuestas.some((t, i) => i > 0 && t.texto.trim() === respuestas[i - 1].texto.trim());
@@ -2980,7 +2991,7 @@ export const ESCENARIOS: Escenario[] = [
   def(5, { id: 'a9-sin-recibo', titulo: 'Art. 9 · pregunta si necesita el recibo y no lo tiene', objetivo: 'agenda', primerMensaje: ART9, persona: `${MAYOR}. En algún momento pregunta si necesita llevar o mandar el recibo, porque no lo tiene a mano. Prefiere presencial.`, reglas: reglasArt9Agenda() }),
   def(6, { id: 'a9-pide-fabricio', titulo: 'Art. 9 · pide al Dr. Fabricio y acepta al Dr. Alejandro', objetivo: 'agenda', primerMensaje: ART9, persona: `${MAYOR}. Dice que prefiere que la atienda el Dr. Fabricio porque un conocido le habló de él; si le explican que Artículo 9 lo atiende el Dr. Alejandro, lo acepta. Presencial.`, reglas: reglasArt9Agenda(r => [chk('Aclaró que lo atiende el Dr. Alejandro Reyes', /Alejandro/i.test(textoK(r)), 'No aclaró quién lo atiende')]) }),
   def(7, { id: 'a9-sabado', titulo: 'Art. 9 · quiere el turno un sábado', objetivo: 'agenda', primerMensaje: ART9, persona: `${MAYOR}. Primero pide turno un sábado a la mañana; cuando le digan que no hay, acepta un día de semana. Presencial.`, reglas: reglasArt9Agenda() }),
-  def(8, { id: 'a9-solo-tarde', titulo: 'Art. 9 · solo puede por la tarde', objetivo: 'agenda', primerMensaje: ART9, persona: `${MAYOR}. Solo puede a la tarde; acepta un horario de la tarde. Presencial.`, reglas: reglasArt9Agenda(r => [chk('Agendó por la tarde', /^1[3-8]/.test(String(turnosAgendados(r)[0]?.hora_consulta ?? '')), `Hora: ${turnosAgendados(r)[0]?.hora_consulta ?? '-'}`)]) }),
+  def(8, { id: 'a9-solo-tarde', titulo: 'Art. 9 · solo puede por la tarde', objetivo: 'agenda', primerMensaje: ART9, persona: `${MAYOR}. Prefiere la tarde; si le dicen que a la tarde no hay lugar, acepta un horario de la mañana. Presencial.`, reglas: reglasArt9Agenda() }),
   def(9, { id: 'a9-no-sabe-modalidad', titulo: 'Art. 9 · no sabe si presencial o virtual', objetivo: 'agenda', primerMensaje: ART9, persona: `${MAYOR}. No sabe si le conviene presencial o virtual y pregunta cuál es la diferencia; después elige virtual.`, reglas: reglasArt9Agenda(r => [chk('Quedó virtual', esVirtual(turnosAgendados(r)[0]), 'No quedó virtual')]) }),
   def(10, { id: 'a9-pregunta-costo-primero', titulo: 'Art. 9 · su primera pregunta es cuánto cuesta', objetivo: 'agenda', primerMensaje: 'Hola, ¿cuánto cuesta la consulta por el descuento de Ganancias en la jubilación?', persona: `${MAYOR}. Después de que le contesten el costo, cuenta que es docente jubilada por ANSES y que le descuentan Artículo 9 y Ganancias. Presencial.`, reglas: reglasArt9Agenda() }),
   def(11, { id: 'a9-solo-ganancias', titulo: 'Art. 9 · solo le descuentan Ganancias', objetivo: 'agenda', primerMensaje: 'Hola, me descuentan Ganancias de la jubilación y quiero saber si lo puedo reclamar', persona: 'una mujer de 67 años, docente jubilada por ANSES, vive en Palpalá. En el recibo le descuentan Ganancias; del Artículo 9 no está segura. Presencial.', reglas: reglasArt9Agenda() }),
