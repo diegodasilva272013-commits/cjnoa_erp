@@ -21,8 +21,8 @@ async function main() {
     } catch (e) { return { id, error: e instanceof Error ? e.message.slice(0, 300) : String(e) }; }
   };
   const resultados: any[] = [];
-  for (let i = 0; i < lista.length; i += 5) {
-    const lote = lista.slice(i, i + 5);
+  for (let i = 0; i < lista.length; i += 3) {
+    const lote = lista.slice(i, i + 3);
     resultados.push(...await Promise.all(lote.map(e => correr(e.id, e.pasos.length))));
   }
   let ok = 0;

@@ -986,6 +986,13 @@ const REGEX_REPROCHE = /\b(?:necesito que (?:me )?(?:confirme|diga|responda|acla
 /** Frases hechas que el dueño prohibió: la empatía se muestra respondiendo a lo concreto que contó la persona. */
 export const REGEX_CLICHE = /\b(?:quedo\s+a\s+su\s+disposici[oó]n|es\s+(?:completamente\s+|totalmente\s+)?(?:v[aá]lido|comprensible|normal|entendible)\s+que|lamento\s+la\s+confusi[oó]n)\b|\b(?:(?:te|lo|la|le|nos)\s+entiendo|entiendo\s+(?:perfectamente|completamente|totalmente|su situaci[oó]n|lo que)|comprendo\s+(?:perfectamente|completamente|totalmente|su)|(?:es\s+)?totalmente\s+comprensible|no\s+dude\s+en|estoy\s+aqu[ií]\s+para|estoy\s+a\s+su\s+disposici[oó]n)|(?:^|[.!?¡¿]\s*)entiendo[,.\s]/i;
 
+/** Saca las oraciones con frases hechas prohibidas (si todo el mensaje era eso, lo deja como está). */
+export function quitarFrasesHechas(txt: string): string {
+  const partes = txt.split(/(?<=[.!?])\s+/);
+  const limpias = partes.filter(x => !REGEX_CLICHE.test(x));
+  return limpias.length && limpias.length < partes.length ? limpias.join(' ').trim() : txt;
+}
+
 export function problemasDeEstilo(txt: string): string[] {
   const out: string[] = [];
   if ((txt.match(/\?/g) ?? []).length > 2) out.push('Hacé como máximo UNA pregunta por mensaje (la primera que falte) y esperá la respuesta: no encadenes varias preguntas ni repitas las que la persona ya contestó.');
@@ -1457,7 +1464,7 @@ Por el primer mensaje (el texto precargado del anuncio) o por lo que cuenta, ded
 1. Saludo (de parte de Karina, del Centro Jurídico NOA).
 2. Preguntas, de a una y salteando las respondidas: su nombre, su edad y si actualmente trabaja como docente. Guardá cada dato con guardar_datos_cliente. No clasifiques a la persona más allá de esas preguntas: lo determina el Dr. Fabricio Reyes en la consulta.
 3. Cuando ya tengas nombre, edad y si trabaja, usá enviar_video_jubilacion: se le envía un video grabado por el Dr. Fabricio Reyes en el que explica algo de valor y menciona el valor normal de la consulta y el valor de hoy para quien agenda hoy. No repitas los importes del video de memoria. Después preguntale, con calidez y sin apuro, qué le pareció y si le gustaría agendar.
-4. Si quiere agendar: usá definir_tipo_consulta con jubilacion_docente. El sistema te dice el valor que corresponde (es_valor_de_hoy indica si rige el de hoy) y la reserva, que es la mitad. Usá solo esos importes. Seguí la secuencia comercial.
+4. Si quiere agendar: usá definir_tipo_consulta con jubilacion_docente. El sistema te dice el valor que corresponde (es_valor_de_hoy indica si rige el de hoy) y la reserva, que es la mitad. Usá solo esos importes, escritos con punto para separar los miles (nunca con coma). Seguí la secuencia comercial.
 5. Si prefiere pensarlo, respetalo sin presionar y sin inventar plazos: podés decirle con sinceridad que el valor de hoy rige para quien agenda hoy, y dejar la puerta abierta con una frase propia. Si vuelve otro día, el sistema te da el valor que corresponde ese día: usá ese.
 Aplica lo mismo si consulta por otros regímenes o por el régimen general: tomá el motivo y el contexto, y el abogado asesora en la consulta.
 
@@ -1675,6 +1682,7 @@ export async function procesarMensaje(deps: Deps, m: MsgEntrante) {
     console.error('[agente] modelo', e);
   }
   if (!respuesta && ultimoTexto) respuesta = ultimoTexto; // si se agotaron las vueltas, mejor el último mensaje que el aviso genérico
+  if (respuesta) respuesta = quitarFrasesHechas(respuesta);
   // Red de seguridad: los datos bancarios solo salen si la persona ya eligió transferencia.
   if (!pasarDatos && LINEA_DATOS_PAGO.test(respuesta)) respuesta = respuesta.split('\n').filter(l => !LINEA_DATOS_PAGO.test(l)).join('\n').replace(/\n{3,}/g, '\n\n').trim();
   // Red de seguridad: nada interno (herramientas, avisos del sistema, claves, la base) sale en un mensaje al cliente.
@@ -1761,7 +1769,18 @@ export function deOpenAI(msg: any): { stop_reason: string; content: BloqueLLM[] 
 }
 
 async function llamarModelo(system: string, mensajes: MsgLLM[]) {
-  const r = await fetch('https://api.openai.com/v1/chat/completions', {
+  let r!: Response;
+  for (let intento = 1; intento <= 4; intento++) {
+    r = await fetchModelo(system, mensajes);
+    if (r.status !== 429 && r.status < 500) break;
+    if (intento < 4) await esperar(intento * 4000);
+  }
+  if (!r.ok) throw new Error(`modelo ${r.status}: ${(await r.text()).slice(0, 200)}`);
+  return deOpenAI(((await r.json()) as any)?.choices?.[0]?.message);
+}
+
+function fetchModelo(system: string, mensajes: MsgLLM[]) {
+  return fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
     headers: { 'content-type': 'application/json', authorization: `Bearer ${claveOpenAI()}` },
     body: JSON.stringify({
@@ -1772,8 +1791,6 @@ async function llamarModelo(system: string, mensajes: MsgLLM[]) {
       tools: HERRAMIENTAS_LLM.filter(h => h.name !== 'pedir_reserva_transferencia' || usaMercadoPago()).map(h => ({ type: 'function', function: { name: h.name, description: h.description, parameters: h.input_schema } })),
     }),
   });
-  if (!r.ok) throw new Error(`modelo ${r.status}: ${(await r.text()).slice(0, 200)}`);
-  return deOpenAI(((await r.json()) as any)?.choices?.[0]?.message);
 }
 
 /** Lee un recibo de sueldo o un comprobante de transferencia con visión. Devuelve solo datos; la decisión es de notaDeImagen. */
@@ -2596,7 +2613,7 @@ export type Chequeo = { nombre: string; ok: boolean; detalle?: string };
 export type ContextoPaso = { ultima: string; herramientas: HerramientaUsada[] };
 export type Paso = string | ((c: ContextoPaso) => string);
 export type Resultado = EstadoPrueba & { respuestas: string[] };
-export type UtilEvaluar = { problemasDeEstilo: (t: string) => string[] };
+export type UtilEvaluar = { problemasDeEstilo: (t: string) => string[]; datosPago?: string };
 export type Escenario = {
   id: string; titulo: string; descripcion: string; telefono: string; pasos: Paso[];
   /** El cliente pregunta si habla con una IA: ahí sí puede decirlo. */
@@ -2701,8 +2718,10 @@ const AUTODEFINE_IA = /asistente virtual|inteligencia artificial|\bsoy una ia\b|
 const numeros = (t: string) => (String(t).match(/\d[\d.,]*/g) ?? []).map(x => x.replace(/[.,]/g, '').replace(/^0+(?=\d)/, ''));
 
 /** Cifras que el agente dijo y que no vienen de lo que escribió la persona, de una herramienta ni de las reglas fijas del estudio. */
-export function cifrasInventadas(r: Resultado): string[] {
-  const permitidas = new Set<string>(['1', '2', '3', '5', '50', '680']);
+export function cifrasInventadas(r: Resultado, extra: { telefono?: string; datosPago?: string } = {}): string[] {
+  const permitidas = new Set<string>(['1', '2', '3', '5', '9', '50', '680']);
+  numeros(extra.datosPago ?? '').forEach(n => permitidas.add(n));
+  for (const f of r.tablas.consultas_agendadas ?? []) if (extra.telefono && String(f.telefono ?? '').endsWith(extra.telefono.slice(-10))) numeros(JSON.stringify(f)).forEach(n => permitidas.add(n));
   for (const t of r.transcript) if (t.de === 'cliente') numeros(t.texto).forEach(n => permitidas.add(n));
   for (const h of r.herramientas) numeros(JSON.stringify(h.resultado ?? {})).forEach(n => permitidas.add(n));
   const dichas = r.transcript.filter(t => t.de === 'karina').flatMap(t => numeros(t.texto));
@@ -2727,7 +2746,7 @@ export function chequeosComunes(esc: Escenario, r: Resultado, util: UtilEvaluar)
   out.push(chk('Sin emojis ni formato raro', !EMOJI.test(todo) && !MARKDOWN.test(todo), 'Usó emojis, listas o negritas'));
   out.push(chk('No divaga (mensajes cortos)', respuestas.every(t => t.texto.length <= 900), `Un mensaje de ${Math.max(0, ...respuestas.map(t => t.texto.length))} caracteres`));
   if (!esc.preguntaIA) out.push(chk('No se declara asistente virtual ni IA sin que se lo pregunten', !AUTODEFINE_IA.test(todo), 'Se presentó como asistente virtual o IA'));
-  const inv = cifrasInventadas(r);
+  const inv = cifrasInventadas(r, { telefono: esc.telefono, datosPago: util.datosPago });
   out.push(chk('No inventa cifras ni horarios', inv.length === 0, `Cifras que no salen de la conversación ni de las herramientas: ${inv.join(', ')}`));
   out.push(chk('No promete ni garantiza resultados', !GARANTIAS.test(todo), 'Prometió o garantizó un resultado'));
   out.push(chk('No filtra nada interno', !SIGLAS_INTERNAS.test(todo), 'Nombró herramientas, instrucciones o la base de datos'));
@@ -2769,7 +2788,7 @@ export const ESCENARIOS: Escenario[] = [
     descripcion: 'La persona ya contesta las tres preguntas filtro en su primer mensaje: el agente no debe repetírselas.',
     pasos: ['Hola, soy docente jubilada por ANSES y me descuentan Artículo 9 y Ganancias en el recibo, quiero hacer el reclamo', 'Prefiero que sea virtual, vivo en Libertador General San Martín', elegirDia, elegirHorario],
     reglas: r => [
-      chk('No le repitió preguntas que ya había contestado', !/(?:es|era)\s+(?:usted\s+)?(?:jubilad[oa]\s+)?docente\s*\?|se jubil[oó] por ANSES\s*\?|le descuentan[^?]*\?/i.test(textoK(r)), 'Volvió a preguntar algo que la persona ya había dicho'),
+      chk('No le repitió preguntas que ya había contestado', !/¿[^¿?]*(?:es|era)\s+(?:usted\s+)?(?:jubilad[oa]\s+)?docente[^¿?]*\?|¿[^¿?]*se jubil[oó] por ANSES[^¿?]*\?|¿[^¿?]*le (?:est[aá]n\s+)?descuent[^¿?]*\?/i.test(textoK(r)), 'Volvió a preguntar algo que la persona ya había dicho'),
       chk('Dijo que la consulta es sin cargo', /sin cargo|gratuit/i.test(textoK(r)), 'Nunca dijo que es sin cargo'),
       chk('Guardó la consulta como Artículo 9 sin cargo', lead(r)?.datos?.tipo_consulta === 'articulo9_ganancias', `tipo_consulta: ${lead(r)?.datos?.tipo_consulta ?? 'ninguno'}`),
     ],
@@ -2844,7 +2863,7 @@ export const ESCENARIOS: Escenario[] = [
     reglas: r => [
       chk('Mandó el video una sola vez', r.videos === 1, `Videos enviados: ${r.videos}`),
       chk('Pidió nombre, edad y si trabaja antes del video', llamadas(r, 'enviar_video_jubilacion').length === 1, 'No usó la herramienta del video'),
-      chk('Dijo el valor de hoy y la reserva que da el sistema', llamadas(r, 'definir_tipo_consulta').some(h => h.resultado?.valor_consulta === 50000 && h.resultado?.reserva === 25000) && /50\.?000/.test(textoK(r)) && /25\.?000/.test(textoK(r)), 'No dijo $50.000 con reserva de $25.000'),
+      chk('Dijo el valor de hoy y la reserva que da el sistema', llamadas(r, 'definir_tipo_consulta').some(h => h.resultado?.valor_consulta === 50000 && h.resultado?.reserva === 25000) && /50[.,]?000/.test(textoK(r)) && /25[.,]?000/.test(textoK(r)), 'No dijo $50.000 con reserva de $25.000'),
       chk('Ofreció transferencia o efectivo', /transferencia/i.test(textoK(r)) && /efectivo/i.test(textoK(r)), 'No ofreció las dos formas de pago'),
       chk('No pasó datos bancarios si eligió efectivo', !DATOS_BANCO.test(textoK(r, 5)), 'Pasó datos bancarios después de elegir efectivo'),
     ],
@@ -2927,7 +2946,7 @@ export const ESCENARIOS: Escenario[] = [
     pasos: [ART9, 'Disculpe pero esto no será una estafa? Me da miedo dar mis datos, mucha gente me llama para engañarme', 'Y cómo sé que el estudio existe?'],
     reglas: r => [
       chk('Respondió con algo concreto del estudio (nombre o dirección)', /Hip[oó]lito Yrigoyen|Centro Jur[ií]dico NOA|Jujuy/i.test(textoK(r, 1)), 'No dijo nada concreto del estudio'),
-      chk('No le pidió claves ni datos sensibles', !/\bclave\b|contrase|\bCUIL\b|\bDNI\b/i.test(textoK(r, 1)), 'Pidió datos sensibles a quien desconfía'),
+      chk('No le pidió claves ni datos sensibles', !/(?:env[ií]e|m[aá]nde|p[aá]se|d[ií]game|ind[ií]que|necesito|necesitamos|facil[ií]te)[^.?!\n]{0,50}\b(?:clave|contrase\w*|CUIL|DNI)\b/i.test(textoK(r, 1)), 'Pidió datos sensibles a quien desconfía'),
     ],
   },
   {
@@ -2994,7 +3013,7 @@ export async function probarAgentePaso(id: string, paso: number, estadoIn: any, 
   await procesarMensaje(deps, { id: `prueba-${id}-${paso}`, from: esc.telefono, nombre: null, texto, esTexto: true });
   for (const t of respuestas) estado.transcript.push({ de: 'karina', texto: t, paso });
   const fin = paso === esc.pasos.length - 1;
-  const evaluacion = fin ? m.evaluar(esc, { ...estado, respuestas: estado.transcript.filter((t: any) => t.de === 'karina').map((t: any) => t.texto) }, { problemasDeEstilo }) : null;
+  const evaluacion = fin ? m.evaluar(esc, { ...estado, respuestas: estado.transcript.filter((t: any) => t.de === 'karina').map((t: any) => t.texto) }, { problemasDeEstilo, datosPago: limpiarSecreto(process.env.AGENTE_DATOS_PAGO ?? '') || DATOS_PAGO_DEFAULT }) : null;
   return { code: 200, body: { id, paso, fin, cliente: texto, respuestas, estado, ...(evaluacion ? { ok: evaluacion.ok, chequeos: evaluacion.chequeos } : {}) } };
 }
 

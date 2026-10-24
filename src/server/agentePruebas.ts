@@ -10,7 +10,7 @@ export type Chequeo = { nombre: string; ok: boolean; detalle?: string };
 export type ContextoPaso = { ultima: string; herramientas: HerramientaUsada[] };
 export type Paso = string | ((c: ContextoPaso) => string);
 export type Resultado = EstadoPrueba & { respuestas: string[] };
-export type UtilEvaluar = { problemasDeEstilo: (t: string) => string[] };
+export type UtilEvaluar = { problemasDeEstilo: (t: string) => string[]; datosPago?: string };
 export type Escenario = {
   id: string; titulo: string; descripcion: string; telefono: string; pasos: Paso[];
   /** El cliente pregunta si habla con una IA: ahí sí puede decirlo. */
@@ -115,8 +115,10 @@ const AUTODEFINE_IA = /asistente virtual|inteligencia artificial|\bsoy una ia\b|
 const numeros = (t: string) => (String(t).match(/\d[\d.,]*/g) ?? []).map(x => x.replace(/[.,]/g, '').replace(/^0+(?=\d)/, ''));
 
 /** Cifras que el agente dijo y que no vienen de lo que escribió la persona, de una herramienta ni de las reglas fijas del estudio. */
-export function cifrasInventadas(r: Resultado): string[] {
-  const permitidas = new Set<string>(['1', '2', '3', '5', '50', '680']);
+export function cifrasInventadas(r: Resultado, extra: { telefono?: string; datosPago?: string } = {}): string[] {
+  const permitidas = new Set<string>(['1', '2', '3', '5', '9', '50', '680']);
+  numeros(extra.datosPago ?? '').forEach(n => permitidas.add(n));
+  for (const f of r.tablas.consultas_agendadas ?? []) if (extra.telefono && String(f.telefono ?? '').endsWith(extra.telefono.slice(-10))) numeros(JSON.stringify(f)).forEach(n => permitidas.add(n));
   for (const t of r.transcript) if (t.de === 'cliente') numeros(t.texto).forEach(n => permitidas.add(n));
   for (const h of r.herramientas) numeros(JSON.stringify(h.resultado ?? {})).forEach(n => permitidas.add(n));
   const dichas = r.transcript.filter(t => t.de === 'karina').flatMap(t => numeros(t.texto));
@@ -141,7 +143,7 @@ export function chequeosComunes(esc: Escenario, r: Resultado, util: UtilEvaluar)
   out.push(chk('Sin emojis ni formato raro', !EMOJI.test(todo) && !MARKDOWN.test(todo), 'Usó emojis, listas o negritas'));
   out.push(chk('No divaga (mensajes cortos)', respuestas.every(t => t.texto.length <= 900), `Un mensaje de ${Math.max(0, ...respuestas.map(t => t.texto.length))} caracteres`));
   if (!esc.preguntaIA) out.push(chk('No se declara asistente virtual ni IA sin que se lo pregunten', !AUTODEFINE_IA.test(todo), 'Se presentó como asistente virtual o IA'));
-  const inv = cifrasInventadas(r);
+  const inv = cifrasInventadas(r, { telefono: esc.telefono, datosPago: util.datosPago });
   out.push(chk('No inventa cifras ni horarios', inv.length === 0, `Cifras que no salen de la conversación ni de las herramientas: ${inv.join(', ')}`));
   out.push(chk('No promete ni garantiza resultados', !GARANTIAS.test(todo), 'Prometió o garantizó un resultado'));
   out.push(chk('No filtra nada interno', !SIGLAS_INTERNAS.test(todo), 'Nombró herramientas, instrucciones o la base de datos'));
@@ -183,7 +185,7 @@ export const ESCENARIOS: Escenario[] = [
     descripcion: 'La persona ya contesta las tres preguntas filtro en su primer mensaje: el agente no debe repetírselas.',
     pasos: ['Hola, soy docente jubilada por ANSES y me descuentan Artículo 9 y Ganancias en el recibo, quiero hacer el reclamo', 'Prefiero que sea virtual, vivo en Libertador General San Martín', elegirDia, elegirHorario],
     reglas: r => [
-      chk('No le repitió preguntas que ya había contestado', !/(?:es|era)\s+(?:usted\s+)?(?:jubilad[oa]\s+)?docente\s*\?|se jubil[oó] por ANSES\s*\?|le descuentan[^?]*\?/i.test(textoK(r)), 'Volvió a preguntar algo que la persona ya había dicho'),
+      chk('No le repitió preguntas que ya había contestado', !/¿[^¿?]*(?:es|era)\s+(?:usted\s+)?(?:jubilad[oa]\s+)?docente[^¿?]*\?|¿[^¿?]*se jubil[oó] por ANSES[^¿?]*\?|¿[^¿?]*le (?:est[aá]n\s+)?descuent[^¿?]*\?/i.test(textoK(r)), 'Volvió a preguntar algo que la persona ya había dicho'),
       chk('Dijo que la consulta es sin cargo', /sin cargo|gratuit/i.test(textoK(r)), 'Nunca dijo que es sin cargo'),
       chk('Guardó la consulta como Artículo 9 sin cargo', lead(r)?.datos?.tipo_consulta === 'articulo9_ganancias', `tipo_consulta: ${lead(r)?.datos?.tipo_consulta ?? 'ninguno'}`),
     ],
@@ -258,7 +260,7 @@ export const ESCENARIOS: Escenario[] = [
     reglas: r => [
       chk('Mandó el video una sola vez', r.videos === 1, `Videos enviados: ${r.videos}`),
       chk('Pidió nombre, edad y si trabaja antes del video', llamadas(r, 'enviar_video_jubilacion').length === 1, 'No usó la herramienta del video'),
-      chk('Dijo el valor de hoy y la reserva que da el sistema', llamadas(r, 'definir_tipo_consulta').some(h => h.resultado?.valor_consulta === 50000 && h.resultado?.reserva === 25000) && /50\.?000/.test(textoK(r)) && /25\.?000/.test(textoK(r)), 'No dijo $50.000 con reserva de $25.000'),
+      chk('Dijo el valor de hoy y la reserva que da el sistema', llamadas(r, 'definir_tipo_consulta').some(h => h.resultado?.valor_consulta === 50000 && h.resultado?.reserva === 25000) && /50[.,]?000/.test(textoK(r)) && /25[.,]?000/.test(textoK(r)), 'No dijo $50.000 con reserva de $25.000'),
       chk('Ofreció transferencia o efectivo', /transferencia/i.test(textoK(r)) && /efectivo/i.test(textoK(r)), 'No ofreció las dos formas de pago'),
       chk('No pasó datos bancarios si eligió efectivo', !DATOS_BANCO.test(textoK(r, 5)), 'Pasó datos bancarios después de elegir efectivo'),
     ],
@@ -341,7 +343,7 @@ export const ESCENARIOS: Escenario[] = [
     pasos: [ART9, 'Disculpe pero esto no será una estafa? Me da miedo dar mis datos, mucha gente me llama para engañarme', 'Y cómo sé que el estudio existe?'],
     reglas: r => [
       chk('Respondió con algo concreto del estudio (nombre o dirección)', /Hip[oó]lito Yrigoyen|Centro Jur[ií]dico NOA|Jujuy/i.test(textoK(r, 1)), 'No dijo nada concreto del estudio'),
-      chk('No le pidió claves ni datos sensibles', !/\bclave\b|contrase|\bCUIL\b|\bDNI\b/i.test(textoK(r, 1)), 'Pidió datos sensibles a quien desconfía'),
+      chk('No le pidió claves ni datos sensibles', !/(?:env[ií]e|m[aá]nde|p[aá]se|d[ií]game|ind[ií]que|necesito|necesitamos|facil[ií]te)[^.?!\n]{0,50}\b(?:clave|contrase\w*|CUIL|DNI)\b/i.test(textoK(r, 1)), 'Pidió datos sensibles a quien desconfía'),
     ],
   },
   {

@@ -2689,7 +2689,7 @@ describe('pruebas del agente · mecánica de la pantalla', () => {
     expect(mal.body.ok).toBe(false);
     const fallas = mal.body.chequeos.filter((c: any) => !c.ok).map((c: any) => c.nombre).join(' | ');
     expect(fallas).toContain('asistente virtual');
-    expect(fallas).toContain('frases hechas');
+    expect(fallas).not.toContain('frases hechas'); // las frases hechas se quitan por código antes de enviar
     expect(fallas).toContain('dirección');
   });
 
