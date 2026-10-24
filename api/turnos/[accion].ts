@@ -1683,6 +1683,10 @@ export async function procesarMensaje(deps: Deps, m: MsgEntrante) {
   }
   if (!respuesta && ultimoTexto) respuesta = ultimoTexto; // si se agotaron las vueltas, mejor el último mensaje que el aviso genérico
   if (respuesta) respuesta = quitarFrasesHechas(respuesta);
+  // Si la persona recién eligió transferencia y el modelo habló de transferir sin pasar los datos, se los agrega el sistema.
+  if (pasarDatos && !usaMercadoPago() && eligioTransferencia([textoCliente]) && /transfer/i.test(respuesta) && !LINEA_DATOS_PAGO.test(respuesta) && !/centrojuridiconoa680|\bCVU\b/i.test(respuesta)) {
+    respuesta = `${respuesta.trim()}\n\n${(datosPago || DATOS_PAGO_DEFAULT).split(/\s*·\s*/).join('\n')}`;
+  }
   // Red de seguridad: los datos bancarios solo salen si la persona ya eligió transferencia.
   if (!pasarDatos && LINEA_DATOS_PAGO.test(respuesta)) respuesta = respuesta.split('\n').filter(l => !LINEA_DATOS_PAGO.test(l)).join('\n').replace(/\n{3,}/g, '\n\n').trim();
   // Red de seguridad: nada interno (herramientas, avisos del sistema, claves, la base) sale en un mensaje al cliente.
