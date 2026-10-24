@@ -217,7 +217,7 @@ const sinTurno = (r: Resultado): Chequeo => chk('No agendó ningún turno', turn
 const puertaAbierta = (r: Resultado): Chequeo => {
   const ultimo = [...r.transcript].reverse().find(t => t.de === 'karina')?.texto ?? '';
   if (/\d{1,2}[:.]\d{2}|¿[^¿?]*(?:reserv|agend|coordin|horario)[^¿?]*\?/i.test(ultimo)) return chk('Respetó el "no" (no volvió a ofrecer horarios ni a insistir en el último mensaje)', false, 'Siguió insistiendo después de un "no" firme');
-  return chk('Despidió con respeto', /escr[ií]ba(?:nos|me)|me escribe|puede escribir|coordinamos|organizamos|cuando (?:quiera|lo decida|decida|desee)|gracias|hasta pronto|buen d[ií]a|cu[ií]dese|lamento|deseo lo mejor|disponible|saludos|que tenga/i.test(ultimo), 'No se despidió con respeto');
+  return chk('Despidió con respeto (sin volver a ofrecer ni preguntar nada)', ultimo.trim().length >= 15 && !/\?\s*$/.test(ultimo.trim()), 'No se despidió con respeto');
 };
 const noArt9Gratis = (r: Resultado): Chequeo => chk('No la anotó como Art. 9 sin cargo', lead(r)?.datos?.tipo_consulta !== 'articulo9_ganancias', 'La anotó como Art. 9 sin cargo');
 

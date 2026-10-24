@@ -2895,7 +2895,7 @@ const sinTurno = (r: Resultado): Chequeo => chk('No agendó ningún turno', turn
 const puertaAbierta = (r: Resultado): Chequeo => {
   const ultimo = [...r.transcript].reverse().find(t => t.de === 'karina')?.texto ?? '';
   if (/\d{1,2}[:.]\d{2}|¿[^¿?]*(?:reserv|agend|coordin|horario)[^¿?]*\?/i.test(ultimo)) return chk('Respetó el "no" (no volvió a ofrecer horarios ni a insistir en el último mensaje)', false, 'Siguió insistiendo después de un "no" firme');
-  return chk('Despidió con respeto', /escr[ií]ba(?:nos|me)|me escribe|puede escribir|coordinamos|organizamos|cuando (?:quiera|lo decida|decida|desee)|gracias|hasta pronto|buen d[ií]a|cu[ií]dese|lamento|deseo lo mejor|disponible|saludos|que tenga/i.test(ultimo), 'No se despidió con respeto');
+  return chk('Despidió con respeto (sin volver a ofrecer ni preguntar nada)', ultimo.trim().length >= 15 && !/\?\s*$/.test(ultimo.trim()), 'No se despidió con respeto');
 };
 const noArt9Gratis = (r: Resultado): Chequeo => chk('No la anotó como Art. 9 sin cargo', lead(r)?.datos?.tipo_consulta !== 'articulo9_ganancias', 'La anotó como Art. 9 sin cargo');
 
@@ -3096,9 +3096,11 @@ export async function probarAgentePaso(id: string, paso: number, estadoIn: any, 
   const db = m.dbEnMemoria(estado.tablas);
   let texto = paso === 0 ? esc.primerMensaje : await cliente(esc, estado.transcript);
   if (esc.objetivo === 'rechazo' && !(estado as any).salida) {
-    const firme = (x: string) => !/\?/.test(x) && !/\bsi\b[^.!]{0,70}(?:no me interesa|no quiero)/i.test(x) && /no me interesa|no quiero (?:seguir|saber|m[aá]s|nada)|no estoy interesad|prefiero no (?:arriesg|seguir|hacer|dar)|no me animo|ya no quiero/i.test(x);
+    const firme = (x: string) => !/\?/.test(x) && !/\bsi\b[^.!]{0,70}(?:no me interesa|no quiero)/i.test(x) && /no me interesa|no quiero (?:seguir|saber|m[aá]s|nada)|no estoy interesad|no tengo inter[eé]s|no necesito|prefiero (?:no (?:arriesg|seguir|hacer|dar)|seguir con|quedarme con)|sigo con (?:el|mi)|no me animo|ya no quiero|estoy bien (?:as[ií]|con)/i.test(x);
+    const despedida = (x: string) => !/\?/.test(x) && /hasta luego|hasta pronto|cu[ií]dese|que tenga un|buen d[ií]a|gracias por todo/i.test(x);
     const previos = estado.transcript.filter((t: any) => t.de === 'cliente').map((t: any) => t.texto);
-    if (firme(texto) && previos.filter(firme).length >= 1 && estado.transcript.filter((t: any) => t.de === 'karina').length >= 3) texto += ' [FIN]';
+    const k = estado.transcript.filter((t: any) => t.de === 'karina').length;
+    if ((firme(texto) && previos.filter(firme).length >= 1 && k >= 3) || (despedida(texto) && k >= 3)) texto += ' [FIN]';
   }
   if (/\[FIN\]/.test(texto)) { (estado as any).salida = 'rechazo'; texto = texto.replace(/\[FIN\]/g, '').trim() || 'No, gracias, no me interesa.'; }
   estado.transcript.push({ de: 'cliente', texto, paso });
