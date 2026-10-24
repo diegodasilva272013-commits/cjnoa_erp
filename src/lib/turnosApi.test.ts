@@ -3,7 +3,7 @@ import { createHmac } from 'node:crypto';
 import handler, {
   clasificarRecibo, TIPOS_CONSULTA, promesaSinCumplir, separarDatosPago, mensajeApurado,
   aMin, limpiarSecreto, camposDeLead, etapaAutomatica, fusionarLead, registrarMensaje, upsertLead, firmaMetaValida, firmaKapsoValida, extraerMensajesKapso, extraerMensajes, aMensajesLLM, procesarMensaje, filaDePersona, esConversacionDeNoa, clasificarMensajeCliente, categoriaMensajeAgente, personaMetrica, agregarMetricasAgente, calcularMetricasAgente, evaluarOptimizaciones, validarOptimizaciones, ejecutarOptimizacion, type MetricasAgente, motivoDeExclusion, resumenEnPalabras, ejecutarAnalista, revisarAnalisisAutomatico, codigosDeEstilo, etapaEmbudo, analizarConversacion, calcularMetricas, mascararDatos, textoParaEtiquetar, validarEtiquetas, promptDelAgente, limpiarCachePrompt, accionAgentes, problemasDeEstilo, textoNoLegible, firmaMercadoPagoValida, importeTexto, importeLindo, asignarImporteUnico, procesarPagoMP, montoMercadoPago, modalidadElegida, enmascarar, neutralizarMarcas, salidaInsegura, superaLimite, urlMediaSegura, resumenTurnosVigentes, HERRAMIENTAS_LLM, cuerpoNotaDeVoz, eligioTransferencia, notaDeImagen, montoValidadoDe, quitarEtiquetas, aMensajesOpenAI, deOpenAI, ejecutarHerramienta, PROMPT_AGENTE, type Deps, telefonoClave, historialDe, inferirNombre, normalizarFecha, normalizarHora, bloquesDelDia, huecosLibres, localDe, resolverProfesional, diaSemanaISO, fechaValida,
-  registrarSinResponder, condicionDeAgenda, registrarMensajeHumano, extraerHumanosKapso, responderDesdeErp, resumenCampana, analizarCampana, analisisSoloConCifrasReales,
+  registrarSinResponder, probarAgentePaso, condicionDeAgenda, registrarMensajeHumano, extraerHumanosKapso, responderDesdeErp, resumenCampana, analizarCampana, analisisSoloConCifrasReales,
   type Bloque,
 } from '../../api/turnos/[accion]';
 
@@ -2648,5 +2648,40 @@ describe('agente · nuevo flujo (Art. 9 sin recibo, jubilación con video y valo
     }
     expect(problemasDeEstilo('Gracias por contarme que a sus 62 años sigue trabajando como docente. ¿Me indica su nombre, por favor?')).toEqual([]);
     expect(problemasDeEstilo('No entiendo bien su mensaje, ¿podría repetirlo?')).toEqual([]);
+  });
+});
+
+describe('pruebas del agente · mecánica de la pantalla', () => {
+  const llmFijo = (t: string) => async () => ({ stop_reason: 'end_turn', content: [{ type: 'text', text: t }] } as any);
+
+  it('hay 20 conversaciones distintas, con ids únicos y teléfonos únicos', async () => {
+    const { ESCENARIOS } = await import('../server/agentePruebas');
+    expect(ESCENARIOS).toHaveLength(20);
+    expect(new Set(ESCENARIOS.map(e => e.id)).size).toBe(20);
+    expect(new Set(ESCENARIOS.map(e => e.telefono)).size).toBe(20);
+    expect(new Set(ESCENARIOS.map(e => e.pasos.map(p => typeof p === 'string' ? p : 'dinamico').join('|'))).size).toBe(20);
+  });
+
+  it('corre un mensaje por vez sobre una base en memoria y evalúa al final', async () => {
+    const { ESCENARIOS } = await import('../server/agentePruebas');
+    const esc = ESCENARIOS.find(e => e.id === 'pregunta-direccion')!;
+    const bien = await probarAgentePaso(esc.id, 0, undefined, llmFijo('Hola, soy Karina, del Centro Jurídico NOA. Estamos en Hipólito Yrigoyen 680, San Salvador de Jujuy.'));
+    expect(bien.code).toBe(200);
+    expect(bien.body.fin).toBe(true);
+    expect(bien.body.ok).toBe(true);
+    const mal = await probarAgentePaso(esc.id, 0, undefined, llmFijo('Hola, soy el asistente virtual. Entiendo completamente su consulta, no dude en contactarme.'));
+    expect(mal.body.ok).toBe(false);
+    const fallas = mal.body.chequeos.filter((c: any) => !c.ok).map((c: any) => c.nombre).join(' | ');
+    expect(fallas).toContain('Karina');
+    expect(fallas).toContain('frases hechas');
+    expect(fallas).toContain('dirección');
+  });
+
+  it('detecta una cifra inventada y que no agende cuando debía', async () => {
+    const r = await probarAgentePaso('art9-completo', 0, undefined, llmFijo('Hola, soy Karina, del Centro Jurídico NOA. La consulta cuesta $12.345.'));
+    expect(r.body.fin).toBe(false);
+    expect(r.body.estado.transcript.map((t: any) => t.de)).toEqual(['cliente', 'karina']);
+    expect(await probarAgentePaso('nada', 0, undefined, llmFijo('x'))).toMatchObject({ code: 404 });
+    expect(await probarAgentePaso('art9-completo', 99, undefined, llmFijo('x'))).toMatchObject({ code: 400 });
   });
 });

@@ -2540,6 +2540,33 @@ export async function calcularMetricasAgente(db: Db, o: { dias: number | null; a
 }
 
 
+// ---------------------------------------------------------------- pantalla "Pruebas del agente"
+
+/** Un mensaje del cliente a través del agente REAL (mismo prompt, modelo y herramientas) sobre una base en memoria: no toca datos reales ni manda nada por WhatsApp. */
+export async function probarAgentePaso(id: string, paso: number, estadoIn: any, llm: Deps['llm'] = llamarModelo): Promise<Resp> {
+  const m = await import('../../src/server/agentePruebas');
+  const esc = m.ESCENARIOS.find(e => e.id === id);
+  if (!esc) return { code: 404, body: { error: 'Esa prueba no existe.' } };
+  if (!Number.isInteger(paso) || paso < 0 || paso >= esc.pasos.length) return { code: 400, body: { error: 'Paso inválido.' } };
+  const estado = (paso === 0 || !estadoIn?.tablas) ? m.estadoInicial(esc) : { tablas: estadoIn.tablas, transcript: estadoIn.transcript ?? [], herramientas: estadoIn.herramientas ?? [], videos: Number(estadoIn.videos ?? 0) };
+  const db = m.dbEnMemoria(estado.tablas);
+  const ultima = [...estado.transcript].reverse().find((t: any) => t.de === 'karina')?.texto ?? '';
+  const texto = m.textoDelPaso(esc, paso, { ultima, herramientas: estado.herramientas });
+  estado.transcript.push({ de: 'cliente', texto, paso });
+  const respuestas: string[] = [];
+  const deps: Deps = {
+    db, llm, prompt: PROMPT_AGENTE,
+    enviar: async (_to, t) => { respuestas.push(t); },
+    ejecutar: async (nombre, input, ctx) => { const resultado = await ejecutarHerramienta(db, nombre, input, ctx); estado.herramientas.push({ nombre, input, resultado }); return resultado; },
+    enviarVideo: async () => { estado.videos++; },
+  };
+  await procesarMensaje(deps, { id: `prueba-${id}-${paso}`, from: esc.telefono, nombre: null, texto, esTexto: true });
+  for (const t of respuestas) estado.transcript.push({ de: 'karina', texto: t, paso });
+  const fin = paso === esc.pasos.length - 1;
+  const evaluacion = fin ? m.evaluar(esc, { ...estado, respuestas: estado.transcript.filter((t: any) => t.de === 'karina').map((t: any) => t.texto) }, { problemasDeEstilo }) : null;
+  return { code: 200, body: { id, paso, fin, cliente: texto, respuestas, estado, ...(evaluacion ? { ok: evaluacion.ok, chequeos: evaluacion.chequeos } : {}) } };
+}
+
 // ---------------------------------------------------------------- CJ: métricas de campaña exactas + análisis que no puede inventar cifras
 
 const NOMBRE_CAMPANA: Record<string, string> = { art9_ganancias: 'Artículo 9 / Ganancias', jubilacion_docente: 'Jubilación docente', 'sin dato': 'Sin campaña registrada' };
@@ -2925,6 +2952,12 @@ async function agentesHttp(req: VercelRequest, res: VercelResponse, db: Db, raw:
     const r = await responderDesdeErp(db, quien, String(body?.telefono ?? ''), String(body?.texto ?? ''), enviarWhatsApp);
     if (r.code === 200) await registrarAgente(db, 'auditor', 'Mensaje manual desde el ERP', { por: quien, telefono_final: String(body?.telefono ?? '').replace(/\D/g, '').slice(-4) });
     return res.status(r.code).json(r.body);
+  }
+  if (body?.accion === 'probar_agente') {
+    const rol = String((perfil as any).rol ?? '');
+    if (rol !== 'admin' && rol !== 'socio') return res.status(403).json({ error: 'No tenés permiso para correr las pruebas.' });
+    try { const r = await probarAgentePaso(String(body?.id ?? ''), Number(body?.paso ?? 0), body?.estado); return res.status(r.code).json(r.body); }
+    catch (e) { console.error('[pruebas] ', e); return res.status(500).json({ error: e instanceof Error ? e.message.slice(0, 200) : 'Error en la prueba' }); }
   }
   if (body?.accion === 'hablar') {
     const texto = String(body?.texto ?? '').trim();

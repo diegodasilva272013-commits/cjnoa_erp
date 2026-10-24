@@ -28,6 +28,7 @@ import {
   Megaphone,
   Sparkles,
   Gauge,
+  FlaskConical,
 } from 'lucide-react';
 import { usePermisos } from '../hooks/usePermisos';
 import { useAuth } from '../context/AuthContext';
@@ -177,6 +178,14 @@ export default function Sidebar({ open, onClose }: SidebarProps) {
             <NavLink to="/agente-whatsapp" onClick={onClose} className={({ isActive }) => linkClass(isActive)}>
               <Gauge className="w-5 h-5" />
               Agente WhatsApp
+            </NavLink>
+          )}
+
+          {/* Pruebas del agente (20 conversaciones contra el agente real): solo admin y socio */}
+          {(rol === 'admin' || rol === 'socio') && (
+            <NavLink to="/agente-pruebas" onClick={onClose} className={({ isActive }) => linkClass(isActive)}>
+              <FlaskConical className="w-5 h-5" />
+              Pruebas del agente
             </NavLink>
           )}
 
