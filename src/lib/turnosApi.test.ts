@@ -3,7 +3,7 @@ import { createHmac } from 'node:crypto';
 import handler, {
   clasificarRecibo, TIPOS_CONSULTA, promesaSinCumplir, separarDatosPago, mensajeApurado,
   aMin, limpiarSecreto, camposDeLead, etapaAutomatica, fusionarLead, registrarMensaje, upsertLead, firmaMetaValida, firmaKapsoValida, extraerMensajesKapso, extraerMensajes, aMensajesLLM, procesarMensaje, filaDePersona, esConversacionDeNoa, clasificarMensajeCliente, categoriaMensajeAgente, personaMetrica, agregarMetricasAgente, calcularMetricasAgente, evaluarOptimizaciones, validarOptimizaciones, ejecutarOptimizacion, type MetricasAgente, motivoDeExclusion, resumenEnPalabras, ejecutarAnalista, revisarAnalisisAutomatico, codigosDeEstilo, etapaEmbudo, analizarConversacion, calcularMetricas, mascararDatos, textoParaEtiquetar, validarEtiquetas, promptDelAgente, limpiarCachePrompt, accionAgentes, problemasDeEstilo, textoNoLegible, firmaMercadoPagoValida, importeTexto, importeLindo, asignarImporteUnico, procesarPagoMP, montoMercadoPago, modalidadElegida, enmascarar, neutralizarMarcas, salidaInsegura, superaLimite, urlMediaSegura, resumenTurnosVigentes, HERRAMIENTAS_LLM, cuerpoNotaDeVoz, eligioTransferencia, notaDeImagen, montoValidadoDe, quitarEtiquetas, aMensajesOpenAI, deOpenAI, ejecutarHerramienta, PROMPT_AGENTE, type Deps, telefonoClave, historialDe, inferirNombre, normalizarFecha, normalizarHora, bloquesDelDia, huecosLibres, localDe, resolverProfesional, diaSemanaISO, fechaValida,
-  registrarSinResponder, registrarMensajeHumano, extraerHumanosKapso, responderDesdeErp, resumenCampana, analizarCampana, analisisSoloConCifrasReales,
+  registrarSinResponder, condicionDeAgenda, registrarMensajeHumano, extraerHumanosKapso, responderDesdeErp, resumenCampana, analizarCampana, analisisSoloConCifrasReales,
   type Bloque,
 } from '../../api/turnos/[accion]';
 
@@ -659,9 +659,9 @@ describe('agente · herramientas', () => {
   it('definir_tipo_consulta fija valor y reserva en código y los deja en el lead', async () => {
     const { db, tablas } = dbMemoria();
     const r: any = await ejecutarHerramienta(db, 'definir_tipo_consulta', { tipo: 'jubilacion_docente' }, { telefono: '5493884867965', conversationId: 'c' });
-    expect(r).toMatchObject({ valor_consulta: 80000, reserva: 40000, saldo_dia_consulta: 40000, abogado: 'Fabricio' });
+    expect(r).toMatchObject({ valor_consulta: 50000, reserva: 25000, saldo_dia_consulta: 25000, abogado: 'Fabricio', es_valor_de_hoy: true, valor_normal: 80000 });
     expect(r.datos_para_transferir).toContain('centrojuridiconoa680');
-    expect(tablas.leads[0].datos).toMatchObject({ tipo_consulta: 'jubilacion_docente', reserva_esperada: 40000 });
+    expect(tablas.leads[0].datos).toMatchObject({ tipo_consulta: 'jubilacion_docente', reserva_esperada: 25000 });
     const o: any = await ejecutarHerramienta(db, 'definir_tipo_consulta', { tipo: 'otras_situaciones_anses' }, { telefono: '5493884867965', conversationId: 'c' });
     expect(o).toMatchObject({ valor_consulta: 150000, reserva: 75000, abogado: 'Alejandro' });
     expect(await ejecutarHerramienta(db, 'definir_tipo_consulta', { tipo: 'gratis' }, { telefono: '1', conversationId: 'c' })).toHaveProperty('error');
@@ -2585,25 +2585,68 @@ describe('CJ · métricas de campaña reales y análisis sin cifras inventadas',
   });
 });
 
-describe('agente · prompt de Artículo 9 / Ganancias sin cargo en todos los casos', () => {
-  it('el prompt dice sin cargo en todos los casos, exige el recibo sin excepción y no deja ninguna regla de precio para este flujo', () => {
-    expect(PROMPT_AGENTE).toContain('es SIN CARGO en TODOS los casos');
-    expect(PROMPT_AGENTE).toContain('El ÚNICO requisito, sin excepción, es que mande el recibo');
-    expect(PROMPT_AGENTE).toContain('NO se ofrecen horarios ni se agenda');
-    expect(PROMPT_AGENTE).toContain('Artículo 9 / Ganancias NUNCA lleva reserva');
-    expect(PROMPT_AGENTE).not.toMatch(/umbral|Si el sistema indica consulta con valor y reserva|Art\. 9 \/ Ganancias con valor/);
-  });
-});
+describe('agente · nuevo flujo (Art. 9 sin recibo, jubilación con video y valor de hoy)', () => {
+  const tel = '5493884867965';
+  const ctx = { telefono: tel, conversationId: 'c' };
 
-describe('agente en pausa · guarda y no contesta', () => {
-  it('guarda el mensaje del cliente (texto o archivo) sin repetirlo y sin leer nada', async () => {
-    const { db, estado } = dbConversaciones();
-    expect(await registrarSinResponder(db, { id: 'w1', from: '5493884867965', nombre: 'Elisa', texto: 'Hola, quiero información', esTexto: true })).toBe('guardado');
-    expect(await registrarSinResponder(db, { id: 'w2', from: '5493884867965', nombre: 'Elisa', texto: '', esTexto: false, tipo: 'image', caption: 'mi recibo' })).toBe('guardado');
-    expect(await registrarSinResponder(db, { id: 'w1', from: '5493884867965', nombre: 'Elisa', texto: 'Hola, quiero información', esTexto: true })).toBe('duplicado');
-    const m = estado.fila.mensajes;
-    expect(m.map((x: any) => x.texto)).toEqual(['Hola, quiero información', '[El cliente envió una foto con el texto: "mi recibo"]']);
-    expect(m.every((x: any) => x.from === 'cliente')).toBe(true);
-    expect(estado.upserts[0].conversation_id).toBe('respaldo-5493884867965');
+  it('el prompt tiene los dos flujos del brief, sin pedir recibo y sin importes', () => {
+    expect(PROMPT_AGENTE).toContain('NO se pide el recibo');
+    expect(PROMPT_AGENTE).toContain('SIN CARGO');
+    expect(PROMPT_AGENTE).toContain('enviar_video_jubilacion');
+    expect(PROMPT_AGENTE).toContain('Regla de oro: nada inventado');
+    expect(PROMPT_AGENTE).toContain('PROHIBIDAS las frases hechas');
+    expect(PROMPT_AGENTE).not.toMatch(/\$\s?\d/);
+    expect(PROMPT_AGENTE).not.toMatch(/El ÚNICO requisito, sin excepción|NO se ofrecen horarios ni se agenda/);
+  });
+
+  it('Art. 9 / Ganancias: sin cargo y sin recibo, pero solo si la campaña ya quedó guardada (no sirve para saltear el pago de otra consulta)', async () => {
+    const sin = dbMemoria();
+    expect(await ejecutarHerramienta(sin.db, 'definir_tipo_consulta', { tipo: 'articulo9_ganancias' }, ctx)).toHaveProperty('error');
+    const { db, tablas } = dbMemoria({ leads: [{ telefono: tel, campana: 'art9_ganancias', datos: {} }] });
+    const r: any = await ejecutarHerramienta(db, 'definir_tipo_consulta', { tipo: 'articulo9_ganancias' }, ctx);
+    expect(r).toMatchObject({ sin_cargo: true, valor_consulta: 0, abogado: 'Alejandro' });
+    expect(r.datos_para_transferir).toBeUndefined();
+    expect(tablas.leads[0].datos).toMatchObject({ tipo_consulta: 'articulo9_ganancias', reserva_esperada: 0 });
+  });
+
+  it('con Art. 9 declarado se puede agendar sin recibo ni reserva; sin declarar, no', async () => {
+    const { db } = dbMemoria({ leads: [{ telefono: tel, campana: 'art9_ganancias', datos: { tipo_consulta: 'articulo9_ganancias', reserva_esperada: 0 } }] });
+    expect(await condicionDeAgenda(db, ctx)).toEqual({ ok: true });
+    const otro = dbMemoria({ leads: [{ telefono: tel, datos: {} }] });
+    expect((await condicionDeAgenda(otro.db, ctx)).ok).toBe(false);
+  });
+
+  it('jubilación: el valor de hoy rige el mismo día; otro día vale el normal', async () => {
+    const hoy = dbMemoria();
+    const a: any = await ejecutarHerramienta(hoy.db, 'definir_tipo_consulta', { tipo: 'jubilacion_docente' }, ctx);
+    expect(a).toMatchObject({ valor_consulta: 50000, reserva: 25000, es_valor_de_hoy: true });
+    const ayer = dbMemoria({ leads: [{ telefono: tel, datos: { promo_dia: '2020-01-01' } }] });
+    const b: any = await ejecutarHerramienta(ayer.db, 'definir_tipo_consulta', { tipo: 'jubilacion_docente' }, ctx);
+    expect(b).toMatchObject({ valor_consulta: 80000, reserva: 40000, es_valor_de_hoy: false });
+    expect(ayer.tablas.leads[0].datos.reserva_esperada).toBe(40000);
+  });
+
+  it('el video se manda una sola vez y si falla el envío no se marca como enviado', async () => {
+    const enviados: string[] = [];
+    const { db, tablas } = dbMemoria();
+    const r: any = await ejecutarHerramienta(db, 'enviar_video_jubilacion', {}, { ...ctx, enviarVideo: async to => { enviados.push(to); } });
+    expect(r.enviado).toBe(true);
+    expect(tablas.leads[0].datos.video_enviado).toBe(true);
+    const otra: any = await ejecutarHerramienta(db, 'enviar_video_jubilacion', {}, { ...ctx, enviarVideo: async to => { enviados.push(to); } });
+    expect(otra.ya_enviado).toBe(true);
+    expect(enviados).toEqual([tel]);
+    const falla = dbMemoria();
+    const f: any = await ejecutarHerramienta(falla.db, 'enviar_video_jubilacion', {}, { ...ctx, enviarVideo: async () => { throw new Error('whatsapp 500'); } });
+    expect(f.error).toBeTruthy();
+    expect(falla.tablas.leads?.[0]?.datos?.video_enviado).toBeUndefined();
+    expect((await ejecutarHerramienta(dbMemoria().db, 'enviar_video_jubilacion', {}, ctx) as any).error).toBeTruthy();
+  });
+
+  it('las frases hechas que prohibió el dueño se detectan; una respuesta concreta y cálida no', () => {
+    for (const mala of ['Entiendo, Elisa. Si necesita más información, no dude en contactarme.', 'Le entiendo completamente.', 'Entiendo perfectamente su situación.', 'Estoy aquí para ayudarle en lo que necesite.', 'Es totalmente comprensible.', 'Gracias. Entiendo, ¿me indica su edad?']) {
+      expect(problemasDeEstilo(mala).join(' ')).toContain('frases hechas');
+    }
+    expect(problemasDeEstilo('Gracias por contarme que a sus 62 años sigue trabajando como docente. ¿Me indica su nombre, por favor?')).toEqual([]);
+    expect(problemasDeEstilo('No entiendo bien su mensaje, ¿podría repetirlo?')).toEqual([]);
   });
 });
