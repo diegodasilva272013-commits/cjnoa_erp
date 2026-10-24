@@ -3239,6 +3239,7 @@ export async function probarAgentePaso(id: string, paso: number, estadoIn: any, 
     presentarse: true,
   };
   await procesarMensaje(deps, { id: `prueba-${id}-${paso}`, from: esc.telefono, nombre: null, texto, esTexto: true });
+  if (respuestas.length === 1 && respuestas[0] === MSG_SIN_RESPUESTA) return { code: 503, body: { error: 'OpenAI no contestó (límite de uso). Se reintenta este paso.' } };
   for (const t of respuestas) estado.transcript.push({ de: 'karina', texto: t, paso });
   const fin = paso === esc.pasos.length - 1;
   const evaluacion = fin ? m.evaluar(esc, { ...estado, respuestas: estado.transcript.filter((t: any) => t.de === 'karina').map((t: any) => t.texto) }, { problemasDeEstilo, datosPago: limpiarSecreto(process.env.AGENTE_DATOS_PAGO ?? '') || DATOS_PAGO_DEFAULT }) : null;

@@ -26,7 +26,16 @@ export default function AgentePruebas() {
     try {
       for (let paso = 0; paso < esc.pasos.length; paso++) {
         if (frenar.current) { poner(id, { estado: 'pendiente' }); return; }
-        const r = await llamarAgentes<any>('probar_agente', { id, paso, estado });
+        let r: any = null;
+        for (let intento = 1; intento <= 5; intento++) {
+          try { r = await llamarAgentes<any>('probar_agente', { id, paso, estado }); break; }
+          catch (e) {
+            const msg = e instanceof Error ? e.message : '';
+            if (intento === 5 || !/reintenta|l[ií]mite|429|Failed to fetch|timeout/i.test(msg)) throw e;
+            poner(id, { mensaje: 'OpenAI saturado: esperando para reintentar…' });
+            await new Promise(res => setTimeout(res, 12000));
+          }
+        }
         estado = r.estado;
         poner(id, { transcript: r.estado.transcript, paso: paso + 1 });
         if (r.fin) poner(id, { estado: r.ok ? 'aprobada' : 'fallo', chequeos: r.chequeos ?? [] });

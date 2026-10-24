@@ -2868,3 +2868,13 @@ describe('turnos · id de turno inventado por el modelo', () => {
     expect(tablas.consultas_agendadas.find((x: any) => x.id === 'mio').hora_consulta).toBe('09:00');
   });
 });
+
+describe('pruebas del agente · si OpenAI no contesta no se evalúa con el aviso de error', () => {
+  it('devuelve 503 para reintentar el paso en vez de dar la prueba por fallada', async () => {
+    const llmCaido = async () => { throw new Error('modelo 429: rate limit'); };
+    const r = await probarAgentePaso('pregunta-direccion', 0, undefined, llmCaido as any);
+    expect(r.code).toBe(503);
+    expect(r.body.error).toContain('reintenta');
+  });
+});
+

@@ -13,7 +13,8 @@ async function main() {
     let estado: any; let ultimo: any;
     try {
       for (let n = 0; n < pasos; n++) {
-        const r: any = await probarAgentePaso(id, n, estado, undefined, real as any);
+        let r: any = await probarAgentePaso(id, n, estado, undefined, real as any);
+        for (let k = 0; k < 4 && r.code === 503; k++) { await new Promise(res => setTimeout(res, 15000)); r = await probarAgentePaso(id, n, estado, undefined, real as any); }
         if (r.code !== 200) return { id, error: JSON.stringify(r.body).slice(0, 300) };
         estado = r.body.estado; ultimo = r.body;
       }
