@@ -555,7 +555,7 @@ export const ESCENARIOS_EXTRA: Escenario[] = [
     pasos: ['Hola, soy docente jubilada por ANSES y me descuentan Artículo 9 y Ganancias', 'Gracias, lo voy a pensar y le aviso'],
     reglas: r => [
       chk('No presionó con urgencias ni cupos inventados', !/[uú]ltima oportunidad|ahora o nunca|se pierde|[uú]ltimos cupos|solo quedan|hoy mismo|antes de que se acabe/i.test(textoK(r, 1)), 'Presionó con una urgencia inventada'),
-      chk('Le dejó la puerta abierta con una frase propia', /cuando (?:quiera|lo decida|desee|est[ée] lista)|me escribe|escr[ií]ba(?:nos|me)|coordinamos/i.test(textoK(r, 1)), 'No le dejó la puerta abierta'),
+      chk('Le dejó la puerta abierta con una frase propia', /cuando (?:quiera|lo decida|desee|est[ée] lista)|me escribe|puede escribir|escr[ií]ba(?:nos|me)|coordinamos|organizamos/i.test(textoK(r, 1)), 'No le dejó la puerta abierta'),
       chk('No agendó nada sin que lo pidiera', turnosAgendados(r).length === 0, 'Agendó sin pedido'),
     ],
   },

@@ -1659,7 +1659,11 @@ export async function procesarMensaje(deps: Deps, m: MsgEntrante) {
         }
         // Tono profesional: de usted, sin reproches y diciendo el valor antes de preguntar cómo abonar. Se corrige una vez antes de enviar.
         if (txt) ultimoTexto = txt;
-        const problemas = txt && !reintentoEstilo ? problemasDeEstilo(txt) : [];
+        const normalizado = (x: string) => x.toLowerCase().replace(/[^a-z0-9áéíóúñ]+/g, ' ').trim();
+        const ultimoAgente = [...previos].reverse().find(x => x.from === 'agente')?.texto ?? '';
+        const problemas = txt && !reintentoEstilo
+          ? [...problemasDeEstilo(txt), ...(ultimoAgente && normalizado(txt) === normalizado(ultimoAgente) ? ['No repitas tu mensaje anterior: contestá a lo último que escribió la persona. Si no se entiende, decile con amabilidad que no lo pudiste entender y pedile que lo repita.'] : [])]
+          : [];
         if (problemas.length) {
           reintentoEstilo = true;
           mensajes.push({ role: 'assistant', content: txt });
@@ -3166,7 +3170,7 @@ export const ESCENARIOS_EXTRA: Escenario[] = [
     pasos: ['Hola, soy docente jubilada por ANSES y me descuentan Artículo 9 y Ganancias', 'Gracias, lo voy a pensar y le aviso'],
     reglas: r => [
       chk('No presionó con urgencias ni cupos inventados', !/[uú]ltima oportunidad|ahora o nunca|se pierde|[uú]ltimos cupos|solo quedan|hoy mismo|antes de que se acabe/i.test(textoK(r, 1)), 'Presionó con una urgencia inventada'),
-      chk('Le dejó la puerta abierta con una frase propia', /cuando (?:quiera|lo decida|desee|est[ée] lista)|me escribe|escr[ií]ba(?:nos|me)|coordinamos/i.test(textoK(r, 1)), 'No le dejó la puerta abierta'),
+      chk('Le dejó la puerta abierta con una frase propia', /cuando (?:quiera|lo decida|desee|est[ée] lista)|me escribe|puede escribir|escr[ií]ba(?:nos|me)|coordinamos|organizamos/i.test(textoK(r, 1)), 'No le dejó la puerta abierta'),
       chk('No agendó nada sin que lo pidiera', turnosAgendados(r).length === 0, 'Agendó sin pedido'),
     ],
   },
