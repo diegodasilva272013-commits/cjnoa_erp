@@ -1118,6 +1118,16 @@ export async function condicionDeAgenda(db: Db, ctx: CtxHerramienta): Promise<{ 
   return { ok: false, mensaje: 'TODAVÍA NO se puede agendar: no está definido qué consulta le corresponde a esta persona. Si es Artículo 9 / Ganancias, hacé las preguntas filtro y usá definir_tipo_consulta con articulo9_ganancias; si es jubilación docente u otras situaciones, usá definir_tipo_consulta y seguí la secuencia (valor, forma de pago, comprobante). No ofrezcas horarios hasta entonces.' };
 }
 
+/** El modelo a veces escribe un id de turno inventado. Si ese id no existe en ningún turno y la persona tiene uno solo, se descarta para usar el suyo. */
+async function idDeTurnoValido(db: Db, ts: TurnoVigente[], id: unknown): Promise<unknown> {
+  const pedido = String(id ?? '').trim();
+  if (!pedido || ts.length !== 1 || ts.some(t => String(t.id) === pedido)) return id;
+  try {
+    const { data } = await db.from('consultas_agendadas').select('id').eq('id', pedido).maybeSingle();
+    return data ? id : undefined;
+  } catch { return id; }
+}
+
 function elegirTurno(ts: TurnoVigente[], id: unknown): TurnoVigente | { error: string } {
   if (!ts.length) return { error: 'La persona no tiene turnos vigentes.' };
   const pedido = String(id ?? '').trim();
@@ -1201,7 +1211,7 @@ export const HERRAMIENTAS_LLM = [
     input_schema: {
       type: 'object',
       properties: {
-        turno_id: { type: 'string', description: 'id del turno (solo hace falta si tiene más de uno)' },
+        turno_id: { type: 'string', description: 'id del turno, exactamente como lo devolvió consultar_mis_turnos. Omitilo si la persona tiene un solo turno; nunca lo inventes.' },
         fecha: { type: 'string', description: 'YYYY-MM-DD' },
         hora: { type: 'string', description: 'HH:MM' },
       },
@@ -1300,7 +1310,7 @@ export async function ejecutarHerramienta(db: Db, nombre: string, input: any, ct
   }
   if (nombre === 'reprogramar_turno') {
     const ts = await turnosVigentesDe(db, ctx.telefono, new Date());
-    const t = elegirTurno(ts, input?.turno_id);
+    const t = elegirTurno(ts, await idDeTurnoValido(db, ts, input?.turno_id));
     if ('error' in t) return t;
     const obs = t.observaciones ?? '';
     if (obs.includes(MARCA_CANCELACION)) return { error: 'Ese turno tiene una cancelación solicitada: derivá a una persona.' };
@@ -1327,7 +1337,7 @@ export async function ejecutarHerramienta(db: Db, nombre: string, input: any, ct
   }
   if (nombre === 'solicitar_cancelacion') {
     const ts = await turnosVigentesDe(db, ctx.telefono, new Date());
-    const t = elegirTurno(ts, input?.turno_id);
+    const t = elegirTurno(ts, await idDeTurnoValido(db, ts, input?.turno_id));
     if ('error' in t) return t;
     const obs = t.observaciones ?? '';
     if (obs.includes(MARCA_CANCELACION)) return { status: 'solicitada', mensaje: 'La cancelación de ese turno ya estaba solicitada: el equipo la confirma.' };

@@ -2839,3 +2839,32 @@ describe('pruebas del agente · usa la agenda real (solo lectura)', () => {
     expect(escrituras).toEqual([]);
   });
 });
+
+describe('turnos · id de turno inventado por el modelo', () => {
+  const fecha = (() => { const d = new Date(Date.now() + 10 * 86400000); while (d.getUTCDay() !== 2) d.setUTCDate(d.getUTCDate() + 1); return d.toISOString().slice(0, 10); })();
+  const mundo = () => dbAgenda({
+    disponibilidad_horarios: [{ profesional: 'Alejandro', dia_semana: 2, fecha: null, hora_desde: '09:00', hora_hasta: '12:00', duracion_min: 30 }],
+    consultas_agendadas: [
+      { id: 'mio', fecha_consulta: fecha, hora_consulta: '09:00', abogado_asignado: 'Alejandro', telefono: '5493884867965', cliente_nombre: 'Ana', origen: 'agente', reserva_pagada: true, observaciones: '' },
+      { id: 'ajeno', fecha_consulta: fecha, hora_consulta: '10:00', abogado_asignado: 'Alejandro', telefono: '5491122334455', cliente_nombre: 'Otra', origen: 'agente', observaciones: '' },
+    ],
+    perfiles: [], audiencias: [], audiencias_general: [], eventos_internos: [], leads: [],
+  });
+  const ctx = { telefono: '5493884867965', conversationId: 'c' };
+
+  it('un id que no existe en ningún turno se descarta y se usa el único turno de la persona', async () => {
+    const { db, tablas } = mundo();
+    const r: any = await ejecutarHerramienta(db, 'reprogramar_turno', { turno_id: 'turno-inventado', fecha, hora: '11:00' }, ctx);
+    expect(r.status).toBe('success');
+    expect(tablas.consultas_agendadas.find((x: any) => x.id === 'mio').hora_consulta).toBe('11:00');
+    expect(tablas.consultas_agendadas.find((x: any) => x.id === 'ajeno').hora_consulta).toBe('10:00');
+  });
+
+  it('un id que es de OTRA persona sigue siendo un error y no toca nada', async () => {
+    const { db, tablas } = mundo();
+    const r: any = await ejecutarHerramienta(db, 'reprogramar_turno', { turno_id: 'ajeno', fecha, hora: '11:00' }, ctx);
+    expect(r.error).toBeTruthy();
+    expect(tablas.consultas_agendadas.find((x: any) => x.id === 'ajeno').hora_consulta).toBe('10:00');
+    expect(tablas.consultas_agendadas.find((x: any) => x.id === 'mio').hora_consulta).toBe('09:00');
+  });
+});
