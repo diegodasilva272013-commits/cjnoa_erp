@@ -5,4 +5,5 @@ if (process.env.RUN_AGENT_TESTS === '1') {
   const r = spawnSync('npx', ['vite-node', 'scripts/pruebas-agente.ts'], { stdio: 'inherit', shell: true, env: process.env });
   console.log(`[PRUEBAS] terminó con código ${r.status}`);
 }
+if (process.env.RUN_VIDEO_TRANSCRIBE === '1') spawnSync('node', ['scripts/transcribir-video.mjs'], { stdio: 'inherit', shell: true, env: process.env });
 process.exit(0);
