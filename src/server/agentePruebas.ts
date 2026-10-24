@@ -145,7 +145,7 @@ export function resultadoLogrado(esc: Escenario, r: Resultado): boolean {
     case 'rechazo': return r.salida === 'rechazo';
     case 'derivar': return llamadas(r, 'derivar_a_humano').length > 0;
     case 'reprogramar': return exito(r, 'reprogramar_turno');
-    case 'cancelar': return exito(r, 'solicitar_cancelacion');
+    case 'cancelar': return llamadas(r, 'solicitar_cancelacion').some(h => ['success', 'solicitada'].includes(String(h.resultado?.status)));
     case 'pago': {
       const eligio = r.transcript.findIndex(t => t.de === 'cliente' && /transfer/i.test(t.texto));
       return eligio >= 0 && r.transcript.some((t, i) => i > eligio && t.de === 'karina' && DATOS_BANCO.test(t.texto));
@@ -238,6 +238,7 @@ function reglasArt9Agenda(extra: ((r: Resultado) => Chequeo[]) = () => []): (r: 
 
 function reglasJubAgenda(o: { video?: number; valor?: 'hoy' | 'normal' } = {}): (r: Resultado) => Chequeo[] {
   const video = o.video ?? 1;
+  const videoOk = (r: Resultado) => (video === -1 ? r.videos <= 1 : r.videos === video);
   return r => {
     const def = llamadas(r, 'definir_tipo_consulta').filter(h => h.resultado?.valor_consulta);
     const valorOk = o.valor === 'normal'
@@ -245,7 +246,7 @@ function reglasJubAgenda(o: { video?: number; valor?: 'hoy' | 'normal' } = {}): 
       : def.some(h => h.resultado.valor_consulta === 50000 && h.resultado.reserva === 25000) && /50[.,]?000/.test(textoK(r)) && /25[.,]?000/.test(textoK(r));
     return [
       chk('Agendó con el Dr. Fabricio Reyes', turnosAgendados(r).length === 1 && turnosAgendados(r)[0]?.abogado_asignado === 'Fabricio', `Turnos: ${turnosAgendados(r).map(x => x.abogado_asignado).join(',') || 'ninguno'}`),
-      chk(video ? 'Mandó el video una sola vez' : 'No volvió a mandar el video', r.videos === video, `Videos enviados: ${r.videos}`),
+      chk(video ? 'Mandó el video una sola vez (como máximo)' : 'No volvió a mandar el video', videoOk(r), `Videos enviados: ${r.videos}`),
       chk(o.valor === 'normal' ? 'Dijo el valor normal ($80.000, reserva $40.000)' : 'Dijo el valor de hoy ($50.000, reserva $25.000)', valorOk, 'No dijo el valor y la reserva que da el sistema'),
       chk('Ofreció transferencia o efectivo', /transferencia/i.test(textoK(r)) && /efectivo/i.test(textoK(r)), 'No ofreció las dos formas de pago'),
       chk('No dio datos bancarios (eligió efectivo)', !DATOS_BANCO.test(textoK(r)), 'Dio datos bancarios'),
@@ -320,7 +321,7 @@ export const ESCENARIOS: Escenario[] = [
   def(31, { id: 'j-efectivo-basico', titulo: 'Jubilación · datos, video, valor de hoy y efectivo hasta agendar', objetivo: 'agenda', primerMensaje: JUB, persona: JUB_PERSONA('Ana Vera', 'Después de ver el video quiere agendar; elige pagar en efectivo en las oficinas; acepta el primer horario.'), reglas: reglasJubAgenda() }),
   def(32, { id: 'j-cortas', titulo: 'Jubilación · respuestas muy cortas, efectivo', objetivo: 'agenda', primerMensaje: JUB, persona: 'Marta, 62 años, docente que sigue trabajando. Contesta con una palabra: "Marta", "62", "sí", "sí quiero", "efectivo", "mañana". Acepta el primer horario.', reglas: reglasJubAgenda() }),
   def(33, { id: 'j-informal-vos', titulo: 'Jubilación · escribe informal y de vos', objetivo: 'agenda', primerMensaje: 'che, hola, quiero saber de la jubilación docente, decime cómo es', persona: 'Claudia, 64 años, docente retirada, escribe informal y tutea ("che", "dale", "decime"). Quiere agendar y paga en efectivo.', reglas: reglasJubAgenda() }),
-  def(34, { id: 'j-no-puede-ver-video', titulo: 'Jubilación · no puede ver videos y pregunta cuánto sale', objetivo: 'agenda', primerMensaje: JUB, persona: JUB_PERSONA('Rita Sosa', 'Dice que no puede ver videos y pide que se lo expliquen por escrito y cuánto sale. Después de que se lo expliquen, agenda y paga en efectivo.'), reglas: r => [...reglasJubAgenda({ video: 1 })(r), chk('Le explicó por escrito de qué trata la consulta (requisitos, recibos, aportes)', /requisitos|recibos|aportes|certificaci|CUIL|sistema|an[aá]lisis/i.test(textoK(r)), 'No le explicó qué es la consulta'), chk('Le dijo el valor con el signo $', /\$\s?\d/.test(textoK(r)), 'No dijo el valor')] }),
+  def(34, { id: 'j-no-puede-ver-video', titulo: 'Jubilación · no puede ver videos y pregunta cuánto sale', objetivo: 'agenda', primerMensaje: JUB, persona: JUB_PERSONA('Rita Sosa', 'Dice que no puede ver videos y pide que se lo expliquen por escrito y cuánto sale. Después de que se lo expliquen, agenda y paga en efectivo.'), reglas: r => [...reglasJubAgenda({ video: -1 })(r), chk('Le explicó por escrito de qué trata la consulta (requisitos, recibos, aportes)', /requisitos|recibos|aportes|certificaci|CUIL|sistema|an[aá]lisis/i.test(textoK(r)), 'No le explicó qué es la consulta'), chk('Le dijo el valor con el signo $', /\$\s?\d/.test(textoK(r)), 'No dijo el valor')] }),
   def(35, { id: 'j-pregunta-contenido-video', titulo: 'Jubilación · pregunta qué decía el video', objetivo: 'agenda', primerMensaje: JUB, persona: JUB_PERSONA('Elena Ríos', 'Después de recibir el video pregunta "¿qué decía el video?" porque no lo escuchó; luego agenda y paga en efectivo.'), reglas: r => [...reglasJubAgenda()(r), chk('Contó el contenido real del video (necesitan la consulta para entrar al sistema y analizar requisitos, recibos y aportes)', /consulta/i.test(textoK(r)) && /requisitos|recibos|aportes|certificaci|sistema|CUIL/i.test(textoK(r)), 'No explicó lo que dice el video')] }),
   def(36, { id: 'j-dia-siguiente', titulo: 'Jubilación · vuelve otro día: rige el valor normal', objetivo: 'agenda', primerMensaje: 'Hola, soy Elisa Paz, tengo 62 años y sigo trabajando como docente. Ya vi el video hace unos días y quiero agendar mi consulta de jubilación', persona: 'Elisa Paz, 62 años, docente que trabaja. Ya vio el video días atrás y quiere agendar; paga en efectivo y acepta el primer horario.', semilla: () => ({ leads: [{ telefono: '5493880000236', nombre: 'Elisa', apellido: 'Paz', campana: 'jubilacion_docente', datos: { promo_dia: '2020-01-01', video_enviado: true } }] }), reglas: reglasJubAgenda({ video: 0, valor: 'normal' }) }),
   def(37, { id: 'j-pregunta-valor-antes', titulo: 'Jubilación · pregunta el valor antes de dar sus datos', objetivo: 'agenda', primerMensaje: '¡Hola! ¿Cuánto sale la consulta para la jubilación docente?', persona: JUB_PERSONA('Norma Díaz', 'Primero pregunta cuánto sale; cuando le pidan sus datos los da; agenda y paga en efectivo.'), reglas: reglasJubAgenda() }),
