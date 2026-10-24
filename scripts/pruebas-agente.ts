@@ -17,6 +17,7 @@ async function main() {
         for (let k = 0; k < 4 && r.code === 503; k++) { await new Promise(res => setTimeout(res, 15000)); r = await probarAgentePaso(id, n, estado, undefined, real as any); }
         if (r.code !== 200) return { id, error: JSON.stringify(r.body).slice(0, 300) };
         estado = r.body.estado; ultimo = r.body;
+        if (r.body.fin) break;
       }
       return { id, ok: ultimo.ok, chequeos: ultimo.chequeos, transcript: estado.transcript };
     } catch (e) { return { id, error: e instanceof Error ? e.message.slice(0, 300) : String(e) }; }
@@ -24,7 +25,7 @@ async function main() {
   const resultados: any[] = [];
   for (let i = 0; i < lista.length; i += 4) {
     const lote = lista.slice(i, i + 4);
-    resultados.push(...await Promise.all(lote.map(e => correr(e.id, e.pasos.length))));
+    resultados.push(...await Promise.all(lote.map(e => correr(e.id, e.maxTurnos))));
   }
   let ok = 0;
   for (const r of resultados) {

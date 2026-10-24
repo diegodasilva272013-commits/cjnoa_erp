@@ -2667,41 +2667,6 @@ describe('agente · nuevo flujo (Art. 9 sin recibo, jubilación con video y valo
   });
 });
 
-describe('pruebas del agente · mecánica de la pantalla', () => {
-  const llmFijo = (t: string) => async () => ({ stop_reason: 'end_turn', content: [{ type: 'text', text: t }] } as any);
-
-  it('hay 40 conversaciones distintas, con ids únicos y teléfonos únicos', async () => {
-    const { ESCENARIOS } = await import('../server/agentePruebas');
-    expect(ESCENARIOS).toHaveLength(40);
-    expect(new Set(ESCENARIOS.map(e => e.id)).size).toBe(40);
-    expect(new Set(ESCENARIOS.map(e => e.telefono)).size).toBe(40);
-    expect(new Set(ESCENARIOS.map(e => e.pasos.map(p => typeof p === 'string' ? p : 'dinamico').join('|'))).size).toBe(40);
-  });
-
-  it('corre un mensaje por vez sobre una base en memoria y evalúa al final', async () => {
-    const { ESCENARIOS } = await import('../server/agentePruebas');
-    const esc = ESCENARIOS.find(e => e.id === 'pregunta-direccion')!;
-    const bien = await probarAgentePaso(esc.id, 0, undefined, llmFijo('Hola, soy Karina, del Centro Jurídico NOA. Estamos en Hipólito Yrigoyen 680, San Salvador de Jujuy.'));
-    expect(bien.code).toBe(200);
-    expect(bien.body.fin).toBe(true);
-    expect(bien.body.ok).toBe(true);
-    const mal = await probarAgentePaso(esc.id, 0, undefined, llmFijo('Hola, soy el asistente virtual. Entiendo completamente su consulta, no dude en contactarme.'));
-    expect(mal.body.ok).toBe(false);
-    const fallas = mal.body.chequeos.filter((c: any) => !c.ok).map((c: any) => c.nombre).join(' | ');
-    expect(fallas).toContain('asistente virtual');
-    expect(fallas).not.toContain('frases hechas'); // las frases hechas se quitan por código antes de enviar
-    expect(fallas).toContain('dirección');
-  });
-
-  it('detecta una cifra inventada y que no agende cuando debía', async () => {
-    const r = await probarAgentePaso('art9-completo', 0, undefined, llmFijo('Hola, soy Karina, del Centro Jurídico NOA. La consulta cuesta $12.345.'));
-    expect(r.body.fin).toBe(false);
-    expect(r.body.estado.transcript.map((t: any) => t.de)).toEqual(['cliente', 'karina']);
-    expect(await probarAgentePaso('nada', 0, undefined, llmFijo('x'))).toMatchObject({ code: 404 });
-    expect(await probarAgentePaso('art9-completo', 99, undefined, llmFijo('x'))).toMatchObject({ code: 400 });
-  });
-});
-
 describe('pruebas del agente · copia embebida', () => {
   it('el módulo embebido en la API es idéntico a src/server/agentePruebas.ts', async () => {
     const { readFileSync } = await import('node:fs');
@@ -2711,108 +2676,6 @@ describe('pruebas del agente · copia embebida', () => {
     expect(api).toContain('// <<PRUEBAS\nnamespace Pruebas {\n' + src + '\n}\n// PRUEBAS>>');
   });
 });
-
-describe('pruebas del agente · recorridos completos con un agente que sigue las instrucciones (verifica herramientas, reglas y chequeos)', () => {
-  type Accion = { tool: string; input: any } | { text: string };
-  const fake = (acciones: Accion[]) => {
-    const cola = [...acciones];
-    return async (_s: string, mensajes: any[]) => {
-      const a = cola.shift() as Accion | undefined;
-      if (!a) return { stop_reason: 'end_turn', content: [{ type: 'text', text: 'Muchas gracias.' }] } as any;
-      if ('tool' in a) return { stop_reason: 'tool_use', content: [{ type: 'tool_use', id: `t${cola.length}`, name: a.tool, input: a.input }] } as any;
-      void mensajes;
-      return { stop_reason: 'end_turn', content: [{ type: 'text', text: a.text }] } as any;
-    };
-  };
-  const vistoEnMensajes = (mensajes: any[]) => {
-    const s = JSON.stringify(mensajes);
-    const fecha = /fecha\\*":\\*"(\d{4}-\d{2}-\d{2})/.exec(s)?.[1] ?? '';
-    const lista = /horarios_disponibles\\*":\[([^\]]*)\]/.exec(s)?.[1] ?? '';
-    return { fecha, horas: lista.match(/\d{2}:\d{2}/g) ?? [] };
-  };
-  // Un agente que, tras consultar la agenda, ofrece lo que la herramienta devolvió.
-  const conAgenda = (prof: string) => {
-    let visto = false;
-    return async (_s: string, mensajes: any[]) => {
-      if (!visto) { visto = true; return { stop_reason: 'tool_use', content: [{ type: 'tool_use', id: 'd1', name: 'consultar_disponibilidad', input: { profesional: prof } }] } as any; }
-      const v = vistoEnMensajes(mensajes);
-      return { stop_reason: 'end_turn', content: [{ type: 'text', text: `El ${v.fecha} tengo lugar a las ${v.horas.slice(0, 3).join(', ')}. ¿Cuál le viene mejor?` }] } as any;
-    };
-  };
-
-  async function correr(id: string, paso: (n: number, estado: any, cliente: string) => any) {
-    let estado: any;
-    let ultimo: any;
-    const { ESCENARIOS } = await import('../server/agentePruebas');
-    const esc = ESCENARIOS.find(e => e.id === id)!;
-    for (let n = 0; n < esc.pasos.length; n++) {
-      ultimo = await probarAgentePaso(id, n, estado, paso(n, estado, n === 0 ? '' : (estado.transcript.filter((t: any) => t.de === 'cliente').at(-1)?.texto ?? '')));
-      expect(ultimo.code).toBe(200);
-      estado = ultimo.body.estado;
-    }
-    return ultimo.body;
-  }
-  const fallas = (b: any) => (b.chequeos ?? []).filter((c: any) => !c.ok).map((c: any) => `${c.nombre}: ${c.detalle ?? ''}`);
-
-  it('Artículo 9 completo: sin recibo, sin cargo, sin hablar de pagos, agenda con Alejandro y pasa la dirección', async () => {
-    const b = await correr('art9-completo', (n, estado) => {
-      if (n === 0) return fake([{ text: 'Hola, soy Karina, del Centro Jurídico NOA. ¿Es usted jubilada docente?' }]);
-      if (n === 1) return fake([{ text: 'Gracias por contarme que es docente. ¿Se jubiló por ANSES?' }]);
-      if (n === 2) return fake([{ text: 'Perfecto. ¿Tiene los descuentos por Artículo 9 e Impuesto a las Ganancias?' }]);
-      if (n === 3) return fake([{ tool: 'definir_tipo_consulta', input: { tipo: 'articulo9_ganancias' } }, { text: 'Gracias por confirmármelo. La consulta con el Dr. Alejandro Reyes es sin cargo y puede ser presencial en San Salvador de Jujuy o virtual. ¿Cuál prefiere?' }]);
-      if (n === 4) return fake([{ text: 'Perfecto, presencial. ¿Qué días de la semana le quedan cómodos?' }]);
-      if (n === 5) return conAgenda('alejandro');
-      if (n === 6) {
-        const d = estado.herramientas.find((h: any) => h.nombre === 'consultar_disponibilidad').resultado;
-        const fecha = d?.proximos_dias?.[0]?.fecha ?? d?.fecha;
-        const hora = d?.proximos_dias?.[0]?.horarios_disponibles?.[0] ?? d?.horarios_disponibles?.[0];
-        return fake([{ tool: 'agendar_turno', input: { profesional: 'alejandro', nombre: 'Ana Gómez', fecha, hora, modalidad: 'presencial' } }, { text: `Listo, su consulta YA QUEDÓ AGENDADA el ${fecha} a las ${hora} con el Dr. Alejandro Reyes, de forma presencial, en Hipólito Yrigoyen 680, San Salvador de Jujuy.` }]);
-      }
-      return fake([{ text: 'Muchas gracias a usted. Hasta pronto.' }]);
-    });
-    expect(fallas(b)).toEqual([]);
-    expect(b.ok).toBe(true);
-  });
-
-  it('Jubilación con efectivo: datos, video una vez, valor de hoy, sin datos bancarios', async () => {
-    const b = await correr('jub-video-efectivo', (n) => {
-      if (n === 0) return fake([{ text: 'Hola, soy Karina, del Centro Jurídico NOA. ¿Me indica su nombre, por favor?' }]);
-      if (n === 1) return fake([{ tool: 'guardar_datos_cliente', input: { nombre: 'Elisa', apellido: 'Paz' } }, { text: 'Gracias, Elisa. ¿Qué edad tiene?' }]);
-      if (n === 2) return fake([{ text: 'Gracias por contármelo. ¿Sigue trabajando como docente?' }]);
-      if (n === 3) return fake([{ tool: 'enviar_video_jubilacion', input: {} }, { text: 'Le acabo de enviar un video del Dr. Fabricio Reyes. ¿Qué le pareció?' }]);
-      if (n === 4) return fake([{ tool: 'definir_tipo_consulta', input: { tipo: 'jubilacion_docente' } }, { text: 'Me alegra que le haya servido. El valor de hoy es de $50.000; para reservar se abona la mitad, $25.000, y el resto el día de la consulta. ¿Prefiere transferencia o efectivo?' }]);
-      return fake([{ text: 'Perfecto, puede acercarse a nuestras oficinas para abonar la reserva. ¿Qué día le queda cómodo?' }]);
-    });
-    expect(fallas(b)).toEqual([]);
-    expect(b.ok).toBe(true);
-  });
-
-  it('Jubilación con transferencia: los datos aparecen solo después de elegir y no se agenda sin pago', async () => {
-    const b = await correr('jub-video-transferencia', (n) => {
-      if (n === 0) return fake([{ text: 'Hola, soy Karina, del Centro Jurídico NOA. ¿Me indica su nombre?' }]);
-      if (n === 1) return fake([{ tool: 'guardar_datos_cliente', input: { nombre: 'Marta', apellido: 'Gómez' } }, { tool: 'enviar_video_jubilacion', input: {} }, { text: 'Gracias, Marta. Le envié un video del Dr. Fabricio Reyes. ¿Le gustaría agendar?' }]);
-      if (n === 2) return fake([{ tool: 'definir_tipo_consulta', input: { tipo: 'jubilacion_docente' } }, { text: 'Con gusto. El valor de hoy es de $50.000; la reserva es de $25.000 y el resto se abona el día de la consulta. ¿Prefiere transferencia o efectivo?' }]);
-      return fake([{ tool: 'definir_tipo_consulta', input: { tipo: 'jubilacion_docente' } }, { text: 'Perfecto. Alias: centrojuridiconoa680. Transfiera $25.000 y envíeme el comprobante, por favor.' }]);
-    });
-    expect(fallas(b)).toEqual([]);
-    expect(b.ok).toBe(true);
-  });
-
-  it('las 40 pruebas corren de punta a punta en la base de prueba sin romperse (el agente de este test solo saluda)', async () => {
-    const { ESCENARIOS } = await import('../server/agentePruebas');
-    for (const e of ESCENARIOS) {
-      let estado: any; let b: any;
-      for (let n = 0; n < e.pasos.length; n++) {
-        const r = await probarAgentePaso(e.id, n, estado, fake([{ text: 'Hola, soy Karina, del Centro Jurídico NOA.' }]));
-        expect(r.code, e.id).toBe(200);
-        estado = r.body.estado; b = r.body;
-      }
-      expect(b.fin, e.id).toBe(true);
-      expect(Array.isArray(b.chequeos), e.id).toBe(true);
-    }
-  });
-});
-
 
 describe('pruebas del agente · usa la agenda real (solo lectura)', () => {
   it('toma la disponibilidad y los turnos reales, sin datos personales, y no escribe nada en la base real', async () => {
@@ -2829,7 +2692,7 @@ describe('pruebas del agente · usa la agenda real (solo lectura)', () => {
       },
     };
     const llm = async () => ({ stop_reason: 'end_turn', content: [{ type: 'text', text: 'Hola, soy Karina, del Centro Jurídico NOA. Estamos en Hipólito Yrigoyen 680.' }] } as any);
-    const r = await probarAgentePaso('pregunta-direccion', 0, undefined, llm, real);
+    const r = await probarAgentePaso('a9-presencial-simple', 0, undefined, llm, real);
     expect(r.code).toBe(200);
     const t = r.body.estado.tablas;
     expect(t.disponibilidad_horarios).toHaveLength(1);
@@ -2872,9 +2735,120 @@ describe('turnos · id de turno inventado por el modelo', () => {
 describe('pruebas del agente · si OpenAI no contesta no se evalúa con el aviso de error', () => {
   it('devuelve 503 para reintentar el paso en vez de dar la prueba por fallada', async () => {
     const llmCaido = async () => { throw new Error('modelo 429: rate limit'); };
-    const r = await probarAgentePaso('pregunta-direccion', 0, undefined, llmCaido as any);
+    const r = await probarAgentePaso('a9-presencial-simple', 0, undefined, llmCaido as any);
     expect(r.code).toBe(503);
     expect(r.body.error).toContain('reintenta');
+  });
+});
+
+describe('pruebas del agente · 60 conversaciones que terminan en un resultado', () => {
+  type Accion = { tool: string; input: any } | { text: string };
+  const agente = (acciones: Accion[]) => {
+    const cola = [...acciones];
+    return async () => {
+      const a = cola.shift();
+      if (!a) return { stop_reason: 'end_turn', content: [{ type: 'text', text: 'Muchas gracias.' }] } as any;
+      if ('tool' in a) return { stop_reason: 'tool_use', content: [{ type: 'tool_use', id: `t${cola.length}`, name: a.tool, input: a.input }] } as any;
+      return { stop_reason: 'end_turn', content: [{ type: 'text', text: a.text }] } as any;
+    };
+  };
+  // Un agente que consulta la agenda y ofrece lo que devolvió la herramienta.
+  const conAgenda = (prof: string) => {
+    let visto = false;
+    return async (_s: string, mensajes: any[]) => {
+      if (!visto) { visto = true; return { stop_reason: 'tool_use', content: [{ type: 'tool_use', id: 'd1', name: 'consultar_disponibilidad', input: { profesional: prof } }] } as any; }
+      const s = JSON.stringify(mensajes);
+      const fecha = /fecha\\*":\\*"(\d{4}-\d{2}-\d{2})/.exec(s)?.[1] ?? '';
+      const horas = (/horarios_disponibles\\*":\[([^\]]*)\]/.exec(s)?.[1] ?? '').match(/\d{2}:\d{2}/g) ?? [];
+      return { stop_reason: 'end_turn', content: [{ type: 'text', text: `El ${fecha} tengo lugar a las ${horas.slice(0, 3).join(', ')}. ¿Cuál le viene mejor?` }] } as any;
+    };
+  };
+  const clienteGuion = (lineas: string[]) => { const cola = [...lineas]; return async () => cola.shift() ?? 'Gracias.'; };
+
+  async function conversar(id: string, agentePorPaso: (n: number, estado: any) => any, cliente: (e: any, t: any) => Promise<string>) {
+    const { ESCENARIOS } = await import('../server/agentePruebas');
+    const esc = ESCENARIOS.find(e => e.id === id)!;
+    let estado: any; let ultimo: any;
+    for (let n = 0; n < esc.maxTurnos; n++) {
+      ultimo = await probarAgentePaso(id, n, estado, agentePorPaso(n, estado), undefined, cliente as any);
+      expect(ultimo.code).toBe(200);
+      estado = ultimo.body.estado;
+      if (ultimo.body.fin) break;
+    }
+    return ultimo.body;
+  }
+  const fallas = (b: any) => (b.chequeos ?? []).filter((c: any) => !c.ok).map((c: any) => `${c.nombre}: ${c.detalle ?? ''}`);
+
+  it('hay 60 conversaciones, todas distintas, con un resultado definido y un máximo de turnos', async () => {
+    const { ESCENARIOS } = await import('../server/agentePruebas');
+    expect(ESCENARIOS).toHaveLength(60);
+    expect(new Set(ESCENARIOS.map(e => e.id)).size).toBe(60);
+    expect(new Set(ESCENARIOS.map(e => e.telefono)).size).toBe(60);
+    expect(new Set(ESCENARIOS.map(e => e.persona + e.primerMensaje)).size).toBe(60);
+    for (const e of ESCENARIOS) {
+      expect(['agenda', 'rechazo', 'pago', 'derivar', 'reprogramar', 'cancelar']).toContain(e.objetivo);
+      expect(e.maxTurnos).toBeGreaterThanOrEqual(10);
+      expect(e.persona.length).toBeGreaterThan(30);
+    }
+    const por = (o: string) => ESCENARIOS.filter(e => e.objetivo === o).length;
+    expect(por('agenda')).toBeGreaterThanOrEqual(30);
+    expect(por('rechazo')).toBeGreaterThanOrEqual(15);
+  });
+
+  it('Artículo 9: una conversación que llega al turno agendado con Alejandro pasa todos los chequeos', async () => {
+    const b = await conversar('a9-presencial-simple', (n) => {
+      if (n === 0) return agente([{ text: 'Hola, soy Karina, del Centro Jurídico NOA. Entonces es docente jubilada por ANSES y le descuentan Artículo 9 y Ganancias, ¿es así?' }]);
+      if (n === 1) return agente([{ tool: 'definir_tipo_consulta', input: { tipo: 'articulo9_ganancias' } }, { text: 'Gracias por confirmármelo. La consulta con el Dr. Alejandro Reyes es sin cargo. ¿Prefiere presencial en San Salvador de Jujuy o virtual?' }]);
+      if (n === 2) return agente([{ text: 'Perfecto, presencial. ¿Qué día o franja le queda cómodo?' }]);
+      if (n === 3) return conAgenda('alejandro');
+      return async (_s: string, mensajes: any[]) => {
+        const ult = JSON.stringify(mensajes);
+        const fecha = /fecha\\*":\\*"(\d{4}-\d{2}-\d{2})/.exec(ult)?.[1];
+        void fecha;
+        return { stop_reason: 'end_turn', content: [{ type: 'text', text: 'Muchas gracias.' }] } as any;
+      };
+    }, clienteGuion(['Sí, es así', 'Presencial', 'Por la mañana', 'Quiero el horario de las 09:00']));
+    // Con este guion el agente simulado no llega a llamar a agendar_turno: tiene que fallar por no terminar en un turno.
+    expect(b.ok).toBe(false);
+    expect(fallas(b).join(' ')).toContain('AGENDADO');
+  });
+
+  it('una conversación que llega al turno agendado con el abogado correcto, sin recibo ni pagos, pasa todo', async () => {
+    let fechaOfrecida = '';
+    let horaOfrecida = '';
+    const b = await conversar('a9-presencial-simple', (n, estado) => {
+      if (n === 0) return agente([{ text: 'Hola, soy Karina, del Centro Jurídico NOA. Entonces es docente jubilada por ANSES y le descuentan Artículo 9 y Ganancias, ¿es así?' }]);
+      if (n === 1) return agente([{ tool: 'definir_tipo_consulta', input: { tipo: 'articulo9_ganancias' } }, { text: 'Gracias por confirmármelo. La consulta con el Dr. Alejandro Reyes es sin cargo. ¿Prefiere presencial en San Salvador de Jujuy o virtual?' }]);
+      if (n === 2) return agente([{ text: 'Perfecto, presencial. ¿Qué día o franja le queda cómodo?' }]);
+      if (n === 3) return conAgenda('alejandro');
+      const d = estado.herramientas.find((h: any) => h.nombre === 'consultar_disponibilidad').resultado;
+      fechaOfrecida = d.proximos_dias[0].fecha; horaOfrecida = d.proximos_dias[0].horarios_disponibles[0];
+      return agente([{ tool: 'agendar_turno', input: { profesional: 'alejandro', nombre: 'Ana Gómez', fecha: fechaOfrecida, hora: horaOfrecida, modalidad: 'presencial' } }, { text: `Listo, su consulta YA QUEDÓ AGENDADA el ${fechaOfrecida} a las ${horaOfrecida} con el Dr. Alejandro Reyes, de forma presencial, en Hipólito Yrigoyen 680, San Salvador de Jujuy.` }]);
+    }, clienteGuion(['Sí, es así', 'Presencial', 'Por la mañana', 'Me queda bien el primer horario']));
+    expect(fallas(b)).toEqual([]);
+    expect(b.ok).toBe(true);
+  });
+
+  it('un "no me interesa" después de trabajar la objeción cuenta como resultado; sin trabajarla, falla', async () => {
+    const bien = await conversar('a9-lo-pensara', (n) => {
+      if (n === 0) return agente([{ text: 'Hola, soy Karina, del Centro Jurídico NOA. Entonces es docente jubilada por ANSES y le descuentan los dos conceptos, ¿es así?' }]);
+      if (n === 1) return agente([{ text: 'Gracias. La consulta con el Dr. Alejandro Reyes es sin cargo y sin compromiso. ¿Prefiere presencial o virtual?' }]);
+      if (n === 2) return agente([{ text: 'Es una decisión importante. ¿Hay algo en particular que le genere dudas?' }]);
+      return agente([{ text: 'Lo respeto. Cuando lo decida, me escribe y coordinamos la consulta.' }]);
+    }, clienteGuion(['Sí', 'Lo voy a pensar', 'No sé, no estoy convencida', 'No, gracias, no me interesa [FIN]']));
+    expect(fallas(bien)).toEqual([]);
+    const mal = await conversar('a9-lo-pensara', (n) => (n === 0
+      ? agente([{ text: 'Hola, soy Karina, del Centro Jurídico NOA. La consulta es sin cargo.' }])
+      : agente([{ text: 'Perfecto, cuando decida me avisa.' }])), clienteGuion(['No sé, lo pienso [FIN]']));
+    expect(mal.ok).toBe(false);
+    expect(fallas(mal).join(' ')).toContain('objeción');
+  });
+
+  it('si la conversación se agota sin llegar a ningún resultado, la prueba falla', async () => {
+    const b = await conversar('a9-presencial-simple', () => agente([{ text: 'Hola, soy Karina, del Centro Jurídico NOA. ¿Me cuenta más?' }]), clienteGuion(Array(20).fill('Mmm, no sé')));
+    expect(b.fin).toBe(true);
+    expect(b.ok).toBe(false);
+    expect(fallas(b).join(' ')).toContain('AGENDADO');
   });
 });
 

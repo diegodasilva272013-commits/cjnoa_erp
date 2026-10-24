@@ -2,7 +2,7 @@ import { useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowLeft, Play, RotateCcw, ClipboardCopy, CheckCircle2, XCircle, Loader2, ChevronDown, FlaskConical } from 'lucide-react';
 import { llamarAgentes } from '../lib/agentesApi';
-import { ESCENARIOS, type Chequeo, type EstadoPrueba } from '../server/agentePruebas';
+import { ESCENARIOS, numPasos, type Chequeo, type EstadoPrueba } from '../server/agentePruebas';
 
 type Estado = 'pendiente' | 'corriendo' | 'aprobada' | 'fallo' | 'error';
 type Corrida = { estado: Estado; transcript: EstadoPrueba['transcript']; chequeos: Chequeo[]; mensaje?: string; paso: number };
@@ -24,7 +24,7 @@ export default function AgentePruebas() {
     setCorridas(prev => ({ ...prev, [id]: { ...vacia(), estado: 'corriendo' } }));
     let estado: any = null;
     try {
-      for (let paso = 0; paso < esc.pasos.length; paso++) {
+      for (let paso = 0; paso < numPasos(esc); paso++) {
         if (frenar.current) { poner(id, { estado: 'pendiente' }); return; }
         let r: any = null;
         for (let intento = 1; intento <= 5; intento++) {
@@ -38,7 +38,7 @@ export default function AgentePruebas() {
         }
         estado = r.estado;
         poner(id, { transcript: r.estado.transcript, paso: paso + 1 });
-        if (r.fin) poner(id, { estado: r.ok ? 'aprobada' : 'fallo', chequeos: r.chequeos ?? [] });
+        if (r.fin) { poner(id, { estado: r.ok ? 'aprobada' : 'fallo', chequeos: r.chequeos ?? [] }); return; }
       }
     } catch (e) {
       poner(id, { estado: 'error', mensaje: e instanceof Error ? e.message : 'Error' });
@@ -81,8 +81,8 @@ export default function AgentePruebas() {
       <p className="font-mono text-xs uppercase tracking-[0.2em] text-blue-400">Centro Jurídico NOA · Agente WhatsApp</p>
       <h1 className="mt-2 text-xl font-semibold text-white md:text-2xl">Pruebas del agente</h1>
       <p className="mt-2 max-w-3xl text-sm leading-relaxed text-gray-400">
-        Cada prueba le manda una conversación distinta al <span className="text-gray-200">agente real</span> (el mismo prompt, el mismo modelo y las mismas herramientas que atienden por WhatsApp).
-        Es el mismo agente y lee la agenda real del ERP (solo lectura): ofrece los horarios que de verdad están libres. Lo único distinto es que no escribe por WhatsApp y que lo que agenda queda solo en la prueba: no crea turnos, fichas ni mensajes reales. Una prueba falla si el agente no agenda cuando debía, inventa una cifra o un horario,
+        Cada prueba es una conversación distinta: una persona simulada (con su historia y su manera de escribir) charla con el <span className="text-gray-200">agente real</span> (el mismo prompt, el mismo modelo y las mismas herramientas que atienden por WhatsApp).
+        Es el mismo agente y lee la agenda real del ERP (solo lectura): ofrece los horarios que de verdad están libres. Lo único distinto es que no escribe por WhatsApp y que lo que agenda queda solo en la prueba: no crea turnos, fichas ni mensajes reales. La conversación sigue hasta que termina en un resultado: turno agendado, un "no me interesa" explícito, datos de pago, derivación o reprogramación. Si no llega a ninguno, falla. También falla si el agente inventa una cifra o un horario,
         usa una frase hecha, tutea, se presenta mal, filtra algo interno o divaga. Usa créditos de OpenAI en cada corrida.
       </p>
 
@@ -121,7 +121,7 @@ export default function AgentePruebas() {
                   <p className="truncate text-sm font-medium text-white">{e.titulo}</p>
                   <p className="mt-0.5 text-xs leading-relaxed text-gray-500">{e.descripcion}</p>
                 </div>
-                <Chip estado={c.estado} paso={c.paso} total={e.pasos.length} />
+                <Chip estado={c.estado} paso={c.paso} total={numPasos(e)} />
                 <button type="button" disabled={c.estado === 'corriendo' || corriendoTodas} onClick={() => correr(e.id)} style={{ minHeight: 34 }}
                   className="inline-flex items-center gap-1.5 rounded-lg border border-white/15 px-3 text-xs text-gray-200 hover:bg-white/5 disabled:opacity-40">
                   <FlaskConical className="size-3.5" /> Correr
