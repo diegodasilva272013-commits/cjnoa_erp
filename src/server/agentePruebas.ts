@@ -107,7 +107,7 @@ const elegirDia = () => 'Me queda cómodo cualquier día de la semana por la ma�
 // ---------------------------------------------------------------- reglas comunes y ayudas
 
 const SIGLAS_INTERNAS = /definir_tipo_consulta|agendar_turno|consultar_disponibilidad|guardar_datos_cliente|enviar_video|derivar_a_humano|SISTEMA ERP|service_role|api_openai|\bprompt\b|instrucciones del sistema|base de datos/i;
-const GARANTIAS = /garantiz|le aseguro que|100\s?%|seguro que (?:va|vamos) a ganar|ganar[ée]mos? (?:el|su) (?:juicio|caso)|sin ning[uú]n riesgo/i;
+const GARANTIAS = /garantiz|le aseguro que (?:va|vamos|ganar|recuper|obtendr|cobrar|conseguir)|le garantizo|100\s?%|seguro que (?:va|vamos) a ganar|ganar[ée]mos? (?:el|su) (?:juicio|caso)|sin ning[uú]n riesgo/i;
 const EMOJI = /\p{Extended_Pictographic}/u;
 const MARKDOWN = /\*\*|^#{1,3}\s|^\s*[-•]\s/m;
 const AUTODEFINE_IA = /asistente virtual|inteligencia artificial|\bsoy una ia\b|\bsoy un robot\b|\bbot\b/i;

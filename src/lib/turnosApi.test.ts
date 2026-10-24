@@ -2688,7 +2688,7 @@ describe('pruebas del agente · mecánica de la pantalla', () => {
     const mal = await probarAgentePaso(esc.id, 0, undefined, llmFijo('Hola, soy el asistente virtual. Entiendo completamente su consulta, no dude en contactarme.'));
     expect(mal.body.ok).toBe(false);
     const fallas = mal.body.chequeos.filter((c: any) => !c.ok).map((c: any) => c.nombre).join(' | ');
-    expect(fallas).toContain('Karina');
+    expect(fallas).toContain('asistente virtual');
     expect(fallas).toContain('frases hechas');
     expect(fallas).toContain('dirección');
   });

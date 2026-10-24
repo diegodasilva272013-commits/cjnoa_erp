@@ -737,7 +737,7 @@ async function upsertLeadSeguro(db: Db, telefono: unknown, campos: CamposLead) {
 /** Voz por defecto (ElevenLabs: Melanie). Se reemplaza con la variable ELEVENLABS_VOICE_ID. */
 const VOZ_DEFAULT = 'bN1bDXgDIGX5lw0rtY2B';
 const GRAPH_URL = 'https://graph.facebook.com/v20.0';
-const MODELO_DEFAULT = 'gpt-4o-mini';
+const MODELO_DEFAULT = 'gpt-4o';
 const MODELO_VISION_DEFAULT = 'gpt-4o';
 const MAX_VUELTAS_HERRAMIENTAS = 5;
 const MAX_MENSAJES_CONTEXTO = 24;
@@ -984,11 +984,12 @@ const REGEX_REPROCHE = /\b(?:necesito que (?:me )?(?:confirme|diga|responda|acla
 
 /** Qué hay que corregir en un mensaje antes de mandarlo (vacío si está bien). */
 /** Frases hechas que el dueño prohibió: la empatía se muestra respondiendo a lo concreto que contó la persona. */
-export const REGEX_CLICHE = /\b(?:(?:te|lo|la|le|nos)\s+entiendo|entiendo\s+(?:perfectamente|completamente|totalmente|su situaci[oó]n|lo que)|comprendo\s+(?:perfectamente|completamente|totalmente|su)|(?:es\s+)?totalmente\s+comprensible|no\s+dude\s+en|estoy\s+aqu[ií]\s+para|estoy\s+a\s+su\s+disposici[oó]n)|(?:^|[.!?¡¿]\s*)entiendo[,.\s]/i;
+export const REGEX_CLICHE = /\b(?:quedo\s+a\s+su\s+disposici[oó]n|es\s+(?:completamente\s+|totalmente\s+)?(?:v[aá]lido|comprensible|normal|entendible)\s+que|lamento\s+la\s+confusi[oó]n)\b|\b(?:(?:te|lo|la|le|nos)\s+entiendo|entiendo\s+(?:perfectamente|completamente|totalmente|su situaci[oó]n|lo que)|comprendo\s+(?:perfectamente|completamente|totalmente|su)|(?:es\s+)?totalmente\s+comprensible|no\s+dude\s+en|estoy\s+aqu[ií]\s+para|estoy\s+a\s+su\s+disposici[oó]n)|(?:^|[.!?¡¿]\s*)entiendo[,.\s]/i;
 
 export function problemasDeEstilo(txt: string): string[] {
   const out: string[] = [];
   if ((txt.match(/\?/g) ?? []).length > 2) out.push('Hacé como máximo UNA pregunta por mensaje (la primera que falte) y esperá la respuesta: no encadenes varias preguntas ni repitas las que la persona ya contestó.');
+  if (/^\s*[-•*]\s/m.test(txt) || (txt.match(/\b\d{1,2}[:.]\d{2}\b/g) ?? []).length > 3) out.push('Sin listas ni viñetas: ofrecé como máximo 3 horarios, en una sola frase corrida, y no vuelques el calendario.');
   if (REGEX_CLICHE.test(txt)) out.push('Sin frases hechas ("le entiendo", "entiendo completamente", "no dude en", "estoy aquí para ayudarle", "Entiendo,"): mostrá empatía respondiendo a lo concreto que contó la persona, con calidez real, y avanzá.');
   if (REGEX_TUTEO.test(txt)) out.push('Tratá SIEMPRE de usted: nunca de tú ni de vos (nada de "podrías", "prefieres", "tu caso", "contame", "tenés"; usá "podría", "prefiere", "su caso", "cuénteme", "tiene").');
   if (REGEX_REPROCHE.test(txt)) out.push('Sin reproches ni apuro: agradecé y pedí con amabilidad solamente lo que falta.');
@@ -1241,6 +1242,8 @@ export type Deps = {
   enviarAudio?: (to: string, texto: string) => Promise<void>;
   /** Contesta con voz a todos los mensajes (no solo cuando el cliente manda un audio). */
   vozSiempre?: boolean;
+  /** La primera respuesta de la conversación siempre se presenta como Karina. */
+  presentarse?: boolean;
   /** Manda el video de jubilación del Dr. Fabricio Reyes. */
   enviarVideo?: (to: string) => Promise<void>;
   /** Marca el mensaje como leído y muestra "escribiendo…" en el WhatsApp del cliente. */
@@ -1416,6 +1419,7 @@ Objetivo: que la persona agende la consulta con el abogado. No das asesoramiento
 
 ## Regla de oro: nada inventado
 - Decí solamente lo que está en estas instrucciones, lo que te devuelven las herramientas y los mensajes [SISTEMA ERP: ...]. Nunca inventes datos, cifras, plazos, casos, horarios, testimonios, cupos ni estadísticas. Si no sabés algo, decilo con sinceridad.
+- Si la persona desconfía o teme una estafa, respondé a su miedo con hechos reales: el nombre del estudio, la dirección (Hipólito Yrigoyen 680, San Salvador de Jujuy) y que puede acercarse a conocerlo; que nunca le vas a pedir su clave de ANSES por este chat. No digas "le aseguro" ni "le garantizo".
 - La persuasión es honesta. Urgencia y escasez solo si son reales: pocos horarios, únicamente si consultar_disponibilidad mostró pocos; el valor de hoy, únicamente porque rige para quien agenda hoy (jubilación). Nunca digas que "quedan pocos cupos" sin haberlo visto en la agenda.
 
 ## Abogados
@@ -1423,17 +1427,18 @@ Objetivo: que la persona agende la consulta con el abogado. No das asesoramiento
 - Dr. Fabricio Reyes: únicamente consultas por jubilación.
 
 ## Identidad y tono
-- En el primer mensaje presentate así: "Hola, soy Karina, del Centro Jurídico NOA." No digas que sos un asistente virtual ni una IA si no te lo preguntan.
-- Si la persona pregunta si habla con una persona o con quién habla, respondé: "Soy Karina, la asistente del Centro Jurídico NOA." y seguí con lo que estaban haciendo. No digas "automática" ni "virtual" salvo que te lo pregunten de forma directa. Si insiste o pregunta directamente si sos una IA, un robot o una persona real, respondé con la verdad: que sos una asistente de inteligencia artificial del estudio, y seguí con lo que estaban haciendo. No ofrezcas pasarla con una persona por esto. Nunca afirmes ser una persona.
+- En tu PRIMER mensaje de la conversación empezá SIEMPRE con "Hola, soy Karina, del Centro Jurídico NOA.", aunque la persona haya empezado con otra pregunta (por ejemplo la dirección): primero presentate y después respondé lo que preguntó. No digas que sos un asistente virtual ni una IA si no te lo preguntan.
+- Si la persona pregunta con quién habla (sin mencionar IA, robot, máquina ni humano), respondé: "Soy Karina, la asistente del Centro Jurídico NOA." y seguí con lo que estaban haciendo. Si en su pregunta aparece cualquiera de estas ideas: IA, inteligencia artificial, robot, máquina, programa, automático, "persona real", humana/humano, respondé con la verdad en esa misma respuesta: "Soy una asistente de inteligencia artificial del Centro Jurídico NOA" y seguí con lo que estaban haciendo. No ofrezcas pasarla con una persona por esto. Nunca afirmes ser una persona.
 - Español formal y cordial. Siempre de "usted", aunque la persona escriba de "vos" o de "tú". Muchas personas tienen 57 años o más: calidez, claridad, cero tecnicismos.
-- Mensajes cortos, texto plano como en WhatsApp, sin markdown ni listas largas. UNA sola pregunta por mensaje: la primera que falte. Nunca encadenes varias preguntas ni repitas una que la persona ya contestó; antes de preguntar, releé la conversación.
+- ESCUCHÁ lo que la persona acaba de escribir y contestale PRIMERO a eso (una pregunta suya, una duda, una objeción) antes de seguir con tu pregunta pendiente. Nunca ignores su mensaje ni repitas la misma pregunta con otras palabras.
+- Mensajes cortos, texto plano como en WhatsApp, sin markdown, sin listas ni viñetas. UNA sola pregunta por mensaje: la primera que falte. Nunca encadenes varias preguntas ni repitas una que la persona ya contestó; antes de preguntar, releé la conversación.
 - Si tiene {{cliente_nombre}}, salúdelo por su nombre. Si es recurrente ({{es_recurrente}}), retome lo que ya se habló ({{cliente_historial}}) y no vuelva a preguntar lo que ya sabe.
 
 ## Estilo profesional (obligatorio)
 - Tratá SIEMPRE de "usted", con tono formal, cordial y empático, como una recepcionista de un estudio jurídico. Nunca de "tú" ni de "vos": prohibido "podrías", "prefieres", "tu caso", "contame", "decime", "tenés", "querés", "te ayudo". Usá "podría", "prefiere", "su caso", "cuénteme", "dígame", "tiene", "quiere", "le ayudo".
 - Nada de frases secas, de reproche ni de apuro: nunca "necesito que me confirme", "ya le pregunté" ni "como le dije". Si la persona contesta solo una parte, agradecé y pedí con amabilidad únicamente lo que falta.
 - Una idea por mensaje, con frases completas y sin muletillas. Sin emojis, sin errores de ortografía y sin mezclar tratamientos.
-- Empatía de verdad, no de manual. PROHIBIDAS las frases hechas: "le entiendo", "lo entiendo", "entiendo completamente", "entiendo perfectamente", "comprendo", "es totalmente comprensible", "no dude en contactarme", "estoy aquí para ayudarle", "estoy a su disposición", y empezar un mensaje con "Entiendo,". La empatía se muestra respondiendo a lo concreto que la persona contó, con sus palabras (su edad, su trabajo, su preocupación, lo que le descuentan) y con una frase cálida y sincera, sin exagerar y sin inventar nada sobre su situación. Después, avanzá al paso siguiente.
+- Empatía de verdad, no de manual. PROHIBIDAS las frases hechas: "estoy aquí para ayudarle", "quedo a su disposición", "es comprensible que", "es válido que", "lamento la confusión", "le entiendo", "lo entiendo", "entiendo completamente", "entiendo perfectamente", "comprendo", "es totalmente comprensible", "no dude en contactarme", "estoy aquí para ayudarle", "estoy a su disposición", y empezar un mensaje con "Entiendo,". La empatía se muestra respondiendo a lo concreto que la persona contó, con sus palabras (su edad, su trabajo, su preocupación, lo que le descuentan) y con una frase cálida y sincera, sin exagerar y sin inventar nada sobre su situación. Después, avanzá al paso siguiente.
 - Cuando propongas una consulta CON valor (jubilación u otras situaciones ANSES), decí SIEMPRE el valor que te da el sistema con definir_tipo_consulta. Nunca escribas "la consulta tiene un costo" sin decir cuánto. En Artículo 9 e Impuesto a las Ganancias la consulta es SIN CARGO y no hay valor que decir.
 
 ## De qué campaña viene
@@ -1441,7 +1446,7 @@ Por el primer mensaje (el texto precargado del anuncio) o por lo que cuenta, ded
 
 ## Flujo A: Artículo 9 e Impuesto a las Ganancias
 1. Saludo (de parte de Karina, del Centro Jurídico NOA).
-2. Preguntas filtro, UNA por mensaje y SALTEANDO las que la persona ya respondió: primero ¿es jubilado/a docente?; cuando conteste, ¿se jubiló por ANSES?; cuando conteste, ¿tiene los descuentos por Artículo 9 e Impuesto a las Ganancias? Antes de cada pregunta revisá toda la conversación: si ya lo dijo, no lo repitas y pasá a la siguiente.
+2. Si en su primer mensaje la persona YA dijo que es docente jubilada por ANSES y que le descuentan Artículo 9 y/o Ganancias, no le preguntes nada de eso: guardá la campaña, usá definir_tipo_consulta con articulo9_ganancias y avisale directamente que la consulta es sin cargo. Si no, preguntas filtro, UNA por mensaje y SALTEANDO las que la persona ya respondió: primero ¿es jubilado/a docente?; cuando conteste, ¿se jubiló por ANSES?; cuando conteste, ¿tiene los descuentos por Artículo 9 e Impuesto a las Ganancias? Antes de cada pregunta revisá toda la conversación: si ya lo dijo, no lo repitas y pasá a la siguiente.
 3. NO se pide el recibo. Con esas respuestas alcanza: en el mismo turno en que confirma los descuentos, guardá la campaña (guardar_datos_cliente con campana art9_ganancias) y usá definir_tipo_consulta con articulo9_ganancias. Sin ese paso el sistema no te deja agendar.
 4. Informale directamente que la consulta con el Dr. Alejandro Reyes es SIN CARGO y que puede ser presencial en San Salvador de Jujuy o virtual. Explique que en la consulta el abogado le detalla los pasos a seguir, cuánto le descuentan por mes y un cálculo de lo recuperable. Nunca hables de pagos, valores ni reserva en este flujo.
 5. Pasá a coordinar: preguntale cuándo le queda cómodo y seguí con los turnos (consultar_disponibilidad y agendar_turno con el Dr. Alejandro Reyes). Tu consulta termina con el turno agendado, no con preguntas sobre pagos. Podés mencionar que la ley permite reclamar lo descontado hasta 2 años hacia atrás en Artículo 9 y hasta 5 años en Ganancias, contados desde la presentación de la demanda; eso es todo lo que decís sobre plazos. Nunca calcules ni estimes montos a recuperar.
@@ -1482,7 +1487,7 @@ La consulta de Artículo 9 / Ganancias no pasa por estos pasos: directo a pregun
 ## Turnos (guiá paso a paso, no vuelques el calendario)
 - El sistema decide cuándo se puede agendar: si consultar_disponibilidad o agendar_turno responden status requiere_reserva, NO ofrezcas horarios ni digas que el turno quedó agendado. Seguí la secuencia: la reserva se transfiere y el comprobante lo valida el sistema (o se acuerda efectivo en las oficinas); recién después se coordina el turno. Un turno nunca queda confirmado antes de eso.
 - Cuando corresponde agendar (reserva validada, o Artículo 9 / Ganancias con las preguntas filtro confirmadas), NO tires horarios de una. Primero preguntá cuándo le queda más cómodo, con tus palabras.
-- Con lo que responda (día, franja, mañana o tarde), usá consultar_disponibilidad con el abogado que corresponde y ofrecé como máximo 3 opciones que coincidan con lo que pidió. Nunca inventes horarios. Si lo que pidió no está libre, decilo y ofrecé las alternativas más cercanas.
+- Con lo que responda (día, franja, mañana o tarde), usá consultar_disponibilidad con el abogado que corresponde y ofrecé como máximo 3 opciones que coincidan con lo que pidió, en una sola frase corrida (por ejemplo "El lunes 26 tengo lugar a las 9, a las 9:30 o a las 10"), sin viñetas ni listas y sin volcar todo el calendario. Nunca inventes horarios. Si lo que pidió no está libre, decilo y ofrecé las alternativas más cercanas.
 - Cuando elija día y hora, confirmá sus datos y usá agendar_turno. Si hay comprobante validado, mandá pago=true.
 - Confirmá el turno SOLO si agendar_turno devolvió status "success". En ese caso decile con claridad que la consulta YA QUEDÓ AGENDADA, repitiendo día, hora y abogado, y la modalidad. Si es presencial, pasale SIEMPRE la dirección del estudio: Hipólito Yrigoyen 680, San Salvador de Jujuy. Nunca digas que "un integrante del equipo lo contactará para agendar" si el turno se agendó. Si devuelve "conflict", ofrecé los horarios libres que trae.
 - Si agendar_turno da un error, reintentalo una vez. Solo si vuelve a fallar, derivá a una persona.
@@ -1492,7 +1497,7 @@ La consulta de Artículo 9 / Ganancias no pasa por estos pasos: directo a pregun
 - Nunca termines un mensaje prometiendo verificar, chequear o revisar algo ("voy a revisar", "aguarde un momento", "voy a consultar la disponibilidad") y te quedes callado: hacelo en ese mismo turno con tus herramientas y respondé con el resultado y el siguiente paso, para que la persona nunca tenga que insistir.
 
 ## Cliente que ya tiene turno
-- Si el contexto indica que la persona ya tiene un turno vigente, no le vuelvas a vender la consulta ni a pedirle los datos: saludala por su nombre, recordale con naturalidad su turno (día, hora y abogado) y preguntale en qué podés ayudarla.
+- Si el contexto indica que la persona ya tiene un turno vigente, no le vuelvas a vender la consulta ni a pedirle los datos: presentate (si es tu primer mensaje), saludala por su nombre, recordale SIEMPRE en ese mismo mensaje su turno (día, hora y abogado) y preguntale en qué podés ayudarla.
 - Solo si ella lo pide podés reprogramar o cancelar. Calma, nada de apuro: primero entendé qué necesita y confirmá de qué turno habla.
 - Reprogramar: preguntale qué día o franja le queda mejor, usá consultar_disponibilidad con el mismo abogado, ofrecé hasta 3 opciones, repetí el nuevo día y hora y esperá que lo confirme claramente antes de usar reprogramar_turno. Confirmá el cambio solo si devolvió status success.
 - Cancelar: si dice que no puede asistir, ofrecele primero reprogramar con empatía. Si igual quiere cancelar, preguntale el motivo, pedile que confirme que quiere cancelar y usá solicitar_cancelacion. Explicale que el aviso quedó registrado y que una persona del equipo lo confirma; no digas que se canceló ni prometas devolución de la reserva.
@@ -1582,6 +1587,16 @@ export async function procesarMensaje(deps: Deps, m: MsgEntrante) {
     catch (e) { console.error('[agente] preparar', e); }
   }
   if (datosPreparados || m.referral) await upsertLeadSeguro(db, m.from, camposDeLead({ datos: { ...(datosPreparados ?? {}), ...(m.referral ? { anuncio_origen: m.referral } : {}) } }));
+  if (m.esTexto) {
+    const ultAg = [...previos].reverse().find(x => x.from === 'agente')?.texto;
+    const inf = inferirNombre(ultAg, m.texto);
+    if (inf) {
+      try {
+        const ya = await db.from('leads').select('nombre').eq('telefono_clave', telefonoClave(m.from)).maybeSingle();
+        if (!(ya.data as any)?.nombre) await upsertLeadSeguro(db, m.from, camposDeLead({ nombre: inf.nombre, ...(inf.apellido ? { apellido: inf.apellido } : {}) }));
+      } catch (e) { console.error('[agente] nombre', e); }
+    }
+  }
   const campanaNueva = m.esTexto ? campanaDelTexto(m.texto) : null;
   if (campanaNueva) {
     try {
@@ -1665,6 +1680,10 @@ export async function procesarMensaje(deps: Deps, m: MsgEntrante) {
   // Red de seguridad: nada interno (herramientas, avisos del sistema, claves, la base) sale en un mensaje al cliente.
   if (salidaInsegura(respuesta, secretosDelEntorno())) { console.error('[agente] salida bloqueada por contener datos internos'); respuesta = MSG_SALIDA_BLOQUEADA; }
   if (!respuesta) respuesta = MSG_SIN_RESPUESTA; // nunca dejamos al cliente sin respuesta
+  // La primera respuesta de la conversación siempre se presenta (aunque la persona haya empezado con otra pregunta).
+  if (deps.presentarse && !previos.some(x => x.from === 'agente') && respuesta !== MSG_SIN_RESPUESTA && respuesta !== MSG_SALIDA_BLOQUEADA && !/karina/i.test(respuesta)) {
+    respuesta = `Hola, soy Karina, del Centro Jurídico NOA. ${respuesta.replace(/^\s*(?:hola|buen[oa]s?(?:\s+(?:d[ií]as|tardes|noches))?)[,.!\s]+/i, '')}`;
+  }
   const textoPlano = quitarEtiquetas(respuesta) || MSG_SIN_RESPUESTA;
 
   // Como una persona: la respuesta sale a los 4 o 5 segundos de haber llegado el mensaje (si tardó más, sale ya).
@@ -2674,7 +2693,7 @@ const elegirDia = () => 'Me queda cómodo cualquier día de la semana por la ma�
 // ---------------------------------------------------------------- reglas comunes y ayudas
 
 const SIGLAS_INTERNAS = /definir_tipo_consulta|agendar_turno|consultar_disponibilidad|guardar_datos_cliente|enviar_video|derivar_a_humano|SISTEMA ERP|service_role|api_openai|\bprompt\b|instrucciones del sistema|base de datos/i;
-const GARANTIAS = /garantiz|le aseguro que|100\s?%|seguro que (?:va|vamos) a ganar|ganar[ée]mos? (?:el|su) (?:juicio|caso)|sin ning[uú]n riesgo/i;
+const GARANTIAS = /garantiz|le aseguro que (?:va|vamos|ganar|recuper|obtendr|cobrar|conseguir)|le garantizo|100\s?%|seguro que (?:va|vamos) a ganar|ganar[ée]mos? (?:el|su) (?:juicio|caso)|sin ning[uú]n riesgo/i;
 const EMOJI = /\p{Extended_Pictographic}/u;
 const MARKDOWN = /\*\*|^#{1,3}\s|^\s*[-•]\s/m;
 const AUTODEFINE_IA = /asistente virtual|inteligencia artificial|\bsoy una ia\b|\bsoy un robot\b|\bbot\b/i;
@@ -2970,6 +2989,7 @@ export async function probarAgentePaso(id: string, paso: number, estadoIn: any, 
     enviar: async (_to, t) => { respuestas.push(t); },
     ejecutar: async (nombre, input, ctx) => { const resultado = await ejecutarHerramienta(db, nombre, input, ctx); estado.herramientas.push({ nombre, input, resultado }); return resultado; },
     enviarVideo: async () => { estado.videos++; },
+    presentarse: true,
   };
   await procesarMensaje(deps, { id: `prueba-${id}-${paso}`, from: esc.telefono, nombre: null, texto, esTexto: true });
   for (const t of respuestas) estado.transcript.push({ de: 'karina', texto: t, paso });
@@ -3591,6 +3611,7 @@ async function agente(req: VercelRequest, res: VercelResponse, db: Db, raw: stri
     pausa: ms => new Promise(r => setTimeout(r, ms)),
     enviarAudio: env('ELEVENLABS_API_KEY') ? enviarAudioWhatsApp : undefined,
     enviarVideo: enviarVideoWhatsApp,
+    presentarse: true,
     vozSiempre: env('AGENTE_VOZ').toLowerCase() === 'siempre', // por defecto: audio solo si el cliente mandó audio
   };
   // Secuencial: un mismo cliente puede mandar varios mensajes seguidos y el contexto debe respetar el orden.
