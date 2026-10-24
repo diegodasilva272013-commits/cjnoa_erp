@@ -194,6 +194,8 @@ export function chequeosComunes(esc: Escenario, r: Resultado, util: UtilEvaluar)
   out.push(chk('No promete ni garantiza resultados', !GARANTIAS.test(todo), 'Prometió o garantizó un resultado'));
   out.push(chk('No filtra nada interno', !SIGLAS_INTERNAS.test(todo), 'Nombró herramientas, instrucciones o la base de datos'));
   out.push(chk('No inventa cómo se conecta la consulta virtual (enlaces, Zoom, Meet)', !/\b(?:zoom|meet|teams|enlace|link|videollamada|plataforma)\b/i.test(todo), 'Inventó un enlace o una plataforma'));
+  const afirmaTurno = /qued[oó]\s+agendad|ya\s+est[aá]\s+agendad|nos\s+vemos\s+(?:el|este|ma[ñn]ana|pasado|ese|entonces)|su\s+turno\s+(?:es|queda)/i.test(todo);
+  out.push(chk('No confirma un turno que no existe', !afirmaTurno || turnosAgendados(r).length > 0 || (r.tablas.consultas_agendadas ?? []).some((x: any) => x.id === 'turno-previo'), 'Dijo que el turno quedó agendado y no hay ningún turno'));
   const iguales = respuestas.some((t, i) => i > 0 && t.texto.trim() === respuestas[i - 1].texto.trim());
   out.push(chk('No repite el mismo mensaje', !iguales, 'Repitió textualmente su mensaje anterior'));
   return out;

@@ -26,7 +26,7 @@ async function main() {
         estado = r.body.estado; ultimo = r.body;
         if (r.body.fin) break;
       }
-      return { id, ok: ultimo.ok, chequeos: ultimo.chequeos, transcript: estado.transcript };
+      return { id, ok: ultimo.ok, chequeos: ultimo.chequeos, transcript: estado.transcript, herramientas: (estado.herramientas ?? []).map((h: any) => `${h.nombre}:${h.resultado?.status ?? (h.resultado?.error ? 'error' : 'ok')}`) };
     } catch (e) { return { id, error: e instanceof Error ? e.message.slice(0, 200) : String(e) }; }
   };
   const cola = [...lista];
@@ -37,7 +37,8 @@ async function main() {
       if (r.ok) { ok++; log(`OK     ${r.id}  (${hechas}/${lista.length})`); continue; }
       log(`FALLO  ${r.id}${r.error ? ' ERROR: ' + r.error : ''}  (${hechas}/${lista.length})`);
       for (const c of (r.chequeos ?? []).filter((x: any) => !x.ok)) log(`   ✗ ${c.nombre}${c.detalle ? ' → ' + String(c.detalle).slice(0, 160) : ''}`);
-      for (const t of (r.transcript ?? []).slice(-14)) log(`   ${t.de === 'cliente' ? 'Cliente' : 'Karina '}: ${String(t.texto).replace(/\n/g, ' / ').slice(0, 260)}`);
+      if (r.herramientas) log(`   herramientas: ${r.herramientas.join(' · ')}`);
+      for (const t of (r.transcript ?? []).slice(-16)) log(`   ${t.de === 'cliente' ? 'Cliente' : 'Karina '}: ${String(t.texto).replace(/\n/g, ' / ').slice(0, 260)}`);
     }
   };
   await Promise.all([trabajador(), trabajador(), trabajador()]);

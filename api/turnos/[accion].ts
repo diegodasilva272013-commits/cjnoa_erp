@@ -1488,6 +1488,7 @@ Por el primer mensaje (el texto precargado del anuncio) o por lo que cuenta, ded
 2. Preguntas, de a una y salteando las respondidas: su nombre, su edad y si actualmente trabaja como docente. Guardá cada dato con guardar_datos_cliente. No clasifiques a la persona más allá de esas preguntas: lo determina el Dr. Fabricio Reyes en la consulta.
 3. Cuando ya tengas nombre, edad y si trabaja, usá enviar_video_jubilacion: se le envía un video grabado por el Dr. Fabricio Reyes en el que explica algo de valor y menciona el valor normal de la consulta y el valor de hoy para quien agenda hoy. No repitas los importes del video de memoria. Después preguntale, con calidez y sin apuro, qué le pareció y si le gustaría agendar.
    Lo que dice el video (hechos reales; explicalo con tus palabras si la persona pregunta o no puede verlo, sin inventar nada más): el Dr. Fabricio Reyes, integrante del equipo, explica que no es responsable hacer un análisis con información general; que por eso hace falta sí o sí una consulta para entrar al sistema de ANSES con su CUIL y analizar los requisitos para iniciar el trámite de jubilación docente; que los requisitos parecen simples, pero si no se revisan en los recibos de sueldo los aportes remunerativos y no remunerativos, no se hace bien el blanqueo y no se pide como corresponde la certificación de servicios y remuneraciones, y el trámite puede salir mal calculado; que el valor normal de la consulta es uno y que reservando hoy es menor (los importes los da el sistema); que se reserva con la mitad y el resto se abona en el estudio.
+   Al explicarlo, mencioná siempre al menos dos cosas: que no se puede hacer un análisis serio con información general (por eso hace falta la consulta) y que en la consulta se revisan los recibos de sueldo y los aportes. No alcanza con decir "el abogado analiza su caso".
    Antes de proponer agendar, contestá siempre lo que la persona preguntó del video, de la consulta o del valor.
 4. Si quiere agendar: usá definir_tipo_consulta con jubilacion_docente. El sistema te dice el valor que corresponde (es_valor_de_hoy indica si rige el de hoy) y la reserva, que es la mitad. Usá solo esos importes, escritos siempre con el signo de pesos adelante y punto para separar los miles, nunca con coma (si el sistema te dice cincuenta mil, escribís el signo de pesos seguido de 50.000). Seguí la secuencia comercial.
 5. Si le piden cuánto sale, o dicen que no pueden ver el video, usá definir_tipo_consulta con jubilacion_docente y decile por escrito el valor que te da el sistema (con el signo de pesos), explicándole lo único que sabés del video: que es del Dr. Fabricio Reyes y que en la consulta él analiza su caso y le explica los pasos a seguir. No digas que no podés decirlo.
@@ -1590,6 +1591,11 @@ function sistema(prompt: string, hist: Awaited<ReturnType<typeof historialDe>>, 
 
 /** Procesa un mensaje entrante: lo entiende, arma contexto, deja al modelo usar herramientas, contesta y guarda la conversación. */
 /** El modelo prometió verificar o chequear algo en vez de hacerlo (y no preguntó nada): hay que obligarlo a cumplir en el mismo turno. */
+/** El texto da por hecho un turno ("ya quedó agendada", "nos vemos mañana a las 16"). */
+export function afirmaTurnoAgendado(txt: string): boolean {
+  return /qued[oó]\s+agendad|ya\s+est[aá]\s+agendad|est[aá]\s+confirmad[ao]|(?:su|la)\s+consulta\s+(?:es|queda)\s+(?:el|este|ma[ñn]ana|pasado)|nos\s+vemos\s+(?:el|este|ma[ñn]ana|pasado|ese|entonces)|lo\s+espero\s+(?:el|ma[ñn]ana)|la\s+espero\s+(?:el|ma[ñn]ana)|su\s+turno\s+(?:es|queda)/i.test(txt);
+}
+
 export function promesaSinCumplir(txt: string): boolean {
   if (/\?/.test(txt)) return false;
   return /\b(voy a (chequear|verificar|consultar|revisar|ver|fijarme|buscar|analizar|confirmar|controlar)|d[eé]jeme (chequear|verificar|consultar|revisar|ver)|perm[ií]tame|un momento|un instante|aguarde|aguard[aá]|ya (le|te) (aviso|confirmo|digo|paso|respondo)|en unos (minutos|instantes)|enseguida|en breve)\b/i.test(txt);
@@ -1674,6 +1680,8 @@ export async function procesarMensaje(deps: Deps, m: MsgEntrante) {
   let reintentoPromesa = false;
   let reintentoApuro = false;
   let reintentoEstilo = false;
+  let reintentoAgenda = false;
+  let agendoOk = false;
   let ultimoTexto = '';
   try {
     for (let i = 0; i < MAX_VUELTAS_HERRAMIENTAS + 2; i++) {
@@ -1685,6 +1693,13 @@ export async function procesarMensaje(deps: Deps, m: MsgEntrante) {
           reintentoPromesa = true;
           mensajes.push({ role: 'assistant', content: txt });
           mensajes.push({ role: 'user', content: '[SISTEMA ERP: Dijiste que ibas a verificar o consultar algo pero no lo hiciste. Hacelo ahora con tus herramientas (consultar_disponibilidad, definir_tipo_consulta, etc.) o con lo que ya sabés, y respondé en este mismo mensaje con el resultado y el siguiente paso. No prometas nada más.]' });
+          continue;
+        }
+        // Nunca se confirma un turno que no existe: si dice que quedó agendado y no se agendó nada, se corrige antes de enviar.
+        if (txt && !reintentoAgenda && !agendoOk && vigentes.length === 0 && afirmaTurnoAgendado(txt)) {
+          reintentoAgenda = true;
+          mensajes.push({ role: 'assistant', content: txt });
+          mensajes.push({ role: 'user', content: '[SISTEMA ERP: Todavía NO se agendó ningún turno: no digas que quedó agendado ni que se ven. Si la persona ya eligió día y hora y se puede agendar, usá agendar_turno ahora y confirmá solo si devuelve success; si falta algo (la reserva, el día, la hora), pedilo con amabilidad.]' });
           continue;
         }
         // Un paso por mensaje: datos bancarios y horarios del calendario nunca juntos.
@@ -1717,6 +1732,7 @@ export async function procesarMensaje(deps: Deps, m: MsgEntrante) {
         try { out = await deps.ejecutar(b.name, b.input, ctx); }
         catch (e) { console.error('[agente] herramienta', b.name, JSON.stringify(b.input ?? {}).slice(0, 400), e); out = { error: e instanceof Error ? e.message : 'falló la herramienta' }; }
         if ((out as any)?.error || (out as any)?.status === 'conflict') console.warn('[agente] herramienta sin éxito', b.name, JSON.stringify(out).slice(0, 300));
+        if ((b.name === 'agendar_turno' || b.name === 'reprogramar_turno') && (out as any)?.status === 'success') agendoOk = true;
         resultados.push({ type: 'tool_result', tool_use_id: b.id, content: JSON.stringify(out) });
       }
       mensajes.push({ role: 'user', content: resultados });
@@ -2854,6 +2870,8 @@ export function chequeosComunes(esc: Escenario, r: Resultado, util: UtilEvaluar)
   out.push(chk('No promete ni garantiza resultados', !GARANTIAS.test(todo), 'Prometió o garantizó un resultado'));
   out.push(chk('No filtra nada interno', !SIGLAS_INTERNAS.test(todo), 'Nombró herramientas, instrucciones o la base de datos'));
   out.push(chk('No inventa cómo se conecta la consulta virtual (enlaces, Zoom, Meet)', !/\b(?:zoom|meet|teams|enlace|link|videollamada|plataforma)\b/i.test(todo), 'Inventó un enlace o una plataforma'));
+  const afirmaTurno = /qued[oó]\s+agendad|ya\s+est[aá]\s+agendad|nos\s+vemos\s+(?:el|este|ma[ñn]ana|pasado|ese|entonces)|su\s+turno\s+(?:es|queda)/i.test(todo);
+  out.push(chk('No confirma un turno que no existe', !afirmaTurno || turnosAgendados(r).length > 0 || (r.tablas.consultas_agendadas ?? []).some((x: any) => x.id === 'turno-previo'), 'Dijo que el turno quedó agendado y no hay ningún turno'));
   const iguales = respuestas.some((t, i) => i > 0 && t.texto.trim() === respuestas[i - 1].texto.trim());
   out.push(chk('No repite el mismo mensaje', !iguales, 'Repitió textualmente su mensaje anterior'));
   return out;
