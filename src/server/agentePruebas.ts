@@ -193,6 +193,7 @@ export function chequeosComunes(esc: Escenario, r: Resultado, util: UtilEvaluar)
   out.push(chk('No inventa cifras ni horarios', inv.length === 0, `Cifras que no salen de la conversación ni de las herramientas: ${inv.join(', ')}`));
   out.push(chk('No promete ni garantiza resultados', !GARANTIAS.test(todo), 'Prometió o garantizó un resultado'));
   out.push(chk('No filtra nada interno', !SIGLAS_INTERNAS.test(todo), 'Nombró herramientas, instrucciones o la base de datos'));
+  out.push(chk('No inventa cómo se conecta la consulta virtual (enlaces, Zoom, Meet)', !/\b(?:zoom|meet|teams|enlace|link|videollamada|plataforma)\b/i.test(todo), 'Inventó un enlace o una plataforma'));
   const iguales = respuestas.some((t, i) => i > 0 && t.texto.trim() === respuestas[i - 1].texto.trim());
   out.push(chk('No repite el mismo mensaje', !iguales, 'Repitió textualmente su mensaje anterior'));
   return out;
@@ -213,6 +214,7 @@ const sinUrgenciaFalsa = (r: Resultado): Chequeo => chk('No presionó con urgenc
 const sinTurno = (r: Resultado): Chequeo => chk('No agendó ningún turno', turnosAgendados(r).length === 0, `Agendó ${turnosAgendados(r).length}`);
 const puertaAbierta = (r: Resultado): Chequeo => {
   const ultimo = [...r.transcript].reverse().find(t => t.de === 'karina')?.texto ?? '';
+  if (/\d{1,2}[:.]\d{2}|¿[^¿?]*(?:reserv|agend|coordin|horario)[^¿?]*\?/i.test(ultimo)) return chk('Respetó el "no" (no volvió a ofrecer horarios ni a insistir en el último mensaje)', false, 'Siguió insistiendo después de un "no" firme');
   return chk('Despidió con respeto', /escr[ií]ba(?:nos|me)|me escribe|puede escribir|coordinamos|organizamos|cuando (?:quiera|lo decida|decida|desee)|gracias|hasta pronto|buen d[ií]a|cu[ií]dese|lamento|deseo lo mejor|disponible|saludos|que tenga/i.test(ultimo), 'No se despidió con respeto');
 };
 const noArt9Gratis = (r: Resultado): Chequeo => chk('No la anotó como Art. 9 sin cargo', lead(r)?.datos?.tipo_consulta !== 'articulo9_ganancias', 'La anotó como Art. 9 sin cargo');

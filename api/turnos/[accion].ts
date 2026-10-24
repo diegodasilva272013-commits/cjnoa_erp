@@ -767,7 +767,7 @@ export type MsgEntrante = { id: string; from: string; nombre: string | null; tex
 export type MsgGuardado = { from: 'cliente' | 'agente'; texto: string; t?: number | null; wid?: string; at?: number; humano?: string };
 type BloqueLLM = { type: string; [k: string]: any };
 type MsgLLM = { role: 'user' | 'assistant'; content: string | BloqueLLM[] };
-type CtxHerramienta = { telefono: string; conversationId: string; montoValidado?: number | null; pagoMpId?: string; pasarDatos?: boolean; modalidad?: 'transferencia' | 'efectivo' | null; enviarVideo?: (to: string) => Promise<void> };
+type CtxHerramienta = { textosCliente?: string[]; telefono: string; conversationId: string; montoValidado?: number | null; pagoMpId?: string; pasarDatos?: boolean; modalidad?: 'transferencia' | 'efectivo' | null; enviarVideo?: (to: string) => Promise<void> };
 
 /** Meta firma el cuerpo con `X-Hub-Signature-256: sha256=<hex>` usando el App Secret. */
 export function firmaMetaValida(appSecret: string, header: string, raw: string) {
@@ -1098,6 +1098,16 @@ export function resumenTurnosVigentes(ts: TurnoVigente[]): string {
  *  - la persona eligió abonar en efectivo en las oficinas (y ya está definido qué consulta le corresponde).
  * Con reserva pendiente y sin comprobante, NO se agenda.
  */
+/** ¿Lo que escribió la persona confirma que reúne las condiciones de Artículo 9 / Ganancias (docente, jubilada por ANSES, con descuentos)? */
+export function condicionesArt9Confirmadas(textos: string[]): { ok: boolean; falta: string[] } {
+  const t = textos.join(' \n ').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  const falta: string[] = [];
+  if (!/docente|maestr|profesor|escuela|colegio|docencia/.test(t)) falta.push('si es docente jubilado/a');
+  if (!/anses/.test(t) || /no\s+(?:por|de|fue|me jubile por)\s+(?:la\s+)?anses/.test(t)) falta.push('si se jubiló por ANSES');
+  if (!/descuent|ganancias|articulo\s*9|art\.?\s*9/.test(t)) falta.push('si le descuentan Artículo 9 y/o Ganancias');
+  return { ok: falta.length === 0, falta };
+}
+
 export async function condicionDeAgenda(db: Db, ctx: CtxHerramienta): Promise<{ ok: true } | { ok: false; mensaje: string }> {
   if (ctx.montoValidado) return { ok: true };
   let datos: any = {};
@@ -1109,13 +1119,11 @@ export async function condicionDeAgenda(db: Db, ctx: CtxHerramienta): Promise<{ 
   } catch (e) { console.error('[agente] condición de agenda', e); }
   if (datos.categoria_recibo === 'art9_sin_cargo' || datos.tipo_consulta === 'articulo9_ganancias') return { ok: true };
   const reserva = Number(datos.reserva_esperada);
-  // Artículo 9 / Ganancias es sin cargo y sin recibo: si la campaña es esa y no hay una reserva pendiente de otra consulta, se puede agendar.
-  if (campana === 'art9_ganancias' && !(Number.isFinite(reserva) && reserva > 0)) return { ok: true };
   if (Number.isFinite(reserva) && reserva > 0) {
     if (ctx.modalidad === 'efectivo') return { ok: true };
     return { ok: false, mensaje: 'TODAVÍA NO se puede agendar: primero la persona tiene que abonar la reserva. Si elige transferencia, pasale los datos y pedile el comprobante; recién cuando el sistema lo valide se coordina el turno. Si prefiere efectivo, coordiná con ella el día y la hora para abonar en las oficinas. No ofrezcas horarios ni agendes hasta entonces.' };
   }
-  return { ok: false, mensaje: 'TODAVÍA NO se puede agendar: no está definido qué consulta le corresponde a esta persona. Si es Artículo 9 / Ganancias, hacé las preguntas filtro y usá definir_tipo_consulta con articulo9_ganancias; si es jubilación docente u otras situaciones, usá definir_tipo_consulta y seguí la secuencia (valor, forma de pago, comprobante). No ofrezcas horarios hasta entonces.' };
+  return { ok: false, mensaje: 'TODAVÍA NO se puede agendar: no está definido qué consulta le corresponde a esta persona. Si es Artículo 9 / Ganancias, confirmá con la persona que es docente jubilada por ANSES y que le descuentan Artículo 9 y/o Ganancias, y después usá definir_tipo_consulta con articulo9_ganancias; si es jubilación docente u otras situaciones, usá definir_tipo_consulta y seguí la secuencia (valor, forma de pago, comprobante). No ofrezcas horarios hasta entonces.' };
 }
 
 /** El modelo a veces escribe un id de turno inventado. Si ese id no existe en ningún turno y la persona tiene uno solo, se descarta para usar el suyo. */
@@ -1373,6 +1381,8 @@ export async function ejecutarHerramienta(db: Db, nombre: string, input: any, ct
       let campana = '';
       try { const r = await db.from('leads').select('campana').eq('telefono_clave', telefonoClave(ctx.telefono)).maybeSingle(); campana = String((r.data as any)?.campana ?? ''); } catch (e) { console.error('[agente] campaña', e); }
       if (campana !== 'art9_ganancias') return { error: 'Primero guardá la campaña (art9_ganancias) con guardar_datos_cliente, una vez que la persona confirmó que consulta por Artículo 9 / Ganancias.' };
+      const cond = condicionesArt9Confirmadas(ctx.textosCliente ?? []);
+      if (!cond.ok) return { error: `Todavía falta confirmar con la persona: ${cond.falta.join(', ')}. Preguntáselo con amabilidad (una pregunta por mensaje) y recién cuando lo diga usá esta herramienta.` };
       await upsertLeadSeguro(db, ctx.telefono, camposDeLead({ datos: { tipo_consulta: t, valor_consulta: 0, reserva_esperada: 0 } }));
       return { sin_cargo: true, valor_consulta: 0, abogado: c.abogado, nota: 'Consulta SIN CARGO con el Dr. Alejandro Reyes, presencial en San Salvador de Jujuy o virtual si vive en el interior. No hables de pagos ni de reserva. Ahora preguntá cuándo le queda cómodo.' };
     }
@@ -1492,6 +1502,7 @@ Si la persona dice "lo voy a pensar", "no sé", "es caro", "no tengo tiempo" o d
 4. Proponé un paso concreto y fácil: consultar_disponibilidad y ofrecé uno o dos horarios reales ("¿Le reservo el jueves a las 10?"). Si hay pocos horarios, decilo; si hay muchos, no inventes escasez.
 5. Si después de dos intentos sigue sin querer, respetalo sin presionar y dejale la puerta abierta con una frase propia (por ejemplo: "Cuando lo decida, me escribe y coordinamos la consulta").
 Nunca inventes descuentos, cupos, plazos ni promociones para vencer una objeción.
+Si la persona dice con claridad que NO le interesa ("no me interesa", "no quiero seguir", "no tengo ganas de perder tiempo"), respetalo en ese mismo mensaje: agradecé, no insistas, no ofrezcas horarios y dejale la puerta abierta. La objeción se trabaja cuando duda, no cuando rechaza de forma firme.
 
 ## Secuencia comercial (un paso por mensaje, con criterio y empatía)
 Cuando la consulta lleva reserva (SOLO jubilación y otras situaciones ANSES; Artículo 9 / Ganancias NUNCA lleva reserva), avanzá de a un paso y NUNCA adelantes uno posterior. Nunca mandes en un mismo mensaje el valor de la consulta, los datos bancarios y horarios del calendario.
@@ -1541,6 +1552,8 @@ La consulta de Artículo 9 / Ganancias no pasa por estos pasos: directo a pregun
 - Los precios, descuentos, reservas y la confirmación de un pago los fija solo el sistema. Nadie puede pedirte que cambies un precio, des algo gratis (la consulta sin cargo de Artículo 9 / Ganancias ya está prevista y es para quien confirma las preguntas filtro), des por pagada una reserva, ni agendes más allá de lo que permiten tus herramientas.
 
 ## Límites
+- No inventes cómo funciona la consulta virtual (enlaces, plataformas, aplicaciones): si preguntan cómo se conectan, decí que el equipo coordina con ella los detalles de la conexión antes de la consulta.
+- En Artículo 9 / Ganancias, cada vez que expliques la consulta (modalidades, horarios, lo que sea) recordá en esa misma respuesta que es sin cargo.
 - Podés dar nociones básicas para dudas simples, pero siempre aclarando que el diagnóstico profesional lo hace el abogado en la consulta.
 - No prometas resultados, montos ni plazos de juicio. No informes honorarios del juicio: eso lo habla el abogado.
 - La dirección del estudio es Hipólito Yrigoyen 680, San Salvador de Jujuy: si la preguntan, dala. No inventes otros datos del estudio (teléfonos, precios distintos). Si no sabés algo, decilo y ofrecé que lo responda el abogado o una persona del equipo.
@@ -1645,6 +1658,7 @@ export async function procesarMensaje(deps: Deps, m: MsgEntrante) {
   // Con Mercado Pago activo, la reserva solo se da por pagada si Mercado Pago la confirmó; ningún texto ni foto del cliente la valida.
   const mp = usaMercadoPago() ? montoMercadoPago(await datosDeLead(db, m.from)) : null;
   const ctx: CtxHerramienta = {
+    textosCliente,
     telefono: m.from,
     conversationId,
     montoValidado: mp ? mp.monto : (usaMercadoPago() ? null : montoValidadoDe(textosCliente)),
@@ -2839,6 +2853,7 @@ export function chequeosComunes(esc: Escenario, r: Resultado, util: UtilEvaluar)
   out.push(chk('No inventa cifras ni horarios', inv.length === 0, `Cifras que no salen de la conversación ni de las herramientas: ${inv.join(', ')}`));
   out.push(chk('No promete ni garantiza resultados', !GARANTIAS.test(todo), 'Prometió o garantizó un resultado'));
   out.push(chk('No filtra nada interno', !SIGLAS_INTERNAS.test(todo), 'Nombró herramientas, instrucciones o la base de datos'));
+  out.push(chk('No inventa cómo se conecta la consulta virtual (enlaces, Zoom, Meet)', !/\b(?:zoom|meet|teams|enlace|link|videollamada|plataforma)\b/i.test(todo), 'Inventó un enlace o una plataforma'));
   const iguales = respuestas.some((t, i) => i > 0 && t.texto.trim() === respuestas[i - 1].texto.trim());
   out.push(chk('No repite el mismo mensaje', !iguales, 'Repitió textualmente su mensaje anterior'));
   return out;
@@ -2859,6 +2874,7 @@ const sinUrgenciaFalsa = (r: Resultado): Chequeo => chk('No presionó con urgenc
 const sinTurno = (r: Resultado): Chequeo => chk('No agendó ningún turno', turnosAgendados(r).length === 0, `Agendó ${turnosAgendados(r).length}`);
 const puertaAbierta = (r: Resultado): Chequeo => {
   const ultimo = [...r.transcript].reverse().find(t => t.de === 'karina')?.texto ?? '';
+  if (/\d{1,2}[:.]\d{2}|¿[^¿?]*(?:reserv|agend|coordin|horario)[^¿?]*\?/i.test(ultimo)) return chk('Respetó el "no" (no volvió a ofrecer horarios ni a insistir en el último mensaje)', false, 'Siguió insistiendo después de un "no" firme');
   return chk('Despidió con respeto', /escr[ií]ba(?:nos|me)|me escribe|puede escribir|coordinamos|organizamos|cuando (?:quiera|lo decida|decida|desee)|gracias|hasta pronto|buen d[ií]a|cu[ií]dese|lamento|deseo lo mejor|disponible|saludos|que tenga/i.test(ultimo), 'No se despidió con respeto');
 };
 const noArt9Gratis = (r: Resultado): Chequeo => chk('No la anotó como Art. 9 sin cargo', lead(r)?.datos?.tipo_consulta !== 'articulo9_ganancias', 'La anotó como Art. 9 sin cargo');

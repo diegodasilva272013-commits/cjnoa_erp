@@ -3,7 +3,7 @@ import { createHmac } from 'node:crypto';
 import handler, {
   clasificarRecibo, TIPOS_CONSULTA, promesaSinCumplir, separarDatosPago, mensajeApurado,
   aMin, limpiarSecreto, camposDeLead, etapaAutomatica, fusionarLead, registrarMensaje, upsertLead, firmaMetaValida, firmaKapsoValida, extraerMensajesKapso, extraerMensajes, aMensajesLLM, procesarMensaje, filaDePersona, esConversacionDeNoa, clasificarMensajeCliente, categoriaMensajeAgente, personaMetrica, agregarMetricasAgente, calcularMetricasAgente, evaluarOptimizaciones, validarOptimizaciones, ejecutarOptimizacion, type MetricasAgente, motivoDeExclusion, resumenEnPalabras, ejecutarAnalista, revisarAnalisisAutomatico, codigosDeEstilo, etapaEmbudo, analizarConversacion, calcularMetricas, mascararDatos, textoParaEtiquetar, validarEtiquetas, promptDelAgente, limpiarCachePrompt, accionAgentes, problemasDeEstilo, textoNoLegible, firmaMercadoPagoValida, importeTexto, importeLindo, asignarImporteUnico, procesarPagoMP, montoMercadoPago, modalidadElegida, enmascarar, neutralizarMarcas, salidaInsegura, superaLimite, urlMediaSegura, resumenTurnosVigentes, HERRAMIENTAS_LLM, cuerpoNotaDeVoz, eligioTransferencia, notaDeImagen, montoValidadoDe, quitarEtiquetas, aMensajesOpenAI, deOpenAI, ejecutarHerramienta, PROMPT_AGENTE, type Deps, telefonoClave, historialDe, inferirNombre, normalizarFecha, normalizarHora, bloquesDelDia, huecosLibres, localDe, resolverProfesional, diaSemanaISO, fechaValida,
-  registrarSinResponder, campanaDelTexto, probarAgentePaso, condicionDeAgenda, registrarMensajeHumano, extraerHumanosKapso, responderDesdeErp, resumenCampana, analizarCampana, analisisSoloConCifrasReales,
+  registrarSinResponder, condicionesArt9Confirmadas, campanaDelTexto, probarAgentePaso, condicionDeAgenda, registrarMensajeHumano, extraerHumanosKapso, responderDesdeErp, resumenCampana, analizarCampana, analisisSoloConCifrasReales,
   type Bloque,
 } from '../../api/turnos/[accion]';
 
@@ -244,7 +244,7 @@ describe('respaldo · procesarMensaje', () => {
       ejecutar: async (nombre, input, ctx) => { llamadas.push({ nombre, input, ctx }); return { horarios_disponibles: ['09:00'] }; },
     });
     await procesarMensaje(d, msg);
-    expect(llamadas).toEqual([{ nombre: 'consultar_disponibilidad', input: { profesional: 'alejandro' }, ctx: { telefono: '5493884867965', conversationId: 'respaldo-5493884867965', montoValidado: null, pasarDatos: false, modalidad: null } }]);
+    expect(llamadas).toEqual([{ nombre: 'consultar_disponibilidad', input: { profesional: 'alejandro' }, ctx: { textosCliente: ['Hola, quiero un turno'], telefono: '5493884867965', conversationId: 'respaldo-5493884867965', montoValidado: null, pasarDatos: false, modalidad: null } }]);
     expect(enviados).toEqual(['Tengo lugar el martes 09:00']);
   });
 
@@ -2601,9 +2601,11 @@ describe('agente · nuevo flujo (Art. 9 sin recibo, jubilación con video y valo
 
   it('Art. 9 / Ganancias: sin cargo y sin recibo, pero solo si la campaña ya quedó guardada (no sirve para saltear el pago de otra consulta)', async () => {
     const sin = dbMemoria();
-    expect(await ejecutarHerramienta(sin.db, 'definir_tipo_consulta', { tipo: 'articulo9_ganancias' }, ctx)).toHaveProperty('error');
+    expect(await ejecutarHerramienta(sin.db, 'definir_tipo_consulta', { tipo: 'articulo9_ganancias' }, { ...ctx, textosCliente: ['Soy docente jubilada por ANSES y me descuentan Ganancias'] })).toHaveProperty('error');
     const { db, tablas } = dbMemoria({ leads: [{ telefono: tel, campana: 'art9_ganancias', datos: {} }] });
-    const r: any = await ejecutarHerramienta(db, 'definir_tipo_consulta', { tipo: 'articulo9_ganancias' }, ctx);
+    const sinDichos: any = await ejecutarHerramienta(db, 'definir_tipo_consulta', { tipo: 'articulo9_ganancias' }, { ...ctx, textosCliente: ['Hola, quiero información'] });
+    expect(sinDichos.error).toContain('falta confirmar');
+    const r: any = await ejecutarHerramienta(db, 'definir_tipo_consulta', { tipo: 'articulo9_ganancias' }, { ...ctx, textosCliente: ['Soy docente jubilada por ANSES y me descuentan Artículo 9 y Ganancias'] });
     expect(r).toMatchObject({ sin_cargo: true, valor_consulta: 0, abogado: 'Alejandro' });
     expect(r.datos_para_transferir).toBeUndefined();
     expect(tablas.leads[0].datos).toMatchObject({ tipo_consulta: 'articulo9_ganancias', reserva_esperada: 0 });
@@ -2616,13 +2618,21 @@ describe('agente · nuevo flujo (Art. 9 sin recibo, jubilación con video y valo
     expect((await condicionDeAgenda(otro.db, ctx)).ok).toBe(false);
   });
 
-  it('Art. 9 se puede agendar aunque el modelo no haya llamado a ninguna herramienta, mientras no haya una reserva pendiente', async () => {
+  it('para agendar Art. 9 no alcanza con la campaña: hay que haber confirmado las condiciones y definido la consulta', async () => {
     const solo = dbMemoria({ leads: [{ telefono: tel, campana: 'art9_ganancias', datos: {} }] });
-    expect(await condicionDeAgenda(solo.db, ctx)).toEqual({ ok: true });
-    const conReserva = dbMemoria({ leads: [{ telefono: tel, campana: 'art9_ganancias', datos: { reserva_esperada: 75000 } }] });
-    expect((await condicionDeAgenda(conReserva.db, ctx)).ok).toBe(false);
+    expect((await condicionDeAgenda(solo.db, ctx)).ok).toBe(false);
+    const definida = dbMemoria({ leads: [{ telefono: tel, campana: 'art9_ganancias', datos: { tipo_consulta: 'articulo9_ganancias', reserva_esperada: 0 } }] });
+    expect(await condicionDeAgenda(definida.db, ctx)).toEqual({ ok: true });
     const jub = dbMemoria({ leads: [{ telefono: tel, campana: 'jubilacion_docente', datos: {} }] });
     expect((await condicionDeAgenda(jub.db, ctx)).ok).toBe(false);
+  });
+
+  it('las condiciones de Art. 9 las verifica el código sobre lo que dijo la persona', () => {
+    expect(condicionesArt9Confirmadas(['Hola, soy docente jubilada por ANSES y me descuentan Artículo 9']).ok).toBe(true);
+    expect(condicionesArt9Confirmadas(['Soy docente', 'me jubilé por ANSES', 'me descuentan Ganancias']).ok).toBe(true);
+    expect(condicionesArt9Confirmadas(['Soy docente jubilada']).falta).toEqual(['si se jubiló por ANSES', 'si le descuentan Artículo 9 y/o Ganancias']);
+    expect(condicionesArt9Confirmadas(['Soy docente, me jubilé por la caja de la provincia, no por ANSES, y me descuentan Ganancias']).ok).toBe(false);
+    expect(condicionesArt9Confirmadas(['Fui empleada administrativa, jubilada por ANSES, me descuentan Ganancias']).falta).toEqual(['si es docente jubilado/a']);
   });
 
   it('la campaña se detecta por código desde el texto de la persona', () => {
@@ -2807,7 +2817,7 @@ describe('pruebas del agente · 60 conversaciones que terminan en un resultado',
         void fecha;
         return { stop_reason: 'end_turn', content: [{ type: 'text', text: 'Muchas gracias.' }] } as any;
       };
-    }, clienteGuion(['Sí, es así', 'Presencial', 'Por la mañana', 'Quiero el horario de las 09:00']));
+    }, clienteGuion(['Sí, soy docente jubilada por ANSES y me descuentan los dos', 'Presencial', 'Por la mañana', 'Quiero el horario de las 09:00']));
     // Con este guion el agente simulado no llega a llamar a agendar_turno: tiene que fallar por no terminar en un turno.
     expect(b.ok).toBe(false);
     expect(fallas(b).join(' ')).toContain('AGENDADO');
@@ -2824,7 +2834,7 @@ describe('pruebas del agente · 60 conversaciones que terminan en un resultado',
       const d = estado.herramientas.find((h: any) => h.nombre === 'consultar_disponibilidad').resultado;
       fechaOfrecida = d.proximos_dias[0].fecha; horaOfrecida = d.proximos_dias[0].horarios_disponibles[0];
       return agente([{ tool: 'agendar_turno', input: { profesional: 'alejandro', nombre: 'Ana Gómez', fecha: fechaOfrecida, hora: horaOfrecida, modalidad: 'presencial' } }, { text: `Listo, su consulta YA QUEDÓ AGENDADA el ${fechaOfrecida} a las ${horaOfrecida} con el Dr. Alejandro Reyes, de forma presencial, en Hipólito Yrigoyen 680, San Salvador de Jujuy.` }]);
-    }, clienteGuion(['Sí, es así', 'Presencial', 'Por la mañana', 'Me queda bien el primer horario']));
+    }, clienteGuion(['Sí, soy docente jubilada por ANSES y me descuentan los dos', 'Presencial', 'Por la mañana', 'Me queda bien el primer horario']));
     expect(fallas(b)).toEqual([]);
     expect(b.ok).toBe(true);
   });
