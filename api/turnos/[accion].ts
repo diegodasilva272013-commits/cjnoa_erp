@@ -1000,7 +1000,7 @@ export function problemasDeEstilo(txt: string): string[] {
   if (REGEX_CLICHE.test(txt)) out.push('Sin frases hechas ("le entiendo", "entiendo completamente", "no dude en", "estoy aquí para ayudarle", "Entiendo,"): mostrá empatía respondiendo a lo concreto que contó la persona, con calidez real, y avanzá.');
   if (REGEX_TUTEO.test(txt)) out.push('Tratá SIEMPRE de usted: nunca de tú ni de vos (nada de "podrías", "prefieres", "tu caso", "contame", "tenés"; usá "podría", "prefiere", "su caso", "cuénteme", "tiene").');
   if (REGEX_REPROCHE.test(txt)) out.push('Sin reproches ni apuro: agradecé y pedí con amabilidad solamente lo que falta.');
-  if (/transferencia/i.test(txt) && /efectivo/i.test(txt) && !/\$\s?\d/.test(txt)) {
+  if (/transferencia/i.test(txt) && /efectivo/i.test(txt) && !/\$\s?\d|\d[\d.,]*\s*pesos/i.test(txt)) {
     out.push('Preguntaste cómo abonar la reserva sin decir el valor: usá definir_tipo_consulta (si todavía no lo hiciste) e indicá el valor de la consulta, el importe de la reserva (la mitad) y que el saldo se abona el día de la consulta; recién después preguntá si prefiere transferencia o efectivo.');
   }
   return out;
