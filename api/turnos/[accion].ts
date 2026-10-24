@@ -3348,6 +3348,16 @@ export async function accionAgentes(db: Db, u: UsuarioAgentes, accion: string, p
 
 async function agentesHttp(req: VercelRequest, res: VercelResponse, db: Db, raw: string) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Método no permitido' });
+  // Corridas de prueba automáticas: un token propio (PRUEBAS_TOKEN) habilita SOLO la acción probar_agente (agenda real en solo lectura; nada real se escribe).
+  const tokenPruebas = limpiarSecreto(process.env.PRUEBAS_TOKEN ?? '');
+  const recibido = String(req.headers['x-pruebas-token'] ?? '');
+  if (tokenPruebas.length >= 24 && recibido && iguales(recibido, tokenPruebas)) {
+    let b: any = {};
+    try { b = JSON.parse(raw || '{}'); } catch { return res.status(400).json({ error: 'JSON inválido' }); }
+    if (b?.accion !== 'probar_agente') return res.status(403).json({ error: 'Este token solo sirve para las pruebas.' });
+    try { const r = await probarAgentePaso(String(b?.id ?? ''), Number(b?.paso ?? 0), b?.estado, llamarModelo, db); return res.status(r.code).json(r.body); }
+    catch (e) { console.error('[pruebas] ', e); return res.status(500).json({ error: e instanceof Error ? e.message.slice(0, 200) : 'Error en la prueba' }); }
+  }
   const h = String(req.headers.authorization ?? '');
   if (!h.startsWith('Bearer ')) return res.status(401).json({ error: 'No autorizado' });
   const { data: sesion, error } = await db.auth.getUser(h.slice(7).trim());
