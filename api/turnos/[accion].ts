@@ -984,7 +984,7 @@ const REGEX_REPROCHE = /\b(?:necesito que (?:me )?(?:confirme|diga|responda|acla
 
 /** Qué hay que corregir en un mensaje antes de mandarlo (vacío si está bien). */
 /** Frases hechas que el dueño prohibió: la empatía se muestra respondiendo a lo concreto que contó la persona. */
-export const REGEX_CLICHE = /\b(?:quedo\s+a\s+su\s+disposici[oó]n|es\s+(?:completamente\s+|totalmente\s+)?(?:v[aá]lido|comprensible|normal|entendible)\s+que|lamento\s+la\s+confusi[oó]n)\b|\b(?:(?:te|lo|la|le|nos)\s+entiendo|estar[eé]\s+aqu[ií]\b|a\s+su\s+disposici[oó]n|(?:entiendo|comprendo)\s+que\b|entiendo\s+(?:perfectamente|completamente|totalmente|su situaci[oó]n|lo que)|comprendo\s+(?:perfectamente|completamente|totalmente|su)|(?:es\s+)?totalmente\s+comprensible|no\s+dude\s+en|estoy\s+aqu[ií]\s+para|estoy\s+a\s+su\s+disposici[oó]n)|(?:^|[.!?¡¿]\s*)entiendo[,.\s]/i;
+export const REGEX_CLICHE = /\b(?:quedo\s+a\s+su\s+disposici[oó]n|es\s+(?:completamente\s+|totalmente\s+)?(?:v[aá]lido|comprensible|normal|entendible)\s+que|lamento\s+la\s+confusi[oó]n)\b|\b(?:(?:te|lo|la|le|nos)\s+entiendo|estar[eé]\s+(?:aqu[ií]|disponible)|(?:estoy|seguimos)\s+disponibles?\s+para|a\s+su\s+disposici[oó]n|(?:entiendo|comprendo)\s+que\b|entiendo\s+(?:perfectamente|completamente|totalmente|su situaci[oó]n|lo que)|comprendo\s+(?:perfectamente|completamente|totalmente|su)|(?:es\s+)?totalmente\s+comprensible|no\s+dude\s+en|estoy\s+aqu[ií]\s+para|estoy\s+a\s+su\s+disposici[oó]n)|(?:^|[.!?¡¿]\s*)entiendo[,.\s]/i;
 
 /** Saca las oraciones con frases hechas prohibidas (si todo el mensaje era eso, lo deja como está). */
 export function quitarFrasesHechas(txt: string): string {
@@ -2755,7 +2755,10 @@ const GARANTIAS = /le garantiz|garantizamos que (?:va|vamos|ganar)|le aseguro qu
 const EMOJI = /\p{Extended_Pictographic}/u;
 const MARKDOWN = /\*\*|^#{1,3}\s|^\s*[-•]\s/m;
 const AUTODEFINE_IA = /asistente virtual|inteligencia artificial|\bsoy una ia\b|\bsoy un robot\b|\bbot\b/i;
-const PIDE_RECIBO = /(?:env[ií]e|m[aá]nde|m[aá]ndeme|adjunte|pase|necesito|necesitamos|requiere|hace falta|imprescindible|indispensable)[^.?!\n]{0,60}recibo|recibo[^.?!\n]{0,40}(?:es necesario|es indispensable|obligatorio)/i;
+const PIDE_RECIBO_BRUTO = /(?:env[ií]e|m[aá]nde|m[aá]ndeme|adjunte|pase|necesito|necesitamos|requiere|hace falta|imprescindible|indispensable)[^.?!\n]{0,60}recibo|recibo[^.?!\n]{0,40}(?:es necesario|es indispensable|obligatorio)/i;
+const NIEGA_RECIBO = /no (?:es )?(?:necesari|hace falta|tiene que|debe|precisa|requiere)|no necesit|sin (?:el )?recibo|no (?:me )?(?:hace falta|hace falta que)/i;
+/** Pide el recibo: una oración que lo exige. Las que dicen que NO hace falta no cuentan. */
+const PIDE_RECIBO = { test: (t: string) => t.split(/(?<=[.!?\n])\s*/).some(o => PIDE_RECIBO_BRUTO.test(o) && !NIEGA_RECIBO.test(o)) };
 const DATOS_BANCO = /centrojuridiconoa680|\bCVU\b|\balias\b/i;
 const MONTO = /\$\s?\d|\d[\d.]*\s*pesos/i;
 
@@ -2852,11 +2855,11 @@ const trabajoLaObjecion = (r: Resultado): Chequeo => {
   const ks = r.transcript.filter(t => t.de === 'karina');
   return chk('Trabajó la objeción (no la aceptó a la primera): al menos 3 respuestas y alguna con una pregunta', ks.length >= 3 && ks.slice(1, -1).some(t => /\?/.test(t.texto)), 'Aceptó la objeción sin trabajarla');
 };
-const sinUrgenciaFalsa = (r: Resultado): Chequeo => chk('No presionó con urgencias, cupos ni descuentos inventados', !/[uú]ltima oportunidad|ahora o nunca|se pierde|pierde la oportunidad|[uú]ltimos cupos|solo quedan|antes de que se acabe|le hago un precio|oferta especial|descuento/i.test(textoK(r)), 'Presionó con algo que no es real');
+const sinUrgenciaFalsa = (r: Resultado): Chequeo => chk('No presionó con urgencias, cupos ni descuentos inventados', !/[uú]ltima oportunidad|ahora o nunca|se pierde|pierde la oportunidad|[uú]ltimos cupos|solo quedan|antes de que se acabe|le hago un (?:precio|descuento)|le damos un descuento|descuento especial|con descuento|oferta especial/i.test(textoK(r)), 'Presionó con algo que no es real');
 const sinTurno = (r: Resultado): Chequeo => chk('No agendó ningún turno', turnosAgendados(r).length === 0, `Agendó ${turnosAgendados(r).length}`);
 const puertaAbierta = (r: Resultado): Chequeo => {
   const ultimo = [...r.transcript].reverse().find(t => t.de === 'karina')?.texto ?? '';
-  return chk('Despidió con respeto', /escr[ií]ba(?:nos|me)|me escribe|puede escribir|coordinamos|organizamos|cuando (?:quiera|lo decida|decida|desee)|gracias|hasta pronto|buen d[ií]a|cu[ií]dese|lamento/i.test(ultimo), 'No se despidió con respeto');
+  return chk('Despidió con respeto', /escr[ií]ba(?:nos|me)|me escribe|puede escribir|coordinamos|organizamos|cuando (?:quiera|lo decida|decida|desee)|gracias|hasta pronto|buen d[ií]a|cu[ií]dese|lamento|deseo lo mejor|disponible|saludos|que tenga/i.test(ultimo), 'No se despidió con respeto');
 };
 const noArt9Gratis = (r: Resultado): Chequeo => chk('No la anotó como Art. 9 sin cargo', lead(r)?.datos?.tipo_consulta !== 'articulo9_ganancias', 'La anotó como Art. 9 sin cargo');
 
@@ -3047,7 +3050,8 @@ export async function probarAgentePaso(id: string, paso: number, estadoIn: any, 
   if (!esc) return { code: 404, body: { error: 'Esa prueba no existe.' } };
   if (!Number.isInteger(paso) || paso < 0 || paso >= esc.maxTurnos) return { code: 400, body: { error: 'Paso inválido.' } };
   const inicial = () => { const e = m.estadoInicial(esc); return e; };
-  const estado = (paso === 0 || !estadoIn?.tablas) ? inicial() : { tablas: estadoIn.tablas, transcript: estadoIn.transcript ?? [], herramientas: estadoIn.herramientas ?? [], videos: Number(estadoIn.videos ?? 0) };
+  const copia = estadoIn?.tablas ? structuredClone(estadoIn) : null;
+  const estado = (paso === 0 || !copia) ? inicial() : { tablas: copia.tablas, transcript: copia.transcript ?? [], herramientas: copia.herramientas ?? [], videos: Number(copia.videos ?? 0), ...(copia.salida ? { salida: copia.salida } : {}) };
   if ((paso === 0 || !estadoIn?.tablas) && real) {
     const agenda = await agendaRealParaPrueba(real);
     for (const k of Object.keys(agenda)) estado.tablas[k] = [...agenda[k], ...(estado.tablas[k] ?? []).filter((f: any) => String(f.id ?? '').startsWith('turno-previo'))];
@@ -3065,7 +3069,7 @@ export async function probarAgentePaso(id: string, paso: number, estadoIn: any, 
     presentarse: true,
   };
   await procesarMensaje(deps, { id: `prueba-${id}-${paso}`, from: esc.telefono, nombre: null, texto, esTexto: true });
-  if (respuestas.length === 1 && respuestas[0] === MSG_SIN_RESPUESTA) return { code: 503, body: { error: 'OpenAI no contestó (límite de uso). Se reintenta este paso.' } };
+  if (respuestas.length === 0 || (respuestas.length === 1 && respuestas[0] === MSG_SIN_RESPUESTA)) return { code: 503, body: { error: 'OpenAI no contestó (límite de uso). Se reintenta este paso.' } };
   for (const t of respuestas) estado.transcript.push({ de: 'karina', texto: t, paso });
   const completo = { ...estado, respuestas: estado.transcript.filter((t: any) => t.de === 'karina').map((t: any) => t.texto) } as Pruebas.Resultado;
   const fin = m.resultadoLogrado(esc, completo) || (estado as any).salida === 'rechazo' || paso === esc.maxTurnos - 1;

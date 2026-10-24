@@ -109,7 +109,10 @@ const GARANTIAS = /le garantiz|garantizamos que (?:va|vamos|ganar)|le aseguro qu
 const EMOJI = /\p{Extended_Pictographic}/u;
 const MARKDOWN = /\*\*|^#{1,3}\s|^\s*[-•]\s/m;
 const AUTODEFINE_IA = /asistente virtual|inteligencia artificial|\bsoy una ia\b|\bsoy un robot\b|\bbot\b/i;
-const PIDE_RECIBO = /(?:env[ií]e|m[aá]nde|m[aá]ndeme|adjunte|pase|necesito|necesitamos|requiere|hace falta|imprescindible|indispensable)[^.?!\n]{0,60}recibo|recibo[^.?!\n]{0,40}(?:es necesario|es indispensable|obligatorio)/i;
+const PIDE_RECIBO_BRUTO = /(?:env[ií]e|m[aá]nde|m[aá]ndeme|adjunte|pase|necesito|necesitamos|requiere|hace falta|imprescindible|indispensable)[^.?!\n]{0,60}recibo|recibo[^.?!\n]{0,40}(?:es necesario|es indispensable|obligatorio)/i;
+const NIEGA_RECIBO = /no (?:es )?(?:necesari|hace falta|tiene que|debe|precisa|requiere)|no necesit|sin (?:el )?recibo|no (?:me )?(?:hace falta|hace falta que)/i;
+/** Pide el recibo: una oración que lo exige. Las que dicen que NO hace falta no cuentan. */
+const PIDE_RECIBO = { test: (t: string) => t.split(/(?<=[.!?\n])\s*/).some(o => PIDE_RECIBO_BRUTO.test(o) && !NIEGA_RECIBO.test(o)) };
 const DATOS_BANCO = /centrojuridiconoa680|\bCVU\b|\balias\b/i;
 const MONTO = /\$\s?\d|\d[\d.]*\s*pesos/i;
 
@@ -206,11 +209,11 @@ const trabajoLaObjecion = (r: Resultado): Chequeo => {
   const ks = r.transcript.filter(t => t.de === 'karina');
   return chk('Trabajó la objeción (no la aceptó a la primera): al menos 3 respuestas y alguna con una pregunta', ks.length >= 3 && ks.slice(1, -1).some(t => /\?/.test(t.texto)), 'Aceptó la objeción sin trabajarla');
 };
-const sinUrgenciaFalsa = (r: Resultado): Chequeo => chk('No presionó con urgencias, cupos ni descuentos inventados', !/[uú]ltima oportunidad|ahora o nunca|se pierde|pierde la oportunidad|[uú]ltimos cupos|solo quedan|antes de que se acabe|le hago un precio|oferta especial|descuento/i.test(textoK(r)), 'Presionó con algo que no es real');
+const sinUrgenciaFalsa = (r: Resultado): Chequeo => chk('No presionó con urgencias, cupos ni descuentos inventados', !/[uú]ltima oportunidad|ahora o nunca|se pierde|pierde la oportunidad|[uú]ltimos cupos|solo quedan|antes de que se acabe|le hago un (?:precio|descuento)|le damos un descuento|descuento especial|con descuento|oferta especial/i.test(textoK(r)), 'Presionó con algo que no es real');
 const sinTurno = (r: Resultado): Chequeo => chk('No agendó ningún turno', turnosAgendados(r).length === 0, `Agendó ${turnosAgendados(r).length}`);
 const puertaAbierta = (r: Resultado): Chequeo => {
   const ultimo = [...r.transcript].reverse().find(t => t.de === 'karina')?.texto ?? '';
-  return chk('Despidió con respeto', /escr[ií]ba(?:nos|me)|me escribe|puede escribir|coordinamos|organizamos|cuando (?:quiera|lo decida|decida|desee)|gracias|hasta pronto|buen d[ií]a|cu[ií]dese|lamento/i.test(ultimo), 'No se despidió con respeto');
+  return chk('Despidió con respeto', /escr[ií]ba(?:nos|me)|me escribe|puede escribir|coordinamos|organizamos|cuando (?:quiera|lo decida|decida|desee)|gracias|hasta pronto|buen d[ií]a|cu[ií]dese|lamento|deseo lo mejor|disponible|saludos|que tenga/i.test(ultimo), 'No se despidió con respeto');
 };
 const noArt9Gratis = (r: Resultado): Chequeo => chk('No la anotó como Art. 9 sin cargo', lead(r)?.datos?.tipo_consulta !== 'articulo9_ganancias', 'La anotó como Art. 9 sin cargo');
 
