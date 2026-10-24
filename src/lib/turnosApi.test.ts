@@ -2670,12 +2670,12 @@ describe('agente · nuevo flujo (Art. 9 sin recibo, jubilación con video y valo
 describe('pruebas del agente · mecánica de la pantalla', () => {
   const llmFijo = (t: string) => async () => ({ stop_reason: 'end_turn', content: [{ type: 'text', text: t }] } as any);
 
-  it('hay 20 conversaciones distintas, con ids únicos y teléfonos únicos', async () => {
+  it('hay 40 conversaciones distintas, con ids únicos y teléfonos únicos', async () => {
     const { ESCENARIOS } = await import('../server/agentePruebas');
-    expect(ESCENARIOS).toHaveLength(20);
-    expect(new Set(ESCENARIOS.map(e => e.id)).size).toBe(20);
-    expect(new Set(ESCENARIOS.map(e => e.telefono)).size).toBe(20);
-    expect(new Set(ESCENARIOS.map(e => e.pasos.map(p => typeof p === 'string' ? p : 'dinamico').join('|'))).size).toBe(20);
+    expect(ESCENARIOS).toHaveLength(40);
+    expect(new Set(ESCENARIOS.map(e => e.id)).size).toBe(40);
+    expect(new Set(ESCENARIOS.map(e => e.telefono)).size).toBe(40);
+    expect(new Set(ESCENARIOS.map(e => e.pasos.map(p => typeof p === 'string' ? p : 'dinamico').join('|'))).size).toBe(40);
   });
 
   it('corre un mensaje por vez sobre una base en memoria y evalúa al final', async () => {
@@ -2798,7 +2798,7 @@ describe('pruebas del agente · recorridos completos con un agente que sigue las
     expect(b.ok).toBe(true);
   });
 
-  it('las 20 pruebas corren de punta a punta en la base de prueba sin romperse (el agente de este test solo saluda)', async () => {
+  it('las 40 pruebas corren de punta a punta en la base de prueba sin romperse (el agente de este test solo saluda)', async () => {
     const { ESCENARIOS } = await import('../server/agentePruebas');
     for (const e of ESCENARIOS) {
       let estado: any; let b: any;

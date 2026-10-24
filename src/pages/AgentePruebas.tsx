@@ -80,7 +80,7 @@ export default function AgentePruebas() {
       <div className="mt-5 flex flex-wrap items-center gap-3">
         <button type="button" disabled={corriendoTodas} onClick={() => correrLista(ESCENARIOS.map(e => e.id))} style={{ minHeight: 40 }}
           className="inline-flex items-center gap-2 rounded-xl bg-emerald-500 px-4 text-sm font-semibold text-black transition hover:bg-emerald-400 disabled:opacity-50">
-          {corriendoTodas ? <Loader2 className="size-4 animate-spin" /> : <Play className="size-4" />} Correr las 20
+          {corriendoTodas ? <Loader2 className="size-4 animate-spin" /> : <Play className="size-4" />} Correr las {ESCENARIOS.length}
         </button>
         <button type="button" disabled={corriendoTodas || cuentas.fallaron === 0} onClick={() => correrLista(ESCENARIOS.filter(e => ['fallo', 'error'].includes(corridas[e.id].estado)).map(e => e.id))} style={{ minHeight: 40 }}
           className="inline-flex items-center gap-2 rounded-xl border border-white/15 px-4 text-sm text-gray-200 transition hover:bg-white/5 disabled:opacity-40">
