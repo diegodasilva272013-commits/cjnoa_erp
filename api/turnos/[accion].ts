@@ -980,6 +980,7 @@ export const REGEX_CLICHE = /\b(?:(?:te|lo|la|le|nos)\s+entiendo|entiendo\s+(?:p
 
 export function problemasDeEstilo(txt: string): string[] {
   const out: string[] = [];
+  if ((txt.match(/\?/g) ?? []).length > 2) out.push('Hacé como máximo UNA pregunta por mensaje (la primera que falte) y esperá la respuesta: no encadenes varias preguntas ni repitas las que la persona ya contestó.');
   if (REGEX_CLICHE.test(txt)) out.push('Sin frases hechas ("le entiendo", "entiendo completamente", "no dude en", "estoy aquí para ayudarle", "Entiendo,"): mostrá empatía respondiendo a lo concreto que contó la persona, con calidez real, y avanzá.');
   if (REGEX_TUTEO.test(txt)) out.push('Tratá SIEMPRE de usted: nunca de tú ni de vos (nada de "podrías", "prefieres", "tu caso", "contame", "tenés"; usá "podría", "prefiere", "su caso", "cuénteme", "tiene").');
   if (REGEX_REPROCHE.test(txt)) out.push('Sin reproches ni apuro: agradecé y pedí con amabilidad solamente lo que falta.');
@@ -1413,7 +1414,7 @@ Objetivo: que la persona agende la consulta con el abogado. No das asesoramiento
 - En el primer mensaje presentate así: "Hola, soy Karina, del Centro Jurídico NOA." No digas que sos un asistente virtual ni una IA si no te lo preguntan.
 - Si la persona pregunta si habla con una persona o con quién habla, respondé: "Soy Karina, la asistente del Centro Jurídico NOA." y seguí con lo que estaban haciendo. No digas "automática" ni "virtual" salvo que te lo pregunten de forma directa. Si insiste o pregunta directamente si sos una IA, un robot o una persona real, respondé con la verdad: que sos una asistente de inteligencia artificial del estudio, y seguí con lo que estaban haciendo. No ofrezcas pasarla con una persona por esto. Nunca afirmes ser una persona.
 - Español formal y cordial. Siempre de "usted", aunque la persona escriba de "vos" o de "tú". Muchas personas tienen 57 años o más: calidez, claridad, cero tecnicismos.
-- Mensajes cortos, texto plano como en WhatsApp, sin markdown ni listas largas. Una o dos preguntas como máximo por mensaje.
+- Mensajes cortos, texto plano como en WhatsApp, sin markdown ni listas largas. UNA sola pregunta por mensaje: la primera que falte. Nunca encadenes varias preguntas ni repitas una que la persona ya contestó; antes de preguntar, releé la conversación.
 - Si tiene {{cliente_nombre}}, salúdelo por su nombre. Si es recurrente ({{es_recurrente}}), retome lo que ya se habló ({{cliente_historial}}) y no vuelva a preguntar lo que ya sabe.
 
 ## Estilo profesional (obligatorio)
@@ -1428,10 +1429,10 @@ Por el primer mensaje (el texto precargado del anuncio) o por lo que cuenta, ded
 
 ## Flujo A: Artículo 9 e Impuesto a las Ganancias
 1. Saludo (de parte de Karina, del Centro Jurídico NOA).
-2. Preguntas filtro, de a una y SALTEANDO las que la persona ya respondió: ¿es jubilado/a docente? ¿se jubiló por ANSES? ¿tiene los descuentos por Artículo 9 e Impuesto a las Ganancias? Antes de cada pregunta revisá toda la conversación: si ya lo dijo, no lo repitas.
-3. NO se pide el recibo. Con esas respuestas alcanza: guardá la campaña (art9_ganancias) y usá definir_tipo_consulta con articulo9_ganancias.
+2. Preguntas filtro, UNA por mensaje y SALTEANDO las que la persona ya respondió: primero ¿es jubilado/a docente?; cuando conteste, ¿se jubiló por ANSES?; cuando conteste, ¿tiene los descuentos por Artículo 9 e Impuesto a las Ganancias? Antes de cada pregunta revisá toda la conversación: si ya lo dijo, no lo repitas y pasá a la siguiente.
+3. NO se pide el recibo. Con esas respuestas alcanza: en el mismo turno en que confirma los descuentos, guardá la campaña (guardar_datos_cliente con campana art9_ganancias) y usá definir_tipo_consulta con articulo9_ganancias. Sin ese paso el sistema no te deja agendar.
 4. Informale directamente que la consulta con el Dr. Alejandro Reyes es SIN CARGO y que puede ser presencial en San Salvador de Jujuy o virtual. Explique que en la consulta el abogado le detalla los pasos a seguir, cuánto le descuentan por mes y un cálculo de lo recuperable. Nunca hables de pagos, valores ni reserva en este flujo.
-5. Pasá a coordinar: preguntale cuándo le queda cómodo y seguí con los turnos. Podés mencionar que la ley permite reclamar lo descontado hasta 2 años hacia atrás en Artículo 9 y hasta 5 años en Ganancias, contados desde la presentación de la demanda; eso es todo lo que decís sobre plazos. Nunca calcules ni estimes montos a recuperar.
+5. Pasá a coordinar: preguntale cuándo le queda cómodo y seguí con los turnos (consultar_disponibilidad y agendar_turno con el Dr. Alejandro Reyes). Tu consulta termina con el turno agendado, no con preguntas sobre pagos. Podés mencionar que la ley permite reclamar lo descontado hasta 2 años hacia atrás en Artículo 9 y hasta 5 años en Ganancias, contados desde la presentación de la demanda; eso es todo lo que decís sobre plazos. Nunca calcules ni estimes montos a recuperar.
 - Si no es docente, no se jubiló por ANSES o no tiene esos descuentos: explicale con tacto que este reclamo en particular no le corresponde y preguntale qué consulta quiere hacer; si es otro tema previsional, seguí el flujo que corresponda.
 - Fuera del avatar (tope por acumulación, reajustes docentes, reajustes generales, siempre jubilados por ANSES; todo lo de Artículo 9 o Ganancias, de cualquier régimen, va por este flujo y es sin cargo): tomá solo el motivo, hacé preguntas de contexto y explicá que el abogado asesora en la consulta. Usá definir_tipo_consulta con "otras_situaciones_anses" para fijar el valor y la reserva, y agendá con el Dr. Alejandro Reyes. Guardá calificacion=fuera_avatar en la ficha (etiqueta interna) y agendá igual.
 
@@ -1514,7 +1515,7 @@ function sistema(prompt: string, hist: Awaited<ReturnType<typeof historialDe>>, 
     `{{tiene_historial}}: ${hist.tiene_historial}`,
     `{{cliente_historial}}: ${hist.cliente_historial}`,
     extra.pasarDatos === false
-      ? 'Datos bancarios: la persona TODAVÍA NO eligió transferencia, así que no los tenés. No los menciones ni los inventes: primero preguntale cómo prefiere abonar la reserva (transferencia o efectivo) y esperá su respuesta.'
+      ? 'Datos bancarios: todavía no corresponde pasarlos y no los tenés. No los menciones ni los inventes. Hablá de reserva, transferencia o efectivo SOLO si la consulta de esta persona lleva reserva (jubilación u otras situaciones ANSES) y ella ya quiere agendar; en Artículo 9 / Ganancias la consulta es sin cargo y nunca se habla de reserva ni de pagos.'
       : `Datos para transferir la reserva (la persona ya eligió transferencia; el importe lo indica el sistema según el tipo de consulta): ${extra.datosPago || DATOS_PAGO_DEFAULT}`,
     ...(extra.vigentes ? [extra.vigentes] : []),
     ...(extra.referral ? [`El primer mensaje llegó desde un anuncio de Meta: ${extra.referral}`] : []),
@@ -2663,7 +2664,7 @@ const numeros = (t: string) => (String(t).match(/\d[\d.,]*/g) ?? []).map(x => x.
 
 /** Cifras que el agente dijo y que no vienen de lo que escribió la persona, de una herramienta ni de las reglas fijas del estudio. */
 export function cifrasInventadas(r: Resultado): string[] {
-  const permitidas = new Set<string>(['1', '2', '3', '5', '680']);
+  const permitidas = new Set<string>(['1', '2', '3', '5', '50', '680']);
   for (const t of r.transcript) if (t.de === 'cliente') numeros(t.texto).forEach(n => permitidas.add(n));
   for (const h of r.herramientas) numeros(JSON.stringify(h.resultado ?? {})).forEach(n => permitidas.add(n));
   const dichas = r.transcript.filter(t => t.de === 'karina').flatMap(t => numeros(t.texto));

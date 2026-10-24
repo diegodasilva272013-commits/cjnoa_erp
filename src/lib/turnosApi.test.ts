@@ -938,7 +938,7 @@ describe('agente · datos bancarios solo después de elegir transferencia', () =
     });
     await procesarMensaje(d, { ...msg, texto: '55 hombre y sí' });
     expect(sistemas[0]).not.toContain('centrojuridiconoa680');
-    expect(sistemas[0]).toContain('TODAVÍA NO eligió transferencia');
+    expect(sistemas[0]).toContain('todavía no corresponde pasarlos');
     expect(enviados[0]).not.toMatch(/alias|cvu|centrojuridiconoa680/i);
     expect(enviados[0]).toContain('¿Prefiere transferencia o efectivo?');
   });

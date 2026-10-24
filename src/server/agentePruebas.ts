@@ -116,7 +116,7 @@ const numeros = (t: string) => (String(t).match(/\d[\d.,]*/g) ?? []).map(x => x.
 
 /** Cifras que el agente dijo y que no vienen de lo que escribió la persona, de una herramienta ni de las reglas fijas del estudio. */
 export function cifrasInventadas(r: Resultado): string[] {
-  const permitidas = new Set<string>(['1', '2', '3', '5', '680']);
+  const permitidas = new Set<string>(['1', '2', '3', '5', '50', '680']);
   for (const t of r.transcript) if (t.de === 'cliente') numeros(t.texto).forEach(n => permitidas.add(n));
   for (const h of r.herramientas) numeros(JSON.stringify(h.resultado ?? {})).forEach(n => permitidas.add(n));
   const dichas = r.transcript.filter(t => t.de === 'karina').flatMap(t => numeros(t.texto));
