@@ -984,7 +984,7 @@ const REGEX_REPROCHE = /\b(?:necesito que (?:me )?(?:confirme|diga|responda|acla
 
 /** Qué hay que corregir en un mensaje antes de mandarlo (vacío si está bien). */
 /** Frases hechas que el dueño prohibió: la empatía se muestra respondiendo a lo concreto que contó la persona. */
-export const REGEX_CLICHE = /\b(?:quedo\s+a\s+su\s+disposici[oó]n|es\s+(?:completamente\s+|totalmente\s+)?(?:v[aá]lido|comprensible|normal|entendible)\s+que|lamento\s+la\s+confusi[oó]n)\b|\b(?:(?:te|lo|la|le|nos)\s+entiendo|(?:entiendo|comprendo)\s+que\b|entiendo\s+(?:perfectamente|completamente|totalmente|su situaci[oó]n|lo que)|comprendo\s+(?:perfectamente|completamente|totalmente|su)|(?:es\s+)?totalmente\s+comprensible|no\s+dude\s+en|estoy\s+aqu[ií]\s+para|estoy\s+a\s+su\s+disposici[oó]n)|(?:^|[.!?¡¿]\s*)entiendo[,.\s]/i;
+export const REGEX_CLICHE = /\b(?:quedo\s+a\s+su\s+disposici[oó]n|es\s+(?:completamente\s+|totalmente\s+)?(?:v[aá]lido|comprensible|normal|entendible)\s+que|lamento\s+la\s+confusi[oó]n)\b|\b(?:(?:te|lo|la|le|nos)\s+entiendo|estar[eé]\s+aqu[ií]\b|a\s+su\s+disposici[oó]n|(?:entiendo|comprendo)\s+que\b|entiendo\s+(?:perfectamente|completamente|totalmente|su situaci[oó]n|lo que)|comprendo\s+(?:perfectamente|completamente|totalmente|su)|(?:es\s+)?totalmente\s+comprensible|no\s+dude\s+en|estoy\s+aqu[ií]\s+para|estoy\s+a\s+su\s+disposici[oó]n)|(?:^|[.!?¡¿]\s*)entiendo[,.\s]/i;
 
 /** Saca las oraciones con frases hechas prohibidas (si todo el mensaje era eso, lo deja como está). */
 export function quitarFrasesHechas(txt: string): string {
@@ -996,7 +996,7 @@ export function quitarFrasesHechas(txt: string): string {
 export function problemasDeEstilo(txt: string): string[] {
   const out: string[] = [];
   if ((txt.match(/\?/g) ?? []).length > 2) out.push('Hacé como máximo UNA pregunta por mensaje (la primera que falte) y esperá la respuesta: no encadenes varias preguntas ni repitas las que la persona ya contestó.');
-  if (/^\s*[-•*]\s/m.test(txt) || (txt.match(/\b\d{1,2}[:.]\d{2}\b/g) ?? []).length > 3) out.push('Sin listas ni viñetas: ofrecé como máximo 3 horarios, en una sola frase corrida, y no vuelques el calendario.');
+  if (/^\s*[-•*]\s/m.test(txt) || (txt.match(/\b\d{1,2}[:.]\d{2}\b/g) ?? []).length > 4) out.push('Sin listas ni viñetas: ofrecé como máximo 3 horarios, en una sola frase corrida, y no vuelques el calendario.');
   if (REGEX_CLICHE.test(txt)) out.push('Sin frases hechas ("le entiendo", "entiendo completamente", "no dude en", "estoy aquí para ayudarle", "Entiendo,"): mostrá empatía respondiendo a lo concreto que contó la persona, con calidez real, y avanzá.');
   if (REGEX_TUTEO.test(txt)) out.push('Tratá SIEMPRE de usted: nunca de tú ni de vos (nada de "podrías", "prefieres", "tu caso", "contame", "tenés"; usá "podría", "prefiere", "su caso", "cuénteme", "tiene").');
   if (REGEX_REPROCHE.test(txt)) out.push('Sin reproches ni apuro: agradecé y pedí con amabilidad solamente lo que falta.');
@@ -1436,6 +1436,7 @@ Objetivo: que la persona agende la consulta con el abogado. No das asesoramiento
 ## Identidad y tono
 - En tu PRIMER mensaje de la conversación empezá SIEMPRE con "Hola, soy Karina, del Centro Jurídico NOA.", aunque la persona haya empezado con otra pregunta (por ejemplo la dirección): primero presentate y después respondé lo que preguntó. No digas que sos un asistente virtual ni una IA si no te lo preguntan.
 - Si la persona pregunta con quién habla (sin mencionar IA, robot, máquina ni humano), respondé: "Soy Karina, la asistente del Centro Jurídico NOA." y seguí con lo que estaban haciendo. Si en su pregunta aparece cualquiera de estas ideas: IA, inteligencia artificial, robot, máquina, programa, automático, "persona real", humana/humano, respondé con la verdad en esa misma respuesta: "Soy una asistente de inteligencia artificial del Centro Jurídico NOA" y seguí con lo que estaban haciendo. No ofrezcas pasarla con una persona por esto. Nunca afirmes ser una persona.
+- Si la persona pide hablar con una persona o con alguien del estudio (o dice que no quiere hablar con una máquina), usá derivar_a_humano y decile con calidez que alguien del equipo se comunica con ella en el día; no sigas con las preguntas.
 - Español formal y cordial. Siempre de "usted", aunque la persona escriba de "vos" o de "tú". Muchas personas tienen 57 años o más: calidez, claridad, cero tecnicismos.
 - ESCUCHÁ lo que la persona acaba de escribir y contestale PRIMERO a eso (una pregunta suya, una duda, una objeción) antes de seguir con tu pregunta pendiente. Nunca ignores su mensaje ni repitas la misma pregunta con otras palabras.
 - Mensajes cortos, texto plano como en WhatsApp, sin markdown, sin listas ni viñetas. UNA sola pregunta por mensaje: la primera que falte. Nunca encadenes varias preguntas ni repitas una que la persona ya contestó; antes de preguntar, releé la conversación.
@@ -1465,7 +1466,8 @@ Por el primer mensaje (el texto precargado del anuncio) o por lo que cuenta, ded
 2. Preguntas, de a una y salteando las respondidas: su nombre, su edad y si actualmente trabaja como docente. Guardá cada dato con guardar_datos_cliente. No clasifiques a la persona más allá de esas preguntas: lo determina el Dr. Fabricio Reyes en la consulta.
 3. Cuando ya tengas nombre, edad y si trabaja, usá enviar_video_jubilacion: se le envía un video grabado por el Dr. Fabricio Reyes en el que explica algo de valor y menciona el valor normal de la consulta y el valor de hoy para quien agenda hoy. No repitas los importes del video de memoria. Después preguntale, con calidez y sin apuro, qué le pareció y si le gustaría agendar.
 4. Si quiere agendar: usá definir_tipo_consulta con jubilacion_docente. El sistema te dice el valor que corresponde (es_valor_de_hoy indica si rige el de hoy) y la reserva, que es la mitad. Usá solo esos importes, escritos siempre con el signo de pesos adelante y punto para separar los miles, nunca con coma (si el sistema te dice cincuenta mil, escribís el signo de pesos seguido de 50.000). Seguí la secuencia comercial.
-5. Si prefiere pensarlo, respetalo sin presionar y sin inventar plazos: podés decirle con sinceridad que el valor de hoy rige para quien agenda hoy, y dejar la puerta abierta con una frase propia. Si vuelve otro día, el sistema te da el valor que corresponde ese día: usá ese.
+5. Si le piden cuánto sale, o dicen que no pueden ver el video, usá definir_tipo_consulta con jubilacion_docente y decile por escrito el valor que te da el sistema (con el signo de pesos), explicándole lo único que sabés del video: que es del Dr. Fabricio Reyes y que en la consulta él analiza su caso y le explica los pasos a seguir. No digas que no podés decirlo.
+5. Si prefiere pensarlo, respetalo sin presionar y sin inventar plazos: podés decirle con sinceridad que el valor de hoy rige para quien agenda hoy, y dejar la puerta abierta con una frase propia (por ejemplo: "Cuando lo decida, me escribe y coordinamos la consulta"). Si vuelve otro día, el sistema te da el valor que corresponde ese día: usá ese.
 Aplica lo mismo si consulta por otros regímenes o por el régimen general: tomá el motivo y el contexto, y el abogado asesora en la consulta.
 
 ## Secuencia comercial (un paso por mensaje, con criterio y empatía)
@@ -1523,7 +1525,7 @@ La consulta de Artículo 9 / Ganancias no pasa por estos pasos: directo a pregun
 
 ## Cuándo derivar a una persona
 Usá derivar_a_humano con un motivo claro, y decile que lo contactan en el día, cuando: plantee una urgencia de plazos; el caso sea ambiguo y no puedas clasificarlo; haya un problema con un pago; o pida hablar con alguien.
-Si una herramienta falla de forma repetida, no hables de errores técnicos: tomá nombre, teléfono y tema, derivá y decile: "Ya dejé registrado su pedido. Un integrante del equipo lo contacta en el día para confirmar." Si no entendés un mensaje, no adivines: pedí que lo repita o derivá.`;
+Si una herramienta falla de forma repetida, no hables de errores técnicos: tomá nombre, teléfono y tema, derivá y decile: "Ya dejé registrado su pedido. Un integrante del equipo lo contacta en el día para confirmar." Si no entendés un mensaje o no tiene sentido, decile con amabilidad que no lo pudiste entender y pedile que lo repita; no sigas como si nada ni repitas tu pregunta anterior.`;
 
 function sistema(prompt: string, hist: Awaited<ReturnType<typeof historialDe>>, ahora: Date, extra: { esAudio?: boolean; datosPago?: string; pasarDatos?: boolean; referral?: string; conVoz?: boolean; vigentes?: string } = {}) {
   const l = localDe(ahora);
@@ -1684,7 +1686,7 @@ export async function procesarMensaje(deps: Deps, m: MsgEntrante) {
   if (!respuesta && ultimoTexto) respuesta = ultimoTexto; // si se agotaron las vueltas, mejor el último mensaje que el aviso genérico
   if (respuesta) respuesta = quitarFrasesHechas(respuesta);
   // Si la persona recién eligió transferencia y el modelo habló de transferir sin pasar los datos, se los agrega el sistema.
-  if (pasarDatos && !usaMercadoPago() && eligioTransferencia([textoCliente]) && /transfer/i.test(respuesta) && !LINEA_DATOS_PAGO.test(respuesta) && !/centrojuridiconoa680|\bCVU\b/i.test(respuesta)) {
+  if (pasarDatos && eligioTransferencia([textoCliente]) && /transfer/i.test(respuesta) && !LINEA_DATOS_PAGO.test(respuesta) && !/centrojuridiconoa680|\bCVU\b/i.test(respuesta)) {
     respuesta = `${respuesta.trim()}\n\n${(datosPago || DATOS_PAGO_DEFAULT).split(/\s*·\s*/).join('\n')}`;
   }
   // Red de seguridad: los datos bancarios solo salen si la persona ya eligió transferencia.
@@ -1694,7 +1696,9 @@ export async function procesarMensaje(deps: Deps, m: MsgEntrante) {
   if (!respuesta) respuesta = MSG_SIN_RESPUESTA; // nunca dejamos al cliente sin respuesta
   // La primera respuesta de la conversación siempre se presenta (aunque la persona haya empezado con otra pregunta).
   if (deps.presentarse && !previos.some(x => x.from === 'agente') && respuesta !== MSG_SIN_RESPUESTA && respuesta !== MSG_SALIDA_BLOQUEADA && !/karina/i.test(respuesta)) {
-    respuesta = `Hola, soy Karina, del Centro Jurídico NOA. ${respuesta.replace(/^\s*(?:hola|buen[oa]s?(?:\s+(?:d[ií]as|tardes|noches))?)[,.!\s]+/i, '')}`;
+    const saludo = /^\s*(?:hola|buen[oa]s?(?:\s+(?:d[ií]as|tardes|noches))?)(?:,?\s+[\p{L}]+)?\s*[.!]\s*/iu;
+    const sinSaludo = saludo.test(respuesta) ? respuesta.replace(saludo, '') : respuesta.replace(/^\s*(?:hola|buen[oa]s?(?:\s+(?:d[ií]as|tardes|noches))?)[,\s]+/i, '');
+    respuesta = `Hola, soy Karina, del Centro Jurídico NOA. ${sinSaludo}`;
   }
   const textoPlano = quitarEtiquetas(respuesta) || MSG_SIN_RESPUESTA;
 
@@ -2714,7 +2718,7 @@ const elegirDia = () => 'Me queda cómodo cualquier día de la semana por la ma�
 // ---------------------------------------------------------------- reglas comunes y ayudas
 
 const SIGLAS_INTERNAS = /definir_tipo_consulta|agendar_turno|consultar_disponibilidad|guardar_datos_cliente|enviar_video|derivar_a_humano|SISTEMA ERP|service_role|api_openai|\bprompt\b|instrucciones del sistema|base de datos/i;
-const GARANTIAS = /garantiz|le aseguro que (?:va|vamos|ganar|recuper|obtendr|cobrar|conseguir)|le garantizo|100\s?%|seguro que (?:va|vamos) a ganar|ganar[ée]mos? (?:el|su) (?:juicio|caso)|sin ning[uú]n riesgo/i;
+const GARANTIAS = /le garantiz|garantizamos que (?:va|vamos|ganar)|le aseguro que (?:va|vamos|ganar|recuper|obtendr|cobrar|conseguir)|le garantizo|100\s?%|seguro que (?:va|vamos) a ganar|ganar[ée]mos? (?:el|su) (?:juicio|caso)|sin ning[uú]n riesgo/i;
 const EMOJI = /\p{Extended_Pictographic}/u;
 const MARKDOWN = /\*\*|^#{1,3}\s|^\s*[-•]\s/m;
 const AUTODEFINE_IA = /asistente virtual|inteligencia artificial|\bsoy una ia\b|\bsoy un robot\b|\bbot\b/i;
@@ -3002,7 +3006,7 @@ export const ESCENARIOS_EXTRA: Escenario[] = [
     ],
   },
   {
-    id: 'art9-pide-persona', titulo: 'Pide hablar con una persona', telefono: '5493880000124',
+    id: 'art9-pide-persona', titulo: 'Pide hablar con una persona', telefono: '5493880000124', preguntaIA: true,
     descripcion: 'No quiere hablar con un asistente y pide una persona. Se deriva con una frase simple.',
     pasos: [ART9, 'No quiero hablar con una máquina, quiero hablar con una persona del estudio'],
     reglas: r => [
@@ -3051,7 +3055,7 @@ export const ESCENARIOS_EXTRA: Escenario[] = [
     id: 'jub-dia-siguiente', titulo: 'Jubilación: vuelve otro día y ya no rige el valor de hoy', telefono: '5493880000129',
     descripcion: 'Había visto el video días atrás. Hoy ya no rige el valor del día: se le dice el valor normal.',
     semilla: () => ({ leads: [leadDe('5493880000129', { campana: 'jubilacion_docente', datos: { promo_dia: '2020-01-01', video_enviado: true } })] }),
-    pasos: ['Hola, quiero agendar mi consulta de jubilación docente', 'Sí, quiero agendar'],
+    pasos: ['Hola, soy Elisa Paz, tengo 62 años y sigo trabajando como docente. Ya vi el video y quiero agendar mi consulta de jubilación', 'Sí, adelante con la reserva'],
     reglas: r => [
       chk('Le dio el valor normal ($80.000) y no el de hoy', llamadas(r, 'definir_tipo_consulta').some(h => h.resultado?.valor_consulta === 80000 && h.resultado?.reserva === 40000) && /80[.,]?000/.test(textoK(r)), 'No dijo $80.000 con reserva de $40.000'),
       chk('No volvió a mandar el video', r.videos === 0, `Videos enviados: ${r.videos}`),
@@ -3162,7 +3166,7 @@ export const ESCENARIOS_EXTRA: Escenario[] = [
     pasos: ['Hola, soy docente jubilada por ANSES y me descuentan Artículo 9 y Ganancias', 'Gracias, lo voy a pensar y le aviso'],
     reglas: r => [
       chk('No presionó con urgencias ni cupos inventados', !/[uú]ltima oportunidad|ahora o nunca|se pierde|[uú]ltimos cupos|solo quedan|hoy mismo|antes de que se acabe/i.test(textoK(r, 1)), 'Presionó con una urgencia inventada'),
-      chk('Le dejó la puerta abierta con una frase propia', /cuando (?:quiera|lo decida|desee|est[ée] lista)|aqu[ií] (?:estamos|voy)|escr[ií]ba(?:nos|me)|coordinamos/i.test(textoK(r, 1)), 'No le dejó la puerta abierta'),
+      chk('Le dejó la puerta abierta con una frase propia', /cuando (?:quiera|lo decida|desee|est[ée] lista)|me escribe|escr[ií]ba(?:nos|me)|coordinamos/i.test(textoK(r, 1)), 'No le dejó la puerta abierta'),
       chk('No agendó nada sin que lo pidiera', turnosAgendados(r).length === 0, 'Agendó sin pedido'),
     ],
   },

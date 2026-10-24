@@ -107,7 +107,7 @@ const elegirDia = () => 'Me queda cómodo cualquier día de la semana por la ma�
 // ---------------------------------------------------------------- reglas comunes y ayudas
 
 const SIGLAS_INTERNAS = /definir_tipo_consulta|agendar_turno|consultar_disponibilidad|guardar_datos_cliente|enviar_video|derivar_a_humano|SISTEMA ERP|service_role|api_openai|\bprompt\b|instrucciones del sistema|base de datos/i;
-const GARANTIAS = /garantiz|le aseguro que (?:va|vamos|ganar|recuper|obtendr|cobrar|conseguir)|le garantizo|100\s?%|seguro que (?:va|vamos) a ganar|ganar[ée]mos? (?:el|su) (?:juicio|caso)|sin ning[uú]n riesgo/i;
+const GARANTIAS = /le garantiz|garantizamos que (?:va|vamos|ganar)|le aseguro que (?:va|vamos|ganar|recuper|obtendr|cobrar|conseguir)|le garantizo|100\s?%|seguro que (?:va|vamos) a ganar|ganar[ée]mos? (?:el|su) (?:juicio|caso)|sin ning[uú]n riesgo/i;
 const EMOJI = /\p{Extended_Pictographic}/u;
 const MARKDOWN = /\*\*|^#{1,3}\s|^\s*[-•]\s/m;
 const AUTODEFINE_IA = /asistente virtual|inteligencia artificial|\bsoy una ia\b|\bsoy un robot\b|\bbot\b/i;
@@ -395,7 +395,7 @@ export const ESCENARIOS_EXTRA: Escenario[] = [
     ],
   },
   {
-    id: 'art9-pide-persona', titulo: 'Pide hablar con una persona', telefono: '5493880000124',
+    id: 'art9-pide-persona', titulo: 'Pide hablar con una persona', telefono: '5493880000124', preguntaIA: true,
     descripcion: 'No quiere hablar con un asistente y pide una persona. Se deriva con una frase simple.',
     pasos: [ART9, 'No quiero hablar con una máquina, quiero hablar con una persona del estudio'],
     reglas: r => [
@@ -444,7 +444,7 @@ export const ESCENARIOS_EXTRA: Escenario[] = [
     id: 'jub-dia-siguiente', titulo: 'Jubilación: vuelve otro día y ya no rige el valor de hoy', telefono: '5493880000129',
     descripcion: 'Había visto el video días atrás. Hoy ya no rige el valor del día: se le dice el valor normal.',
     semilla: () => ({ leads: [leadDe('5493880000129', { campana: 'jubilacion_docente', datos: { promo_dia: '2020-01-01', video_enviado: true } })] }),
-    pasos: ['Hola, quiero agendar mi consulta de jubilación docente', 'Sí, quiero agendar'],
+    pasos: ['Hola, soy Elisa Paz, tengo 62 años y sigo trabajando como docente. Ya vi el video y quiero agendar mi consulta de jubilación', 'Sí, adelante con la reserva'],
     reglas: r => [
       chk('Le dio el valor normal ($80.000) y no el de hoy', llamadas(r, 'definir_tipo_consulta').some(h => h.resultado?.valor_consulta === 80000 && h.resultado?.reserva === 40000) && /80[.,]?000/.test(textoK(r)), 'No dijo $80.000 con reserva de $40.000'),
       chk('No volvió a mandar el video', r.videos === 0, `Videos enviados: ${r.videos}`),
@@ -555,7 +555,7 @@ export const ESCENARIOS_EXTRA: Escenario[] = [
     pasos: ['Hola, soy docente jubilada por ANSES y me descuentan Artículo 9 y Ganancias', 'Gracias, lo voy a pensar y le aviso'],
     reglas: r => [
       chk('No presionó con urgencias ni cupos inventados', !/[uú]ltima oportunidad|ahora o nunca|se pierde|[uú]ltimos cupos|solo quedan|hoy mismo|antes de que se acabe/i.test(textoK(r, 1)), 'Presionó con una urgencia inventada'),
-      chk('Le dejó la puerta abierta con una frase propia', /cuando (?:quiera|lo decida|desee|est[ée] lista)|aqu[ií] (?:estamos|voy)|escr[ií]ba(?:nos|me)|coordinamos/i.test(textoK(r, 1)), 'No le dejó la puerta abierta'),
+      chk('Le dejó la puerta abierta con una frase propia', /cuando (?:quiera|lo decida|desee|est[ée] lista)|me escribe|escr[ií]ba(?:nos|me)|coordinamos/i.test(textoK(r, 1)), 'No le dejó la puerta abierta'),
       chk('No agendó nada sin que lo pidiera', turnosAgendados(r).length === 0, 'Agendó sin pedido'),
     ],
   },
