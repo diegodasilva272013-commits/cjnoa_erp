@@ -3,7 +3,7 @@ import { createHmac } from 'node:crypto';
 import handler, {
   clasificarRecibo, TIPOS_CONSULTA, promesaSinCumplir, separarDatosPago, mensajeApurado,
   aMin, limpiarSecreto, camposDeLead, etapaAutomatica, fusionarLead, registrarMensaje, upsertLead, firmaMetaValida, firmaKapsoValida, extraerMensajesKapso, extraerMensajes, aMensajesLLM, procesarMensaje, filaDePersona, esConversacionDeNoa, clasificarMensajeCliente, categoriaMensajeAgente, personaMetrica, agregarMetricasAgente, calcularMetricasAgente, evaluarOptimizaciones, validarOptimizaciones, ejecutarOptimizacion, type MetricasAgente, motivoDeExclusion, resumenEnPalabras, ejecutarAnalista, revisarAnalisisAutomatico, codigosDeEstilo, etapaEmbudo, analizarConversacion, calcularMetricas, mascararDatos, textoParaEtiquetar, validarEtiquetas, promptDelAgente, limpiarCachePrompt, accionAgentes, problemasDeEstilo, textoNoLegible, firmaMercadoPagoValida, importeTexto, importeLindo, asignarImporteUnico, procesarPagoMP, montoMercadoPago, modalidadElegida, enmascarar, neutralizarMarcas, salidaInsegura, superaLimite, urlMediaSegura, resumenTurnosVigentes, HERRAMIENTAS_LLM, cuerpoNotaDeVoz, eligioTransferencia, notaDeImagen, montoValidadoDe, quitarEtiquetas, aMensajesOpenAI, deOpenAI, ejecutarHerramienta, PROMPT_AGENTE, type Deps, telefonoClave, historialDe, inferirNombre, normalizarFecha, normalizarHora, bloquesDelDia, huecosLibres, localDe, resolverProfesional, diaSemanaISO, fechaValida,
-  registrarSinResponder, registrarUso, fijarDbUso, costoUsd, esDudaOObjecion, esRechazoFirme, horasEnTexto, quitarFrasesHechas, REGEX_CLICHE, condicionesArt9Confirmadas, campanaDelTexto, probarAgentePaso, chatAgentePaso, condicionDeAgenda, registrarMensajeHumano, extraerHumanosKapso, responderDesdeErp, resumenCampana, analizarCampana, analisisSoloConCifrasReales,
+  registrarSinResponder, registrarUso, fijarDbUso, costoUsd, esDudaOObjecion, esRechazoFirme, horasEnTexto, quitarFrasesHechas, REGEX_CLICHE, condicionesArt9Confirmadas, campanaDelTexto, probarAgentePaso, chatAgentePaso, preguntasAfirmadas, condicionDeAgenda, registrarMensajeHumano, extraerHumanosKapso, responderDesdeErp, resumenCampana, analizarCampana, analisisSoloConCifrasReales,
   type Bloque,
 } from '../../api/turnos/[accion]';
 
@@ -244,7 +244,7 @@ describe('respaldo · procesarMensaje', () => {
       ejecutar: async (nombre, input, ctx) => { llamadas.push({ nombre, input, ctx }); return { horarios_disponibles: ['09:00'] }; },
     });
     await procesarMensaje(d, msg);
-    expect(llamadas).toEqual([{ nombre: 'consultar_disponibilidad', input: { profesional: 'alejandro' }, ctx: { textosCliente: ['Hola, quiero un turno'], telefono: '5493884867965', conversationId: 'respaldo-5493884867965', montoValidado: null, pasarDatos: false, modalidad: null } }]);
+    expect(llamadas).toEqual([{ nombre: 'consultar_disponibilidad', input: { profesional: 'alejandro' }, ctx: { textosCliente: ['Hola, quiero un turno'], textosAfirmados: [], telefono: '5493884867965', conversationId: 'respaldo-5493884867965', montoValidado: null, pasarDatos: false, modalidad: null } }]);
     expect(enviados).toEqual(['Tengo lugar el martes 09:00']);
   });
 
@@ -2979,5 +2979,27 @@ describe('chat de prueba a mano desde el ERP', () => {
     const r = await chatAgentePaso('   ', undefined, (async () => { llamadas++; return {} as any; }) as any);
     expect(r.code).toBe(400);
     expect(llamadas).toBe(0);
+  });
+});
+
+describe('Articulo 9 · lo que la persona confirma con un "si" cuenta', () => {
+  it('las condiciones se dan por confirmadas cuando contesta "si" a las preguntas del agente', () => {
+    const conv = [
+      { from: 'cliente', texto: 'Por el tema del articulo 9' },
+      { from: 'karina', texto: 'Para poder ayudarle, ¿es usted jubilado/a docente?' },
+      { from: 'cliente', texto: 'Si' },
+      { from: 'karina', texto: 'Gracias. ¿Se jubiló por ANSES?' },
+      { from: 'cliente', texto: 'si' },
+    ];
+    const afirmadas = preguntasAfirmadas(conv, 'si');
+    const antes = condicionesArt9Confirmadas(['Hola', 'Por el tema del articulo 9', 'Si', 'si', 'si']);
+    expect(antes.ok).toBe(false);
+    const ya = condicionesArt9Confirmadas(['Por el tema del articulo 9', 'Si', 'si', ...preguntasAfirmadas([...conv, { from: 'karina', texto: '¿Tiene los descuentos por Artículo 9 e Impuesto a las Ganancias en su recibo?' }], 'si')]);
+    expect(ya.ok).toBe(true);
+    expect(afirmadas).toHaveLength(2);
+  });
+  it('un "no" o una respuesta que no afirma no cuenta', () => {
+    const conv = [{ from: 'karina', texto: '¿Es usted docente jubilado?' }, { from: 'cliente', texto: 'no, soy empleado' }];
+    expect(preguntasAfirmadas(conv)).toEqual([]);
   });
 });

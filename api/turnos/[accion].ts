@@ -769,7 +769,7 @@ export type MsgEntrante = { id: string; from: string; nombre: string | null; tex
 export type MsgGuardado = { from: 'cliente' | 'agente'; texto: string; t?: number | null; wid?: string; at?: number; humano?: string };
 type BloqueLLM = { type: string; [k: string]: any };
 type MsgLLM = { role: 'user' | 'assistant'; content: string | BloqueLLM[] };
-type CtxHerramienta = { textosCliente?: string[]; telefono: string; conversationId: string; montoValidado?: number | null; pagoMpId?: string; pasarDatos?: boolean; modalidad?: 'transferencia' | 'efectivo' | null; enviarVideo?: (to: string) => Promise<void> };
+type CtxHerramienta = { textosCliente?: string[]; textosAfirmados?: string[]; telefono: string; conversationId: string; montoValidado?: number | null; pagoMpId?: string; pasarDatos?: boolean; modalidad?: 'transferencia' | 'efectivo' | null; enviarVideo?: (to: string) => Promise<void> };
 
 /** Meta firma el cuerpo con `X-Hub-Signature-256: sha256=<hex>` usando el App Secret. */
 export function firmaMetaValida(appSecret: string, header: string, raw: string) {
@@ -1110,6 +1110,17 @@ export function resumenTurnosVigentes(ts: TurnoVigente[]): string {
  *  - la persona eligió abonar en efectivo en las oficinas (y ya está definido qué consulta le corresponde).
  * Con reserva pendiente y sin comprobante, NO se agenda.
  */
+/** Preguntas del agente que la persona contestó con un "sí" (o equivalente): "¿Se jubiló por ANSES?" + "si" confirma lo que dice la pregunta. */
+export function preguntasAfirmadas(conv: { from: string; texto: string }[], textoActual = ''): string[] {
+  const afirma = (x: string) => /^\s*(?:s[ií]|sii+|claro|correcto|exacto|as[ií] es|afirmativo|efectivamente|dale|ok|okey|por supuesto|as[ií])\s*[.,!]*\s*(?:(?:,|y)?\s*(?:soy|tengo|me jubil[eé]|lo tengo|as[ií] es|correcto)[^?]{0,60})?[.!]*\s*$/i.test(x);
+  const seq = [...conv, ...(textoActual ? [{ from: 'cliente', texto: textoActual }] : [])];
+  const out: string[] = [];
+  for (let i = 1; i < seq.length; i++) {
+    if (seq[i].from === 'cliente' && seq[i - 1].from !== 'cliente' && seq[i - 1].texto.includes('?') && afirma(seq[i].texto)) out.push(seq[i - 1].texto);
+  }
+  return out;
+}
+
 /** ¿Lo que escribió la persona confirma que reúne las condiciones de Artículo 9 / Ganancias (docente, jubilada por ANSES, con descuentos)? */
 export function condicionesArt9Confirmadas(textos: string[]): { ok: boolean; falta: string[] } {
   const t = textos.join(' \n ').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
@@ -1393,7 +1404,7 @@ export async function ejecutarHerramienta(db: Db, nombre: string, input: any, ct
       let campana = '';
       try { const r = await db.from('leads').select('campana').eq('telefono_clave', telefonoClave(ctx.telefono)).maybeSingle(); campana = String((r.data as any)?.campana ?? ''); } catch (e) { console.error('[agente] campaña', e); }
       if (campana !== 'art9_ganancias') return { error: 'Primero guardá la campaña (art9_ganancias) con guardar_datos_cliente, una vez que la persona confirmó que consulta por Artículo 9 / Ganancias.' };
-      const cond = condicionesArt9Confirmadas(ctx.textosCliente ?? []);
+      const cond = condicionesArt9Confirmadas([...(ctx.textosCliente ?? []), ...(ctx.textosAfirmados ?? [])]);
       if (!cond.ok) return { error: `Todavía falta confirmar con la persona: ${cond.falta.join(', ')}. Preguntáselo con amabilidad (una pregunta por mensaje) y recién cuando lo diga usá esta herramienta.` };
       await upsertLeadSeguro(db, ctx.telefono, camposDeLead({ datos: { tipo_consulta: t, valor_consulta: 0, reserva_esperada: 0 } }));
       return { sin_cargo: true, valor_consulta: 0, abogado: c.abogado, nota: 'Consulta SIN CARGO con el Dr. Alejandro Reyes, presencial en San Salvador de Jujuy o virtual si vive en el interior. No hables de pagos ni de reserva. Ahora preguntá cuándo le queda cómodo.' };
@@ -1698,10 +1709,12 @@ export async function procesarMensaje(deps: Deps, m: MsgEntrante) {
   const mensajes: MsgLLM[] = aMensajesLLM([...previos, { from: 'cliente', texto: textoCliente }]);
   const textosCliente = [...previos.filter(x => x.from === 'cliente').map(x => x.texto), textoCliente];
   const pasarDatos = eligioTransferencia(textosCliente);
+  const textosAfirmados = preguntasAfirmadas(previos as any, textoCliente);
   // Con Mercado Pago activo, la reserva solo se da por pagada si Mercado Pago la confirmó; ningún texto ni foto del cliente la valida.
   const mp = usaMercadoPago() ? montoMercadoPago(await datosDeLead(db, m.from)) : null;
   const ctx: CtxHerramienta = {
     textosCliente,
+    textosAfirmados,
     telefono: m.from,
     conversationId,
     montoValidado: mp ? mp.monto : (usaMercadoPago() ? null : montoValidadoDe(textosCliente)),
