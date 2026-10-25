@@ -308,6 +308,8 @@ export interface Tarea {
   id: string;
   titulo: string;
   caso_id: string | null;
+  caso_general_id?: string | null;
+  cliente_federal_id: string | null;
   descripcion: string | null;
   culminacion: string | null;
   cargo_hora: string | null;
@@ -338,6 +340,9 @@ export interface TareaCompleta extends Tarea {
   caso_general_id: string | null;
   caso_general_titulo: string | null;
   caso_general_expediente: string | null;
+  cliente_federal_nombre: string | null;
+  cliente_federal_tipo: string[] | null;
+  cliente_federal_expediente: string | null;
   visto_por_asignado: boolean | null;
   visto_at: string | null;
 }

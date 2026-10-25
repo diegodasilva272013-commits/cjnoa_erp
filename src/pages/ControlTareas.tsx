@@ -24,6 +24,8 @@ interface ControlTarea {
   caso_general_id: string | null;
   caso_general_titulo: string | null;
   caso_general_expediente: string | null;
+  cliente_federal_nombre: string | null;
+  cliente_federal_expediente: string | null;
   cliente_nombre: string | null;
   expediente_caso: string | null;
   estado_tiempo: 'realizada' | 'sin_fecha' | 'vencida' | 'hoy' | 'proxima' | 'futura';
@@ -118,6 +120,8 @@ export default function ControlTareas() {
         caso_general_id: t.caso_general_id,
         caso_general_titulo: t.caso_general_titulo,
         caso_general_expediente: t.caso_general_expediente,
+        cliente_federal_nombre: t.cliente_federal_nombre,
+        cliente_federal_expediente: t.cliente_federal_expediente,
         cliente_nombre: t.cliente_nombre,
         expediente_caso: t.expediente_caso ?? t.expediente,
         estado_tiempo: et,
@@ -159,6 +163,8 @@ export default function ControlTareas() {
           caso_general_id: null,
           caso_general_titulo: null,
           caso_general_expediente: null,
+          cliente_federal_nombre: null,
+          cliente_federal_expediente: null,
           cliente_nombre: clienteNombre,
           expediente_caso: null,
           estado_tiempo: et,
@@ -185,7 +191,7 @@ export default function ControlTareas() {
   const filtered = useMemo(() => {
     return tareas.filter(t => {
       if (!esAdmin && user?.id && t.responsable_id !== user.id) return false;
-      if (search && !`${t.titulo} ${t.cargo_hora} ${t.responsable_nombre} ${t.caso_general_titulo} ${t.cliente_nombre}`.toLowerCase().includes(search.toLowerCase())) return false;
+      if (search && !`${t.titulo} ${t.cargo_hora} ${t.responsable_nombre} ${t.caso_general_titulo} ${t.cliente_federal_nombre} ${t.cliente_nombre}`.toLowerCase().includes(search.toLowerCase())) return false;
       if (filterEstadoTiempo !== 'all' && t.estado_tiempo !== filterEstadoTiempo) return false;
       if (filterResp !== 'all' && t.responsable_id !== filterResp) return false;
       return true;
@@ -383,9 +389,9 @@ export default function ControlTareas() {
                   <tr key={t.id} className="border-b border-white/[0.04] hover:bg-white/[0.02]">
                     <td className="px-2 py-2 text-white font-medium max-w-[260px] truncate">{t.titulo}</td>
                     <td className="px-2 py-2 text-gray-300 max-w-[200px] truncate">
-                      {t.caso_general_titulo || t.cliente_nombre || '—'}
-                      {(t.caso_general_expediente || t.expediente_caso) && (
-                        <div className="text-[9px] text-gray-600 font-mono">{t.caso_general_expediente || t.expediente_caso}</div>
+                      {t.caso_general_titulo || t.cliente_federal_nombre || t.cliente_nombre || '—'}
+                      {(t.caso_general_expediente || t.cliente_federal_expediente || t.expediente_caso) && (
+                        <div className="text-[9px] text-gray-600 font-mono">{t.caso_general_expediente || t.cliente_federal_expediente || t.expediente_caso}</div>
                       )}
                     </td>
                     <td className="px-2 py-2 text-amber-300">{t.cargo_hora}</td>

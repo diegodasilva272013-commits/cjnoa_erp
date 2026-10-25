@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Plus, Pencil, Search, Download } from 'lucide-react';
+import { Plus, Pencil, Search, Download, Upload } from 'lucide-react';
 import { useIngresosOperativos } from '../hooks/useIngresosOperativos';
 import { usePeriodoFinanciero } from '../hooks/usePeriodoFinanciero';
 import PeriodoSelector from '../components/finance/PeriodoSelector';
@@ -14,6 +14,7 @@ import FinanceMiniCharts from '../components/finance/FinanceMiniCharts';
 import { useToast } from '../context/ToastContext';
 import { formatMoney } from '../lib/financeFormat';
 import { exportToExcel } from '../lib/exportExcel';
+import ImportarExcelModal from '../components/finance/ImportarExcelModal';
 
 function hoyLocalISO(): string {
   const d = new Date();
@@ -53,10 +54,11 @@ const FORM_VACIO: FormState = {
 };
 
 export default function Ingresos() {
-  const { items: ingresos, loading, crear, actualizar } = useIngresosOperativos();
+  const { items: ingresos, loading, crear, actualizar, cargar } = useIngresosOperativos();
   const { showToast } = useToast();
 
   const [modalOpen, setModalOpen] = useState(false);
+  const [importModalOpen, setImportModalOpen] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const [form, setForm] = useState<FormState>(FORM_VACIO);
   const [saving, setSaving] = useState(false);
@@ -199,11 +201,16 @@ export default function Ingresos() {
           <button onClick={exportar} className="px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-sm text-white hover:bg-white/10 flex items-center gap-2">
             <Download className="w-4 h-4" /> Excel
           </button>
+          <button onClick={() => setImportModalOpen(true)} className="px-3 py-2 rounded-lg bg-sky-600/80 hover:bg-sky-500 text-sm text-white flex items-center gap-2" title="Cargar ingresos de meses anteriores desde un Excel">
+            <Upload className="w-4 h-4" /> Importar Excel
+          </button>
           <button onClick={abrirNuevo} className="px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-sm text-white flex items-center gap-2">
             <Plus className="w-4 h-4" /> Nuevo ingreso
           </button>
         </div>
       </header>
+
+      <ImportarExcelModal target="ingresos" open={importModalOpen} onClose={() => setImportModalOpen(false)} onImportado={cargar} />
 
       {/* Métricas */}
       <div className="grid grid-cols-2 md:grid-cols-7 gap-3">

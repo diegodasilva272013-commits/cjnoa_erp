@@ -8,6 +8,7 @@ import { ToastProvider } from './context/ToastContext'
 import { ReminderProvider } from './context/ReminderContext'
 import { ChatNotificationsProvider } from './context/ChatNotificationsContext'
 import { rearmChunkRecovery, tryRecoverChunkError } from './lib/chunkRecovery'
+import { ThemeProvider } from './context/ThemeContext'
 import './index.css'
 
 // ============================================================
@@ -37,18 +38,20 @@ window.addEventListener('unhandledrejection', (ev) => { tryRecoverChunkError(ev.
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
-    <ErrorBoundary>
-      <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
-        <AuthProvider>
-          <ToastProvider>
-            <ReminderProvider>
-              <ChatNotificationsProvider>
-                <App />
-              </ChatNotificationsProvider>
-            </ReminderProvider>
-          </ToastProvider>
-        </AuthProvider>
-      </BrowserRouter>
-    </ErrorBoundary>
+    <ThemeProvider>
+      <ErrorBoundary>
+        <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+          <AuthProvider>
+            <ToastProvider>
+              <ReminderProvider>
+                <ChatNotificationsProvider>
+                  <App />
+                </ChatNotificationsProvider>
+              </ReminderProvider>
+            </ToastProvider>
+          </AuthProvider>
+        </BrowserRouter>
+      </ErrorBoundary>
+    </ThemeProvider>
   </React.StrictMode>,
 )

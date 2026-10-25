@@ -5,19 +5,21 @@ import Topbar from './Topbar';
 import BottomNav from './BottomNav';
 import CommandPalette from './CommandPalette';
 import AlarmaTareas from './AlarmaTareas';
-import AgenteVoz from './AgenteVoz';
+// import AgenteVoz from './AgenteVoz'; // desactivado temporalmente
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
+import { useTheme } from '../context/ThemeContext';
 
 export default function Layout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const { theme } = useTheme();
   useKeyboardShortcuts();
 
   return (
-    <div className="min-h-screen bg-[#0a0a0a]">
+    <div className={`min-h-screen ${theme === 'light' ? 'bg-[#dde3ed]' : 'bg-[#0a0a0a]'}`}>
       <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
       <CommandPalette />
       <AlarmaTareas />
-      <AgenteVoz />
+      {/* <AgenteVoz /> — desactivado temporalmente */}
 
       <div className="lg:pl-[260px] min-h-screen">
         <Topbar onMenuClick={() => setSidebarOpen(true)} />

@@ -3,6 +3,7 @@ import { Bell, X, Clock, Volume2, CheckCircle } from 'lucide-react';
 import { useAuth } from './AuthContext';
 import { supabase } from '../lib/supabase';
 import { Recordatorio } from '../types/database';
+import { showOSNotification } from '../lib/notify';
 
 interface ReminderAlert {
   id: string;
@@ -135,13 +136,11 @@ export function ReminderProvider({ children }: { children: ReactNode }) {
             timestamp: Date.now(),
           }]);
           if (notificationsEnabled) {
-            try {
-              new Notification(`Audiencia ${label} - CJ NOA`, {
-                body: `${aud.cliente_nombre ?? ''} · ${aud.juzgado ?? ''}`,
-                icon: '/Logo NOA.jpeg',
-                tag: fakeId,
-              });
-            } catch { /* noop */ }
+            void showOSNotification(`Audiencia ${label} - CJ NOA`, {
+              body: `${aud.cliente_nombre ?? ''} · ${aud.juzgado ?? ''}`,
+              icon: '/Logo NOA.jpeg',
+              tag: fakeId,
+            });
           }
         };
 
@@ -204,7 +203,7 @@ export function ReminderProvider({ children }: { children: ReactNode }) {
 
           // Browser notification (if enabled)
           if (notificationsEnabled) {
-            new Notification('⏰ Recordatorio - CJ NOA', {
+            void showOSNotification('⏰ Recordatorio - CJ NOA', {
               body: `${rec.titulo}${rec.descripcion ? '\n' + rec.descripcion : ''}`,
               icon: '/Logo NOA.jpeg',
               tag: rec.id,

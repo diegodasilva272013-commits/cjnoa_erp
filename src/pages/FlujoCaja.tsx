@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
-import { Calculator, RefreshCw, Archive } from 'lucide-react';
+import { useEffect, useMemo, useState, useCallback } from 'react';
+import { Calculator, RefreshCw, Archive, Inbox } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useIngresosOperativos } from '../hooks/useIngresosOperativos';
 import { useCierresMes } from '../hooks/useCierresMes';
@@ -12,15 +12,51 @@ import { useToast } from '../context/ToastContext';
 import { formatMoney } from '../lib/financeFormat';
 import Modal from '../components/Modal';
 import FinanceMiniCharts from '../components/finance/FinanceMiniCharts';
+import PlanillaMetricas from '../components/finance/PlanillaMetricas';
+import PeriodoSelector from '../components/finance/PeriodoSelector';
+import { usePeriodoFinanciero } from '../hooks/usePeriodoFinanciero';
 
-const periodoActual = () => new Date().toISOString().slice(0, 7); // YYYY-MM
+// Período YYYY-MM en horario local (evita corrimientos UTC en el límite de medianoche)
+const periodoActual = () => {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  return `${y}-${m}`;
+};
 
 export default function FlujoCaja() {
   const { items, loading } = useIngresosOperativos();
   const { items: cierres, cerrarMes } = useCierresMes();
   const { showToast } = useToast();
-  const [periodo, setPeriodo] = useState(periodoActual());
+
+  // Selector de período reutilizable (mismo que Ingresos/Egresos).
+  const periodoFin = usePeriodoFinanciero('flujo-caja', 'mes_actual');
+
+  // ¿El rango actual corresponde exactamente a UN mes calendario completo?
+  // Las funciones mensuales (cierre, meta, etiqueta YYYY-MM) solo aplican en ese caso.
+  const esMesCompleto = useMemo(() => {
+    if (!periodoFin.desde || !periodoFin.hasta) return false;
+    const [yD, mD, dD] = periodoFin.desde.split('-');
+    const [yH, mH, dH] = periodoFin.hasta.split('-');
+    if (yD !== yH || mD !== mH) return false;
+    if (dD !== '01') return false;
+    const ultimoDia = new Date(Number(yH), Number(mH), 0).getDate();
+    return Number(dH) === ultimoDia;
+  }, [periodoFin.desde, periodoFin.hasta]);
+
+  // Clave para cierres_mes_finanzas.
+  // - Mes completo: "YYYY-MM"
+  // - Rango personalizado: "YYYY-MM-DD_YYYY-MM-DD"
+  // - Sin rango: fallback al mes actual (no debería llegar a cerrar en ese estado)
+  const periodo = useMemo(() => {
+    if (esMesCompleto) return periodoFin.desde.slice(0, 7);
+    if (periodoFin.desde && periodoFin.hasta) return `${periodoFin.desde}_${periodoFin.hasta}`;
+    return periodoActual();
+  }, [esMesCompleto, periodoFin.desde, periodoFin.hasta]);
+
   const [meta, setMeta] = useState<number>(0);
+  const [metaInput, setMetaInput] = useState<string>('');
+  const [guardandoMeta, setGuardandoMeta] = useState(false);
   const [calculandoReparto, setCalculandoReparto] = useState(false);
   const [reparto, setReparto] = useState<RepartoCalculo | null>(null);
   const [modalReparto, setModalReparto] = useState(false);
@@ -29,33 +65,36 @@ export default function FlujoCaja() {
   const [cerrando, setCerrando] = useState(false);
   const yaCerrado = cierres.some(c => c.periodo === periodo);
 
-  // Cargar egresos del periodo
-  useEffect(() => {
-    (async () => {
-      const [y, m] = periodo.split('-').map(Number);
-      const inicio = `${periodo}-01`;
-      const finExclusivo = m === 12
-        ? `${y + 1}-01-01`
-        : `${y}-${String(m + 1).padStart(2, '0')}-01`;
-      const { data, error } = await supabase
-        .from('egresos_v2')
-        .select('*')
-        .gte('fecha', inicio)
-        .lt('fecha', finExclusivo)
-        .order('fecha', { ascending: false });
-      if (error) { showToast('Error al cargar egresos: ' + error.message, 'error'); return; }
-      setEgresos((data || []) as EgresoV2[]);
+  // Cargar egresos y movimientos del rango activo
+  const cargarEgresosYMovs = useCallback(async () => {
+    const { desde, hasta } = periodoFin;
+    let qEg = supabase.from('egresos_v2').select('*').order('fecha', { ascending: false });
+    if (desde) qEg = qEg.gte('fecha', desde);
+    if (hasta) qEg = qEg.lte('fecha', hasta);
+    const { data, error } = await qEg;
+    if (error) { showToast('Error al cargar egresos: ' + error.message, 'error'); return; }
+    setEgresos((data || []) as EgresoV2[]);
 
-      const { data: movs, error: errMov } = await supabase
-        .from('movimientos_caja')
-        .select('*')
-        .gte('fecha', inicio)
-        .lt('fecha', finExclusivo)
-        .order('fecha', { ascending: false });
-      if (errMov) { showToast('Error al cargar cambios: ' + errMov.message, 'error'); return; }
-      setMovimientos((movs || []) as MovimientoCaja[]);
-    })();
-  }, [periodo, showToast]);
+    let qMov = supabase.from('movimientos_caja').select('*').order('fecha', { ascending: false });
+    if (desde) qMov = qMov.gte('fecha', desde);
+    if (hasta) qMov = qMov.lte('fecha', hasta);
+    const { data: movs, error: errMov } = await qMov;
+    if (errMov) { showToast('Error al cargar cambios: ' + errMov.message, 'error'); return; }
+    setMovimientos((movs || []) as MovimientoCaja[]);
+  }, [periodoFin.desde, periodoFin.hasta, showToast]);
+
+  useEffect(() => { cargarEgresosYMovs(); }, [cargarEgresosYMovs]);
+
+  // Realtime: refrescar al detectar cambios en egresos o movimientos para que
+  // la planilla siempre coincida con la página de Egresos.
+  useEffect(() => {
+    const ch = supabase
+      .channel('flujo_caja_rt')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'egresos_v2' }, () => cargarEgresosYMovs())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'movimientos_caja' }, () => cargarEgresosYMovs())
+      .subscribe();
+    return () => { supabase.removeChannel(ch); };
+  }, [cargarEgresosYMovs]);
 
   // Cargar meta del periodo
   useEffect(() => {
@@ -65,13 +104,19 @@ export default function FlujoCaja() {
         .select('meta_recaudacion')
         .eq('periodo', periodo)
         .maybeSingle();
-      setMeta(Number(data?.meta_recaudacion || 0));
+      const m = Number(data?.meta_recaudacion || 0);
+      setMeta(m);
+      setMetaInput(m ? String(m) : '');
     })();
   }, [periodo]);
 
   const ingresosPeriodo = useMemo(
-    () => items.filter((i: IngresoOperativo) => i.fecha.startsWith(periodo)),
-    [items, periodo],
+    () => items.filter((i: IngresoOperativo) => {
+      if (periodoFin.desde && i.fecha < periodoFin.desde) return false;
+      if (periodoFin.hasta && i.fecha > periodoFin.hasta) return false;
+      return true;
+    }),
+    [items, periodoFin.desde, periodoFin.hasta],
   );
 
   const totales = useMemo(() => {
@@ -80,6 +125,8 @@ export default function FlujoCaja() {
     const porRama: Record<string, number> = {};
     const ingEfectivoSocio: Record<SocioFinanzas, number> = { Rodri: 0, Noe: 0, Ale: 0, Fabri: 0 };
     const ingTransferSocio: Record<SocioFinanzas, number> = { Rodri: 0, Noe: 0, Ale: 0, Fabri: 0 };
+    // ingTransferGeneradoSocio: por doctor_cobra (para reconciliar con Monto Generado)
+    const ingTransferGeneradoSocio: Record<SocioFinanzas, number> = { Rodri: 0, Noe: 0, Ale: 0, Fabri: 0 };
     let efectivoIn = 0, transferIn = 0;
     ingresosPeriodo.forEach(i => {
       const m = Number(i.monto || 0);
@@ -92,18 +139,29 @@ export default function FlujoCaja() {
         transferIn += m;
         const dest = (i.receptor_transfer || i.doctor_cobra) as SocioFinanzas;
         ingTransferSocio[dest] = (ingTransferSocio[dest] || 0) + m;
+        ingTransferGeneradoSocio[i.doctor_cobra] = (ingTransferGeneradoSocio[i.doctor_cobra] || 0) + m;
       }
     });
     const totalEgresos = egresos.reduce((s, e) => s + Number(e.monto || 0), 0);
     let efectivoOut = 0, transferOut = 0;
     const egresosPorSocio: Record<SocioFinanzas, number> = { Rodri: 0, Noe: 0, Ale: 0, Fabri: 0 };
     const egTransferSocio: Record<SocioFinanzas, number> = { Rodri: 0, Noe: 0, Ale: 0, Fabri: 0 };
+    const egEfectivoSocio: Record<SocioFinanzas, number> = { Rodri: 0, Noe: 0, Ale: 0, Fabri: 0 };
+    // Egresos transferencia SIN pagador asignado (no caen en ningún socio).
+    // Necesario para reconciliar con el total que se ve en la página de Egresos.
+    let egTransferSinPagador = 0;
+    let egEfectivoSinPagador = 0;
     egresos.forEach(e => {
       const m = Number(e.monto || 0);
-      if (e.modalidad === 'Efectivo') efectivoOut += m;
+      if (e.modalidad === 'Efectivo') {
+        efectivoOut += m;
+        if (e.pagador) egEfectivoSocio[e.pagador] = (egEfectivoSocio[e.pagador] || 0) + m;
+        else egEfectivoSinPagador += m;
+      }
       else if (e.modalidad === 'Transferencia') {
         transferOut += m;
         if (e.pagador) egTransferSocio[e.pagador] = (egTransferSocio[e.pagador] || 0) + m;
+        else egTransferSinPagador += m;
       }
       if (e.pagador) egresosPorSocio[e.pagador] = (egresosPorSocio[e.pagador] || 0) + m;
     });
@@ -159,7 +217,8 @@ export default function FlujoCaja() {
     });
     return {
       total, porSocio, porRama, totalEgresos, neto, cajaEfectivo, cajaTransfer, egresosPorSocio,
-      ingEfectivoSocio, ingTransferSocio, egTransferSocio, transferSocioNeto,
+      ingEfectivoSocio, ingTransferSocio, ingTransferGeneradoSocio, egTransferSocio, egEfectivoSocio, transferSocioNeto,
+      deltaTransferSocio, egTransferSinPagador, egEfectivoSinPagador, transferOut, efectivoOut,
       efectivoSocioFinal, cambiosEfectivoNet, cambiosTransferNet, cantCambios: movimientos.length,
     };
   }, [ingresosPeriodo, egresos, movimientos]);
@@ -196,11 +255,13 @@ export default function FlujoCaja() {
     : 'bg-rose-500/20 border-rose-500/40 text-rose-300';
 
   async function guardarMeta(nueva: number) {
+    setGuardandoMeta(true);
     const { error } = await supabase.from('metas_finanzas').upsert({
       periodo, meta_recaudacion: nueva,
     }, { onConflict: 'periodo' });
+    setGuardandoMeta(false);
     if (error) showToast(error.message, 'error');
-    else { setMeta(nueva); showToast('Meta actualizada', 'success'); }
+    else { setMeta(nueva); setMetaInput(nueva ? String(nueva) : ''); showToast('Meta actualizada', 'success'); }
   }
 
   async function calcularReparto() {
@@ -218,24 +279,29 @@ export default function FlujoCaja() {
   }
 
   async function handleCerrarMes() {
+    const rangLabel = periodoFin.label;
     if (yaCerrado) {
-      const ok = window.confirm(`El mes ${periodo} ya estaba cerrado. ¿Sobrescribir el snapshot con los datos actuales?`);
+      const ok = window.confirm(`El período "${rangLabel}" ya fue cerrado. ¿Sobrescribir el snapshot con los datos actuales?`);
       if (!ok) return;
     } else {
-      const ok = window.confirm(`Cerrar el mes ${periodo}?\n\n• Se guardará un snapshot completo en Historial.\n• Se BORRARÁN los ingresos, egresos y cambios del periodo de las tablas activas.\n• El próximo mes arranca en 0.\n\nLos datos siguen accesibles desde Historial.`);
+      const ok = window.confirm(`Cerrar el período "${rangLabel}"?\n\n• Se guardará un snapshot completo en Historial.\n• Los ingresos, egresos y cambios de ese rango quedan marcados como cerrados (NO se borran de la base).\n\nSeguís pudiendo verlos y buscarlos desde Historial → Buscar por rango, y "Reabrir mes" los vuelve a poner activos.`);
       if (!ok) return;
     }
     setCerrando(true);
     try {
+      // Usar el rango exacto seleccionado (no mes calendario)
+      const inicio = periodoFin.desde;
+      const hasta = periodoFin.hasta;
+      if (!inicio || !hasta) {
+        showToast('Seleccioná un rango con fecha inicio y fin para cerrar', 'error');
+        return;
+      }
       // Cargar gastos de fondos del periodo (gastos sobre fondos en custodia)
-      const [y, mm] = periodo.split('-').map(Number);
-      const inicio = `${periodo}-01`;
-      const finExclusivo = mm === 12 ? `${y + 1}-01-01` : `${y}-${String(mm + 1).padStart(2, '0')}-01`;
       const { data: fondosMov } = await supabase
         .from('fondos_movimientos')
         .select('id, fondo_id, fecha, nombre_gasto, monto, observaciones')
         .gte('fecha', inicio)
-        .lt('fecha', finExclusivo)
+        .lte('fecha', hasta)
         .order('fecha', { ascending: false });
 
       // Conteos extra
@@ -295,23 +361,42 @@ export default function FlujoCaja() {
           meta_recaudacion: meta,
         },
       };
-      await cerrarMes(periodo, snapshot);
+      // Guardar snapshot ANTES de cualquier borrado. Si falla, abortar.
+      try {
+        await cerrarMes(periodo, snapshot);
+      } catch (errCierre: any) {
+        showToast(`No se pudo archivar el cierre, no se borró nada: ${errCierre?.message || errCierre}`, 'error');
+        return;
+      }
 
-      // Borrar los registros del periodo para arrancar el mes siguiente en 0.
-      // Los datos quedan archivados en el snapshot del cierre.
-      const [delIng, delEg, delMov] = await Promise.all([
-        supabase.from('ingresos_operativos').delete().gte('fecha', inicio).lt('fecha', finExclusivo),
-        supabase.from('egresos_v2').delete().gte('fecha', inicio).lt('fecha', finExclusivo),
-        supabase.from('movimientos_caja').delete().gte('fecha', inicio).lt('fecha', finExclusivo),
+      // Verificación defensiva: confirmar que el snapshot quedó persistido
+      // antes de borrar nada. Si no aparece, abortamos el limpiado.
+      const { data: cierreOk, error: errCheck } = await supabase
+        .from('cierres_mes_finanzas')
+        .select('periodo')
+        .eq('periodo', periodo)
+        .maybeSingle();
+      if (errCheck || !cierreOk) {
+        showToast('El snapshot no se encuentra en la base, se aborta la limpieza del período.', 'error');
+        return;
+      }
+
+      // Marcar (NO borrar) los registros del rango exacto seleccionado como
+      // pertenecientes a este cierre. Los datos siguen físicamente en la
+      // base — nunca se pierden — y quedan disponibles vía Historial →
+      // Buscar por rango o reapareciendo activos si se reabre el mes.
+      const [updIng, updEg, updMov] = await Promise.all([
+        supabase.from('ingresos_operativos').update({ cierre_periodo: periodo }).gte('fecha', inicio).lte('fecha', hasta),
+        supabase.from('egresos_v2').update({ cierre_periodo: periodo }).gte('fecha', inicio).lte('fecha', hasta),
+        supabase.from('movimientos_caja').update({ cierre_periodo: periodo }).gte('fecha', inicio).lte('fecha', hasta),
       ]);
-      if (delIng.error || delEg.error || delMov.error) {
-        showToast(`Cierre archivado pero hubo un error al limpiar: ${delIng.error?.message || delEg.error?.message || delMov.error?.message}`, 'error');
+      if (updIng.error || updEg.error || updMov.error) {
+        showToast(`Cierre archivado pero hubo un error al marcar los registros: ${updIng.error?.message || updEg.error?.message || updMov.error?.message}`, 'error');
       } else {
-        showToast(`Mes ${periodo} cerrado, archivado y reseteado a 0`, 'success');
+        showToast(`Período "${rangLabel}" cerrado y archivado (los datos no se borraron, quedaron marcados)`, 'success');
       }
       // Refrescar datos en pantalla
-      setEgresos([]);
-      setMovimientos([]);
+      cargarEgresosYMovs();
     } catch (err: any) {
       showToast(err?.message || 'Error al cerrar mes', 'error');
     } finally {
@@ -324,18 +409,14 @@ export default function FlujoCaja() {
       <header className="flex items-center justify-between gap-4 flex-wrap">
         <div>
           <h1 className="text-2xl font-bold text-white">Tablero financiero</h1>
-          <p className="text-sm text-zinc-400 mt-1">Resumen del periodo y reparto sugerido entre los 4 socios.</p>
+          <p className="text-sm text-zinc-400 mt-1">Resumen del período y reparto sugerido entre los 4 socios.</p>
         </div>
-        <div className="flex items-center gap-2">
-          <input
-            type="month"
-            value={periodo}
-            onChange={e => setPeriodo(e.target.value)}
-            className="px-3 py-2 rounded-lg bg-black/40 border border-white/10 text-sm text-white"
-          />
+        <div className="flex items-center gap-2 flex-wrap">
+          <PeriodoSelector periodo={periodoFin} />
           <button
             onClick={calcularReparto}
             disabled={calculandoReparto}
+            title={`Calcular reparto del mes ${periodo}`}
             className="px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-sm text-white flex items-center gap-2 disabled:opacity-50"
           >
             {calculandoReparto ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Calculator className="w-4 h-4" />}
@@ -343,30 +424,86 @@ export default function FlujoCaja() {
           </button>
           <button
             onClick={handleCerrarMes}
-            disabled={cerrando}
+            disabled={cerrando || !periodoFin.desde || !periodoFin.hasta}
             className={`px-3 py-2 rounded-lg text-sm text-white flex items-center gap-2 disabled:opacity-50 ${yaCerrado ? 'bg-amber-600 hover:bg-amber-500' : 'bg-violet-600 hover:bg-violet-500'}`}
-            title={yaCerrado ? 'Sobrescribir cierre existente' : 'Archivar mes en Historial'}
+            title={yaCerrado
+              ? `Sobrescribir cierre de ${periodoFin.label}`
+              : `Archivar "${periodoFin.label}" en Historial`}
           >
             {cerrando ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Archive className="w-4 h-4" />}
-            {yaCerrado ? `Re-cerrar ${periodo}` : 'Cerrar mes'}
+            {yaCerrado ? 'Re-cerrar' : 'Cerrar'} {esMesCompleto ? periodo : 'rango'}
           </button>
         </div>
       </header>
+
+      {/* Aviso si el período seleccionado no tiene ingresos cargados */}
+      {!loading && ingresosPeriodo.length === 0 && (
+        <div className="rounded-xl border border-amber-500/30 bg-amber-500/[0.06] p-4 flex items-start gap-3">
+          <Inbox className="w-5 h-5 text-amber-300 mt-0.5 shrink-0" />
+          <div className="flex-1 space-y-2">
+            <div className="text-sm text-amber-100 font-medium">
+              Sin ingresos en {periodoFin.label}
+            </div>
+            <div className="text-xs text-amber-200/80">
+              {yaCerrado
+                ? 'Este mes ya fue cerrado: los datos viven en Historial. Probá otro período para ver los activos.'
+                : 'Los datos siguen en la base. Probá otro período para verlos.'}
+            </div>
+            <div className="flex flex-wrap gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => periodoFin.setPreset('mes_anterior')}
+                className="px-2.5 py-1 rounded-md text-xs bg-amber-500/15 border border-amber-500/40 text-amber-100 hover:bg-amber-500/25"
+              >
+                Ver mes anterior
+              </button>
+              <button
+                type="button"
+                onClick={() => periodoFin.setPreset('ultimos_90')}
+                className="px-2.5 py-1 rounded-md text-xs bg-amber-500/15 border border-amber-500/40 text-amber-100 hover:bg-amber-500/25"
+              >
+                Últimos 90 días
+              </button>
+              <button
+                type="button"
+                onClick={() => periodoFin.setPreset('mes_actual')}
+                className="px-2.5 py-1 rounded-md text-xs bg-white/[0.04] border border-white/10 text-zinc-200 hover:bg-white/[0.08]"
+              >
+                Volver al mes actual
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Meta + semáforo */}
       <div className={`rounded-xl border p-4 ${colorSem}`}>
         <div className="flex items-center justify-between gap-4 flex-wrap">
           <div>
             <div className="text-xs uppercase opacity-80">Meta del periodo</div>
-            <div className="flex items-center gap-2 mt-1">
+            <div className="flex items-center gap-2 mt-1 flex-wrap">
               <input
                 type="number"
-                value={meta || ''}
-                onChange={e => setMeta(Number(e.target.value))}
-                onBlur={e => guardarMeta(Number(e.target.value))}
+                inputMode="numeric"
+                value={metaInput}
+                onChange={e => setMetaInput(e.target.value)}
+                onKeyDown={e => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    guardarMeta(Number(metaInput) || 0);
+                  }
+                }}
                 placeholder="Definí la meta"
                 className="bg-black/30 px-2 py-1 rounded text-sm text-white w-40 outline-none border border-white/10"
               />
+              <button
+                type="button"
+                onClick={() => guardarMeta(Number(metaInput) || 0)}
+                disabled={guardandoMeta || Number(metaInput || 0) === meta}
+                className="px-3 py-1 rounded text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                {guardandoMeta ? 'Guardando…' : 'Actualizar'}
+              </button>
               <span className="text-sm">→ Recaudado: <strong>{formatMoney(totales.total)}</strong></span>
             </div>
           </div>
@@ -376,6 +513,28 @@ export default function FlujoCaja() {
           </div>
         </div>
       </div>
+
+      {/* Planilla estilo Excel: Métricas por socio + Transferencia + Resumen */}
+      <PlanillaMetricas
+        ingresos={ingresosPeriodo}
+        metaGrupal={meta}
+        totalIngresos={totales.total}
+        totalEgresos={totales.totalEgresos}
+        cajaEfectivo={totales.cajaEfectivo}
+        ingTransferGeneradoSocio={totales.ingTransferGeneradoSocio}
+        ingTransferRecibidoSocio={totales.ingTransferSocio}
+        egTransferSocio={totales.egTransferSocio}
+        egEfectivoSocio={totales.egEfectivoSocio}
+        deltaTransferSocio={totales.deltaTransferSocio}
+        transferSocioNeto={totales.transferSocioNeto}
+        egTransferSinPagador={totales.egTransferSinPagador}
+        egEfectivoSinPagador={totales.egEfectivoSinPagador}
+        totalEgresosTransfer={totales.transferOut}
+        totalEgresosEfectivo={totales.efectivoOut}
+        efectivoSocioFinal={totales.ingEfectivoSocio}
+        egresosDetalle={egresos}
+        onRefrescar={cargarEgresosYMovs}
+      />
 
       {/* Cards principales */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3">

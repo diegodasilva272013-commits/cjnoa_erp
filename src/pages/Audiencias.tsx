@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { Plus, Search, Calendar as CalendarIcon, X, Edit2, Trash2, MapPin, User, Clock, CheckCircle, Briefcase } from 'lucide-react';
 import { useAudienciasGeneral } from '../hooks/useTareas';
 import { useCases } from '../hooks/useCases';
@@ -20,12 +21,21 @@ export default function Audiencias() {
   const [modalOpen, setModalOpen] = useState(false);
   const [selected, setSelected] = useState<AudienciaGeneralCompleta | null>(null);
   const [confirmDel, setConfirmDel] = useState<string | null>(null);
+  const [searchParams] = useSearchParams();
 
   useEffect(() => {
     supabase.from('perfiles').select('id, nombre').or('activo.is.null,activo.eq.true').then(({ data }) => {
       if (data) setPerfiles(data as PerfilLite[]);
     });
   }, []);
+
+  // Auto-abrir el modal de edición cuando se navega desde otro módulo (ej: Calendario)
+  useEffect(() => {
+    const openId = searchParams.get('openId');
+    if (!openId || audiencias.length === 0) return;
+    const target = audiencias.find(a => a.id === openId);
+    if (target) { setSelected(target); setModalOpen(true); }
+  }, [audiencias, searchParams]);
 
   const filtered = useMemo(() => {
     const ahora = new Date();
