@@ -737,7 +737,7 @@ async function upsertLeadSeguro(db: Db, telefono: unknown, campos: CamposLead) {
 /** Voz por defecto (ElevenLabs: Melanie). Se reemplaza con la variable ELEVENLABS_VOICE_ID. */
 const VOZ_DEFAULT = 'bN1bDXgDIGX5lw0rtY2B';
 const GRAPH_URL = 'https://graph.facebook.com/v20.0';
-const MODELO_DEFAULT = 'gpt-4o';
+const MODELO_DEFAULT = 'gpt-4o-mini';
 const MODELO_VISION_DEFAULT = 'gpt-4o';
 const MAX_VUELTAS_HERRAMIENTAS = 5;
 const MAX_MENSAJES_CONTEXTO = 24;
@@ -3229,7 +3229,7 @@ async function llamarTextoOpenAI(sistema: string, usuario: string): Promise<stri
   const r = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
     headers: { 'content-type': 'application/json', authorization: `Bearer ${claveOpenAI()}` },
-    body: JSON.stringify({ model: limpiarSecreto(process.env.AGENTE_MODELO_ANALISIS ?? '') || 'gpt-4o', temperature: 0.2, max_tokens: 500, messages: [{ role: 'system', content: sistema }, { role: 'user', content: usuario }] }),
+    body: JSON.stringify({ model: limpiarSecreto(process.env.AGENTE_MODELO_ANALISIS ?? '') || 'gpt-4o-mini', temperature: 0.2, max_tokens: 500, messages: [{ role: 'system', content: sistema }, { role: 'user', content: usuario }] }),
   });
   if (!r.ok) throw new Error(`analisis ${r.status}`);
   return String((await r.json() as any)?.choices?.[0]?.message?.content ?? '').trim();
