@@ -2,7 +2,7 @@ import { useState, useMemo, useRef, useEffect } from 'react';
 import {
   MessageSquare, Send, Clock, User as UserIcon, Trash2, CheckCircle2,
   ListTodo, Calendar, Eye, ChevronDown, AlertCircle, Mic, MicOff, Square,
-  Gavel, X as XIcon, MapPin, Users, Plus,
+  Gavel, X as XIcon, MapPin, Users, Plus, Pencil,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
@@ -44,16 +44,20 @@ function AudioPlayer({ path }: { path: string }) {
   return <audio controls src={url} className="w-full max-w-sm h-8" />;
 }
 
-function NotaCard({ n, currentUserId, onDelete, onMarcarVista, onCambiarEstado }: {
+function NotaCard({ n, currentUserId, onDelete, onEditar, onMarcarVista, onCambiarEstado }: {
   n: CasoGeneralNota;
   currentUserId: string | null;
   onDelete: (id: string) => void;
+  onEditar: (id: string, contenido: string) => Promise<boolean>;
   onMarcarVista: (tareaId: string) => void;
   onCambiarEstado: (tareaId: string, estado: EstadoTareaFlujo) => void;
 }) {
   const esAutor = n.created_by === currentUserId;
   const esResponsableTarea = n.tarea_responsable_id === currentUserId;
   const tieneTarea = !!n.tarea_id;
+  const [editando, setEditando] = useState(false);
+  const [borrador, setBorrador] = useState(n.contenido);
+  const [guardando, setGuardando] = useState(false);
 
   return (
     <div className="rounded-2xl bg-white/[0.025] border border-white/[0.06] p-4 space-y-3">
@@ -67,13 +71,33 @@ function NotaCard({ n, currentUserId, onDelete, onMarcarVista, onCambiarEstado }
             </span>
             {n.editado && <span className="text-[10px] text-gray-600 italic">(editado)</span>}
           </div>
-          <p className="text-sm text-gray-200 whitespace-pre-wrap break-words mt-1">{n.contenido}</p>
+          {editando ? (
+            <div className="mt-1 space-y-2">
+              <textarea value={borrador} onChange={e => setBorrador(e.target.value)} rows={3}
+                className="w-full rounded-lg bg-white/[0.04] border border-white/10 p-2 text-sm text-gray-200 focus:outline-none focus:border-violet-500/50" />
+              <div className="flex gap-2">
+                <button disabled={guardando || !borrador.trim()}
+                  onClick={async () => { setGuardando(true); const ok = await onEditar(n.id, borrador); setGuardando(false); if (ok) setEditando(false); }}
+                  className="btn-primary text-xs px-3 py-1.5">{guardando ? 'Guardando…' : 'Guardar'}</button>
+                <button disabled={guardando} onClick={() => { setBorrador(n.contenido); setEditando(false); }}
+                  className="btn-secondary text-xs px-3 py-1.5">Cancelar</button>
+              </div>
+            </div>
+          ) : (
+            <p className="text-sm text-gray-200 whitespace-pre-wrap break-words mt-1">{n.contenido}</p>
+          )}
           {n.audio_path && (
             <div className="mt-2">
               <AudioPlayer path={n.audio_path} />
             </div>
           )}
         </div>
+        {esAutor && !editando && (
+          <button onClick={() => { setBorrador(n.contenido); setEditando(true); }} title="Editar nota"
+            className="opacity-0 group-hover:opacity-100 hover:opacity-100 text-gray-500 hover:text-violet-400 transition p-1">
+            <Pencil className="w-3.5 h-3.5" />
+          </button>
+        )}
         {esAutor && (
           <button onClick={() => onDelete(n.id)} title="Eliminar nota"
             className="opacity-0 group-hover:opacity-100 hover:opacity-100 text-gray-500 hover:text-red-400 transition p-1">
@@ -167,7 +191,7 @@ export default function NotasFeedPanel({ casoId, variant = 'general' }: { casoId
   const hookGeneral = useCasoGeneralNotas(variant === 'general' ? casoId : null);
   const hookFederal = useClienteFederalNotas(variant === 'federal' ? casoId : null);
   const {
-    notas, loading, agregarNota, agregarNotaConTarea, eliminarNota,
+    notas, loading, agregarNota, agregarNotaConTarea, eliminarNota, editarNota,
     marcarTareaVista, cambiarEstadoTarea, migrationError,
   } = variant === 'federal' ? hookFederal : hookGeneral;
 
@@ -376,6 +400,12 @@ export default function NotasFeedPanel({ casoId, variant = 'general' }: { casoId
     if (!user?.id) return;
     const ok = await cambiarEstadoTarea(tareaId, estado, user.id);
     if (ok) showToast(`Estado: ${ESTADO_TAREA_LABEL[estado]}`, 'success');
+  }
+
+  async function handleEditar(id: string, texto: string) {
+    const ok = await editarNota(id, texto);
+    showToast(ok ? 'Nota actualizada' : 'No se pudo editar la nota', ok ? 'success' : 'error');
+    return ok;
   }
 
   async function handleEliminar(id: string) {
@@ -630,6 +660,7 @@ export default function NotasFeedPanel({ casoId, variant = 'general' }: { casoId
               n={n}
               currentUserId={user?.id || null}
               onDelete={handleEliminar}
+              onEditar={handleEditar}
               onMarcarVista={handleMarcarVista}
               onCambiarEstado={handleCambiarEstado}
             />

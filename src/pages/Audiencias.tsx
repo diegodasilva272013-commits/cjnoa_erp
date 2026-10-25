@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Plus, Search, Calendar as CalendarIcon, X, Edit2, Trash2, MapPin, User, Clock, CheckCircle, Briefcase } from 'lucide-react';
+import { Plus, Search, Calendar as CalendarIcon, X, Edit2, Trash2, MapPin, User, Clock, CheckCircle, Briefcase, Eye } from 'lucide-react';
 import { useAudienciasGeneral } from '../hooks/useTareas';
 import { useCases } from '../hooks/useCases';
 import { useCasosGenerales } from '../hooks/useCasosGenerales';
@@ -21,6 +21,7 @@ export default function Audiencias() {
   const [modalOpen, setModalOpen] = useState(false);
   const [selected, setSelected] = useState<AudienciaGeneralCompleta | null>(null);
   const [confirmDel, setConfirmDel] = useState<string | null>(null);
+  const [detalle, setDetalle] = useState<AudienciaGeneralCompleta | null>(null);
   const [searchParams] = useSearchParams();
 
   useEffect(() => {
@@ -155,6 +156,11 @@ export default function Audiencias() {
                     </div>
                   </div>
                   <div className="flex items-center gap-1 flex-shrink-0">
+                    <button onClick={e => { e.stopPropagation(); setDetalle(a); }}
+                      title="Ver detalle"
+                      className="p-1.5 rounded-lg transition-colors text-gray-600 hover:text-sky-400 hover:bg-sky-500/10">
+                      <Eye className="w-3.5 h-3.5" />
+                    </button>
                     <button
                       onClick={async (e) => {
                         e.stopPropagation();
@@ -180,6 +186,34 @@ export default function Audiencias() {
               </div>
             );
           })}
+        </div>
+      )}
+
+      {detalle && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => setDetalle(null)}>
+          <div className="glass-card w-full max-w-md p-5 space-y-3" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-semibold text-white">Detalle de la audiencia</h3>
+              <button onClick={() => setDetalle(null)} className="text-gray-500 hover:text-white"><X className="w-5 h-5" /></button>
+            </div>
+            <div className="space-y-2 text-xs">
+              {([
+                ['Caso', detalle.cliente_nombre || detalle.caso_general_titulo || '— Sin caso —'],
+                ['Fecha', new Date(detalle.fecha).toLocaleString('es-AR', { dateStyle: 'full', timeStyle: 'short' })],
+                ['Tipo', detalle.tipo],
+                ['Juzgado', detalle.juzgado],
+                ['Abogado', detalle.abogado_nombre],
+                ['Estado', detalle.realizada ? 'Realizada' : 'Pendiente'],
+              ] as [string, string | null | undefined][]).filter(([, v]) => v).map(([k, v]) => (
+                <div key={k} className="flex gap-3"><span className="w-16 text-gray-500 flex-shrink-0">{k}</span><span className="text-gray-200">{v}</span></div>
+              ))}
+              {detalle.notas && <div><p className="text-gray-500 mb-1">Notas</p><p className="text-gray-200 whitespace-pre-wrap">{detalle.notas}</p></div>}
+            </div>
+            <div className="flex justify-end gap-2 pt-1">
+              <button onClick={() => setDetalle(null)} className="btn-secondary text-xs px-4 py-2">Cerrar</button>
+              <button onClick={() => { setSelected(detalle); setDetalle(null); setModalOpen(true); }} className="btn-primary text-xs px-4 py-2">Editar</button>
+            </div>
+          </div>
         </div>
       )}
 

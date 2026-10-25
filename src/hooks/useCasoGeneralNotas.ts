@@ -187,6 +187,15 @@ export function useCasoGeneralNotas(casoId: string | null) {
     return { ok: true };
   }
 
+  async function editarNota(id: string, contenido: string): Promise<boolean> {
+    const texto = contenido.trim();
+    if (!texto) return false;
+    const { error } = await supabase.from('caso_general_notas').update({ contenido: texto, editado: true }).eq('id', id);
+    if (error) { console.error(error); return false; }
+    await fetchNotas();
+    return true;
+  }
+
   async function eliminarNota(id: string): Promise<boolean> {
     const { error } = await supabase.from('caso_general_notas').delete().eq('id', id);
     if (error) { console.error(error); return false; }
@@ -215,7 +224,7 @@ export function useCasoGeneralNotas(casoId: string | null) {
 
   return {
     notas, loading, refetch: fetchNotas, migrationError,
-    agregarNota, agregarNotaConTarea, eliminarNota,
+    agregarNota, agregarNotaConTarea, eliminarNota, editarNota,
     marcarTareaVista, cambiarEstadoTarea,
   };
 }
