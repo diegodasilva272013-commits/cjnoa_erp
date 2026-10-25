@@ -3,7 +3,7 @@ import { createHmac } from 'node:crypto';
 import handler, {
   clasificarRecibo, TIPOS_CONSULTA, promesaSinCumplir, separarDatosPago, mensajeApurado,
   aMin, limpiarSecreto, camposDeLead, etapaAutomatica, fusionarLead, registrarMensaje, upsertLead, firmaMetaValida, firmaKapsoValida, extraerMensajesKapso, extraerMensajes, aMensajesLLM, procesarMensaje, filaDePersona, esConversacionDeNoa, clasificarMensajeCliente, categoriaMensajeAgente, personaMetrica, agregarMetricasAgente, calcularMetricasAgente, evaluarOptimizaciones, validarOptimizaciones, ejecutarOptimizacion, type MetricasAgente, motivoDeExclusion, resumenEnPalabras, ejecutarAnalista, revisarAnalisisAutomatico, codigosDeEstilo, etapaEmbudo, analizarConversacion, calcularMetricas, mascararDatos, textoParaEtiquetar, validarEtiquetas, promptDelAgente, limpiarCachePrompt, accionAgentes, problemasDeEstilo, textoNoLegible, firmaMercadoPagoValida, importeTexto, importeLindo, asignarImporteUnico, procesarPagoMP, montoMercadoPago, modalidadElegida, enmascarar, neutralizarMarcas, salidaInsegura, superaLimite, urlMediaSegura, resumenTurnosVigentes, HERRAMIENTAS_LLM, cuerpoNotaDeVoz, eligioTransferencia, notaDeImagen, montoValidadoDe, quitarEtiquetas, aMensajesOpenAI, deOpenAI, ejecutarHerramienta, PROMPT_AGENTE, type Deps, telefonoClave, historialDe, inferirNombre, normalizarFecha, normalizarHora, bloquesDelDia, huecosLibres, localDe, resolverProfesional, diaSemanaISO, fechaValida,
-  registrarSinResponder, esDudaOObjecion, esRechazoFirme, horasEnTexto, quitarFrasesHechas, REGEX_CLICHE, condicionesArt9Confirmadas, campanaDelTexto, probarAgentePaso, condicionDeAgenda, registrarMensajeHumano, extraerHumanosKapso, responderDesdeErp, resumenCampana, analizarCampana, analisisSoloConCifrasReales,
+  registrarSinResponder, costoUsd, esDudaOObjecion, esRechazoFirme, horasEnTexto, quitarFrasesHechas, REGEX_CLICHE, condicionesArt9Confirmadas, campanaDelTexto, probarAgentePaso, condicionDeAgenda, registrarMensajeHumano, extraerHumanosKapso, responderDesdeErp, resumenCampana, analizarCampana, analisisSoloConCifrasReales,
   type Bloque,
 } from '../../api/turnos/[accion]';
 
@@ -2921,5 +2921,21 @@ describe('agente · dudas y objeciones no se cierran con "tómese su tiempo"', (
     const { d, enviados } = deps(db, { llm: async () => (n++ === 0 ? texto('Tómese el tiempo que necesite.') : texto('Claro, es una decisión importante. ¿Hay algo en particular que le genere dudas?')) });
     await procesarMensaje(d, { ...msg, id: 'wamid.duda', texto: 'Lo voy a pensar' });
     expect(enviados).toEqual(['Claro, es una decisión importante. ¿Hay algo en particular que le genere dudas?']);
+  });
+});
+
+describe('costos · medición real y tope de correcciones', () => {
+  it('calcula el costo con los precios de lista', () => {
+    expect(costoUsd('gpt-4o-mini', 1_000_000, 0)).toBeCloseTo(0.15, 5);
+    expect(costoUsd('gpt-4o', 1_000_000, 100_000)).toBeCloseTo(3.5, 5);
+    expect(costoUsd('gpt-4o-mini', 9000, 100)).toBeLessThan(0.002);
+  });
+  it('un mensaje con muchos problemas no dispara más de dos correcciones (dos llamadas extra como máximo)', async () => {
+    const { db } = dbConversaciones();
+    let n = 0;
+    const { d, enviados } = deps(db, { llm: async () => { n++; return texto('¿Podrías decirme tu edad? Entiendo completamente. Quedamos a las 9:00. Nos vemos mañana.'); } });
+    await procesarMensaje(d, { ...msg, id: 'wamid.tope', texto: 'Lo voy a pensar' });
+    expect(n).toBeLessThanOrEqual(3);
+    expect(enviados).toHaveLength(1);
   });
 });

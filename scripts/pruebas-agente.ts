@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
-import { probarAgentePaso } from '../api/turnos/[accion]';
+import { probarAgentePaso, usoOpenAI } from '../api/turnos/[accion]';
 import { ESCENARIOS } from '../src/server/agentePruebas';
 
 // El log del build tiene tope de tamaño: se silencian los errores internos y se imprime cada prueba apenas termina.
@@ -20,6 +20,7 @@ async function main() {
     let estado: any; let ultimo: any;
     try {
       for (let n = 0; n < pasos; n++) {
+        if (usoOpenAI.usd >= Number(process.env.AGENT_TESTS_MAX_USD ?? 2)) return { id, error: 'cortada por el tope de gasto' };
         let r: any = await probarAgentePaso(id, n, estado, undefined, real as any);
         for (let k = 0; k < 6 && r.code === 503; k++) { await new Promise(res => setTimeout(res, 15000)); r = await probarAgentePaso(id, n, estado, undefined, real as any); }
         if (r.code !== 200) return { id, error: JSON.stringify(r.body).slice(0, 200) };
@@ -29,9 +30,12 @@ async function main() {
       return { id, ok: ultimo.ok, chequeos: ultimo.chequeos, transcript: estado.transcript, herramientas: (estado.herramientas ?? []).map((h: any) => `${h.nombre}:${h.resultado?.status ?? (h.resultado?.error ? 'error' : 'ok')}`) };
     } catch (e) { return { id, error: e instanceof Error ? e.message.slice(0, 200) : String(e) }; }
   };
+  const tope = Number(process.env.AGENT_TESTS_MAX_USD ?? 2);
+  let cortada = false;
   const cola = [...lista];
   const trabajador = async () => {
     for (let e = cola.shift(); e; e = cola.shift()) {
+      if (usoOpenAI.usd >= tope) { cortada = true; cola.length = 0; break; }
       const r: any = await correr(e.id, e.maxTurnos);
       hechas++;
       if (r.ok) { ok++; log(`OK     ${r.id}  (${hechas}/${lista.length})`); continue; }
@@ -43,6 +47,7 @@ async function main() {
     }
   };
   await Promise.all([trabajador(), trabajador(), trabajador()]);
+  log(`GASTO medido: ${usoOpenAI.llamadas} llamadas, ${usoOpenAI.entrada} tokens de entrada, ${usoOpenAI.salida} de salida = ${usoOpenAI.usd.toFixed(3)} USD (tope ${tope} USD${cortada ? ', CORTADA POR EL TOPE' : ''})`);
   log(`RESUMEN ${ok}/${lista.length} aprobadas en ${Math.round((Date.now() - inicio) / 60000)} min`);
 }
 main().catch(e => { console.log('[PRUEBAS] error general', e instanceof Error ? e.message : e); }).finally(() => { console.error = silencio; });

@@ -1721,6 +1721,8 @@ export async function procesarMensaje(deps: Deps, m: MsgEntrante) {
   let reintentoApuro = false;
   let reintentosEstilo = 0;
   let reintentoObjecion = false;
+  let correcciones = 0;
+  const MAX_CORRECCIONES = 2; // cada corrección es una llamada más con todo el prompt: tope por mensaje
   let reintentoAgenda = false;
   let reintentoHoras = false;
   let agendoOk = false;
@@ -1733,37 +1735,37 @@ export async function procesarMensaje(deps: Deps, m: MsgEntrante) {
       if (r.stop_reason !== 'tool_use') {
         const txt = r.content.filter(b => b.type === 'text').map(b => String(b.text)).join('\n').trim();
         // Si prometió "voy a chequear…" sin hacerlo, se le pide que lo haga ahora: el cliente no tiene que insistir.
-        if (txt && !reintentoPromesa && promesaSinCumplir(txt)) {
-          reintentoPromesa = true;
+        if (txt && !reintentoPromesa && correcciones < MAX_CORRECCIONES && promesaSinCumplir(txt)) {
+          reintentoPromesa = true; correcciones++;
           mensajes.push({ role: 'assistant', content: txt });
           mensajes.push({ role: 'user', content: '[SISTEMA ERP: Dijiste que ibas a verificar o consultar algo pero no lo hiciste. Hacelo ahora con tus herramientas (consultar_disponibilidad, definir_tipo_consulta, etc.) o con lo que ya sabés, y respondé en este mismo mensaje con el resultado y el siguiente paso. No prometas nada más.]' });
           continue;
         }
         // Nunca se confirma un turno que no existe: si dice que quedó agendado y no se agendó nada, se corrige antes de enviar.
-        if (txt && !reintentoAgenda && !agendoOk && vigentes.length === 0 && afirmaTurnoAgendado(txt)) {
-          reintentoAgenda = true;
+        if (txt && !reintentoAgenda && correcciones < MAX_CORRECCIONES && !agendoOk && vigentes.length === 0 && afirmaTurnoAgendado(txt)) {
+          reintentoAgenda = true; correcciones++;
           mensajes.push({ role: 'assistant', content: txt });
           mensajes.push({ role: 'user', content: '[SISTEMA ERP: Todavía NO se agendó ningún turno: no digas que quedó agendado ni que se ven. Si la persona ya eligió día y hora y se puede agendar, usá agendar_turno ahora y confirmá solo si devuelve success; si falta algo (la reserva, el día, la hora), pedilo con amabilidad.]' });
           continue;
         }
         // Una duda u objeción no se cierra con "tómese su tiempo": se trabaja una vez con un argumento real y una pregunta.
-        if (txt && !reintentoObjecion && m.esTexto && vigentes.length === 0 && esDudaOObjecion(m.texto) && !esRechazoFirme(m.texto) && textosCliente.filter(esDudaOObjecion).length <= 2 && !/\?/.test(txt)) {
-          reintentoObjecion = true;
+        if (txt && !reintentoObjecion && correcciones < MAX_CORRECCIONES && m.esTexto && vigentes.length === 0 && esDudaOObjecion(m.texto) && !esRechazoFirme(m.texto) && textosCliente.filter(esDudaOObjecion).length <= 2 && !/\?/.test(txt)) {
+          reintentoObjecion = true; correcciones++;
           mensajes.push({ role: 'assistant', content: txt });
           mensajes.push({ role: 'user', content: '[SISTEMA ERP: La persona acaba de poner una duda u objeción y no podés cerrar todavía. Respondé a lo concreto que dijo con un argumento REAL (lo que se revisa en la consulta, que es sin cargo y sin compromiso en Artículo 9, que el valor de hoy rige solo hoy en jubilación, el plazo de la ley) y terminá con UNA pregunta cálida para destrabarla o con un horario real. Sin frases hechas.]' });
           continue;
         }
         // Nunca se ofrece un horario que la agenda no devolvió.
         const horasMalas = txt ? horasEnTexto(txt).filter(h => !horasPermitidas.has(h)) : [];
-        if (horasMalas.length && !reintentoHoras) {
-          reintentoHoras = true;
+        if (horasMalas.length && !reintentoHoras && correcciones < MAX_CORRECCIONES) {
+          reintentoHoras = true; correcciones++;
           mensajes.push({ role: 'assistant', content: txt });
           mensajes.push({ role: 'user', content: `[SISTEMA ERP: Mencionaste horarios que la agenda no devolvió (${horasMalas.join(', ')}). Ofrecé SOLO horarios que devolvió consultar_disponibilidad${horasAgenda.size ? ': ' + [...horasAgenda].slice(0, 12).join(', ') : ' (todavía no la consultaste: consultala ahora)'}.]` });
           continue;
         }
         // Un paso por mensaje: datos bancarios y horarios del calendario nunca juntos.
-        if (txt && !reintentoApuro && mensajeApurado(txt)) {
-          reintentoApuro = true;
+        if (txt && !reintentoApuro && correcciones < MAX_CORRECCIONES && mensajeApurado(txt)) {
+          reintentoApuro = true; correcciones++;
           mensajes.push({ role: 'assistant', content: txt });
           mensajes.push({ role: 'user', content: '[SISTEMA ERP: Mezclaste en un solo mensaje los datos para transferir y horarios del calendario. Son pasos distintos. Reescribí el mensaje con UN solo paso: si la persona recién eligió transferencia, solo los datos y el pedido del comprobante; los horarios se coordinan recién después de validar el comprobante, y empezando por preguntar cuándo le queda más cómodo.]' });
           continue;
@@ -1772,11 +1774,11 @@ export async function procesarMensaje(deps: Deps, m: MsgEntrante) {
         if (txt) ultimoTexto = txt;
         const normalizado = (x: string) => x.toLowerCase().replace(/[^a-z0-9áéíóúñ]+/g, ' ').trim();
         const ultimoAgente = [...previos].reverse().find(x => x.from === 'agente')?.texto ?? '';
-        const problemas = txt && reintentosEstilo < 2
+        const problemas = txt && reintentosEstilo < 2 && correcciones < MAX_CORRECCIONES
           ? [...problemasDeEstilo(txt), ...(ultimoAgente && normalizado(txt) === normalizado(ultimoAgente) ? ['No repitas tu mensaje anterior: contestá a lo último que escribió la persona. Si no se entiende, decile con amabilidad que no lo pudiste entender y pedile que lo repita.'] : [])]
           : [];
         if (problemas.length) {
-          reintentosEstilo++;
+          reintentosEstilo++; correcciones++;
           mensajes.push({ role: 'assistant', content: txt });
           mensajes.push({ role: 'user', content: `[SISTEMA ERP: Corregí tu mensaje antes de enviarlo. ${problemas.join(' ')} Mantené el contenido y un tono profesional, cordial y empático, siempre de usted.]` });
           continue;
@@ -1897,6 +1899,15 @@ export function deOpenAI(msg: any): { stop_reason: string; content: BloqueLLM[] 
   return { stop_reason: content.some(b => b.type === 'tool_use') ? 'tool_use' : 'end_turn', content };
 }
 
+/** Precio de lista en dólares por millón de tokens (entrada, salida). */
+const PRECIOS_USD: Record<string, [number, number]> = { 'gpt-4o-mini': [0.15, 0.6], 'gpt-4o': [2.5, 10] };
+export const usoOpenAI = { llamadas: 0, entrada: 0, salida: 0, usd: 0 };
+export const costoUsd = (modelo: string, entrada: number, salida: number) => { const [e, o] = PRECIOS_USD[modelo] ?? PRECIOS_USD['gpt-4o']; return (entrada * e + salida * o) / 1_000_000; };
+function registrarUso(modelo: string, uso: any) {
+  const entrada = Number(uso?.prompt_tokens ?? 0), salida = Number(uso?.completion_tokens ?? 0);
+  usoOpenAI.llamadas++; usoOpenAI.entrada += entrada; usoOpenAI.salida += salida; usoOpenAI.usd += costoUsd(modelo, entrada, salida);
+}
+
 /** Modelo de respaldo para cuando el principal está saturado (tiene su propio cupo de uso en OpenAI). */
 const MODELO_RESPALDO = 'gpt-4o-mini';
 
@@ -1913,7 +1924,10 @@ async function llamarModelo(system: string, mensajes: MsgLLM[], opts: { respaldo
     r = await fetchModelo(system, mensajes, MODELO_RESPALDO);
   }
   if (!r.ok) throw new Error(`modelo ${r.status}: ${(await r.text()).slice(0, 200)}`);
-  return deOpenAI(((await r.json()) as any)?.choices?.[0]?.message);
+  const cuerpo = (await r.json()) as any;
+  registrarUso(String(cuerpo?.model ?? '').replace(/-20\d{2}-\d{2}-\d{2}$/, '') || MODELO_DEFAULT, cuerpo?.usage);
+  console.log(`[uso] ${cuerpo?.model ?? ''} entrada=${cuerpo?.usage?.prompt_tokens ?? '?'} salida=${cuerpo?.usage?.completion_tokens ?? '?'}`);
+  return deOpenAI(cuerpo?.choices?.[0]?.message);
 }
 
 function fetchModelo(system: string, mensajes: MsgLLM[], modelo?: string) {
