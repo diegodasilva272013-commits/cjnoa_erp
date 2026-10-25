@@ -3,7 +3,7 @@ import { createHmac } from 'node:crypto';
 import handler, {
   clasificarRecibo, TIPOS_CONSULTA, promesaSinCumplir, separarDatosPago, mensajeApurado,
   aMin, limpiarSecreto, camposDeLead, etapaAutomatica, fusionarLead, registrarMensaje, upsertLead, firmaMetaValida, firmaKapsoValida, extraerMensajesKapso, extraerMensajes, aMensajesLLM, procesarMensaje, filaDePersona, esConversacionDeNoa, clasificarMensajeCliente, categoriaMensajeAgente, personaMetrica, agregarMetricasAgente, calcularMetricasAgente, evaluarOptimizaciones, validarOptimizaciones, ejecutarOptimizacion, type MetricasAgente, motivoDeExclusion, resumenEnPalabras, ejecutarAnalista, revisarAnalisisAutomatico, codigosDeEstilo, etapaEmbudo, analizarConversacion, calcularMetricas, mascararDatos, textoParaEtiquetar, validarEtiquetas, promptDelAgente, limpiarCachePrompt, accionAgentes, problemasDeEstilo, textoNoLegible, firmaMercadoPagoValida, importeTexto, importeLindo, asignarImporteUnico, procesarPagoMP, montoMercadoPago, modalidadElegida, enmascarar, neutralizarMarcas, salidaInsegura, superaLimite, urlMediaSegura, resumenTurnosVigentes, HERRAMIENTAS_LLM, cuerpoNotaDeVoz, eligioTransferencia, notaDeImagen, montoValidadoDe, quitarEtiquetas, aMensajesOpenAI, deOpenAI, ejecutarHerramienta, PROMPT_AGENTE, type Deps, telefonoClave, historialDe, inferirNombre, normalizarFecha, normalizarHora, bloquesDelDia, huecosLibres, localDe, resolverProfesional, diaSemanaISO, fechaValida,
-  registrarSinResponder, registrarUso, fijarDbUso, costoUsd, esDudaOObjecion, esRechazoFirme, horasEnTexto, quitarFrasesHechas, REGEX_CLICHE, condicionesArt9Confirmadas, campanaDelTexto, probarAgentePaso, condicionDeAgenda, registrarMensajeHumano, extraerHumanosKapso, responderDesdeErp, resumenCampana, analizarCampana, analisisSoloConCifrasReales,
+  registrarSinResponder, registrarUso, fijarDbUso, costoUsd, esDudaOObjecion, esRechazoFirme, horasEnTexto, quitarFrasesHechas, REGEX_CLICHE, condicionesArt9Confirmadas, campanaDelTexto, probarAgentePaso, chatAgentePaso, condicionDeAgenda, registrarMensajeHumano, extraerHumanosKapso, responderDesdeErp, resumenCampana, analizarCampana, analisisSoloConCifrasReales,
   type Bloque,
 } from '../../api/turnos/[accion]';
 
@@ -2952,5 +2952,32 @@ describe('gasto · cada llamada a OpenAI queda anotada', () => {
     fijarDbUso({ from: () => ({ insert: () => { throw new Error('base caída'); } }) } as any);
     await expect(registrarUso('gpt-4o', { prompt_tokens: 1000, completion_tokens: 10 })).resolves.toBeUndefined();
     fijarDbUso(null);
+  });
+});
+
+describe('chat de prueba a mano desde el ERP', () => {
+  it('contesta con el agente sin enviar nada por WhatsApp, conserva la conversacion y no escribe en la base real', async () => {
+    const escrituras: string[] = [];
+    const real: any = { from: (t: string) => { const q: any = { select: () => q, gte: () => q, limit: () => Promise.resolve({ data: [], error: null }), insert: () => { escrituras.push(t); return q; }, update: () => { escrituras.push(t); return q; }, upsert: () => { escrituras.push(t); return q; }, delete: () => { escrituras.push(t); return q; } }; return q; } };
+    let llamadas = 0;
+    const llm = async () => { llamadas++; return { stop_reason: 'end_turn', content: [{ type: 'text', text: 'Hola, soy Karina, del Centro Jurídico NOA.' }] } as any; };
+    const fetchEspia = vi.fn();
+    vi.stubGlobal('fetch', fetchEspia);
+    const r1 = await chatAgentePaso('Hola, vi el anuncio', undefined, llm as any, real);
+    expect(r1.code).toBe(200);
+    expect(r1.body.respuestas.length).toBeGreaterThan(0);
+    const r2 = await chatAgentePaso('Quiero saber más', r1.body.estado, llm as any, real);
+    expect(r2.code).toBe(200);
+    expect(r2.body.estado.transcript.filter((t: any) => t.de === 'cliente')).toHaveLength(2);
+    expect(escrituras).toEqual([]);
+    expect(fetchEspia).not.toHaveBeenCalled();
+    expect(llamadas).toBeGreaterThan(0);
+    vi.unstubAllGlobals();
+  });
+  it('un mensaje vacio no llama al modelo', async () => {
+    let llamadas = 0;
+    const r = await chatAgentePaso('   ', undefined, (async () => { llamadas++; return {} as any; }) as any);
+    expect(r.code).toBe(400);
+    expect(llamadas).toBe(0);
   });
 });

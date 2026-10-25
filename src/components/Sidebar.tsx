@@ -181,6 +181,14 @@ export default function Sidebar({ open, onClose }: SidebarProps) {
             </NavLink>
           )}
 
+          {/* Chat de prueba con el agente (sin WhatsApp): solo admin y socio */}
+          {(rol === 'admin' || rol === 'socio') && (
+            <NavLink to="/chat-agente" onClick={onClose} className={({ isActive }) => linkClass(isActive)}>
+              <MessageCircle className="w-5 h-5" />
+              Chat de prueba
+            </NavLink>
+          )}
+
           {/* Gasto de OpenAI en tiempo real: solo admin y socio */}
           {(rol === 'admin' || rol === 'socio') && (
             <NavLink to="/gastos-agente" onClick={onClose} className={({ isActive }) => linkClass(isActive)}>

@@ -3189,6 +3189,43 @@ export async function costosCuentaOpenAI(desdeMs: number): Promise<{ configurado
   } catch (e) { return { configurado: true, error: e instanceof Error ? e.message.slice(0, 120) : 'error' }; }
 }
 
+/**
+ * Chat de prueba a mano desde el ERP: una persona escribe y contesta el agente REAL (mismo prompt, mismo modelo, mismas herramientas).
+ * No pasa por WhatsApp (enviar solo junta las respuestas) y escribe en una base en memoria: lo unico real que lee es la agenda.
+ * Cada mensaje cuesta lo mismo que uno de un cliente (1 a 3 llamadas al modelo); nada corre solo.
+ */
+export async function chatAgentePaso(texto: string, estadoIn: any, llm: Deps['llm'], real?: Db): Promise<Resp> {
+  const m = Pruebas;
+  fijarOrigenUso('chat_prueba');
+  const limpio = String(texto ?? '').trim().slice(0, 1500);
+  if (!limpio) return { code: 400, body: { error: 'Escribí un mensaje.' } };
+  const base = m.ESCENARIOS[0];
+  const copia = estadoIn?.tablas ? structuredClone(estadoIn) : null;
+  const estado: any = copia
+    ? { tablas: copia.tablas, transcript: copia.transcript ?? [], herramientas: copia.herramientas ?? [], videos: Number(copia.videos ?? 0) }
+    : m.estadoInicial({ ...base, semilla: undefined });
+  if (!copia && real) {
+    const agenda = await agendaRealParaPrueba(real);
+    for (const k of Object.keys(agenda)) estado.tablas[k] = [...agenda[k], ...(estado.tablas[k] ?? [])];
+  }
+  const db = m.dbEnMemoria(estado.tablas);
+  const paso = estado.transcript.filter((t: any) => t.de === 'cliente').length;
+  estado.transcript.push({ de: 'cliente', texto: limpio, paso });
+  const respuestas: string[] = [];
+  const antes = estado.herramientas.length;
+  const deps: Deps = {
+    db, llm, prompt: PROMPT_AGENTE,
+    enviar: async (_to, t) => { respuestas.push(t); },
+    ejecutar: async (nombre, input, ctx) => { const resultado = await ejecutarHerramienta(db, nombre, input, ctx); estado.herramientas.push({ nombre, input, resultado }); return resultado; },
+    enviarVideo: async () => { estado.videos++; },
+    presentarse: true,
+  };
+  await procesarMensaje(deps, { id: `chat-${Date.now()}-${paso}`, from: '5490000000000', nombre: null, texto: limpio, esTexto: true });
+  if (respuestas.length === 0 || (respuestas.length === 1 && respuestas[0] === MSG_SIN_RESPUESTA)) return { code: 503, body: { error: 'OpenAI no contestó (límite de uso o saldo). Probá de nuevo.' } };
+  for (const t of respuestas) estado.transcript.push({ de: 'karina', texto: t, paso });
+  return { code: 200, body: { respuestas, estado, herramientas: estado.herramientas.slice(antes).map((h: any) => h.nombre), videos: estado.videos } };
+}
+
 export async function probarAgentePaso(id: string, paso: number, estadoIn: any, llm: Deps['llm'] = (sis, msgs) => llamarModelo(sis, msgs, { respaldo: false }), real?: Db, cliente: ClienteSimulado = simularClienteOpenAI): Promise<Resp> {
   const m = Pruebas;
   fijarOrigenUso('pruebas');
@@ -3633,6 +3670,12 @@ async function agentesHttp(req: VercelRequest, res: VercelResponse, db: Db, raw:
     if (rol !== 'admin' && rol !== 'socio') return res.status(403).json({ error: 'No tenés permiso para correr las pruebas.' });
     try { const r = await probarAgentePaso(String(body?.id ?? ''), Number(body?.paso ?? 0), body?.estado, llamarModelo, db); return res.status(r.code).json(r.body); }
     catch (e) { console.error('[pruebas] ', e); return res.status(500).json({ error: e instanceof Error ? e.message.slice(0, 200) : 'Error en la prueba' }); }
+  }
+  if (body?.accion === 'chat_agente') {
+    const rol = String((perfil as any).rol ?? '');
+    if (rol !== 'admin' && rol !== 'socio') return res.status(403).json({ error: 'No tenés permiso para probar el agente.' });
+    try { const r = await chatAgentePaso(String(body?.texto ?? ''), body?.estado, llamarModelo, db); return res.status(r.code).json(r.body); }
+    catch (e) { console.error('[chat_agente]', e); return res.status(500).json({ error: e instanceof Error ? e.message.slice(0, 200) : 'Error en el chat' }); }
   }
   if (body?.accion === 'gasto_cuenta' || body?.accion === 'gasto_saldo') {
     const rol = String((perfil as any).rol ?? '');
