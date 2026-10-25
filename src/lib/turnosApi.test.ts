@@ -3,7 +3,7 @@ import { createHmac } from 'node:crypto';
 import handler, {
   clasificarRecibo, TIPOS_CONSULTA, promesaSinCumplir, separarDatosPago, mensajeApurado,
   aMin, limpiarSecreto, camposDeLead, etapaAutomatica, fusionarLead, registrarMensaje, upsertLead, firmaMetaValida, firmaKapsoValida, extraerMensajesKapso, extraerMensajes, aMensajesLLM, procesarMensaje, filaDePersona, esConversacionDeNoa, clasificarMensajeCliente, categoriaMensajeAgente, personaMetrica, agregarMetricasAgente, calcularMetricasAgente, evaluarOptimizaciones, validarOptimizaciones, ejecutarOptimizacion, type MetricasAgente, motivoDeExclusion, resumenEnPalabras, ejecutarAnalista, revisarAnalisisAutomatico, codigosDeEstilo, etapaEmbudo, analizarConversacion, calcularMetricas, mascararDatos, textoParaEtiquetar, validarEtiquetas, promptDelAgente, limpiarCachePrompt, accionAgentes, problemasDeEstilo, textoNoLegible, firmaMercadoPagoValida, importeTexto, importeLindo, asignarImporteUnico, procesarPagoMP, montoMercadoPago, modalidadElegida, enmascarar, neutralizarMarcas, salidaInsegura, superaLimite, urlMediaSegura, resumenTurnosVigentes, HERRAMIENTAS_LLM, cuerpoNotaDeVoz, eligioTransferencia, notaDeImagen, montoValidadoDe, quitarEtiquetas, aMensajesOpenAI, deOpenAI, ejecutarHerramienta, PROMPT_AGENTE, type Deps, telefonoClave, historialDe, inferirNombre, normalizarFecha, normalizarHora, bloquesDelDia, huecosLibres, localDe, resolverProfesional, diaSemanaISO, fechaValida,
-  registrarSinResponder, costoUsd, esDudaOObjecion, esRechazoFirme, horasEnTexto, quitarFrasesHechas, REGEX_CLICHE, condicionesArt9Confirmadas, campanaDelTexto, probarAgentePaso, condicionDeAgenda, registrarMensajeHumano, extraerHumanosKapso, responderDesdeErp, resumenCampana, analizarCampana, analisisSoloConCifrasReales,
+  registrarSinResponder, registrarUso, fijarDbUso, costoUsd, esDudaOObjecion, esRechazoFirme, horasEnTexto, quitarFrasesHechas, REGEX_CLICHE, condicionesArt9Confirmadas, campanaDelTexto, probarAgentePaso, condicionDeAgenda, registrarMensajeHumano, extraerHumanosKapso, responderDesdeErp, resumenCampana, analizarCampana, analisisSoloConCifrasReales,
   type Bloque,
 } from '../../api/turnos/[accion]';
 
@@ -2937,5 +2937,20 @@ describe('costos · medición real y tope de correcciones', () => {
     await procesarMensaje(d, { ...msg, id: 'wamid.tope', texto: 'Lo voy a pensar' });
     expect(n).toBeLessThanOrEqual(3);
     expect(enviados).toHaveLength(1);
+  });
+});
+
+describe('gasto · cada llamada a OpenAI queda anotada', () => {
+  it('registrarUso anota modelo, tokens y dólares en uso_openai, y si la base falla no rompe al agente', async () => {
+    const filas: any[] = [];
+    const db: any = { from: (t: string) => ({ insert: (f: any) => { if (t !== 'uso_openai') throw new Error('otra tabla'); filas.push(f); return Promise.resolve({ error: null }); } }) };
+    fijarDbUso(db);
+    await registrarUso('gpt-4o-mini', { prompt_tokens: 9000, completion_tokens: 100 }, 'agente');
+    expect(filas).toHaveLength(1);
+    expect(filas[0]).toMatchObject({ origen: 'agente', modelo: 'gpt-4o-mini', entrada: 9000, salida: 100 });
+    expect(filas[0].usd).toBeCloseTo(0.00141, 5);
+    fijarDbUso({ from: () => ({ insert: () => { throw new Error('base caída'); } }) } as any);
+    await expect(registrarUso('gpt-4o', { prompt_tokens: 1000, completion_tokens: 10 })).resolves.toBeUndefined();
+    fijarDbUso(null);
   });
 });

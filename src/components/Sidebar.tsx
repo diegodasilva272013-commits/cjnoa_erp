@@ -181,6 +181,14 @@ export default function Sidebar({ open, onClose }: SidebarProps) {
             </NavLink>
           )}
 
+          {/* Gasto de OpenAI en tiempo real: solo admin y socio */}
+          {(rol === 'admin' || rol === 'socio') && (
+            <NavLink to="/gastos-agente" onClick={onClose} className={({ isActive }) => linkClass(isActive)}>
+              <Wallet className="w-5 h-5" />
+              Gasto del agente
+            </NavLink>
+          )}
+
           {/* Pruebas del agente (20 conversaciones contra el agente real): solo admin y socio */}
           {(rol === 'admin' || rol === 'socio') && (
             <NavLink to="/agente-pruebas" onClick={onClose} className={({ isActive }) => linkClass(isActive)}>

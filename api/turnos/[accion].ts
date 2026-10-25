@@ -238,6 +238,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!supabaseUrl || !serviceKey) return res.status(500).json({ error: 'Faltan variables de entorno de Supabase' });
   const db = createClient(supabaseUrl, serviceKey, { auth: { autoRefreshToken: false, persistSession: false } });
+  fijarDbUso(db);
+  fijarOrigenUso('agente');
 
   try {
     const raw = req.method === 'POST' ? await leerCuerpo(req) : '';
@@ -1903,9 +1905,21 @@ export function deOpenAI(msg: any): { stop_reason: string; content: BloqueLLM[] 
 const PRECIOS_USD: Record<string, [number, number]> = { 'gpt-4o-mini': [0.15, 0.6], 'gpt-4o': [2.5, 10] };
 export const usoOpenAI = { llamadas: 0, entrada: 0, salida: 0, usd: 0 };
 export const costoUsd = (modelo: string, entrada: number, salida: number) => { const [e, o] = PRECIOS_USD[modelo] ?? PRECIOS_USD['gpt-4o']; return (entrada * e + salida * o) / 1_000_000; };
-function registrarUso(modelo: string, uso: any) {
+let dbUso: Db | null = null;
+let origenUso = 'agente';
+/** La base donde se anota cada llamada (la fija el handler en cada pedido). */
+export const fijarDbUso = (db: Db | null) => { dbUso = db; };
+/** Para qué se usa OpenAI en este momento: 'agente', 'agente_vision', 'pruebas', ... */
+export const fijarOrigenUso = (o: string) => { origenUso = o; };
+
+/** Anota una llamada: en memoria (para el corte de las pruebas) y en la tabla uso_openai (para la pantalla en vivo). */
+export async function registrarUso(modelo: string, uso: any, origen: string = origenUso) {
   const entrada = Number(uso?.prompt_tokens ?? 0), salida = Number(uso?.completion_tokens ?? 0);
-  usoOpenAI.llamadas++; usoOpenAI.entrada += entrada; usoOpenAI.salida += salida; usoOpenAI.usd += costoUsd(modelo, entrada, salida);
+  const usd = costoUsd(modelo, entrada, salida);
+  usoOpenAI.llamadas++; usoOpenAI.entrada += entrada; usoOpenAI.salida += salida; usoOpenAI.usd += usd;
+  if (!dbUso) return;
+  try { await dbUso.from('uso_openai').insert({ origen, modelo, entrada, salida, usd: Number(usd.toFixed(6)) }); }
+  catch (e) { console.error('[uso] no se pudo anotar', e instanceof Error ? e.message : e); }
 }
 
 /** Modelo de respaldo para cuando el principal está saturado (tiene su propio cupo de uso en OpenAI). */
@@ -1925,7 +1939,7 @@ async function llamarModelo(system: string, mensajes: MsgLLM[], opts: { respaldo
   }
   if (!r.ok) throw new Error(`modelo ${r.status}: ${(await r.text()).slice(0, 200)}`);
   const cuerpo = (await r.json()) as any;
-  registrarUso(String(cuerpo?.model ?? '').replace(/-20\d{2}-\d{2}-\d{2}$/, '') || MODELO_DEFAULT, cuerpo?.usage);
+  await registrarUso(String(cuerpo?.model ?? '').replace(/-20\d{2}-\d{2}-\d{2}$/, '') || MODELO_DEFAULT, cuerpo?.usage);
   console.log(`[uso] ${cuerpo?.model ?? ''} entrada=${cuerpo?.usage?.prompt_tokens ?? '?'} salida=${cuerpo?.usage?.completion_tokens ?? '?'}`);
   return deOpenAI(cuerpo?.choices?.[0]?.message);
 }
@@ -1960,7 +1974,9 @@ async function analizarImagen(dataUrl: string, pdf?: string): Promise<AnalisisIm
     }),
   });
   if (!r.ok) throw new Error(`visión ${r.status}: ${(await r.text()).slice(0, 200)}`);
-  const j = JSON.parse(((await r.json()) as any)?.choices?.[0]?.message?.content || '{}');
+  const cuerpoV = (await r.json()) as any;
+  await registrarUso(String(cuerpoV?.model ?? '').replace(/-20\d{2}-\d{2}-\d{2}$/, '') || MODELO_VISION_DEFAULT, cuerpoV?.usage, 'agente_vision');
+  const j = JSON.parse(cuerpoV?.choices?.[0]?.message?.content || '{}');
   const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
   const tipo = ['recibo_sueldo', 'transferencia', 'otro', 'ilegible'].includes(j?.tipo) ? j.tipo : 'ilegible';
   return {
@@ -3152,15 +3168,30 @@ const simularClienteOpenAI: ClienteSimulado = async (esc, transcript) => {
       headers: { 'content-type': 'application/json', authorization: `Bearer ${claveOpenAI()}` },
       body: JSON.stringify({ model: 'gpt-4o-mini', temperature: 0.6, max_tokens: 120, messages: [{ role: 'system', content: Pruebas.instruccionesDelCliente(esc) }, { role: 'user', content: `La charla hasta ahora:\n${charla}\n\nEscribí ahora SOLO tu próximo mensaje.` }] }),
     });
-    if (r.ok) return String(((await r.json()) as any)?.choices?.[0]?.message?.content ?? '').replace(/^["“]|["”]$/g, '').trim() || 'Sí';
+    if (r.ok) { const cuerpoC = (await r.json()) as any; await registrarUso('gpt-4o-mini', cuerpoC?.usage, 'pruebas_cliente'); return String(cuerpoC?.choices?.[0]?.message?.content ?? '').replace(/^["“]|["”]$/g, '').trim() || 'Sí'; }
     if (r.status !== 429 && r.status < 500) break;
     await esperar(intento * 3000);
   }
   throw new Error('simulador: OpenAI no contestó');
 };
 
+/** Gasto oficial de TODA la cuenta de OpenAI (solo si hay una clave de administrador en OPENAI_ADMIN_KEY). */
+export async function costosCuentaOpenAI(desdeMs: number): Promise<{ configurado: boolean; error?: string; dias?: { fecha: string; usd: number }[]; total_usd?: number }> {
+  const key = limpiarSecreto(process.env.OPENAI_ADMIN_KEY ?? '');
+  if (!key) return { configurado: false };
+  const inicio = Math.floor(desdeMs / 1000);
+  try {
+    const r = await fetch(`https://api.openai.com/v1/organization/costs?start_time=${inicio}&bucket_width=1d&limit=180`, { headers: { authorization: `Bearer ${key}` } });
+    if (!r.ok) return { configurado: true, error: `OpenAI respondió ${r.status}` };
+    const j = (await r.json()) as any;
+    const dias = (Array.isArray(j?.data) ? j.data : []).map((b: any) => ({ fecha: new Date(Number(b.start_time) * 1000).toISOString().slice(0, 10), usd: (Array.isArray(b?.results) ? b.results : []).reduce((t: number, x: any) => t + Number(x?.amount?.value ?? 0), 0) }));
+    return { configurado: true, dias, total_usd: dias.reduce((t: number, d: { usd: number }) => t + d.usd, 0) };
+  } catch (e) { return { configurado: true, error: e instanceof Error ? e.message.slice(0, 120) : 'error' }; }
+}
+
 export async function probarAgentePaso(id: string, paso: number, estadoIn: any, llm: Deps['llm'] = (sis, msgs) => llamarModelo(sis, msgs, { respaldo: false }), real?: Db, cliente: ClienteSimulado = simularClienteOpenAI): Promise<Resp> {
   const m = Pruebas;
+  fijarOrigenUso('pruebas');
   const esc = m.ESCENARIOS.find(e => e.id === id);
   if (!esc) return { code: 404, body: { error: 'Esa prueba no existe.' } };
   if (!Number.isInteger(paso) || paso < 0 || paso >= esc.maxTurnos) return { code: 400, body: { error: 'Paso inválido.' } };
@@ -3246,7 +3277,9 @@ async function llamarTextoOpenAI(sistema: string, usuario: string): Promise<stri
     body: JSON.stringify({ model: limpiarSecreto(process.env.AGENTE_MODELO_ANALISIS ?? '') || 'gpt-4o-mini', temperature: 0.2, max_tokens: 500, messages: [{ role: 'system', content: sistema }, { role: 'user', content: usuario }] }),
   });
   if (!r.ok) throw new Error(`analisis ${r.status}`);
-  return String((await r.json() as any)?.choices?.[0]?.message?.content ?? '').trim();
+  const cuerpoA = (await r.json()) as any;
+  await registrarUso(String(cuerpoA?.model ?? '').replace(/-20\d{2}-\d{2}-\d{2}$/, '') || 'gpt-4o-mini', cuerpoA?.usage, 'cj_analisis');
+  return String(cuerpoA?.choices?.[0]?.message?.content ?? '').trim();
 }
 
 const SISTEMA_ANALISIS_CAMPANA = `Sos el analista del Centro Jurídico NOA. Recibís las cifras REALES de una campaña de WhatsApp y escribís un análisis breve y profesional en español rioplatense, tratando de usted al equipo solo si hace falta.
@@ -3600,6 +3633,20 @@ async function agentesHttp(req: VercelRequest, res: VercelResponse, db: Db, raw:
     if (rol !== 'admin' && rol !== 'socio') return res.status(403).json({ error: 'No tenés permiso para correr las pruebas.' });
     try { const r = await probarAgentePaso(String(body?.id ?? ''), Number(body?.paso ?? 0), body?.estado, llamarModelo, db); return res.status(r.code).json(r.body); }
     catch (e) { console.error('[pruebas] ', e); return res.status(500).json({ error: e instanceof Error ? e.message.slice(0, 200) : 'Error en la prueba' }); }
+  }
+  if (body?.accion === 'gasto_cuenta' || body?.accion === 'gasto_saldo') {
+    const rol = String((perfil as any).rol ?? '');
+    if (rol !== 'admin' && rol !== 'socio') return res.status(403).json({ error: 'No tenés permiso para ver el gasto.' });
+    if (body.accion === 'gasto_cuenta') {
+      const desde = Date.parse(String(body?.desde ?? '')) || Date.now() - 30 * 86400000;
+      return res.status(200).json(await costosCuentaOpenAI(desde));
+    }
+    const saldo = Number(body?.saldo);
+    if (!Number.isFinite(saldo) || saldo < 0 || saldo > 100000) return res.status(400).json({ error: 'El saldo tiene que ser un número entre 0 y 100000.' });
+    const ahora = new Date().toISOString();
+    const { error } = await db.from('uso_openai_config').upsert({ id: 1, saldo_inicial: saldo, saldo_desde: ahora, actualizado_at: ahora, actualizado_por: sesion.user.email ?? null }, { onConflict: 'id' });
+    if (error) return res.status(500).json({ error: 'No se pudo guardar el saldo (¿se corrió migration_uso_openai.sql?).' });
+    return res.status(200).json({ ok: true, saldo, desde: ahora });
   }
   if (body?.accion === 'hablar') {
     const texto = String(body?.texto ?? '').trim();

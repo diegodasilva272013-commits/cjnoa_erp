@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
-import { probarAgentePaso, usoOpenAI } from '../api/turnos/[accion]';
+import { probarAgentePaso, usoOpenAI, fijarDbUso, fijarOrigenUso } from '../api/turnos/[accion]';
 import { ESCENARIOS } from '../src/server/agentePruebas';
 
 // El log del build tiene tope de tamaño: se silencian los errores internos y se imprime cada prueba apenas termina.
@@ -12,6 +12,8 @@ async function main() {
   const url = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
   const real = url && key ? createClient(url, key, { auth: { autoRefreshToken: false, persistSession: false } }) : undefined;
+  fijarOrigenUso('pruebas');
+  if (real) fijarDbUso(real as any);
   log(`clave OpenAI: ${process.env.api_openai || process.env.OPENAI_API_KEY ? 'presente' : 'AUSENTE'} · agenda real: ${real ? 'sí' : 'no'}`);
   const solo = (process.env.AGENT_TESTS_IDS ?? '').split(',').map(x => x.trim()).filter(Boolean);
   const lista = ESCENARIOS.filter(e => !solo.length || solo.includes(e.id));
