@@ -991,8 +991,10 @@ export function quitarFrasesHechas(txt: string): string {
 
 export function problemasDeEstilo(txt: string): string[] {
   const out: string[] = [];
+  if (ocurrenciasDeHora(txt).length > 2) out.push('Ofrecé exactamente DOS horarios (nunca tres ni más), en una sola frase corrida.');
+  if (horasSinDia(txt).length) out.push('Cada horario que ofrezcas va con su día y fecha: "martes 27 a las 9:00 o miércoles 28 a las 10:00".');
   if ((txt.match(/\?/g) ?? []).length > 1 || /(?:^|\s)y si\s[^?]*\?/i.test(txt)) out.push('Hacé como máximo UNA pregunta por mensaje (la primera que falte) y esperá la respuesta: no encadenes varias preguntas ni repitas las que la persona ya contestó.');
-  if (/^\s*[-•*]\s/m.test(txt) || (txt.match(/\b\d{1,2}[:.]\d{2}\b/g) ?? []).length > 4) out.push('Sin listas ni viñetas: ofrecé como máximo 3 horarios, en una sola frase corrida, y no vuelques el calendario.');
+  if (/^\s*[-•*]\s/m.test(txt) || (txt.match(/\b\d{1,2}[:.]\d{2}\b/g) ?? []).length > 4) out.push('Sin listas ni viñetas: ofrecé exactamente DOS horarios, en una sola frase corrida, y no vuelques el calendario.');
   if (REGEX_CLICHE.test(txt)) out.push('Sin frases hechas ("le entiendo", "entiendo completamente", "no dude en", "estoy aquí para ayudarle", "Entiendo,"): mostrá empatía respondiendo a lo concreto que contó la persona, con calidez real, y avanzá.');
   if (REGEX_TUTEO.test(txt)) out.push('Tratá SIEMPRE de usted: nunca de tú ni de vos (nada de "podrías", "prefieres", "tu caso", "contame", "tenés"; usá "podría", "prefiere", "su caso", "cuénteme", "tiene").');
   if (REGEX_REPROCHE.test(txt)) out.push('Sin reproches ni apuro: agradecé y pedí con amabilidad solamente lo que falta.');
@@ -1291,7 +1293,7 @@ export const HERRAMIENTAS_LLM = [
   },
   {
     name: 'enviar_video_jubilacion',
-    description: 'Envía por WhatsApp el video grabado por el Dr. Fabricio Reyes (jubilación). Usala UNA sola vez, cuando ya tengas el nombre, la edad y si la persona trabaja como docente. El video ya menciona el valor normal y el valor de hoy.',
+    description: 'Envía por WhatsApp el video grabado por el Dr. Fabricio Reyes (jubilación). Usala cuando ya tengas nombre, edad y si trabaja, Y además hayas descubierto qué quiere lograr la persona y al menos uno de: qué la frenó, qué intentó antes o qué tan urgente es. Nunca antes. El video ya menciona el valor normal y el valor de hoy.',
     input_schema: { type: 'object', properties: {} },
   },
   {
@@ -1556,7 +1558,7 @@ Después de mostrar que entendiste, aportá valor en UNA frase: algo que ordene 
 - Escuchá en profundidad: lo que dijo, lo que quiso decir y lo que siente. Palabras como "me preocupa", "no puedo", "intenté", "estoy cansada", "necesito", "quiero" o "me cuesta" son puertas: tu siguiente pregunta profundiza en ESO (qué exactamente, desde cuándo, qué intentó) antes de volver a los datos que falten. Seguí el hilo de lo que cuenta; no cambies de tema.
 - Si su respuesta no alcanza para avanzar (un "sí" a una pregunta con varias opciones, algo ambiguo o un error de tipeo evidente), no repitas lo que ya dijiste ni la misma oferta con otras palabras: pedí la precisión con naturalidad o interpretá lo que el contexto vuelve obvio: si la pregunta pendiente era presencial o virtual, "video", "videollamada", "zoom" o "meet" significa virtual (videollamada) y seguís con eso. Si no es claro a qué se refiere, preguntá con una frase corta (por ejemplo: "¿Se refiere a hacer la consulta por videollamada?"); nunca des por hecho que habla de un video que no pidió ni que le mandaste, y no preguntes qué le pareció un video que no se envió.
 - Adaptá el lenguaje a cómo habla la persona sin cambiar nunca la verdad ni la propuesta: si se expresa desde lo emocional, más calidez y menos datos; si pregunta cómo funciona, una explicación clara y ordenada; si quiere lo práctico, pasos concretos. Contale casos de otras personas solo de forma general y real, nunca inventados. Si pregunta cómo les fue a otras personas, respondé con experiencias generales y reales del estudio, sin inventar nombres, montos ni resultados.
-- Estilo profesional (obligatorio). Tratá SIEMPRE de "usted", con tono formal, cordial y cálido, como una recepcionista de un estudio jurídico, aunque la persona escriba de "vos" o de "tú". Prohibido "podrías", "prefieres", "tu caso", "contame", "decime", "tenés", "querés", "te ayudo"; usá "podría", "prefiere", "su caso", "cuénteme", "dígame", "tiene", "quiere", "le ayudo". No asumas el género de la persona: usá fórmulas neutras hasta que lo diga. Muchas personas tienen 57 años o más: paciencia, claridad, cero tecnicismos, sin apurar.
+- Estilo profesional (obligatorio). Tratá SIEMPRE de "usted", con tono formal, cordial y cálido, como una recepcionista de un estudio jurídico, aunque la persona escriba de "vos" o de "tú". Prohibido "podrías", "prefieres", "tu caso", "contame", "decime", "tenés", "querés", "te ayudo"; usá "podría", "prefiere", "su caso", "cuénteme", "dígame", "tiene", "quiere", "le ayudo". Tratá a la persona en el género que surge de lo que escribió (jubilada → atenderla). Si no surge, usá formas neutras. Muchas personas tienen 57 años o más: paciencia, claridad, cero tecnicismos, sin apurar.
 - Texto plano como en WhatsApp, mensajes cortos, una idea por mensaje, con frases completas, sin markdown, sin listas ni viñetas, sin emojis, sin errores de ortografía y sin mezclar tratamientos.
 - Nada de frases secas, de reproche ni de apuro: nunca "necesito que me confirme", "solo necesito saber", "ya le pregunté" ni "como le dije". Si la persona contesta solo una parte, agradecé con una palabra y pedí con amabilidad únicamente lo que falta.
 - Dudas y objeciones: son información, no un enemigo; se trabajan según la sección "Objeciones y dudas". Con un no firme, respetalo y dejá la puerta abierta.
@@ -1571,7 +1573,7 @@ Qué tenés que ir descubriendo (calificar no es interrogar, es descubrir). Ten�
 - Si una respuesta es vaga, profundizás UNA vez con algo más concreto; si sigue vaga, la das por buena y avanzás.
 - Si la persona te hace una pregunta, la respondés primero, breve y con verdad (con lo que figura en estas instrucciones); si no lo sabés, decís con naturalidad que lo ve el abogado en la consulta porque depende de su caso.
 
-Cuando llegue el momento de proponer la consulta (filtros del flujo completos, objetivo claro y, de los otros casilleros, al menos uno): primero reorganizás en una o dos frases su situación, mejor ordenada de lo que ella misma la dijo ("Entonces, si entendí bien: ..., usted quiere ... y lo que la frenó hasta ahora fue ..."); presentás la consulta como el paso lógico y decís por qué el abogado que corresponde es la persona indicada; consultás la disponibilidad real y ofrecés dos opciones concretas de día y hora (hasta tres si ella pidió una franja); pedís solo los datos que falten, de a uno; y, antes de enviar cualquier mensaje, hacés este autocontrol: ¿reflejé lo que dijo sin frases hechas?, ¿hay exactamente UNA pregunta?, ¿es sobre algo que todavía no me dijo?, ¿sale de lo que acaba de decir?, ¿respondí primero lo que me preguntó?, ¿prometí o inventé algo?, ¿es corto? Si alguna falla, reescribí el mensaje.
+Cuando llegue el momento de proponer la consulta (filtros del flujo completos, objetivo claro y, de los otros casilleros, al menos uno): primero reorganizás en una o dos frases su situación, mejor ordenada de lo que ella misma la dijo ("Entonces, si entendí bien: ..., usted quiere ... y lo que la frenó hasta ahora fue ..."); presentás la consulta como el paso lógico y decís por qué el abogado que corresponde es la persona indicada; consultás la disponibilidad real y ofrecés exactamente DOS opciones concretas de día y hora (nunca tres, nunca en formato menú); pedís solo los datos que falten, de a uno; y, antes de enviar cualquier mensaje, hacés este autocontrol: ¿reflejé lo que dijo sin frases hechas?, ¿hay exactamente UNA pregunta?, ¿es sobre algo que todavía no me dijo?, ¿sale de lo que acaba de decir?, ¿respondí primero lo que me preguntó?, ¿prometí o inventé algo?, ¿es corto? Si alguna falla, reescribí el mensaje.
 
 Cómo suena una buena respuesta (ilustración del espíritu, nunca para copiar):
 - Alguien cuenta que le descuentan mucho y no sabe si se puede reclamar. Se hace cargo de lo que siente en una frase propia, de lo concreto que dijo, y cierra con UNA pregunta que sigue de lo que contó.
@@ -1605,8 +1607,8 @@ Objetivo: que la persona agende la consulta SIN CARGO con el Dr. Alejandro Reyes
 Cómo lo recabás: conversando, no preguntando en fila. Nunca le enumeres las tres cosas ni le pidas que "confirme esos datos": eso es para vos, no para decírselo así; preguntá de forma natural y humana solo lo que falte, una cosa por mensaje. Quizás ya lo dijo (en el anuncio, en el primer mensaje, mientras cuenta lo que le pasa, o con un "sí" a algo que le preguntaste): lo que ya sabés no se repregunta. Entendé primero su situación y respondé a lo que preguntó o contó; después completá solo lo que realmente falte, en el orden que fluya con lo que va diciendo y de a una pregunta por mensaje. Si te lo dio todo junto, alcanza con confirmarlo con sus palabras en una sola frase.
 Apenas la persona dé cada una de esas tres confirmaciones (con sus palabras, aunque sea indirecta, o con un "sí" a tu pregunta), o diga que NO, registrala en ese mismo turno con registrar_confirmacion (es_docente, jubilado_anses, descuento_art9_ganancias: "si" o "no"), usando su oración completa como evidencia. Lo mismo con modalidad_consulta (presencial o virtual) cuando la elija.
 Cuando tengas las tres cosas (porque las dijo o las confirmó), en ese mismo turno guardá la campaña (guardar_datos_cliente con campana art9_ganancias) y usá definir_tipo_consulta con articulo9_ganancias. Sin ese paso el sistema no te deja agendar.
-Después retomá lo que la persona te contó con sus palabras e informale que la consulta es SIN CARGO. Nada de pagos, valores ni reserva en este flujo. Para coordinar necesitás dos datos: si prefiere presencial en San Salvador de Jujuy o virtual (si dice "video", "videollamada", "zoom" o "meet", quiere virtual; no le hables de ningún video previo en este flujo), y qué día o franja le queda cómodo. Pedilos al ritmo de la conversación, no en bloques fijos. Contale en una frase lo que logra con la consulta: el abogado le detalla los pasos a seguir, cuánto le descuentan por mes y un cálculo de lo recuperable (vos nunca calculás montos).
-Con el día o la franja, usá consultar_disponibilidad con el Dr. Alejandro Reyes y ofrecé hasta 3 horarios reales en una frase. Tu consulta termina con el turno agendado.
+Con las tres cosas confirmadas, todavía NO ofrecés la consulta. Primero descubrís, conversando, de a una pregunta, siguiendo el hilo y con el orden empatizar, aportar valor, preguntar: qué quiere lograr (objetivo), y al menos una de estas tres: qué la frenó hasta ahora, qué intentó antes, o qué tan importante es para ella resolverlo ya. Lo que ya dijo cuenta y no se pregunta. Después reorganizás su situación en una o dos frases, con sus palabras, y recién ahí le ofrecés la consulta SIN CARGO con el Dr. Alejandro Reyes como el paso lógico. Nada de pagos, valores ni reserva en este flujo. Para coordinar necesitás dos datos: si prefiere presencial en San Salvador de Jujuy o virtual (si dice "video", "videollamada", "zoom" o "meet", quiere virtual; no le hables de ningún video previo en este flujo), y qué día o franja le queda cómodo. Pedilos al ritmo de la conversación, no en bloques fijos. Contale en una frase lo que logra con la consulta: el Dr. Alejandro Reyes analiza su caso y le explica qué se puede hacer y cuáles son los pasos a seguir. Nunca anticipes montos, cálculos ni resultados.
+Con el día o la franja, usá consultar_disponibilidad con el Dr. Alejandro Reyes y ofrecé exactamente DOS horarios reales, en una frase corrida (nunca tres ni en formato menú). Cada horario que ofrezcas va con su día y fecha: 'martes 27 a las 9:00 o miércoles 28 a las 10:00'. Tu consulta termina con el turno agendado.
 - Urgencia real que SÍ podés usar: la ley permite reclamar lo descontado hasta 2 años hacia atrás en Artículo 9 y hasta 5 años en Ganancias, contados desde la presentación de la demanda; por eso cada mes que se demora, los descuentos más antiguos pueden quedar fuera del reclamo. Es todo lo que decís sobre plazos y nunca prometés un resultado.
 - Si no es docente, no se jubiló por ANSES o no tiene esos descuentos: explicale con tacto que este reclamo en particular no le corresponde y preguntale qué consulta quiere hacer; si es otro tema previsional, seguí el flujo que corresponda.
 - Fuera del avatar (tope por acumulación, reajustes docentes, reajustes generales, siempre jubilados por ANSES; todo lo de Artículo 9 o Ganancias, de cualquier régimen, va por este flujo y es sin cargo): tomá solo el motivo, hacé preguntas de contexto y explicá que el abogado asesora en la consulta. Usá definir_tipo_consulta con "otras_situaciones_anses" para fijar el valor y la reserva, y agendá con el Dr. Alejandro Reyes. Guardá calificacion=fuera_avatar en la ficha (etiqueta interna) y agendá igual.
@@ -1614,7 +1616,7 @@ Con el día o la franja, usá consultar_disponibilidad con el Dr. Alejandro Reye
 ## Flujo B: Jubilaciones
 1. Saludo (de parte de Karina, del Centro Jurídico NOA).
 2. Necesitás conocer su nombre, su edad y si actualmente trabaja como docente. Obtené esos datos conversando, según lo que cuente, sin interrogarla: lo que ya dijo no se repregunta, y de a una pregunta por mensaje. Guardá cada dato con guardar_datos_cliente. No clasifiques a la persona más allá de eso: lo determina el Dr. Fabricio Reyes en la consulta.
-3. Cuando ya tengas nombre, edad y si trabaja, usá enviar_video_jubilacion: se le envía un video grabado por el Dr. Fabricio Reyes en el que explica algo de valor y menciona el valor normal de la consulta y el valor de hoy para quien agenda hoy. No repitas los importes del video de memoria. Después preguntale, con calidez y sin apuro, qué le pareció y si le gustaría agendar.
+3. Con los filtros completos (nombre, edad y si trabaja), todavía NO enviás el video. Primero descubrís, conversando, de a una pregunta, siguiendo el hilo y con el orden empatizar, aportar valor, preguntar: qué quiere lograr (objetivo), y al menos una de estas tres: qué la frenó hasta ahora, qué intentó antes, o qué tan importante es para ella resolverlo ya. Lo que ya dijo cuenta y no se pregunta. Recién después usá enviar_video_jubilacion: se le envía un video grabado por el Dr. Fabricio Reyes en el que explica algo de valor y menciona el valor normal de la consulta y el valor de hoy para quien agenda hoy. No repitas los importes del video de memoria. Después preguntale, con calidez y sin apuro, qué le pareció y si le gustaría agendar.
    Lo que dice el video (hechos reales; explicalo con tus palabras si la persona pregunta o no puede verlo, sin inventar nada más): el Dr. Fabricio Reyes, integrante del equipo, explica que no es responsable hacer un análisis con información general; que por eso hace falta sí o sí una consulta para entrar al sistema de ANSES con su CUIL y analizar los requisitos para iniciar el trámite de jubilación docente; que los requisitos parecen simples, pero si no se revisan en los recibos de sueldo los aportes remunerativos y no remunerativos, no se hace bien el blanqueo y no se pide como corresponde la certificación de servicios y remuneraciones, y el trámite puede salir mal calculado; que el valor normal de la consulta es uno y que reservando hoy es menor (los importes los da el sistema); que se reserva con la mitad y el resto se abona en el estudio.
    Al explicarlo, mencioná siempre al menos dos cosas: que no se puede hacer un análisis serio con información general (por eso hace falta la consulta) y que en la consulta se revisan los recibos de sueldo y los aportes. No alcanza con decir "el abogado analiza su caso".
    Antes de proponer agendar, contestá siempre lo que la persona preguntó del video, de la consulta o del valor.
@@ -1630,7 +1632,7 @@ Si la persona dice "lo voy a pensar", "no sé", "es caro", "no tengo tiempo" o d
 1. Reconocé lo concreto que dijo con tus palabras, sin frases hechas.
 2. Si no es obvio el motivo, hacé UNA pregunta abierta y cálida para descubrir qué la frena (por ejemplo: "¿Hay algo en particular que le genere dudas?").
 3. Respondé a ese motivo SOLO con hechos reales: en Artículo 9 / Ganancias la consulta es sin cargo y sin compromiso, es una sola reunión, puede ser virtual; en jubilación, que el abogado analiza su caso y le explica los pasos, y que el valor de hoy rige para quien agenda hoy. Podés mencionar el plazo de la ley (2 y 5 años hacia atrás) como urgencia real.
-4. Proponé un paso concreto y fácil: consultar_disponibilidad y ofrecé uno o dos horarios reales ("¿Le reservo el jueves a las 10?"). Si hay pocos horarios, decilo; si hay muchos, no inventes escasez.
+4. Proponé un paso concreto y fácil: consultar_disponibilidad y ofrecé exactamente dos horarios reales ("¿Le queda mejor el jueves 29 a las 10:00 o el viernes 30 a las 11:00?"). Si hay pocos horarios, decilo; si hay muchos, no inventes escasez.
 5. Si después de dos intentos sigue sin querer, respetalo sin presionar y dejale la puerta abierta con una frase propia (por ejemplo: "Cuando lo decida, me escribe y coordinamos la consulta").
 Nunca inventes descuentos, cupos, plazos ni promociones para vencer una objeción.
 Ejemplos de cómo se trabaja (con tus palabras, sin copiar):
@@ -1666,7 +1668,7 @@ La consulta de Artículo 9 / Ganancias no pasa por estos pasos: directo a pregun
 ## Turnos (guiá paso a paso, no vuelques el calendario)
 - El sistema decide cuándo se puede agendar: si consultar_disponibilidad o agendar_turno responden status requiere_reserva, NO ofrezcas horarios ni digas que el turno quedó agendado. Seguí la secuencia: la reserva se transfiere y el comprobante lo valida el sistema (o se acuerda efectivo en las oficinas); recién después se coordina el turno. Un turno nunca queda confirmado antes de eso.
 - Cuando corresponde agendar (reserva validada, o Artículo 9 / Ganancias con las preguntas filtro confirmadas), NO tires horarios de una. Primero preguntá cuándo le queda más cómodo, con tus palabras.
-- Con lo que responda (día, franja, mañana o tarde), usá consultar_disponibilidad con el abogado que corresponde y ofrecé como máximo 3 opciones que coincidan con lo que pidió, en una sola frase corrida (por ejemplo "El lunes 26 tengo lugar a las 9, a las 9:30 o a las 10"), sin viñetas ni listas y sin volcar todo el calendario. Nunca inventes horarios. Si lo que pidió no está libre, decilo y ofrecé las alternativas más cercanas.
+- Con lo que responda (día, franja, mañana o tarde), usá consultar_disponibilidad con el abogado que corresponde y ofrecé exactamente DOS opciones que coincidan con lo que pidió, en una sola frase corrida, nunca tres. Cada horario que ofrezcas va con su día y fecha: 'martes 27 a las 9:00 o miércoles 28 a las 10:00'. Sin viñetas ni listas y sin volcar todo el calendario. Nunca inventes horarios. Si lo que pidió no está libre, decilo y ofrecé las alternativas más cercanas.
 - Cuando elija día y hora, confirmá sus datos y usá agendar_turno. Si hay comprobante validado, mandá pago=true.
 - Confirmá el turno SOLO si agendar_turno devolvió status "success". En ese caso decile con claridad que la consulta YA QUEDÓ AGENDADA, repitiendo día, hora y abogado, y la modalidad. Si es presencial, pasale SIEMPRE la dirección del estudio: Hipólito Yrigoyen 680, San Salvador de Jujuy. Nunca digas que "un integrante del equipo lo contactará para agendar" si el turno se agendó. Si devuelve "conflict", ofrecé los horarios libres que trae.
 - Si agendar_turno da un error, reintentalo una vez. Solo si vuelve a fallar, derivá a una persona.
@@ -1678,7 +1680,7 @@ La consulta de Artículo 9 / Ganancias no pasa por estos pasos: directo a pregun
 ## Cliente que ya tiene turno
 - Si el contexto indica que la persona ya tiene un turno vigente, no le vuelvas a vender la consulta ni a pedirle los datos: presentate (si es tu primer mensaje), saludala por su nombre, recordale SIEMPRE en ese mismo mensaje su turno (día, hora y abogado) y preguntale en qué podés ayudarla.
 - Solo si ella lo pide podés reprogramar o cancelar. Calma, nada de apuro: primero entendé qué necesita y confirmá de qué turno habla.
-- Reprogramar: preguntale qué día o franja le queda mejor, usá consultar_disponibilidad con el mismo abogado, ofrecé hasta 3 opciones, repetí el nuevo día y hora y esperá que lo confirme claramente antes de usar reprogramar_turno. Confirmá el cambio solo si devolvió status success.
+- Reprogramar: preguntale qué día o franja le queda mejor, usá consultar_disponibilidad con el mismo abogado, ofrecé exactamente dos opciones, repetí el nuevo día y hora y esperá que lo confirme claramente antes de usar reprogramar_turno. Confirmá el cambio solo si devolvió status success.
 - Cancelar: si dice que no puede asistir, ofrecele primero reprogramar con empatía. Si igual quiere cancelar, preguntale el motivo, pedile que confirme que quiere cancelar y usá solicitar_cancelacion. Explicale que el aviso quedó registrado y que una persona del equipo lo confirma; no digas que se canceló ni prometas devolución de la reserva.
 - Solo podés ver y tocar los turnos de la persona que te escribe. Nunca hables de turnos, horarios ocupados, nombres ni datos de otras personas; de la agenda decí solamente qué horarios hay libres.
 
@@ -1699,7 +1701,7 @@ La consulta de Artículo 9 / Ganancias no pasa por estos pasos: directo a pregun
 Usá derivar_a_humano con un motivo claro, y decile que lo contactan en el día, cuando: plantee una urgencia de plazos; el caso sea ambiguo y no puedas clasificarlo; haya un problema con un pago; o pida hablar con alguien.
 Si una herramienta falla de forma repetida, no hables de errores técnicos: tomá nombre, teléfono y tema, derivá y decile: "Ya dejé registrado su pedido. Un integrante del equipo lo contacta en el día para confirmar." Si no entendés un mensaje o no tiene sentido, decile con amabilidad que no lo pudiste entender y pedile que lo repita; no sigas como si nada ni repitas tu pregunta anterior.`;
 
-function sistema(prompt: string, hist: Awaited<ReturnType<typeof historialDe>>, ahora: Date, extra: { esAudio?: boolean; datosPago?: string; pasarDatos?: boolean; referral?: string; conVoz?: boolean; vigentes?: string; hilo?: string } = {}) {
+function sistema(prompt: string, hist: Awaited<ReturnType<typeof historialDe>>, ahora: Date, extra: { esAudio?: boolean; datosPago?: string; pasarDatos?: boolean; referral?: string; conVoz?: boolean; vigentes?: string; hilo?: string; ofrecidos?: string } = {}) {
   const l = localDe(ahora);
   const dias = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
   const dow = new Date(`${l.fecha}T12:00:00Z`).getUTCDay();
@@ -1717,6 +1719,7 @@ function sistema(prompt: string, hist: Awaited<ReturnType<typeof historialDe>>, 
       : `Datos para transferir la reserva (la persona ya eligió transferencia; el importe lo indica el sistema según el tipo de consulta): ${extra.datosPago || DATOS_PAGO_DEFAULT}`,
     ...(extra.vigentes ? [extra.vigentes] : []),
     ...(extra.hilo ? [extra.hilo] : []),
+    ...(extra.ofrecidos ? [extra.ofrecidos] : []),
     ...(extra.referral ? [`El primer mensaje llegó desde un anuncio de Meta: ${extra.referral}`] : []),
     'Usá las herramientas para disponibilidad y agenda. Respondé siempre en texto plano, corto, sin markdown.',
     ...(extra.conVoz
@@ -1728,10 +1731,92 @@ function sistema(prompt: string, hist: Awaited<ReturnType<typeof historialDe>>, 
 /** Procesa un mensaje entrante: lo entiende, arma contexto, deja al modelo usar herramientas, contesta y guarda la conversación. */
 /** El modelo prometió verificar o chequear algo en vez de hacerlo (y no preguntó nada): hay que obligarlo a cumplir en el mismo turno. */
 /** Horarios que aparecen en un texto, como HH:MM ("9:30", "09:30", "a las 15"). */
+export type SlotOfrecido = { fecha: string; hora: string; profesional: string };
+const DIAS_NOMBRE = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
+const MESES_NOMBRE = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+const sinTildes = (t: string) => t.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+
+const PATRON_HORA = /\b(\d{1,2})[:.](\d{2})\b|\ba\s+las\s+(\d{1,2})(?![\d:]|\.\d)/g;
+
+/** Cada vez que el texto nombra un horario ("9:00", "a las 9"), en orden y sin juntar los repetidos. */
+function ocurrenciasDeHora(texto: string): { hora: string; fin: number }[] {
+  const t = sinTildes(texto);
+  return [...t.matchAll(PATRON_HORA)].map(m => ({ hora: m[1] !== undefined ? `${m[1].padStart(2, '0')}:${m[2]}` : `${m[3].padStart(2, '0')}:00`, fin: (m.index ?? 0) + m[0].length }));
+}
+
+const partesDeFecha = (fecha: string) => {
+  const [y, m, d] = fecha.split('-').map(Number);
+  const nombre = DIAS_NOMBRE[new Date(Date.UTC(y, m - 1, d)).getUTCDay()];
+  return { d, m, nombre, dia: sinTildes(nombre), mes: MESES_NOMBRE[m - 1] };
+};
+/** ¿El tramo de texto nombra ese día (día de la semana o fecha)? */
+const nombraElDia = (seg: string, fecha: string) => { const p = partesDeFecha(fecha); return new RegExp(`\\b${p.dia}\\b|\\bel ${p.d}\\b|\\b${p.d}/${p.m}\\b|\\b${p.d} de ${p.mes}\\b`).test(seg); };
+
+/**
+ * Los horarios que el mensaje ofrece, con su fecha y profesional, tomados de lo que devolvió consultar_disponibilidad en este turno.
+ * Cada horario toma el día que se nombra antes de él (lunes, "el 27", "27/10", "27 de octubre"); si no nombra ninguno, el del horario anterior; si tampoco, el primero que tenga ese horario.
+ */
+export function horariosOfrecidosEn(texto: string, slots: SlotOfrecido[]): SlotOfrecido[] {
+  const t = sinTildes(texto);
+  const out: SlotOfrecido[] = [];
+  let desde = 0;
+  let ultima = '';
+  for (const o of ocurrenciasDeHora(texto)) {
+    const seg = t.slice(desde, o.fin);
+    desde = o.fin;
+    const posibles = slots.filter(x => x.hora === o.hora);
+    if (!posibles.length) continue;
+    const nombrados = posibles.filter(x => nombraElDia(seg, x.fecha));
+    const slot = (nombrados.length > 1 ? nombrados.find(x => new RegExp(`\\b${partesDeFecha(x.fecha).d}\\b`).test(seg)) : undefined) ?? nombrados[0] ?? posibles.find(x => x.fecha === ultima) ?? posibles[0];
+    ultima = slot.fecha;
+    if (!out.some(x => x.fecha === slot.fecha && x.hora === slot.hora)) out.push(slot);
+  }
+  return out;
+}
+
+/**
+ * Horarios del texto que no nombran su día (día de la semana o fecha) antes de la hora: "a las 9 o a las 10" sí es un problema;
+ * "martes 27 a las 9:00 o miércoles 28 a las 10:00" no. Cada horario cuenta con lo que va desde el horario anterior hasta él.
+ */
+export function horasSinDia(txt: string): string[] {
+  const t = sinTildes(txt);
+  const dia = new RegExp(`\\b(?:${DIAS_NOMBRE.map(sinTildes).join('|')})\\b|\\b\\d{1,2}/\\d{1,2}\\b|\\b\\d{4}-\\d{2}-\\d{2}\\b|\\bel \\d{1,2}\\b|\\b\\d{1,2} de (?:${MESES_NOMBRE.join('|')})\\b`);
+  const sin: string[] = [];
+  let desde = 0;
+  for (const o of ocurrenciasDeHora(txt)) {
+    if (!dia.test(t.slice(desde, o.fin))) sin.push(o.hora);
+    desde = o.fin;
+  }
+  return sin;
+}
+
+/** "el martes 27 a las 9:00 o el miércoles 28 a las 10:00": horarios con su día y fecha. */
+export function ofertaConDia(slots: SlotOfrecido[]): string {
+  return slots.map(x => { const p = partesDeFecha(x.fecha); return `el ${p.nombre} ${p.d} a las ${x.hora}`; }).join(' o ');
+}
+
+/** Los horarios ofrecidos que todavía no pasaron. */
+export function ofrecidosVigentes(datosLead: any, ahora: Date): (SlotOfrecido & { at?: string })[] {
+  const l = localDe(ahora);
+  const lista = Array.isArray(datosLead?.horarios_ofrecidos?.lista) ? datosLead.horarios_ofrecidos.lista : [];
+  return lista.filter((x: any) => x && /^\d{4}-\d{2}-\d{2}$/.test(String(x.fecha)) && (x.fecha > l.fecha || (x.fecha === l.fecha && (aMin(x.hora) ?? 0) > l.min)));
+}
+
+/** La línea de contexto para el modelo con lo que ya se le ofreció a la persona. */
+export function textoOfrecidos(lista: (SlotOfrecido & { at?: string })[]): string {
+  if (!lista.length) return '';
+  const cuando = lista[0]?.at ? ` (ofrecidos el ${String(lista[0].at).slice(0, 16).replace('T', ' ')})` : '';
+  const items = lista.map(x => {
+    const [y, m, d] = x.fecha.split('-').map(Number);
+    return `${DIAS_NOMBRE[new Date(Date.UTC(y, m - 1, d)).getUTCDay()]} ${x.fecha} ${x.hora} con ${x.profesional}`;
+  }).join('; ');
+  return `Horarios que ya le ofreciste: ${items}${cuando}. Si la persona responde sin identificar uno ("sí", "dale", "cualquiera", "el que sea"), preguntale cuál de ESOS MISMOS horarios prefiere: no consultes de nuevo ni ofrezcas otros. Si elige uno ("el primero", "el martes"), agendá exactamente ese. Solo si rechaza esos horarios o pide otro día o franja, consultá de nuevo; lo ofrecido se reemplaza.`;
+}
+
 export function horasEnTexto(txt: string): string[] {
   const out = new Set<string>();
   for (const m of txt.matchAll(/\b(\d{1,2})[:.](\d{2})\b/g)) out.add(`${m[1].padStart(2, '0')}:${m[2]}`);
-  for (const m of txt.matchAll(/\ba\s+las\s+(\d{1,2})(?![\d:.])/gi)) out.add(`${m[1].padStart(2, '0')}:00`);
+  for (const m of txt.matchAll(/\ba\s+las\s+(\d{1,2})(?![\d:]|\.\d)/gi)) out.add(`${m[1].padStart(2, '0')}:00`);
   return [...out];
 }
 
@@ -1856,11 +1941,14 @@ export async function procesarMensaje(deps: Deps, m: MsgEntrante) {
   let reintentoHoras = false;
   let agendoOk = false;
   const horasAgenda = new Set<string>();
-  const horasPermitidas = new Set<string>([...horasEnTexto(textosCliente.join(' ')), ...vigentes.map(v => String(v.hora_consulta ?? '').slice(0, 5))]);
+  const ofrecidosAntes = ofrecidosVigentes(datosLead, ahora);
+  const textoYaOfrecido = textoOfrecidos(ofrecidosAntes);
+  const slotsTurno: SlotOfrecido[] = [];
+  const horasPermitidas = new Set<string>([...horasEnTexto(textosCliente.join(' ')), ...vigentes.map(v => String(v.hora_consulta ?? '').slice(0, 5)), ...ofrecidosAntes.map(x => x.hora)]);
   let ultimoTexto = '';
   try {
     for (let i = 0; i < MAX_VUELTAS_HERRAMIENTAS + 2; i++) {
-      const r = await deps.llm(sistema(deps.prompt, hist, ahora, { esAudio, datosPago, pasarDatos, referral: m.referral, conVoz, vigentes: resumenTurnosVigentes(vigentes), hilo }), mensajes);
+      const r = await deps.llm(sistema(deps.prompt, hist, ahora, { esAudio, datosPago, pasarDatos, referral: m.referral, conVoz, vigentes: resumenTurnosVigentes(vigentes), hilo, ofrecidos: textoYaOfrecido }), mensajes);
       if (r.stop_reason !== 'tool_use') {
         const txt = r.content.filter(b => b.type === 'text').map(b => String(b.text)).join('\n').trim();
         // Si prometió "voy a chequear…" sin hacerlo, se le pide que lo haga ahora: el cliente no tiene que insistir.
@@ -1924,6 +2012,12 @@ export async function procesarMensaje(deps: Deps, m: MsgEntrante) {
         if (b.name === 'registrar_confirmacion' && (out as any)?.registrado && (out as any)?.campo === 'forma_reserva') { pasarDatos = (out as any).valor === 'transferencia'; ctx.pasarDatos = pasarDatos; if (pasarDatos) transferenciaRegistradaAhora = true; }
         if ((out as any)?.error || (out as any)?.status === 'conflict') console.warn('[agente] herramienta sin éxito', b.name, JSON.stringify(out).slice(0, 300));
         if ((b.name === 'agendar_turno' || b.name === 'reprogramar_turno') && (out as any)?.status === 'success') agendoOk = true;
+        if (b.name === 'consultar_disponibilidad') {
+          const o: any = out;
+          const prof = String(o?.profesional ?? '');
+          if (Array.isArray(o?.proximos_dias)) { for (const d of o.proximos_dias) for (const h of d?.horarios_disponibles ?? []) slotsTurno.push({ fecha: String(d.fecha), hora: String(h), profesional: prof }); }
+          else if (o?.fecha && Array.isArray(o?.horarios_disponibles)) for (const h of o.horarios_disponibles) slotsTurno.push({ fecha: String(o.fecha), hora: String(h), profesional: prof });
+        }
         if (b.name === 'consultar_disponibilidad' || b.name === 'agendar_turno' || b.name === 'reprogramar_turno' || b.name === 'consultar_mis_turnos') for (const h of horasEnTexto(JSON.stringify(out).replace(/"/g, ' '))) { horasPermitidas.add(h); if (b.name === 'consultar_disponibilidad') horasAgenda.add(h); }
         resultados.push({ type: 'tool_result', tool_use_id: b.id, content: JSON.stringify(out) });
       }
@@ -1935,7 +2029,7 @@ export async function procesarMensaje(deps: Deps, m: MsgEntrante) {
   if (!respuesta && ultimoTexto) respuesta = ultimoTexto; // si se agotaron las vueltas, mejor el último mensaje que el aviso genérico
   if (respuesta) respuesta = quitarFrasesHechas(respuesta).replace(/\*\*/g, '').replace(/^[ \t]*[-•*][ \t]+/gm, '');
   // Último recurso: si igual menciona un horario que la agenda no devolvió, se reemplaza por lo que sí hay.
-  if (respuesta && horasEnTexto(respuesta).some(h => !horasPermitidas.has(h))) respuesta = horasAgenda.size ? `Tengo lugar a las ${[...horasAgenda].slice(0, 3).join(', ')}. ¿Cuál le viene mejor?` : 'Para ofrecerle un horario necesito revisar la agenda. ¿Qué día y qué franja le queda más cómoda?';
+  if (respuesta && horasEnTexto(respuesta).some(h => !horasPermitidas.has(h))) respuesta = horasAgenda.size ? (slotsTurno.length ? `Tengo lugar ${ofertaConDia(slotsTurno.slice(0, 2))}. ¿Cuál le viene mejor?` : `Tengo lugar a las ${[...horasAgenda].slice(0, 2).join(' o a las ')}. ¿Cuál le viene mejor?`) : 'Para ofrecerle un horario necesito revisar la agenda. ¿Qué día y qué franja le queda más cómoda?';
   // Último recurso: nunca sale un mensaje que da por agendado un turno que no existe.
   if (respuesta && !agendoOk && vigentes.length === 0 && afirmaTurnoAgendado(respuesta)) respuesta = 'Para dejar reservado su turno todavía necesito confirmar con usted el día y la hora. ¿Qué día y qué franja horaria le queda más cómoda?';
   // Si la persona recién eligió transferencia y el modelo habló de transferir sin pasar los datos, se los agrega el sistema.
@@ -1982,6 +2076,12 @@ export async function procesarMensaje(deps: Deps, m: MsgEntrante) {
     ...(aviso ? [{ from: 'agente' as const, texto: aviso }] : []),
     { from: 'agente', texto: enviado ? textoPlano : `[NO ENVIADO] ${textoPlano}` },
   ];
+  // Lo que se ofreció queda guardado (fecha, hora y profesional exactos); una oferta nueva reemplaza a la anterior y un turno agendado la borra.
+  if (enviado && agendoOk) await upsertLeadSeguro(db, m.from, camposDeLead({ datos: { horarios_ofrecidos: null } }));
+  else if (enviado) {
+    const ofrecidos = horariosOfrecidosEn(textoPlano, slotsTurno);
+    if (ofrecidos.length) await upsertLeadSeguro(db, m.from, camposDeLead({ datos: { horarios_ofrecidos: { lista: ofrecidos.map(x => ({ ...x, at: t })), at: t } } }));
+  }
   const { error } = await db.from('conversaciones_whatsapp').upsert({
     conversation_id: conversationId,
     telefono: m.from,

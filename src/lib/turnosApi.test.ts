@@ -3,7 +3,7 @@ import { createHmac } from 'node:crypto';
 import handler, {
   clasificarRecibo, TIPOS_CONSULTA, promesaSinCumplir, separarDatosPago, mensajeApurado,
   aMin, limpiarSecreto, camposDeLead, etapaAutomatica, fusionarLead, registrarMensaje, upsertLead, firmaMetaValida, firmaKapsoValida, extraerMensajesKapso, extraerMensajes, aMensajesLLM, procesarMensaje, filaDePersona, esConversacionDeNoa, clasificarMensajeCliente, categoriaMensajeAgente, personaMetrica, agregarMetricasAgente, calcularMetricasAgente, evaluarOptimizaciones, validarOptimizaciones, ejecutarOptimizacion, type MetricasAgente, motivoDeExclusion, resumenEnPalabras, ejecutarAnalista, revisarAnalisisAutomatico, codigosDeEstilo, etapaEmbudo, analizarConversacion, calcularMetricas, mascararDatos, textoParaEtiquetar, validarEtiquetas, promptDelAgente, limpiarCachePrompt, accionAgentes, problemasDeEstilo, textoNoLegible, firmaMercadoPagoValida, importeTexto, importeLindo, asignarImporteUnico, procesarPagoMP, montoMercadoPago, enmascarar, neutralizarMarcas, salidaInsegura, superaLimite, urlMediaSegura, resumenTurnosVigentes, HERRAMIENTAS_LLM, cuerpoNotaDeVoz, notaDeImagen, montoValidadoDe, quitarEtiquetas, aMensajesOpenAI, deOpenAI, ejecutarHerramienta, PROMPT_AGENTE, type Deps, telefonoClave, historialDe, inferirNombre, normalizarFecha, normalizarHora, bloquesDelDia, huecosLibres, localDe, resolverProfesional, diaSemanaISO, fechaValida,
-  registrarSinResponder, registrarUso, fijarDbUso, costoUsd, esDudaOObjecion, esRechazoFirme, horasEnTexto, quitarFrasesHechas, REGEX_CLICHE, condicionesArt9Confirmadas, campanaDelTexto, probarAgentePaso, chatAgentePaso, preguntasAfirmadas, evidenciaValida, textoFaltaRegistrar, AVISO_DERIVACION, condicionDeAgenda, registrarMensajeHumano, extraerHumanosKapso, responderDesdeErp, resumenCampana, analizarCampana, analisisSoloConCifrasReales,
+  registrarSinResponder, registrarUso, fijarDbUso, costoUsd, esDudaOObjecion, esRechazoFirme, horasEnTexto, quitarFrasesHechas, REGEX_CLICHE, condicionesArt9Confirmadas, campanaDelTexto, probarAgentePaso, chatAgentePaso, preguntasAfirmadas, evidenciaValida, textoFaltaRegistrar, AVISO_DERIVACION, horariosOfrecidosEn, ofrecidosVigentes, textoOfrecidos, horasSinDia, ofertaConDia, condicionDeAgenda, registrarMensajeHumano, extraerHumanosKapso, responderDesdeErp, resumenCampana, analizarCampana, analisisSoloConCifrasReales,
   type Bloque,
 } from '../../api/turnos/[accion]';
 
@@ -2939,7 +2939,8 @@ describe('pruebas del agente · 60 conversaciones que terminan en un resultado',
       const s = JSON.stringify(mensajes);
       const fecha = /fecha\\*":\\*"(\d{4}-\d{2}-\d{2})/.exec(s)?.[1] ?? '';
       const horas = (/horarios_disponibles\\*":\[([^\]]*)\]/.exec(s)?.[1] ?? '').match(/\d{2}:\d{2}/g) ?? [];
-      return { stop_reason: 'end_turn', content: [{ type: 'text', text: `El ${fecha} tengo lugar a las ${horas.slice(0, 3).join(', ')}. ¿Cuál le viene mejor?` }] } as any;
+      const oferta = ofertaConDia(horas.slice(0, 2).map(h => ({ fecha, hora: h, profesional: '' })));
+      return { stop_reason: 'end_turn', content: [{ type: 'text', text: `Tengo lugar ${oferta}. ¿Cuál le viene mejor?` }] } as any;
     };
   };
   const clienteGuion = (lineas: string[]) => { const cola = [...lineas]; return async () => cola.shift() ?? 'Gracias.'; };
@@ -3062,7 +3063,8 @@ describe('agente · horarios: solo los que devolvió la agenda', () => {
       ejecutar: async () => ({ proximos_dias: [{ fecha: '2099-01-05', horarios_disponibles: ['14:00', '14:30'] }] }),
     });
     await procesarMensaje(d, msg);
-    expect(enviados[0]).toBe('Tengo lugar a las 14:00, 14:30. ¿Cuál le viene mejor?');
+    expect(enviados[0]).toBe(`Tengo lugar ${ofertaConDia([{ fecha: '2099-01-05', hora: '14:00', profesional: '' }, { fecha: '2099-01-05', hora: '14:30', profesional: '' }])}. ¿Cuál le viene mejor?`);
+    expect(enviados[0]).toMatch(/^Tengo lugar el \p{L}+ 5 a las 14:00 o el \p{L}+ 5 a las 14:30\. /u);
     expect(enviados[0]).not.toContain('15:00');
   });
   it('un horario que sí devolvió la agenda pasa sin tocarse', async () => {
@@ -3183,5 +3185,243 @@ describe('prompt · confirmaciones registradas', () => {
     expect(PROMPT_AGENTE).toContain('El orden de los datos es una guía, no un guion.');
     expect(PROMPT_AGENTE).toContain('tu siguiente pregunta profundiza en ESO');
     expect(PROMPT_AGENTE).toContain('Nunca discutas ni intentes ganar.');
+  });
+});
+
+describe('horarios ofrecidos persistentes (chat de prueba, modelo simulado)', () => {
+  const TEL = '5490000000000';
+  const DIAS = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
+  const nombreDia = (f: string) => DIAS[new Date(`${f}T12:00:00Z`).getUTCDay()];
+  const ultimoResultado = (mensajes: any[]) => {
+    for (let i = mensajes.length - 1; i >= 0; i--) {
+      const c = mensajes[i].content;
+      if (Array.isArray(c)) { const r = c.find((b: any) => b.type === 'tool_result'); if (r) return JSON.parse(r.content); }
+    }
+    return null;
+  };
+  const tool = (name: string, input: any, id = 't1') => ({ stop_reason: 'tool_use', content: [{ type: 'tool_use', id, name, input }] }) as any;
+  const fin = (t: string) => ({ stop_reason: 'end_turn', content: [{ type: 'text', text: t }] }) as any;
+
+  async function estadoConArt9Confirmado() {
+    const { agendaBase } = await import('../server/agentePruebas');
+    const tablas = agendaBase();
+    tablas.leads = [{ telefono: TEL, campana: 'art9_ganancias', datos: { es_docente: 'si', jubilado_anses: 'si', descuento_art9_ganancias: 'si', tipo_consulta: 'articulo9_ganancias', reserva_esperada: 0 } }];
+    return { tablas, transcript: [], herramientas: [], videos: 0 };
+  }
+  const lead = (estado: any) => estado.tablas.leads[0];
+
+  // Turno 1: el modelo consulta la agenda (sin fecha) y ofrece DOS horarios del primer día que devolvió.
+  async function ofrecerDos(estado0: any) {
+    const sistemas: string[] = [];
+    let n = 0;
+    const llm = async (sis: string, mensajes: any[]) => {
+      sistemas.push(sis);
+      if (n++ === 0) return tool('consultar_disponibilidad', { profesional: 'alejandro' });
+      const dia = ultimoResultado(mensajes).proximos_dias[0];
+      return fin(`Tengo lugar el ${nombreDia(dia.fecha)} a las ${dia.horarios_disponibles[0]} o a las ${dia.horarios_disponibles[1]}. ¿Cuál le queda mejor?`);
+    };
+    const r = await chatAgentePaso('Quiero agendar la consulta', estado0, llm as any, undefined);
+    expect(r.code).toBe(200);
+    return { r, sistemas };
+  }
+
+  it('al enviar dos horarios que salieron de consultar_disponibilidad, quedan guardados con fecha, hora, profesional y momento', async () => {
+    const { r } = await ofrecerDos(await estadoConArt9Confirmado());
+    const guardado = lead(r.body.estado).datos.horarios_ofrecidos;
+    const dia = r.body.estado.herramientas[0].resultado.proximos_dias[0];
+    expect(guardado.lista).toHaveLength(2);
+    expect(guardado.lista.map((x: any) => `${x.fecha} ${x.hora} ${x.profesional}`)).toEqual([`${dia.fecha} ${dia.horarios_disponibles[0]} Alejandro`, `${dia.fecha} ${dia.horarios_disponibles[1]} Alejandro`]);
+    expect(guardado.lista[0].at).toBeTruthy();
+    expect(guardado.at).toBeTruthy();
+  });
+
+  it('la persona responde "si": el contexto siguiente trae los dos horarios y horasPermitidas los incluye (no se reemplazan por el aviso de agenda)', async () => {
+    const { r } = await ofrecerDos(await estadoConArt9Confirmado());
+    const lista = lead(r.body.estado).datos.horarios_ofrecidos.lista;
+    const sistemas: string[] = [];
+    const llm2 = async (sis: string) => { sistemas.push(sis); return fin(`¿Cuál prefiere, a las ${lista[0].hora} o a las ${lista[1].hora}?`); };
+    const r2 = await chatAgentePaso('si', r.body.estado, llm2 as any, undefined);
+    expect(r2.code).toBe(200);
+    expect(sistemas[0]).toContain('Horarios que ya le ofreciste:');
+    for (const x of lista) expect(sistemas[0]).toContain(`${x.fecha} ${x.hora} con Alejandro`);
+    expect(sistemas[0]).toContain('ESOS MISMOS horarios');
+    // sin consultar de nuevo, las horas igual salen tal cual (horasPermitidas las incluye)
+    expect(r2.body.respuestas[0]).toBe(`¿Cuál prefiere, a las ${lista[0].hora} o a las ${lista[1].hora}?`);
+    expect(r2.body.estado.herramientas).toHaveLength(r.body.estado.herramientas.length);
+    // y la lista guardada no se toca
+    expect(lead(r2.body.estado).datos.horarios_ofrecidos.lista).toEqual(lista);
+  });
+
+  it('"el primero": el contexto trae el horario exacto y agendar_turno lo agenda; después la lista se borra', async () => {
+    const { r } = await ofrecerDos(await estadoConArt9Confirmado());
+    const lista = lead(r.body.estado).datos.horarios_ofrecidos.lista;
+    let n = 0;
+    const llm3 = async (sis: string) => {
+      if (n++ === 0) {
+        const m = /(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}) con (\w+)/.exec(sis)!;
+        return tool('agendar_turno', { profesional: m[3].toLowerCase(), nombre: 'Ana', fecha: m[1], hora: m[2] });
+      }
+      return fin('Quedó agendada su consulta.');
+    };
+    const r3 = await chatAgentePaso('el primero', r.body.estado, llm3 as any, undefined);
+    const turno = r3.body.estado.tablas.consultas_agendadas[0];
+    expect(turno).toMatchObject({ fecha_consulta: lista[0].fecha, hora_consulta: lista[0].hora });
+    expect(r3.body.estado.herramientas.at(-1).resultado.status).toBe('success');
+    expect(lead(r3.body.estado).datos.horarios_ofrecidos).toBeNull();
+  });
+
+  it('"no puedo esos días": se consulta de nuevo y la lista guardada se reemplaza por la nueva oferta', async () => {
+    const { r } = await ofrecerDos(await estadoConArt9Confirmado());
+    const antes = lead(r.body.estado).datos.horarios_ofrecidos.lista;
+    let n = 0;
+    const llm4 = async (_s: string, mensajes: any[]) => {
+      if (n++ === 0) return tool('consultar_disponibilidad', { profesional: 'alejandro' }, 't9');
+      const dias = ultimoResultado(mensajes).proximos_dias.filter((d: any) => d.fecha !== antes[0].fecha);
+      const d = dias[0];
+      return fin(`Entonces tengo lugar el ${nombreDia(d.fecha)} a las ${d.horarios_disponibles[0]} o a las ${d.horarios_disponibles[1]}. ¿Cuál le queda mejor?`);
+    };
+    const r4 = await chatAgentePaso('no puedo esos días', r.body.estado, llm4 as any, undefined);
+    const despues = lead(r4.body.estado).datos.horarios_ofrecidos.lista;
+    expect(despues).toHaveLength(2);
+    expect(despues[0].fecha).not.toBe(antes[0].fecha);
+    expect(despues.map((x: any) => x.fecha)).not.toContain(antes[0].fecha);
+  });
+
+  it('horariosOfrecidosEn: si el mismo horario existe en varios días, usa el día que el mensaje nombra', () => {
+    const slots = [
+      { fecha: '2099-01-05', hora: '09:00', profesional: 'Alejandro' }, { fecha: '2099-01-05', hora: '10:00', profesional: 'Alejandro' },
+      { fecha: '2099-01-06', hora: '09:00', profesional: 'Alejandro' }, { fecha: '2099-01-06', hora: '10:00', profesional: 'Alejandro' },
+    ];
+    expect(horariosOfrecidosEn('Tengo lugar el martes a las 9:00 o a las 10:00. ¿Cuál prefiere?', slots).map(x => x.fecha)).toEqual(['2099-01-06', '2099-01-06']);
+    expect(horariosOfrecidosEn('Tengo lugar el lunes 5 a las 9:00 o a las 10:00.', slots).map(x => x.fecha)).toEqual(['2099-01-05', '2099-01-05']);
+    expect(horariosOfrecidosEn('Tengo lugar a las 9:00 o a las 10:00.', slots).map(x => x.fecha)).toEqual(['2099-01-05', '2099-01-05']);
+    expect(horariosOfrecidosEn('Tengo lugar a las 11:00.', slots)).toEqual([]);
+    expect(horariosOfrecidosEn('Tengo lugar a las 9:00.', [])).toEqual([]);
+  });
+
+  it('los horarios ofrecidos que ya pasaron no vuelven al contexto', () => {
+    const datos = { horarios_ofrecidos: { lista: [{ fecha: '2020-01-01', hora: '09:00', profesional: 'Alejandro' }, { fecha: '2099-01-05', hora: '10:00', profesional: 'Alejandro' }] } };
+    const v = ofrecidosVigentes(datos, new Date('2026-10-26T12:00:00Z'));
+    expect(v).toHaveLength(1);
+    expect(textoOfrecidos(v)).toContain('2099-01-05 10:00 con Alejandro');
+    expect(textoOfrecidos([])).toBe('');
+  });
+});
+
+describe('prompt · dos horarios, diagnóstico antes de ofrecer y concordancia', () => {
+  it('siempre DOS opciones: ningún texto del prompt dice "hasta 3", "máximo 3", "tres" opciones ni "uno o dos"', () => {
+    expect(PROMPT_AGENTE).toContain('exactamente DOS horarios reales');
+    expect(PROMPT_AGENTE).toContain('exactamente DOS opciones');
+    expect(PROMPT_AGENTE).not.toMatch(/hasta 3|máximo 3|como máximo 3|hasta tres|uno o dos horarios|2 o 3/i);
+    expect(problemasDeEstilo('Tengo lugar a las 9:00, 9:30, 10:00, 10:30 y 11:00.\n- a las 12:00')[0]).toContain('exactamente DOS horarios');
+  });
+  it('Flujo A: con las tres cosas confirmadas todavía no ofrece la consulta; descubre objetivo y un casillero más', () => {
+    expect(PROMPT_AGENTE).toContain('Con las tres cosas confirmadas, todavía NO ofrecés la consulta.');
+    expect(PROMPT_AGENTE).toContain('qué quiere lograr (objetivo), y al menos una de estas tres: qué la frenó hasta ahora, qué intentó antes, o qué tan importante es para ella resolverlo ya.');
+    expect(PROMPT_AGENTE).toContain('recién ahí le ofrecés la consulta SIN CARGO con el Dr. Alejandro Reyes como el paso lógico.');
+    expect(PROMPT_AGENTE).not.toContain('Después retomá lo que la persona te contó con sus palabras e informale que la consulta es SIN CARGO.');
+  });
+  it('Flujo B: después de los filtros y antes del video, objetivo y un casillero más', () => {
+    expect(PROMPT_AGENTE).toContain('Con los filtros completos (nombre, edad y si trabaja), todavía NO enviás el video.');
+    expect(PROMPT_AGENTE).toContain('Recién después usá enviar_video_jubilacion:');
+  });
+  it('género: atiende en el género que surge de lo que escribió; si no surge, neutro', () => {
+    expect(PROMPT_AGENTE).toContain('Tratá a la persona en el género que surge de lo que escribió (jubilada → atenderla). Si no surge, usá formas neutras.');
+    expect(PROMPT_AGENTE).not.toContain('No asumas el género de la persona');
+  });
+});
+
+describe('control de la oferta de horarios (problemasDeEstilo)', () => {
+  it('tres horarios → corrección', () => {
+    const p = problemasDeEstilo('Tengo lugar el martes 27 a las 9:00, el martes 27 a las 10:00 o el miércoles 28 a las 11:00. ¿Cuál prefiere?');
+    expect(p.some(x => x.includes('exactamente DOS horarios (nunca tres ni más)'))).toBe(true);
+  });
+  it('"a las 9 o a las 10" sin día → corrección', () => {
+    const p = problemasDeEstilo('Tengo lugar a las 9 o a las 10. ¿Cuál prefiere?');
+    expect(p).toEqual(['Cada horario que ofrezcas va con su día y fecha: "martes 27 a las 9:00 o miércoles 28 a las 10:00".']);
+    expect(horasSinDia('Tengo lugar a las 9 o a las 10.')).toHaveLength(2);
+  });
+  it('un horario que se nombra pero el otro no también se corrige ("martes 27 a las 9:00 o a las 10:00")', () => {
+    expect(horasSinDia('Tengo lugar el martes 27 a las 9:00 o a las 10:00.')).toEqual(['10:00']);
+  });
+  it('"martes 27 a las 9:00 o miércoles 28 a las 10:00" pasa sin correcciones', () => {
+    expect(problemasDeEstilo('Tengo lugar el martes 27 a las 9:00 o el miércoles 28 a las 10:00. ¿Cuál prefiere?')).toEqual([]);
+    expect(problemasDeEstilo('Tengo lugar martes 27 a las 9:00 o miércoles 28 a las 10:00. ¿Cuál prefiere?')).toEqual([]);
+    expect(problemasDeEstilo('Tengo lugar el 27/10 a las 9:00 o el 28 de octubre a las 10:00.')).toEqual([]);
+    expect(problemasDeEstilo('Tengo lugar el 2026-10-27 a las 9:00 o el 2026-10-28 a las 10:00.')).toEqual([]);
+  });
+  it('un solo horario con su día no se toca', () => {
+    expect(problemasDeEstilo('Su consulta quedó agendada el martes 27 a las 9:00 con el Dr. Alejandro Reyes.')).toEqual([]);
+  });
+
+  it('en el flujo: el modelo ofrece tres horarios sin día, recibe la corrección y manda dos con su día; se guardan con su fecha exacta', async () => {
+    const DIAS = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
+    const { agendaBase } = await import('../server/agentePruebas');
+    const tablas = agendaBase();
+    tablas.leads = [{ telefono: '5490000000000', campana: 'art9_ganancias', datos: { es_docente: 'si', jubilado_anses: 'si', descuento_art9_ganancias: 'si', tipo_consulta: 'articulo9_ganancias', reserva_esperada: 0 } }];
+    const sistemaCorrecciones: string[] = [];
+    let n = 0;
+    const llm = async (_s: string, mensajes: any[]) => {
+      n++;
+      if (n === 1) return { stop_reason: 'tool_use', content: [{ type: 'tool_use', id: 't1', name: 'consultar_disponibilidad', input: { profesional: 'alejandro' } }] } as any;
+      const ultimo = mensajes[mensajes.length - 1];
+      const res = Array.isArray(ultimo.content) ? JSON.parse(ultimo.content[0].content) : null;
+      if (n === 2) { // primera versión: tres horarios, sin día
+        const hs = res.proximos_dias[0].horarios_disponibles;
+        return { stop_reason: 'end_turn', content: [{ type: 'text', text: `Tengo lugar a las ${hs[0]}, a las ${hs[1]} o a las ${hs[2]}. ¿Cuál prefiere?` }] } as any;
+      }
+      sistemaCorrecciones.push(String(ultimo.content));
+      if (n === 3) { // segunda versión: dos, pero sin día
+        const hs = JSON.parse(JSON.stringify(mensajes)).length ? ['09:00', '09:30'] : [];
+        return { stop_reason: 'end_turn', content: [{ type: 'text', text: `Tengo lugar a las ${hs[0]} o a las ${hs[1]}. ¿Cuál prefiere?` }] } as any;
+      }
+      // tercera: dos horarios, cada uno con su día y fecha (de lo que devolvió la agenda)
+      const d1 = estadoDias[0], d2 = estadoDias[1];
+      const f = (d: any) => { const [y, m, dd] = d.fecha.split('-').map(Number); return `${DIAS[new Date(Date.UTC(y, m - 1, dd)).getUTCDay()]} ${dd}`; };
+      return { stop_reason: 'end_turn', content: [{ type: 'text', text: `Tengo lugar el ${f(d1)} a las ${d1.horarios_disponibles[0]} o el ${f(d2)} a las ${d2.horarios_disponibles[0]}. ¿Cuál prefiere?` }] } as any;
+    };
+    let estadoDias: any[] = [];
+    const llmEnvuelto = async (s2: string, mensajes: any[]) => {
+      for (const m of mensajes) if (Array.isArray(m.content)) { const r = m.content.find((b: any) => b.type === 'tool_result'); if (r) estadoDias = JSON.parse(r.content).proximos_dias ?? estadoDias; }
+      return llm(s2, mensajes);
+    };
+    const r = await chatAgentePaso('Quiero agendar', { tablas, transcript: [], herramientas: [], videos: 0 }, llmEnvuelto as any, undefined);
+    expect(r.code).toBe(200);
+    expect(n).toBe(4); // consulta + tres horarios (corregido) + dos sin día (corregido) + versión final
+    expect(sistemaCorrecciones.join(' ')).toContain('exactamente DOS horarios');
+    expect(sistemaCorrecciones.join(' ')).toContain('va con su día y fecha');
+    const guardado = r.body.estado.tablas.leads[0].datos.horarios_ofrecidos.lista;
+    expect(guardado).toHaveLength(2);
+    expect(guardado[0]).toMatchObject({ fecha: estadoDias[0].fecha, hora: estadoDias[0].horarios_disponibles[0], profesional: 'Alejandro' });
+    expect(guardado[1]).toMatchObject({ fecha: estadoDias[1].fecha, hora: estadoDias[1].horarios_disponibles[0], profesional: 'Alejandro' });
+    expect(r.body.respuestas[0]).toContain(`a las ${estadoDias[0].horarios_disponibles[0]} o el`);
+  });
+
+  it('"martes 27 a las 9:00 o miércoles 28 a las 10:00": el mensaje pasa y horarios_ofrecidos guarda esos dos con su fecha exacta', async () => {
+    const slots = [
+      { fecha: '2026-10-27', hora: '09:00', profesional: 'Alejandro' }, { fecha: '2026-10-27', hora: '10:00', profesional: 'Alejandro' },
+      { fecha: '2026-10-28', hora: '09:00', profesional: 'Alejandro' }, { fecha: '2026-10-28', hora: '10:00', profesional: 'Alejandro' },
+    ];
+    const texto = 'Tengo lugar martes 27 a las 9:00 o miércoles 28 a las 10:00. ¿Cuál prefiere?';
+    expect(problemasDeEstilo(texto)).toEqual([]);
+    expect(horariosOfrecidosEn(texto, slots)).toEqual([
+      { fecha: '2026-10-27', hora: '09:00', profesional: 'Alejandro' },
+      { fecha: '2026-10-28', hora: '10:00', profesional: 'Alejandro' },
+    ]);
+  });
+});
+
+describe('prompt y herramienta: video después de descubrir, línea sin promesas de montos', () => {
+  it('la línea de lo que logra la consulta ya no habla de "recuperable" ni de "cuánto le descuentan"', () => {
+    expect(PROMPT_AGENTE).not.toMatch(/recuperable/i);
+    expect(PROMPT_AGENTE).not.toMatch(/cuánto le descuentan/i);
+    expect(PROMPT_AGENTE).toContain('Contale en una frase lo que logra con la consulta: el Dr. Alejandro Reyes analiza su caso y le explica qué se puede hacer y cuáles son los pasos a seguir. Nunca anticipes montos, cálculos ni resultados.');
+  });
+  it('el prompt exige que cada horario vaya con su día y fecha', () => {
+    expect(PROMPT_AGENTE).toContain("Cada horario que ofrezcas va con su día y fecha: 'martes 27 a las 9:00 o miércoles 28 a las 10:00'.");
+  });
+  it('la descripción de enviar_video_jubilacion exige haber descubierto el objetivo', () => {
+    const d = HERRAMIENTAS_LLM.find(h => h.name === 'enviar_video_jubilacion')!.description;
+    expect(d).toContain('Usala cuando ya tengas nombre, edad y si trabaja, Y además hayas descubierto qué quiere lograr la persona y al menos uno de: qué la frenó, qué intentó antes o qué tan urgente es. Nunca antes.');
   });
 });
