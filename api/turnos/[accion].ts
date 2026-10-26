@@ -1918,6 +1918,8 @@ export type EstadoV2 = {
   bloqueo?: { clave: string; firma: string; turno: number; n: number };
   /** El filtro que el agente preguntó en su último mensaje: un "sí" o un "no" corto de la persona responde a ESA pregunta. */
   pregunta_pendiente?: { campo: string };
+  /** El casillero que el agente quiso descubrir en su último mensaje: una respuesta corta de la persona ("no hice nada") contesta ESA pregunta. */
+  casillero_pendiente?: string;
 };
 const CASILLEROS_V2 = ['situacion', 'objetivo', 'brecha', 'historial', 'compromiso'];
 export const estadoV2Vacio = (): EstadoV2 => ({ oferta: null, filtros: {}, casilleros: Object.fromEntries(CASILLEROS_V2.map(c => [c, null])), emociones_trabajadas: [], etapa: 'descubrir' });
@@ -1981,6 +1983,7 @@ Reglas:
 - oferta_detectada: la oferta (de la lista "ofertas") por la que consulta, o null si todavía no se sabe.
 - filtros: datos de los campos (de la oferta, de datos_para_agendar y los que pide el estado). Cada campo trae una "ayuda": seguila. "si_no" => valor "si" o "no"; "no" SOLO si lo niega o dice algo incompatible, nunca por duda. "numero" => solo el número. "opcion" => uno de los valores permitidos.
 - RESPUESTAS CORTAS: "ultimo_mensaje_del_agente" es lo último que dijo el agente y "pregunta_pendiente" es el campo que esa pregunta quería saber (o null). Si el ÚLTIMO mensaje de la persona es una respuesta corta ("sí", "si", "no", "correcto", "sí soy", "no, por la caja"), responde a ESA pregunta del agente: registrá el filtro de "pregunta_pendiente" con el valor que la respuesta indica y, como evidencia, la respuesta de la persona copiada tal cual (por ejemplo "si"). Un sí o un no a una pregunta que no pide ninguno de los campos no es un dato: no incluyas nada. "No hice nada", "no sé" o "no entiendo" NO son un "no" al dato: no incluyas ese filtro.
+- RESPUESTA A UN CASILLERO: "casillero_pendiente" es el casillero que el agente quiso descubrir en su último mensaje (o null). Si el ÚLTIMO mensaje de la persona contesta esa pregunta, aunque sea con pocas palabras, registralo en ESE casillero, con texto en tercera persona y la respuesta copiada como evidencia ("no hice nada" contesta qué intentó o por qué no lo resolvió: texto "no hizo nada"; "no sabía" es brecha).
 - casilleros (cada uno con su descripción en "casilleros_definidos"): situacion, objetivo, brecha, historial, compromiso, con "texto" = lo que dijo, resumido en pocas palabras, sin agregar nada y en tercera persona de cortesía ("le descuentan ganancias", "no sabía que se podía reclamar"), nunca en primera persona. "objetivo" es lo que la persona dice que QUIERE lograr ("quiero…", "necesito…", "busco…"): contar su situación o que le descuentan no es un objetivo; si no lo dijo, no lo incluyas. "brecha" es por qué no lo resolvió hasta ahora (no sabía, no se animó, no tuvo tiempo, no pudo). "historial" es qué intentó antes. Un mismo fragmento no sirve de evidencia para dos casilleros.
 - evidencia (en filtros y casilleros): una frase COPIADA TAL CUAL de un mensaje de la persona que respalde el dato. Si no podés copiarla, no incluyas el dato.
 - emocion: SOLO si el último mensaje de la persona expresa preocupación, frustración, cansancio o necesidad (me preocupa, no puedo, intenté, necesito, quiero que…, me cuesta, estoy cansada, me frustra, es injusto…); "frase" = esa oración copiada tal cual. Aceptar, decir sí, elegir o saludar NO es una emoción: null.
@@ -2161,6 +2164,7 @@ async function dirigirTurnoBase(a: EntradaDirector): Promise<SalidaDirector> {
   const { cfg, ext } = a;
   const estado = copiarEstado(a.estado);
   delete estado.pregunta_pendiente; // solo vale la del turno que se arma ahora
+  delete estado.casillero_pendiente;
   const out: SalidaDirector = { objetivos: [], estado, slotsOfrecidos: null, agendoOk: false, datos: [], horasPermitidas: a.ofrecidos.map(x => x.hora), derivado: false };
   const oferta = estado.oferta ? cfg.ofertas[estado.oferta] : null;
   if (estado.etapa === 'no_califica' && !(oferta && oferta.filtros.some(f => estado.filtros[f.campo]?.valor === 'no'))) estado.etapa = 'descubrir';
@@ -2248,7 +2252,10 @@ async function dirigirTurnoBase(a: EntradaDirector): Promise<SalidaDirector> {
     }
     // 7. faltan casilleros mínimos
     const casillero = casilleroFaltante(estado, oferta);
-    if (casillero) return conBloqueo({ tipo: 'descubrir', detalle: casillero, texto: `Descubrí, con UNA sola pregunta que siga de lo que la persona contó: ${cfg.casilleros[casillero] ?? casillero}. Preguntalo como lo haría una persona${cfg.ejemplos_pregunta?.[casillero]?.length ? `, con tus palabras y variando la forma (por ejemplo: ${cfg.ejemplos_pregunta[casillero].map(x => `«${x}»`).join(' o ')})` : ''}. Nunca digas "objetivo", "casillero" ni "situación actual", y no la presentes como parte de un cuestionario.` }, `descubrir:${casillero}`);
+    if (casillero) { const obj = await conBloqueo({ tipo: 'descubrir', detalle: casillero, texto: `Descubrí, con UNA sola pregunta que siga de lo que la persona contó: ${cfg.casilleros[casillero] ?? casillero}. Preguntalo como lo haría una persona${cfg.ejemplos_pregunta?.[casillero]?.length ? `, con tus palabras y variando la forma (por ejemplo: ${cfg.ejemplos_pregunta[casillero].map(x => `«${x}»`).join(' o ')})` : ''}. Nunca digas "objetivo", "casillero" ni "situación actual", y no la presentes como parte de un cuestionario.` }, `descubrir:${casillero}`);
+      if (obj.tipo === 'descubrir') estado.casillero_pendiente = casillero;
+      return obj;
+    }
     // 8. casilleros completos: reorganizar y ofrecer
     if (estado.etapa === 'descubrir') {
       estado.etapa = 'ofrecer';
@@ -2633,6 +2640,7 @@ async function turnoV2(a: {
     horarios_ofrecidos: ofrecidos.map(x => ({ fecha: x.fecha, hora: x.hora })),
     ultimo_mensaje_del_agente: ultimoAgenteTexto || null,
     pregunta_pendiente: estadoAntes.pregunta_pendiente?.campo ?? null,
+    casillero_pendiente: estadoAntes.casillero_pendiente ?? null,
     mensajes_recientes: recientes,
   });
   const esquema = esquemaExtractor(cfg);

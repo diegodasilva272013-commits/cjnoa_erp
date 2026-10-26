@@ -4073,6 +4073,19 @@ describe('agente v2 · director + extractor + redactor (todo con modelo simulado
     expect(mensajeSeguro({ ...b, estado: { ...e, horario_pendiente: { fecha: '2026-10-27', hora: '09:00' } }, objetivos: [{ tipo: 'obtener_dato_agenda', detalle: 'nombre', texto: '' }] })).toContain('para el turno del martes 27 de octubre a las 09:00');
     expect(mensajeSeguro({ ...b, objetivos: [{ tipo: 'derivar', texto: '' }] })).toBeNull();
   });
+  it('ronda 1b · el director deja el casillero que preguntó; el extractor lo recibe y "no hice nada" queda como historial (se llega a reorganizar_y_ofrecer, sin derivar)', async () => {
+    let visto: any = null;
+    const c = await conversar([
+      { persona: FRASE1, extractor: () => art9 },
+      { persona: P_OBJ, extractor: () => raw({ casilleros: [cas('objetivo', 'quiere que dejen de descontarle', P_OBJ)] }) },
+      { persona: 'no hice nada', extractor: (u) => { visto = u; return raw({ casilleros: [cas('historial', 'no hizo nada', 'no hice nada')] }); } },
+    ]);
+    expect(c.tipos[1]).toEqual(['descubrir:brecha']);
+    expect(visto.casillero_pendiente).toBe('brecha');
+    expect(leerEstadoV2(c.lead().datos).casilleros.historial?.texto).toBe('no hizo nada');
+    expect(c.tipos[2]).toEqual(['reorganizar_y_ofrecer']);
+    expect(PROMPT_EXTRACTOR).toContain('RESPUESTA A UN CASILLERO');
+  });
   it('ronda 1 · config: cada filtro lleva su ayuda para el extractor ("maestra" es docente) y el extractor las recibe', () => {
     const f = CONFIG_CLIENTE.ofertas.art9_ganancias.filtros.find(x => x.campo === 'es_docente')!;
     expect(f.ayuda).toMatch(/maestra/i);
