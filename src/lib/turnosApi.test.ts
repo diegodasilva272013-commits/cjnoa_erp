@@ -4354,6 +4354,16 @@ describe('agente v2 · director + extractor + redactor (todo con modelo simulado
     expect(PROMPT_REDACTOR).toContain('reflejá lo que siente, no lo que dijo');
     expect(PROMPT_VERIFICADOR).toContain('repite_dato_recien_dado');
   });
+  it('estudio · con un "si", el dato repetido es el de la pregunta anterior; el modelo no decide: sus avisos de "repite el dato" se ignoran', () => {
+    const permite = permiteDeObjetivos([{ tipo: 'obtener_filtro', texto: '' }]);
+    const anteriores = ['Hola, soy Karina. ¿Es usted docente jubilada?'];
+    const ev = (borrador: string, modelo: any[] = []) => evaluarVerificacion({ violaciones: modelo }, { borrador, permite, anterior: anteriores.join('\n'), anteriores, ultimoPersona: 'SI' });
+    expect(ev('Perfecto. ¿Se jubiló por ANSES?').ok).toBe(true);
+    expect(ev('Perfecto. ¿Se jubiló por ANSES?', [{ regla: 'repite_dato_recien_dado', frase: '¿Se jubiló por ANSES?' }]).ok).toBe(true); // falso aviso del modelo: se ignora
+    expect(ev('Perfecto, como docente jubilada. ¿Se jubiló por ANSES?').violaciones.map(v => v.regla)).toEqual(['repite_dato_recien_dado']);
+    // la pregunta final puede nombrar cosas parecidas
+    expect(ev('Gracias. ¿Es usted docente jubilada en la provincia?').ok).toBe(true);
+  });
   it('ronda 1 · config: cada filtro lleva su ayuda para el extractor ("maestra" es docente) y el extractor las recibe', () => {
     const f = CONFIG_CLIENTE.ofertas.art9_ganancias.filtros.find(x => x.campo === 'es_docente')!;
     expect(f.ayuda).toMatch(/maestra/i);

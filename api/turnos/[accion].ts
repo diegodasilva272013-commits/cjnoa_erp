@@ -2638,12 +2638,22 @@ export function aperturaProhibida(txt: string): string | null {
   const hit = APERTURAS_PROHIBIDAS.find(p => n === p || n.startsWith(`${p} `));
   return hit ? o.split(/\s+/).slice(0, 4).join(' ') : null;
 }
-/** Si la primera oración repite una palabra importante del dato corto que la persona acaba de dar ("virtual", un apellido). */
-export function datoRepetidoEnLaPrimeraOracion(borrador: string, ultimoPersona: string): string | null {
-  const palabras = limpiarParaComparar(ultimoPersona).split(' ').filter(w => w.length >= 4 && !/^\d+$/.test(w) && !['correcto', 'exacto', 'claro', 'gracias', 'perfecto', 'bueno', 'dale'].includes(w));
-  const o = primeraOracionUtil(borrador);
-  const n = ` ${limpiarParaComparar(o)} `;
-  return palabras.some(w => n.includes(` ${w} `) || n.includes(` ${w}`)) ? o.slice(0, 120) : null;
+/**
+ * Si el mensaje repite el dato corto que la persona acaba de dar, devuelve la oración que lo repite. Mira todas las oraciones salvo la pregunta final
+ * (la pregunta siguiente puede nombrar cosas parecidas). Con un "sí"/"no" el dato es el de la pregunta que el agente había hecho (palabras de 7 letras o más);
+ * con otra respuesta corta ("virtual", un apellido) son sus propias palabras.
+ */
+export function datoRepetidoEnLaPrimeraOracion(borrador: string, ultimoPersona: string, preguntaPrevia?: string | null): string | null {
+  const yesNo = esRespuestaCortaSiNo(ultimoPersona);
+  const NO_CUENTAN = ['correcto', 'exacto', 'claro', 'gracias', 'perfecto', 'bueno', 'dale'];
+  const palabras = yesNo
+    ? (preguntaPrevia ? limpiarParaComparar(preguntaPrevia).split(' ').filter(w => w.length >= 7) : [])
+    : limpiarParaComparar(ultimoPersona).split(' ').filter(w => w.length >= 4 && !/^\d+$/.test(w) && !NO_CUENTAN.includes(w));
+  if (!palabras.length) return null;
+  const oraciones = String(borrador ?? '').split(/(?<=[.!?])\s+/).map(x => x.trim()).filter(Boolean).filter(o => !/^hola\b/i.test(o));
+  if (oraciones.length && oraciones[oraciones.length - 1].includes('?')) oraciones.pop();
+  const hit = oraciones.find(o => { const n = ` ${limpiarParaComparar(o)} `; return palabras.some(w => n.includes(` ${w} `) || n.includes(` ${w}`)); });
+  return hit ? hit.slice(0, 120) : null;
 }
 
 export function evaluarVerificacion(crudo: any, a: { borrador: string; permite: ReturnType<typeof permiteDeObjetivos>; anterior: string; personaTextos?: string[]; anteriores?: string[]; /** Último mensaje de la persona (activa el control de "no repetir el dato que acaba de dar"). */ ultimoPersona?: string }): { ok: boolean; motivo: string; violaciones: { regla: string; frase: string }[] } {
@@ -2669,12 +2679,13 @@ export function evaluarVerificacion(crudo: any, a: { borrador: string; permite: 
   // Aperturas prohibidas: lo decide el código (no depende de que el modelo la vea).
   const apertura = aperturaProhibida(a.borrador);
   if (apertura && !validas.some(v => v.regla === 'apertura_prohibida')) validas.push({ regla: 'apertura_prohibida', frase: apertura });
-  // Si la persona solo dio un dato corto, el borrador no lo repite en su primera oración.
+  // Si la persona solo dio un dato corto, el mensaje no lo repite. Lo que diga el modelo sobre esto se ignora: lo decide el código.
   if (a.ultimoPersona !== undefined) {
+    for (let k = validas.length - 1; k >= 0; k--) if (validas[k].regla === 'repite_dato_recien_dado') validas.splice(k, 1);
     const corto = limpiarParaComparar(a.ultimoPersona).split(' ').filter(Boolean).length <= 2;
-    const repetido = corto ? datoRepetidoEnLaPrimeraOracion(a.borrador, a.ultimoPersona) : null;
-    if (repetido && !validas.some(v => v.regla === 'repite_dato_recien_dado')) validas.push({ regla: 'repite_dato_recien_dado', frase: repetido });
-    if (!corto) for (let k = validas.length - 1; k >= 0; k--) if (validas[k].regla === 'repite_dato_recien_dado') validas.splice(k, 1);
+    const previa = a.anteriores?.length ? preguntaDelAgente(a.anteriores[a.anteriores.length - 1]) : null;
+    const repetido = corto ? datoRepetidoEnLaPrimeraOracion(a.borrador, a.ultimoPersona, previa) : null;
+    if (repetido) validas.push({ regla: 'repite_dato_recien_dado', frase: repetido });
   }
   const motivo = validas.map(v => `La frase «${v.frase}» ${INSTRUCCION_REGLA[v.regla]}.`).join(' ').slice(0, 500);
   return { ok: validas.length === 0, motivo, violaciones: validas };
