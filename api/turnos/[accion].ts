@@ -1007,7 +1007,7 @@ export function quitarFrasesHechas(txt: string): string {
 
 export function problemasDeEstilo(txt: string): string[] {
   const out: string[] = [];
-  if ((txt.match(/\?/g) ?? []).length > 2) out.push('Hacé como máximo UNA pregunta por mensaje (la primera que falte) y esperá la respuesta: no encadenes varias preguntas ni repitas las que la persona ya contestó.');
+  if ((txt.match(/\?/g) ?? []).length > 1 || /(?:^|\s)y si\s[^?]*\?/i.test(txt)) out.push('Hacé como máximo UNA pregunta por mensaje (la primera que falte) y esperá la respuesta: no encadenes varias preguntas ni repitas las que la persona ya contestó.');
   if (/^\s*[-•*]\s/m.test(txt) || (txt.match(/\b\d{1,2}[:.]\d{2}\b/g) ?? []).length > 4) out.push('Sin listas ni viñetas: ofrecé como máximo 3 horarios, en una sola frase corrida, y no vuelques el calendario.');
   if (REGEX_CLICHE.test(txt)) out.push('Sin frases hechas ("le entiendo", "entiendo completamente", "no dude en", "estoy aquí para ayudarle", "Entiendo,"): mostrá empatía respondiendo a lo concreto que contó la persona, con calidez real, y avanzá.');
   if (REGEX_TUTEO.test(txt)) out.push('Tratá SIEMPRE de usted: nunca de tú ni de vos (nada de "podrías", "prefieres", "tu caso", "contame", "tenés"; usá "podría", "prefiere", "su caso", "cuénteme", "tiene").');
