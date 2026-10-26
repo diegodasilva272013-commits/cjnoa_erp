@@ -2,7 +2,8 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { createHash, createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
 import { waitUntil } from '@vercel/functions';
-import CONFIG_CJNOA from './_config-cjnoa.json';
+// OJO: con "type": "module" Vercel compila a .js y Node (ESM) exige la extensión .js en los imports relativos; sin ella, o con .ts o con un .json sin atributo, la función no carga (verificar-api-esm.mjs lo comprueba).
+import { CONFIG_CJNOA } from './_config-cjnoa.js';
 
 /**
  * Puente entre el agente de WhatsApp del ERP y el calendario.
@@ -1875,7 +1876,7 @@ export function promesaSinCumplir(txt: string): boolean {
 // El código lleva la cuenta de qué se sabe y decide qué toca en cada turno (director); el modelo hace solo dos cosas
 // chicas: extraer datos con salida estructurada (extractor) y redactar UN mensaje con UN objetivo (redactor).
 // Las herramientas de agenda, video y derivación las llama el CÓDIGO. Se activa con AGENTE_VERSION=v2 (por defecto v1).
-// Las ofertas (filtros, casilleros mínimos, condición, activo de valor, cierre) salen de _config-cjnoa.json, no del código.
+// Las ofertas (filtros, casilleros mínimos, condición, activo de valor, cierre) salen de _config-cjnoa.ts (un archivo de datos aparte), no del código.
 // =====================================================================================
 
 export type ConfigFiltro = { campo: string; tipo: 'si_no' | 'texto' | 'numero' | 'opcion'; descripcion: string; valores?: string[] };

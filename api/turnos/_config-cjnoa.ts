@@ -1,4 +1,7 @@
-{
+// Datos de las ofertas del cliente (CJ NOA): filtros, casilleros mínimos, condición, activo de valor y cierre.
+// Es un archivo de DATOS, sin lógica: otro cliente = otro archivo. Es .ts (y no .json) porque el cargador ESM de Node que usa Vercel
+// exige un atributo de importación para los .json y rompía toda la función.
+export const CONFIG_CJNOA = {
   "cliente": "Centro Jurídico NOA",
   "agente": {
     "nombre": "Karina",
@@ -113,4 +116,4 @@
       "descripcion": "su nombre y apellido"
     }
   ]
-}
+};
