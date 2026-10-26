@@ -20,12 +20,33 @@
       "profesional": "alejandro",
       "tipo_consulta": "articulo9_ganancias",
       "filtros": [
-        { "campo": "es_docente", "tipo": "si_no", "descripcion": "si es docente jubilado/a" },
-        { "campo": "jubilado_anses", "tipo": "si_no", "descripcion": "si se jubiló por ANSES" },
-        { "campo": "descuento_art9_ganancias", "tipo": "si_no", "descripcion": "si le descuentan Artículo 9 y/o Ganancias" }
+        {
+          "campo": "es_docente",
+          "tipo": "si_no",
+          "descripcion": "si es docente jubilado/a"
+        },
+        {
+          "campo": "jubilado_anses",
+          "tipo": "si_no",
+          "descripcion": "si se jubiló por ANSES"
+        },
+        {
+          "campo": "descuento_art9_ganancias",
+          "tipo": "si_no",
+          "descripcion": "si le descuentan Artículo 9 y/o Ganancias"
+        }
       ],
       "filtros_de_cierre": [],
-      "casilleros_minimos": { "obligatorios": ["objetivo"], "al_menos_uno_de": ["brecha", "historial", "compromiso"] },
+      "casilleros_minimos": {
+        "obligatorios": [
+          "objetivo"
+        ],
+        "al_menos_uno_de": [
+          "brecha",
+          "historial",
+          "compromiso"
+        ]
+      },
       "condicion": "La consulta con el Dr. Alejandro Reyes es SIN CARGO y sin compromiso, y puede ser presencial en San Salvador de Jujuy o virtual. En la consulta el Dr. Alejandro Reyes analiza su caso y le explica qué se puede hacer y cuáles son los pasos a seguir.",
       "urgencia": "La ley permite reclamar lo descontado hasta 2 años hacia atrás en Artículo 9 y hasta 5 años en Ganancias, contados desde la presentación de la demanda; por eso cada mes que se demora, los descuentos más antiguos pueden quedar fuera del reclamo. Es todo lo que podés decir sobre plazos y nunca prometés un resultado.",
       "activo_de_valor": null,
@@ -38,18 +59,58 @@
       "profesional": "fabricio",
       "tipo_consulta": "jubilacion_docente",
       "filtros": [
-        { "campo": "nombre", "tipo": "texto", "descripcion": "su nombre" },
-        { "campo": "edad", "tipo": "numero", "descripcion": "su edad" },
-        { "campo": "trabaja_docente", "tipo": "si_no", "descripcion": "si actualmente trabaja como docente" }
+        {
+          "campo": "nombre",
+          "tipo": "texto",
+          "descripcion": "su nombre"
+        },
+        {
+          "campo": "edad",
+          "tipo": "numero",
+          "descripcion": "su edad"
+        },
+        {
+          "campo": "trabaja_docente",
+          "tipo": "si_no",
+          "descripcion": "si actualmente trabaja como docente"
+        }
       ],
       "filtros_de_cierre": [
-        { "campo": "forma_reserva", "tipo": "opcion", "valores": ["efectivo", "transferencia"], "descripcion": "cómo prefiere abonar la reserva (transferencia o efectivo)" }
+        {
+          "campo": "forma_reserva",
+          "tipo": "opcion",
+          "valores": [
+            "efectivo",
+            "transferencia"
+          ],
+          "descripcion": "cómo prefiere abonar la reserva (transferencia o efectivo)"
+        }
       ],
-      "casilleros_minimos": { "obligatorios": ["objetivo"], "al_menos_uno_de": ["brecha", "historial", "compromiso"] },
+      "casilleros_minimos": {
+        "obligatorios": [
+          "objetivo"
+        ],
+        "al_menos_uno_de": [
+          "brecha",
+          "historial",
+          "compromiso"
+        ]
+      },
       "condicion": "La consulta es con el Dr. Fabricio Reyes. El valor y la reserva (la mitad; el resto se abona el día de la consulta) los informa el sistema: nunca los inventes. En la consulta el Dr. Fabricio Reyes analiza su caso y le explica qué se puede hacer y cuáles son los pasos a seguir.",
       "urgencia": null,
-      "activo_de_valor": { "tipo": "video", "herramienta": "enviar_video_jubilacion", "descripcion": "video grabado por el Dr. Fabricio Reyes" },
+      "activo_de_valor": {
+        "tipo": "video",
+        "herramienta": "enviar_video_jubilacion",
+        "descripcion": "video grabado por el Dr. Fabricio Reyes"
+      },
       "cierre": "reserva_y_turno"
     }
-  }
+  },
+  "datos_agenda": [
+    {
+      "campo": "nombre",
+      "tipo": "texto",
+      "descripcion": "su nombre y apellido"
+    }
+  ]
 }

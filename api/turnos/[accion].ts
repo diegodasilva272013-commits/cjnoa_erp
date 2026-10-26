@@ -1887,10 +1887,10 @@ export type ConfigOferta = {
   activo_de_valor: { tipo: string; herramienta: string; descripcion: string } | null;
   cierre: 'turno_directo' | 'reserva_y_turno';
 };
-export type ConfigCliente = { cliente: string; agente: { nombre: string; estudio: string; direccion: string }; casilleros: Record<string, string>; ofertas: Record<string, ConfigOferta> };
+export type ConfigCliente = { cliente: string; agente: { nombre: string; estudio: string; direccion: string }; casilleros: Record<string, string>; datos_agenda: ConfigFiltro[]; ofertas: Record<string, ConfigOferta> };
 export const CONFIG_CLIENTE = CONFIG_CJNOA as unknown as ConfigCliente;
 
-export type EtapaV2 = 'descubrir' | 'ofrecer' | 'activo_valor' | 'reserva' | 'horarios' | 'agendado' | 'derivado' | 'no_califica';
+export type EtapaV2 = 'descubrir' | 'ofrecer' | 'activo_valor' | 'reserva' | 'horarios' | 'agendado' | 'derivado' | 'no_califica' | 'cerrado';
 export type CasilleroV2 = { texto: string; evidencia: string } | null;
 export type EstadoV2 = {
   oferta: string | null;
@@ -1898,6 +1898,8 @@ export type EstadoV2 = {
   casilleros: Record<string, CasilleroV2>;
   emociones_trabajadas: string[];
   etapa: EtapaV2;
+  /** Reserva abonada: el comprobante lo validó el sistema (aviso de la foto). */
+  pago?: { monto: number; at: string };
   bloqueo?: { clave: string; firma: string; turno: number; n: number };
 };
 const CASILLEROS_V2 = ['situacion', 'objetivo', 'brecha', 'historial', 'compromiso'];
@@ -1919,7 +1921,7 @@ const copiarEstado = (e: EstadoV2): EstadoV2 => JSON.parse(JSON.stringify(e));
 
 // ------------------------------------------------------------------ extractor
 
-export const INTENCIONES = ['pregunta', 'objecion', 'acepta', 'elige_horario', 'rechaza_horarios', 'ambiguo', 'otro'] as const;
+export const INTENCIONES = ['pregunta', 'objecion', 'acepta', 'elige_horario', 'rechaza_horarios', 'rechazo_firme', 'ambiguo', 'otro'] as const;
 export type Intencion = (typeof INTENCIONES)[number];
 export type Extraccion = {
   oferta_detectada: string | null;
@@ -1933,8 +1935,8 @@ export type Extraccion = {
 };
 export const extraccionVacia = (fallo = false): Extraccion => ({ oferta_detectada: null, filtros: [], casilleros: [], emocion: null, intencion: 'otro', pregunta_de_la_persona: null, horario_elegido: null, ...(fallo ? { fallo: true } : {}) });
 
-const camposDeFiltros = (cfg: ConfigCliente) => [...new Set(Object.values(cfg.ofertas).flatMap(o => [...o.filtros, ...o.filtros_de_cierre].map(f => f.campo)))];
-const definicionDeFiltro = (cfg: ConfigCliente, campo: string) => Object.values(cfg.ofertas).flatMap(o => [...o.filtros, ...o.filtros_de_cierre]).find(f => f.campo === campo);
+const camposDeFiltros = (cfg: ConfigCliente) => [...new Set([...Object.values(cfg.ofertas).flatMap(o => [...o.filtros, ...o.filtros_de_cierre]), ...(cfg.datos_agenda ?? [])].map(f => f.campo))];
+const definicionDeFiltro = (cfg: ConfigCliente, campo: string) => [...Object.values(cfg.ofertas).flatMap(o => [...o.filtros, ...o.filtros_de_cierre]), ...(cfg.datos_agenda ?? [])].find(f => f.campo === campo);
 
 /** Esquema JSON estricto (OpenAI structured outputs) de lo que devuelve el extractor. */
 export function esquemaExtractor(cfg: ConfigCliente) {
@@ -1958,11 +1960,11 @@ export const PROMPT_EXTRACTOR = `Sos un extractor de datos para el agente de Wha
 Leés los mensajes de la PERSONA y completás únicamente lo que ella DIJO. No inferís ni adivinás: si no lo dijo, no lo incluyas.
 Reglas:
 - oferta_detectada: la oferta (de la lista "ofertas") por la que consulta, o null si todavía no se sabe.
-- filtros: datos de los campos de la oferta. "si_no" => valor "si" o "no". Una negación ("No soy docente", "no me descuentan") es valor "no". "numero" => solo el número. "opcion" => uno de los valores permitidos.
+- filtros: datos de los campos de la oferta (y los de datos_para_agendar, como el nombre si lo dice). "si_no" => valor "si" o "no". Una negación ("No soy docente", "no me descuentan") es valor "no". "numero" => solo el número. "opcion" => uno de los valores permitidos.
 - casilleros: situacion, objetivo, brecha, historial, compromiso, con "texto" = lo que dijo, resumido en pocas palabras, sin agregar nada.
 - evidencia (en filtros y casilleros): una frase COPIADA TAL CUAL de un mensaje de la persona. Si no podés copiarla, no incluyas el dato.
 - emocion: si la persona expresa algo con palabras de compra (me preocupa, no puedo, intenté, necesito, quiero, me cuesta, estoy cansada, me frustra…), "frase" = esa oración copiada tal cual; si no, null.
-- intencion del ÚLTIMO mensaje: pregunta (hace una pregunta), objecion (duda, excusa, "lo voy a pensar", "es caro"), acepta (quiere avanzar), elige_horario (elige uno de los horarios ofrecidos), rechaza_horarios (no puede esos días u horarios o pide otro), ambiguo (responde "sí", "dale", "cualquiera" sin precisar a algo que ofrecía varias opciones), otro.
+- intencion del ÚLTIMO mensaje: pregunta (hace una pregunta), objecion (duda, excusa, "lo voy a pensar", "es caro"), acepta (quiere avanzar), elige_horario (elige uno de los horarios ofrecidos), rechaza_horarios (no puede esos días u horarios o pide otro), rechazo_firme (dice con claridad que no le interesa: "no me interesa", "no quiero", "dejá de escribirme"), ambiguo (responde "sí", "dale", "cualquiera" sin precisar a algo que ofrecía varias opciones), otro.
 - pregunta_de_la_persona: la pregunta del último mensaje, o null.
 - horario_elegido: solo si eligió uno de "horarios_ofrecidos" ("el primero", "el segundo", "el martes", "a las 10"): copiá su fecha y hora exactas de esa lista; si no, null.
 Devolvé solo el JSON.`;
@@ -2027,7 +2029,11 @@ export type Objetivo = { tipo: string; texto: string; detalle?: unknown };
 export type SalidaDirector = { objetivos: Objetivo[]; estado: EstadoV2; slotsOfrecidos: SlotOfrecido[] | null; agendoOk: boolean; datos: string[]; horasPermitidas: string[]; derivado: boolean };
 export type EntradaDirector = {
   db: Db; cfg: ConfigCliente; estado: EstadoV2; ext: Extraccion; ctx: CtxHerramienta; ejecutar: Deps['ejecutar'];
-  ofrecidos: SlotOfrecido[]; turno: number; nombre: string; videoEnviado: boolean;
+  ofrecidos: SlotOfrecido[]; turno: number; videoEnviado: boolean;
+  /** Nombre conocido (filtro, perfil de WhatsApp o ficha); null si todavía no hay. */
+  nombre: string | null;
+  /** Si el mensaje fue una foto o un documento: el aviso del sistema dice si el comprobante se validó. */
+  comprobante?: { estado: 'validado'; monto: number } | { estado: 'no_validado' } | null;
   /** Si el extractor falló no se cuenta ningún bloqueo (el estado queda como estaba). */
   sinBloqueo?: boolean;
 };
@@ -2059,6 +2065,7 @@ export function loQueYaSabe(estado: EstadoV2, cfg: ConfigCliente): string[] {
     out.push(`${def?.descripcion ?? campo}: ${d.valor} (dijo: «${d.evidencia}»)`);
   }
   for (const [c, v] of Object.entries(estado.casilleros)) if (v) out.push(`${cfg.casilleros[c] ?? c}: ${v.texto} (dijo: «${v.evidencia}»)`);
+  if (estado.pago) out.push(`La reserva ya está abonada (${pesosV2(estado.pago.monto)}, validada por el sistema).`);
   return out;
 }
 
@@ -2071,9 +2078,23 @@ export async function dirigirTurno(a: EntradaDirector): Promise<SalidaDirector> 
   if (estado.etapa === 'no_califica' && !(oferta && oferta.filtros.some(f => estado.filtros[f.campo]?.valor === 'no'))) estado.etapa = 'descubrir';
   if (oferta) { out.datos.push(`Condición de la consulta: ${oferta.condicion}`); if (oferta.urgencia) out.datos.push(`Urgencia real (solo si viene al caso): ${oferta.urgencia}`); }
 
+  if (a.comprobante?.estado === 'validado') estado.pago = { monto: a.comprobante.monto, at: new Date().toISOString() };
+  if (estado.etapa === 'cerrado' && ext.intencion !== 'rechazo_firme') estado.etapa = 'descubrir'; // volvió a escribir: se retoma normal
+
   if (estado.etapa === 'derivado') {
     out.objetivos = [{ tipo: 'derivado', texto: 'La conversación ya pasó a una persona del equipo. Contestá con calidez que alguien del estudio se va a comunicar con ella; no le preguntes más datos.' }];
     out.derivado = true;
+    return out;
+  }
+
+  if (ext.intencion === 'rechazo_firme') {
+    estado.etapa = 'cerrado';
+    out.objetivos = [{ tipo: 'cerrar_con_respeto', texto: 'La persona dijo con claridad que no le interesa. Agradecé con calidez, respetá su decisión y dejá la puerta abierta con una frase propia. No hagas ninguna pregunta ni ofrezcas nada.' }];
+    return out;
+  }
+  if (a.comprobante?.estado === 'no_validado') {
+    await a.ejecutar('derivar_a_humano', { motivo: 'La persona mandó un comprobante o documento que el sistema no pudo validar: verificarlo.' }, a.ctx);
+    out.objetivos = [{ tipo: 'verificar_con_equipo', texto: 'La persona mandó una foto o un documento que el sistema no pudo validar. Agradecele con calidez y decile que el equipo del estudio lo va a verificar y se comunica con ella. No afirmes que el pago se acreditó ni ofrezcas horarios.' }];
     return out;
   }
 
@@ -2187,17 +2208,21 @@ export async function dirigirTurno(a: EntradaDirector): Promise<SalidaDirector> 
       estado.etapa = 'horarios';
       out.slotsOfrecidos = dos;
       out.horasPermitidas = dos.map(x => x.hora);
-      return { tipo: 'ofrecer_horarios', detalle: dos, texto: `Ofrecele exactamente DOS horarios, cada uno con su día y fecha: ${dos.map(x => `${nombreDeDia(x.fecha)} a las ${x.hora}`).join(' o ')}. Preguntale cuál le queda mejor.` };
+      return { tipo: 'ofrecer_horarios', detalle: dos, texto: `${a.comprobante?.estado === 'validado' ? 'Primero agradecé con calidez que recibimos el pago de la reserva. ' : ''}Ofrecele exactamente DOS horarios, cada uno con su día y fecha: ${dos.map(x => `${nombreDeDia(x.fecha)} a las ${x.hora}`).join(' o ')}. Preguntale cuál le queda mejor.` };
     };
-    if (!a.ofrecidos.length) return ofrecerNuevos([]);
+    if (!a.ofrecidos.length) {
+      if (!a.nombre) return conBloqueo({ tipo: 'obtener_dato_agenda', detalle: 'nombre', texto: 'Para dejar el turno a nombre de la persona necesitás su nombre y apellido. Pedíselo de forma natural, con UNA sola pregunta, antes de ofrecer horarios. No ofrezcas horarios todavía.' }, 'obtener_dato_agenda:nombre');
+      return ofrecerNuevos([]);
+    }
     if (ext.intencion === 'rechaza_horarios') return ofrecerNuevos(a.ofrecidos);
     const el = ext.intencion === 'elige_horario' ? ext.horario_elegido : null;
+    if (el && !a.nombre) return conBloqueo({ tipo: 'obtener_dato_agenda', detalle: 'nombre', texto: 'La persona eligió horario. Para dejar el turno a su nombre necesitás su nombre y apellido: pedíselo con UNA sola pregunta y decile que enseguida queda reservado.' }, 'obtener_dato_agenda:nombre');
     if (!el) {
       out.slotsOfrecidos = null;
       out.horasPermitidas = a.ofrecidos.map(x => x.hora);
       return { tipo: 'preguntar_cual', detalle: a.ofrecidos, texto: `La persona no dijo cuál prefiere. Preguntale cuál de ESTOS DOS MISMOS horarios le queda mejor: ${a.ofrecidos.map(x => `${nombreDeDia(x.fecha)} a las ${x.hora}`).join(' o ')}. No ofrezcas otros ni vuelvas a consultar.` };
     }
-    const ag: any = await a.ejecutar('agendar_turno', { profesional, nombre: a.nombre, fecha: el.fecha, hora: el.hora, tema: oferta.etiqueta, pago: !!a.ctx.montoValidado }, a.ctx);
+    const ag: any = await a.ejecutar('agendar_turno', { profesional, nombre: a.nombre ?? 'Consulta por WhatsApp', fecha: el.fecha, hora: el.hora, tema: oferta.etiqueta, pago: !!a.ctx.montoValidado }, a.ctx);
     if (ag?.status === 'success') {
       estado.etapa = 'agendado';
       out.agendoOk = true;
@@ -2316,7 +2341,7 @@ export function funcionesV2(modelo?: string): Pick<Deps, 'extraer' | 'redactar'>
 type SalidaTurnoV2 = { respuesta: string; agendoOk: boolean; slots: SlotOfrecido[]; horas: string[]; usado: boolean };
 
 async function turnoV2(a: {
-  deps: Deps; m: MsgEntrante; textoCliente: string; previos: MsgGuardado[]; datosLead: any; ahora: Date; ctx: CtxHerramienta;
+  deps: Deps; m: MsgEntrante; textoCliente: string; previos: MsgGuardado[]; datosLead: any; ahora: Date; ctx: CtxHerramienta; esArchivo: boolean;
 }): Promise<SalidaTurnoV2> {
   const { deps, m, previos } = a;
   const db = deps.db;
@@ -2337,9 +2362,10 @@ async function turnoV2(a: {
     mensajes_recientes: recientes,
   });
   const esquema = esquemaExtractor(cfg);
-  let ext = extraccionVacia(true);
+  let ext = extraccionVacia(a.esArchivo ? false : true);
   let crudo: unknown = null;
-  for (let intento = 1; intento <= 2; intento++) {
+  // Una foto o un documento no tiene palabras de la persona: el extractor no interviene; lo que cuenta es el aviso del sistema.
+  for (let intento = 1; intento <= (a.esArchivo ? 0 : 2); intento++) {
     try {
       crudo = await deps.extraer!(PROMPT_EXTRACTOR, usuario, esquema);
       const v = validarExtraccion(crudo, { cfg, personaTextos, ofrecidos });
@@ -2365,8 +2391,9 @@ async function turnoV2(a: {
   const turno = personaTextos.length;
   const salida = await dirigirTurno({
     db, cfg, estado, ext, ctx: a.ctx, ejecutar: deps.ejecutar, ofrecidos, turno,
-    nombre: estado.filtros['nombre']?.valor || m.nombre || String(a.datosLead?.nombre ?? '') || 'Consulta por WhatsApp',
+    nombre: estado.filtros['nombre']?.valor || m.nombre || String(a.datosLead?.nombre ?? '').trim() || null,
     videoEnviado: !!a.datosLead?.video_enviado,
+    comprobante: a.esArchivo ? (() => { const monto = montoValidadoDe([a.textoCliente]); return monto ? { estado: 'validado' as const, monto } : { estado: 'no_validado' as const }; })() : null,
     sinBloqueo: !!ext.fallo,
   });
   estado = salida.estado;
@@ -2393,6 +2420,7 @@ async function turnoV2(a: {
     if (malas.length) problemas.push(`Mencionaste horarios que no están permitidos (${malas.join(', ')}). Usá solo: ${[...permitidas].join(', ') || 'ninguno'}.`);
     if (horasExigidas.length && !horasExigidas.every(h => horasEnTexto(texto).includes(h))) problemas.push(`Nombrá exactamente estos dos horarios, cada uno con su día y fecha: ${(exigeHorarios!.detalle as SlotOfrecido[]).map(x => `${nombreDeDia(x.fecha)} a las ${x.hora}`).join(' o ')}.`);
     if (texto && !salida.agendoOk && afirmaTurnoAgendado(texto)) problemas.push('Todavía NO se agendó ningún turno: no digas que quedó agendado ni que se ven.');
+    if (salida.objetivos.some(o => o.tipo === 'cerrar_con_respeto') && texto.includes('?')) problemas.push('Cerrá sin ninguna pregunta: agradecé y dejá la puerta abierta.');
     if (!problemas.length || correcciones >= 2) break;
     correcciones++;
     mensajes.push({ role: 'assistant', content: texto });
@@ -2511,12 +2539,12 @@ export async function procesarMensaje(deps: Deps, m: MsgEntrante) {
   const slotsTurno: SlotOfrecido[] = [];
   const horasPermitidas = new Set<string>([...horasEnTexto(textosCliente.join(' ')), ...vigentes.map(v => String(v.hora_consulta ?? '').slice(0, 5)), ...ofrecidosAntes.map(x => x.hora)]);
   let ultimoTexto = '';
-  // v2 (AGENTE_VERSION=v2 o el selector del Chat de prueba): el código decide y el modelo solo extrae y redacta. Fotos y documentos siguen por la v1.
+  // v2 (AGENTE_VERSION=v2 o el selector del Chat de prueba): el código decide y el modelo solo extrae y redacta. Texto, audio, fotos y documentos.
   let v2Hecho = false;
-  if (deps.version === 'v2' && deps.extraer && deps.redactar && (m.esTexto || esAudio)) {
+  if (deps.version === 'v2' && deps.extraer && deps.redactar) {
     v2Hecho = true;
     try {
-      const v2 = await turnoV2({ deps, m, textoCliente, previos, datosLead, ahora, ctx });
+      const v2 = await turnoV2({ deps, m, textoCliente, previos, datosLead, ahora, ctx, esArchivo: !m.esTexto && !esAudio });
       respuesta = v2.respuesta;
       agendoOk = v2.agendoOk;
       slotsTurno.push(...v2.slots);
@@ -3999,7 +4027,7 @@ export async function costosCuentaOpenAI(desdeMs: number): Promise<{ configurado
  * No pasa por WhatsApp (enviar solo junta las respuestas) y escribe en una base en memoria: lo unico real que lee es la agenda.
  * Cada mensaje cuesta lo mismo que uno de un cliente (1 a 3 llamadas al modelo); nada corre solo.
  */
-export async function chatAgentePaso(texto: string, estadoIn: any, llm: Deps['llm'], real?: Db, v2?: Pick<Deps, 'extraer' | 'redactar'>): Promise<Resp> {
+export async function chatAgentePaso(texto: string, estadoIn: any, llm: Deps['llm'], real?: Db, v2?: Pick<Deps, 'extraer' | 'redactar'>, nombrePerfil?: string): Promise<Resp> {
   const m = Pruebas;
   fijarOrigenUso('chat_prueba');
   const limpio = String(texto ?? '').trim().slice(0, 1500);
@@ -4027,7 +4055,7 @@ export async function chatAgentePaso(texto: string, estadoIn: any, llm: Deps['ll
     presentarse: true,
     ...(v2 ? { version: 'v2' as const, extraer: v2.extraer, redactar: v2.redactar, traza: (t: Record<string, unknown>) => { trazaV2.push(t); } } : {}),
   };
-  await procesarMensaje(deps, { id: `chat-${Date.now()}-${paso}`, from: '5490000000000', nombre: null, texto: limpio, esTexto: true });
+  await procesarMensaje(deps, { id: `chat-${Date.now()}-${paso}`, from: '5490000000000', nombre: nombrePerfil ?? null, texto: limpio, esTexto: true });
   if (respuestas.length === 0 || (respuestas.length === 1 && respuestas[0] === MSG_SIN_RESPUESTA)) return { code: 503, body: { error: 'OpenAI no contestó (límite de uso o saldo). Probá de nuevo.' } };
   for (const t of respuestas) estado.transcript.push({ de: 'karina', texto: t, paso });
   return { code: 200, body: { respuestas, estado, herramientas: estado.herramientas.slice(antes).map((h: any) => h.nombre), trazas: estado.herramientas.slice(antes), v2: trazaV2[0] ?? null, videos: estado.videos } };

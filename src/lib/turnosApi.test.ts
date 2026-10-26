@@ -3497,10 +3497,13 @@ describe('agente v2 · director + extractor + redactor (todo con modelo simulado
     m = /Turno agendado con (.+?): (.+?)\. Dirección/.exec(sis);
     if (/El turno YA QUEDÓ AGENDADO/.test(sis) && m) return `Su consulta YA QUEDÓ AGENDADA el ${m[2]} con ${m[1]}.`;
     if (/AVISO|pasó a una persona del equipo/.test(sis)) return 'Alguien del estudio se va a comunicar con usted.';
+    if (/dijo con claridad que no le interesa/.test(sis)) return 'Gracias por su tiempo. Si más adelante quiere retomarlo, escríbanos cuando guste.';
+    if (/necesitás su nombre y apellido/.test(sis)) return 'Para dejar el turno a su nombre, ¿me indica su nombre y apellido?';
+    if (/el equipo del estudio lo va a verificar/.test(sis)) return 'Gracias por enviarlo. El equipo del estudio lo va a verificar y se comunica con usted.';
     return 'Cuénteme un poco más de su situación. ¿Qué le gustaría lograr?';
   };
   type Turno = { persona: string; extractor: (u: any) => any; antes?: (estado: any) => void };
-  async function conversar(turnos: Turno[], redactor: (sis: string, mensajes: any[], n: number) => string = (sis) => redactorFalso(sis)) {
+  async function conversar(turnos: Turno[], redactor: (sis: string, mensajes: any[], n: number) => string = (sis) => redactorFalso(sis), nombrePerfil?: string) {
     let estado: any;
     const cuerpos: any[] = [];
     let llamadasRedactor = 0;
@@ -3509,7 +3512,7 @@ describe('agente v2 · director + extractor + redactor (todo con modelo simulado
       const r = await chatAgentePaso(t.persona, estado, sinV1 as any, undefined, {
         extraer: async (_s, usuario) => t.extractor(JSON.parse(String(usuario))),
         redactar: async (sis, mensajes) => ({ stop_reason: 'end_turn', content: [{ type: 'text', text: redactor(sis, mensajes, llamadasRedactor++) }] }),
-      });
+      }, nombrePerfil);
       expect(r.code).toBe(200);
       estado = r.body.estado;
       cuerpos.push(r.body);
@@ -3572,7 +3575,7 @@ describe('agente v2 · director + extractor + redactor (todo con modelo simulado
       { persona: 'Sí, me gustaría avanzar', extractor: () => raw({ intencion: 'acepta' }) },
       { persona: 'si', extractor: (u) => { ofrecidos = u.horarios_ofrecidos; return raw({ intencion: 'ambiguo' }); } },
       { persona: 'el primero', extractor: (u) => raw({ intencion: 'elige_horario', horario_elegido: u.horarios_ofrecidos[0] }) },
-    ]);
+    ], undefined, 'Ana Gómez');
     // turno 4: el CÓDIGO consultó la agenda y eligió DOS
     expect(c.tipos[3]).toEqual(['ofrecer_horarios']);
     expect(c.cuerpos[3].herramientas).toContain('consultar_disponibilidad');
@@ -3600,7 +3603,7 @@ describe('agente v2 · director + extractor + redactor (todo con modelo simulado
     const c = await conversar([
       ...art9Hasta(3),
       { persona: 'Sí, me gustaría avanzar', extractor: () => raw({ intencion: 'acepta' }) },
-    ], (sis, mensajes, n) => (mensajes.some((m: any) => String(m.content).startsWith('[SISTEMA ERP: Corregí')) ? redactorFalso(sis) : (/Ofrecele exactamente DOS/.test(sis) ? 'Perfecto, su consulta ya quedó agendada.' : redactorFalso(sis))));
+    ], (sis, mensajes, n) => (mensajes.some((m: any) => String(m.content).startsWith('[SISTEMA ERP: Corregí')) ? redactorFalso(sis) : (/Ofrecele exactamente DOS/.test(sis) ? 'Perfecto, su consulta ya quedó agendada.' : redactorFalso(sis))), 'Ana Gómez');
     expect(c.cuerpos[3].respuestas[0]).not.toMatch(/quedó agendada/i);
     expect(c.cuerpos[3].v2.redactor.length).toBeGreaterThanOrEqual(2);
     expect(c.estado.tablas.consultas_agendadas).toHaveLength(0);
@@ -3620,7 +3623,7 @@ describe('agente v2 · director + extractor + redactor (todo con modelo simulado
         },
         extractor: (u) => raw({ intencion: 'elige_horario', horario_elegido: u.horarios_ofrecidos[0] }),
       },
-    ]);
+    ], undefined, 'Ana Gómez');
     expect(c.tipos[4]).toEqual(['ofrecer_horarios']);
     const ag = c.cuerpos[4].trazas.find((h: any) => h.nombre === 'agendar_turno');
     expect(ag.resultado.status).toBe('conflict');
@@ -3637,7 +3640,7 @@ describe('agente v2 · director + extractor + redactor (todo con modelo simulado
       ...art9Hasta(3),
       { persona: 'Sí, me gustaría avanzar', extractor: () => raw({ intencion: 'acepta' }) },
       { persona: 'No puedo esos días', antes: (e) => { antes = e.tablas.leads[0].datos.horarios_ofrecidos.lista; }, extractor: () => raw({ intencion: 'rechaza_horarios' }) },
-    ]);
+    ], undefined, 'Ana Gómez');
     expect(c.tipos[4]).toEqual(['ofrecer_horarios']);
     expect(c.cuerpos[4].herramientas).toContain('consultar_disponibilidad');
     const nuevos = c.lead().datos.horarios_ofrecidos.lista;
@@ -3809,7 +3812,7 @@ describe('agente v2 · director + extractor + redactor (todo con modelo simulado
       if (mensajes.some((m: any) => String(m.content).startsWith('[SISTEMA ERP: Corregí'))) return redactorFalso(sis);
       if (/Ofrecele exactamente DOS/.test(sis)) return 'Tengo lugar a las 09:00 o a las 09:30. ¿Cuál le queda mejor?';
       return redactorFalso(sis);
-    });
+    }, 'Ana Gómez');
     const dos = c.cuerpos[3].v2.objetivos[0].detalle;
     expect(c.cuerpos[3].v2.redactor).toHaveLength(2);
     const final = c.cuerpos[3].respuestas[0];
@@ -3850,5 +3853,159 @@ describe('agente v2 · director + extractor + redactor (todo con modelo simulado
     expect(CONFIG_CLIENTE.ofertas.jubilacion.profesional).toBe('fabricio');
     expect(CONFIG_CLIENTE.ofertas.jubilacion.filtros.map(f => f.campo)).toEqual(['nombre', 'edad', 'trabaja_docente']);
     expect(CONFIG_CLIENTE.ofertas.jubilacion.activo_de_valor?.herramienta).toBe('enviar_video_jubilacion');
+  });
+});
+
+describe('agente v2 · ajustes: fotos y documentos, rechazo firme y nombre (modelo simulado)', () => {
+  const sinV1 = async () => { throw new Error('la v1 no debe llamarse en la v2'); };
+  const raw = (p: Record<string, unknown> = {}) => ({ oferta_detectada: null, filtros: [], casilleros: [], emocion: null, intencion: 'otro', pregunta_de_la_persona: null, horario_elegido: null, ...p });
+  const fil = (campo: string, valor: string, evidencia: string) => ({ campo, valor, evidencia });
+  const cas = (casillero: string, texto: string, evidencia: string) => ({ casillero, texto, evidencia });
+  const FRASE1 = 'Hola, soy docente jubilada por ANSES y me descuentan ganancias';
+  const art9 = raw({ oferta_detectada: 'art9_ganancias', filtros: [fil('es_docente', 'si', FRASE1), fil('jubilado_anses', 'si', FRASE1), fil('descuento_art9_ganancias', 'si', FRASE1)], casilleros: [cas('situacion', 'le descuentan ganancias', FRASE1)] });
+  const P_OBJ = 'Quiero que dejen de descontarme y que me devuelvan lo que me sacaron';
+  const P_HIST = 'Ya fui a ANSES y me dijeron que no se podía hacer nada';
+  const redactorFalso = (sis: string): string => {
+    let m = /Ofrecele exactamente DOS horarios, cada uno con su día y fecha: (.+?)\. Preguntale/.exec(sis);
+    if (m) return `Tengo lugar ${m[1]}. ¿Cuál le queda mejor?`;
+    m = /Turno agendado con (.+?): (.+?)\. Dirección/.exec(sis);
+    if (/El turno YA QUEDÓ AGENDADO/.test(sis) && m) return `Su consulta YA QUEDÓ AGENDADA el ${m[2]} con ${m[1]}.`;
+    if (/dijo con claridad que no le interesa/.test(sis)) return 'Gracias por su tiempo. Si más adelante quiere retomarlo, escríbanos cuando guste.';
+    if (/necesitás su nombre y apellido/.test(sis)) return 'Para dejar el turno a su nombre, ¿me indica su nombre y apellido?';
+    if (/el equipo del estudio lo va a verificar|el equipo del estudio lo va a verificar/.test(sis)) return 'Gracias por enviarlo. El equipo del estudio lo va a verificar y se comunica con usted.';
+    return 'Cuénteme un poco más de su situación. ¿Qué le gustaría lograr?';
+  };
+  const NOTA_VALIDADA = '[SISTEMA ERP: Comprobante de transferencia validado exitosamente por $25.000 hacia Arturo Rodrigo Reyes. Proceder con el agendamiento.]';
+  const NOTA_NO_VALIDADA = '[SISTEMA ERP: No se pudo leer el comprobante de la foto. Pedí la foto de nuevo o derivá a una persona.]';
+
+  async function turnoTexto(persona: string, estado: any, extraido: any, nombrePerfil?: string) {
+    const r = await chatAgentePaso(persona, estado, sinV1 as any, undefined, {
+      extraer: async () => extraido,
+      redactar: async (sis) => ({ stop_reason: 'end_turn', content: [{ type: 'text', text: redactorFalso(sis) }] }),
+    }, nombrePerfil);
+    expect(r.code).toBe(200);
+    return r.body;
+  }
+  const tipoDe = (b: any) => (b.v2.objetivos as any[]).map(o => o.tipo + (typeof o.detalle === 'string' ? ':' + o.detalle : ''));
+
+  // Una foto o un documento: entra por la v2 (el extractor no interviene; cuenta el aviso del sistema).
+  async function mandarFoto(estado: any, nota: string) {
+    const { dbEnMemoria } = await import('../server/agentePruebas');
+    const db = dbEnMemoria(estado.tablas);
+    const enviados: string[] = [];
+    const trazas: any[] = [];
+    const herramientas: any[] = [];
+    let extractorLlamado = 0;
+    const deps: Deps = {
+      db, llm: sinV1 as any, prompt: PROMPT_AGENTE,
+      enviar: async (_to, t) => { enviados.push(t); },
+      ejecutar: async (n, i, c) => { const r = await ejecutarHerramienta(db, n, i, c); herramientas.push({ nombre: n, input: i, resultado: r }); return r; },
+      enviarVideo: async () => {},
+      presentarse: false, version: 'v2',
+      preparar: async () => ({ texto: nota, esAudio: false }),
+      extraer: async () => { extractorLlamado++; return raw(); },
+      redactar: async (sis) => ({ stop_reason: 'end_turn', content: [{ type: 'text', text: redactorFalso(sis) }] }),
+      traza: (t) => { trazas.push(t); },
+    };
+    await procesarMensaje(deps, { id: `img-${Date.now()}`, from: '5490000000000', nombre: null, texto: '', esTexto: false, tipo: 'image', mediaId: 'm1' });
+    return { enviados, trazas, herramientas, tablas: estado.tablas, extractorLlamado };
+  }
+  async function jubilacionHastaTransferencia() {
+    const P1 = 'Hola, soy Ana, tengo 62 años y sigo trabajando como docente';
+    const P2 = 'Quiero jubilarme sin perder lo que aporté todos estos años y todavía no sé si me conviene';
+    let b = await turnoTexto(P1, undefined, raw({ oferta_detectada: 'jubilacion', filtros: [fil('nombre', 'Ana', P1), fil('edad', '62', P1), fil('trabaja_docente', 'si', P1)], casilleros: [cas('situacion', 'quiere jubilarse', P1)] }));
+    b = await turnoTexto(P2, b.estado, raw({ casilleros: [cas('objetivo', 'jubilarse sin perder aportes', P2), cas('brecha', 'duda', P2)] }));
+    b = await turnoTexto('Sí, quiero verlo', b.estado, raw({ intencion: 'acepta' }));
+    b = await turnoTexto('Me pareció muy claro, quiero agendar', b.estado, raw({ intencion: 'acepta' }));
+    expect(tipoDe(b)).toEqual(['reserva_pedir_forma']);
+    b = await turnoTexto('Prefiero transferencia', b.estado, raw({ filtros: [fil('forma_reserva', 'transferencia', 'Prefiero transferencia')] }));
+    expect(tipoDe(b)).toEqual(['reserva_transferencia']);
+    return b;
+  }
+
+  // ------------------------------------------------------------------ 1. fotos y documentos
+  it('1) jubilación con reserva pendiente → foto con aviso validado → el siguiente objetivo es ofrecer_horarios, y estado_v2 guarda el pago', async () => {
+    const b = await jubilacionHastaTransferencia();
+    const f = await mandarFoto(b.estado, NOTA_VALIDADA);
+    expect(f.extractorLlamado).toBe(0);
+    expect(f.trazas).toHaveLength(1);
+    const objetivos = f.trazas[0].objetivos as any[];
+    expect(objetivos.map(o => o.tipo)).toEqual(['ofrecer_horarios']);
+    expect(objetivos[0].texto).toContain('agradecé con calidez que recibimos el pago de la reserva');
+    expect(f.herramientas.map(h => h.nombre)).toContain('consultar_disponibilidad');
+    expect(f.herramientas.find(h => h.nombre === 'consultar_disponibilidad').resultado.status).not.toBe('requiere_reserva');
+    expect(f.trazas[0].estado.pago).toMatchObject({ monto: 25000 });
+    expect(leerEstadoV2(f.tablas.leads[0].datos).pago?.monto).toBe(25000);
+    expect(leerEstadoV2(f.tablas.leads[0].datos).etapa).toBe('horarios');
+    expect(f.tablas.leads[0].datos.horarios_ofrecidos.lista).toHaveLength(2);
+    expect(f.enviados[f.enviados.length - 1]).toMatch(/Tengo lugar/);
+  });
+
+  it('1b) una foto que el sistema NO pudo validar → el objetivo es avisar con calidez que el equipo la verifica (y la ficha queda marcada); no se ofrecen horarios', async () => {
+    const b = await jubilacionHastaTransferencia();
+    const f = await mandarFoto(b.estado, NOTA_NO_VALIDADA);
+    expect(f.extractorLlamado).toBe(0);
+    expect((f.trazas[0].objetivos as any[]).map(o => o.tipo)).toEqual(['verificar_con_equipo']);
+    expect(f.herramientas.map(h => h.nombre)).toEqual(['derivar_a_humano']);
+    expect(f.herramientas.map(h => h.nombre)).not.toContain('consultar_disponibilidad');
+    expect(f.tablas.leads[0].datos.derivar_a_humano).toContain('no pudo validar');
+    expect(f.enviados[f.enviados.length - 1]).toContain('El equipo del estudio lo va a verificar');
+    expect(f.enviados[f.enviados.length - 1]).not.toMatch(/Tengo lugar|acredit/);
+    expect(leerEstadoV2(f.tablas.leads[0].datos).etapa).not.toBe('derivado'); // el flujo puede seguir cuando se valide
+  });
+
+  // ------------------------------------------------------------------ 2. rechazo firme
+  it('2) "no me interesa" → cerrar_con_respeto, sin pregunta en el mensaje, etapa cerrado; un mensaje nuevo después → se retoma normal', async () => {
+    let b = await turnoTexto(FRASE1, undefined, art9);
+    expect(tipoDe(b)).toEqual(['descubrir:objetivo']);
+    b = await turnoTexto('No me interesa, gracias', b.estado, raw({ intencion: 'rechazo_firme' }));
+    expect(tipoDe(b)).toEqual(['cerrar_con_respeto']);
+    expect(b.respuestas.join(' ')).not.toContain('?');
+    expect(leerEstadoV2(b.estado.tablas.leads[0].datos).etapa).toBe('cerrado');
+    b = await turnoTexto(P_OBJ, b.estado, raw({ casilleros: [cas('objetivo', 'que dejen de descontar', P_OBJ)] }));
+    expect(tipoDe(b)).toEqual(['descubrir:brecha']);
+    expect(leerEstadoV2(b.estado.tablas.leads[0].datos).etapa).toBe('descubrir');
+  });
+  it('2b) si el modelo cierra con una pregunta, se corrige antes de enviar', async () => {
+    let n = 0;
+    const r = await chatAgentePaso('No quiero, dejá de escribirme', undefined, sinV1 as any, undefined, {
+      extraer: async () => raw({ oferta_detectada: 'art9_ganancias', intencion: 'rechazo_firme' }),
+      redactar: async () => ({ stop_reason: 'end_turn', content: [{ type: 'text', text: n++ === 0 ? 'Gracias. ¿Seguro que no quiere avanzar?' : 'Gracias por su tiempo, queda la puerta abierta.' }] }),
+    });
+    expect(tipoDe(r.body)).toEqual(['cerrar_con_respeto']);
+    expect(r.body.respuestas.join(' ')).not.toContain('?');
+    expect(r.body.v2.redactor).toHaveLength(2);
+  });
+  it('el extractor sabe de rechazo_firme (esquema y prompt)', () => {
+    const esq = esquemaExtractor(CONFIG_CLIENTE) as any;
+    expect(esq.properties.intencion.enum).toContain('rechazo_firme');
+    expect(PROMPT_EXTRACTOR).toContain('rechazo_firme');
+    expect(PROMPT_EXTRACTOR).toContain('dejá de escribirme');
+  });
+
+  // ------------------------------------------------------------------ 3. nombre en Art. 9
+  it('3) sin nombre (ni filtro ni perfil de WhatsApp) el objetivo antes de ofrecer_horarios es obtener_dato_agenda: nombre; con el nombre se agenda a su nombre', async () => {
+    let b = await turnoTexto(FRASE1, undefined, art9);
+    b = await turnoTexto(P_OBJ, b.estado, raw({ casilleros: [cas('objetivo', 'que dejen de descontar', P_OBJ)] }));
+    b = await turnoTexto(P_HIST, b.estado, raw({ casilleros: [cas('historial', 'fue a ANSES', P_HIST)] }));
+    expect(tipoDe(b)).toEqual(['reorganizar_y_ofrecer']);
+    b = await turnoTexto('Sí, quiero avanzar', b.estado, raw({ intencion: 'acepta' }));
+    expect(tipoDe(b)).toEqual(['obtener_dato_agenda:nombre']); // antes de ofrecer horarios
+    expect(b.herramientas).not.toContain('consultar_disponibilidad');
+    expect(b.v2.objetivos[0].texto).toContain('nombre y apellido');
+    const NOMBRE = 'Me llamo Ana Gómez';
+    b = await turnoTexto(NOMBRE, b.estado, raw({ filtros: [fil('nombre', 'Ana Gómez', NOMBRE)], intencion: 'otro' }));
+    expect(tipoDe(b)).toEqual(['ofrecer_horarios']);
+    expect(b.estado.tablas.leads[0].nombre).toBe('Ana Gómez');
+    b = await turnoTexto('el primero', b.estado, raw({ intencion: 'elige_horario', horario_elegido: b.estado.tablas.leads[0].datos.horarios_ofrecidos.lista[0] }));
+    expect(tipoDe(b)).toEqual(['confirmar_turno']);
+    expect(b.estado.tablas.consultas_agendadas[0].cliente_nombre).toBe('Ana Gómez');
+  });
+  it('3b) con el nombre del perfil de WhatsApp no se lo pide: va directo a ofrecer_horarios', async () => {
+    let b = await turnoTexto(FRASE1, undefined, art9, 'Ana Gómez');
+    b = await turnoTexto(P_OBJ, b.estado, raw({ casilleros: [cas('objetivo', 'x', P_OBJ)] }), 'Ana Gómez');
+    b = await turnoTexto(P_HIST, b.estado, raw({ casilleros: [cas('historial', 'y', P_HIST)] }), 'Ana Gómez');
+    b = await turnoTexto('Sí, quiero avanzar', b.estado, raw({ intencion: 'acepta' }), 'Ana Gómez');
+    expect(tipoDe(b)).toEqual(['ofrecer_horarios']);
   });
 });
