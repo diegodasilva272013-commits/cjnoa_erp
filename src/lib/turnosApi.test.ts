@@ -4364,6 +4364,14 @@ describe('agente v2 · director + extractor + redactor (todo con modelo simulado
     // la pregunta final puede nombrar cosas parecidas
     expect(ev('Gracias. ¿Es usted docente jubilada en la provincia?').ok).toBe(true);
   });
+  it('estudio · "SOBRE EL ARTICULO 9" es un dato corto: el mensaje no repite el tema; si la persona expresó una emoción corta, sí puede reflejarla', () => {
+    const permite = permiteDeObjetivos([{ tipo: 'obtener_filtro', texto: '' }]);
+    const ev = (borrador: string, persona: string, conEmocion = false) => evaluarVerificacion({ violaciones: [] }, { borrador, permite, anterior: '', ultimoPersona: persona, conEmocion });
+    expect(ev('El tema del Artículo 9 e Impuesto a las Ganancias es relevante. ¿Es usted docente jubilada?', 'SOBRE EL ARTICULO 9').violaciones.map(v => v.regla)).toEqual(['repite_dato_recien_dado']);
+    expect(ev('Perfecto. ¿Es usted docente jubilada?', 'SOBRE EL ARTICULO 9').ok).toBe(true);
+    expect(ev('Se nota que le preocupa. ¿Desde cuándo?', 'me preocupa mucho').ok).toBe(false);
+    expect(ev('Se nota que le preocupa. ¿Desde cuándo?', 'me preocupa mucho', true).ok).toBe(true);
+  });
   it('ronda 1 · config: cada filtro lleva su ayuda para el extractor ("maestra" es docente) y el extractor las recibe', () => {
     const f = CONFIG_CLIENTE.ofertas.art9_ganancias.filtros.find(x => x.campo === 'es_docente')!;
     expect(f.ayuda).toMatch(/maestra/i);

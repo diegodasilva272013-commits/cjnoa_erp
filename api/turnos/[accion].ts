@@ -2656,7 +2656,7 @@ export function datoRepetidoEnLaPrimeraOracion(borrador: string, ultimoPersona: 
   return hit ? hit.slice(0, 120) : null;
 }
 
-export function evaluarVerificacion(crudo: any, a: { borrador: string; permite: ReturnType<typeof permiteDeObjetivos>; anterior: string; personaTextos?: string[]; anteriores?: string[]; /** Último mensaje de la persona (activa el control de "no repetir el dato que acaba de dar"). */ ultimoPersona?: string }): { ok: boolean; motivo: string; violaciones: { regla: string; frase: string }[] } {
+export function evaluarVerificacion(crudo: any, a: { borrador: string; permite: ReturnType<typeof permiteDeObjetivos>; anterior: string; personaTextos?: string[]; anteriores?: string[]; /** Último mensaje de la persona (activa el control de "no repetir el dato que acaba de dar"). */ ultimoPersona?: string; /** La persona expresó una emoción en ese mensaje: reflejar lo que siente está permitido. */ conEmocion?: boolean }): { ok: boolean; motivo: string; violaciones: { regla: string; frase: string }[] } {
   if (!Array.isArray(crudo?.violaciones)) throw new Error('respuesta del verificador inválida');
   const en = (texto: string, frase: string) => { const f = limpiarParaComparar(frase); return f.length >= 4 && limpiarParaComparar(texto).includes(f); };
   const validas: { regla: string; frase: string }[] = [];
@@ -2682,7 +2682,7 @@ export function evaluarVerificacion(crudo: any, a: { borrador: string; permite: 
   // Si la persona solo dio un dato corto, el mensaje no lo repite. Lo que diga el modelo sobre esto se ignora: lo decide el código.
   if (a.ultimoPersona !== undefined) {
     for (let k = validas.length - 1; k >= 0; k--) if (validas[k].regla === 'repite_dato_recien_dado') validas.splice(k, 1);
-    const corto = limpiarParaComparar(a.ultimoPersona).split(' ').filter(Boolean).length <= 2;
+    const corto = !a.conEmocion && limpiarParaComparar(a.ultimoPersona).split(' ').filter(Boolean).length <= 4;
     const previa = a.anteriores?.length ? preguntaDelAgente(a.anteriores[a.anteriores.length - 1]) : null;
     const repetido = corto ? datoRepetidoEnLaPrimeraOracion(a.borrador, a.ultimoPersona, previa) : null;
     if (repetido) validas.push({ regla: 'repite_dato_recien_dado', frase: repetido });
@@ -2711,7 +2711,7 @@ export function mensajeSeguro(a: { objetivos: Objetivo[]; estado: EstadoV2; cfg:
   const oferta = a.estado.oferta ? a.cfg.ofertas[a.estado.oferta] : null;
   // El reflejo integra lo que dijo la persona (ya resumido en tercera persona por el extractor), sin comillas: «Le descuentan ganancias del haber.»
   const dicho = (a.dicho ?? []).map(x => String(x).trim().replace(/[.\s]+$/, '')).filter(Boolean)[0] ?? '';
-  const personaCorta = limpiarParaComparar(a.textoCliente).split(' ').filter(Boolean).length <= 2;
+  const personaCorta = limpiarParaComparar(a.textoCliente).split(' ').filter(Boolean).length <= 4;
   const reflejo = dicho && !personaCorta && !['acepta', 'ambiguo', 'elige_horario', 'rechaza_horarios'].includes(a.intencion)
     ? `${dicho.charAt(0).toUpperCase()}${dicho.slice(1)}.` : (personaCorta ? 'Perfecto.' : 'Gracias por contármelo.');
   const saludo = a.primerMensaje ? `Hola, soy ${a.cfg.agente.nombre}, del ${a.cfg.agente.estudio}. ` : '';
@@ -2897,7 +2897,7 @@ async function turnoV2(a: {
       let v: { ok: boolean; motivo: string; violaciones?: { regla: string; frase: string }[] };
       try {
         const crudoV: any = await deps.verificar(PROMPT_VERIFICADOR, JSON.stringify({ borrador: texto, mensaje_anterior_del_agente: ultimoAgente || null, mensajes_anteriores_del_agente: anterioresAgente, ultimo_mensaje_de_la_persona: a.textoCliente }), esquemaVerificador);
-        v = evaluarVerificacion(crudoV, { borrador: texto, permite, anterior: anterioresAgente.join('\n'), personaTextos, anteriores: anterioresAgente, ultimoPersona: a.textoCliente });
+        v = evaluarVerificacion(crudoV, { borrador: texto, permite, anterior: anterioresAgente.join('\n'), personaTextos, anteriores: anterioresAgente, ultimoPersona: a.textoCliente, conEmocion: !!ext.emocion });
       } catch (e) {
         console.error('[agente v2] verificador', e instanceof Error ? e.message : e);
         verificaciones.push({ intento: i + 1, ok: true, motivo: '(el verificador no respondió: se acepta el borrador)' });
