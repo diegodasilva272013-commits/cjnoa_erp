@@ -1916,6 +1916,8 @@ export type EstadoV2 = {
   /** Reserva abonada: el comprobante lo validó el sistema (aviso de la foto). */
   pago?: { monto: number; at: string };
   bloqueo?: { clave: string; firma: string; turno: number; n: number };
+  /** El filtro que el agente preguntó en su último mensaje: un "sí" o un "no" corto de la persona responde a ESA pregunta. */
+  pregunta_pendiente?: { campo: string };
 };
 const CASILLEROS_V2 = ['situacion', 'objetivo', 'brecha', 'historial', 'compromiso'];
 export const estadoV2Vacio = (): EstadoV2 => ({ oferta: null, filtros: {}, casilleros: Object.fromEntries(CASILLEROS_V2.map(c => [c, null])), emociones_trabajadas: [], etapa: 'descubrir' });
@@ -1978,6 +1980,7 @@ Informá lo que la persona dijo en su ÚLTIMO mensaje. Lo que ya figura en "esta
 Reglas:
 - oferta_detectada: la oferta (de la lista "ofertas") por la que consulta, o null si todavía no se sabe.
 - filtros: datos de los campos (de la oferta, de datos_para_agendar y los que pide el estado). Cada campo trae una "ayuda": seguila. "si_no" => valor "si" o "no"; "no" SOLO si lo niega o dice algo incompatible, nunca por duda. "numero" => solo el número. "opcion" => uno de los valores permitidos.
+- RESPUESTAS CORTAS: "ultimo_mensaje_del_agente" es lo último que dijo el agente y "pregunta_pendiente" es el campo que esa pregunta quería saber (o null). Si el ÚLTIMO mensaje de la persona es una respuesta corta ("sí", "si", "no", "correcto", "sí soy", "no, por la caja"), responde a ESA pregunta del agente: registrá el filtro de "pregunta_pendiente" con el valor que la respuesta indica y, como evidencia, la respuesta de la persona copiada tal cual (por ejemplo "si"). Un sí o un no a una pregunta que no pide ninguno de los campos no es un dato: no incluyas nada.
 - casilleros (cada uno con su descripción en "casilleros_definidos"): situacion, objetivo, brecha, historial, compromiso, con "texto" = lo que dijo, resumido en pocas palabras, sin agregar nada y en tercera persona de cortesía ("le descuentan ganancias", "no sabía que se podía reclamar"), nunca en primera persona. "objetivo" es lo que la persona dice que QUIERE lograr ("quiero…", "necesito…", "busco…"): contar su situación o que le descuentan no es un objetivo; si no lo dijo, no lo incluyas. "brecha" es por qué no lo resolvió hasta ahora (no sabía, no se animó, no tuvo tiempo, no pudo). "historial" es qué intentó antes. Un mismo fragmento no sirve de evidencia para dos casilleros.
 - evidencia (en filtros y casilleros): una frase COPIADA TAL CUAL de un mensaje de la persona que respalde el dato. Si no podés copiarla, no incluyas el dato.
 - emocion: SOLO si el último mensaje de la persona expresa preocupación, frustración, cansancio o necesidad (me preocupa, no puedo, intenté, necesito, quiero que…, me cuesta, estoy cansada, me frustra, es injusto…); "frase" = esa oración copiada tal cual. Aceptar, decir sí, elegir o saludar NO es una emoción: null.
@@ -1991,7 +1994,22 @@ const normalizarHoraSimple = (h: string) => { const m = /^(\d{1,2}):(\d{2})/.exe
 /** Valida lo que devolvió el extractor contra lo que la persona escribió de verdad. Lo que no valida, se descarta. */
 const REGEX_QUIERE = /\b(?:quiero|queremos|quisiera|quisieramos|necesito|necesitamos|busco|buscamos|espero|pretendo|deseo|me gustaria|nos gustaria|lograr|dejen de|dejar de|que (?:me )?(?:devuelvan|reintegren|reconozcan|corrijan|paren|saquen)|recuperar|reclamar|saber si|poder\b)/;
 
-export function validarExtraccion(raw: any, a: { cfg: ConfigCliente; personaTextos: string[]; ofrecidos: SlotOfrecido[] }): Extraccion {
+/** "si", "sí soy", "no", "no soy", "correcto", "así es": una respuesta de una o dos palabras que solo dice sí o no. */
+export function esRespuestaCortaSiNo(texto: string): boolean {
+  const n = limpiarParaComparar(texto);
+  return /^(?:si|no|correcto|exacto|efectivamente|claro|asi es|si correcto|si exacto)(?: (?:soy|es|asi|correcto|exacto|claro|jubilada|jubilado))?$/.test(n) && n.split(' ').length <= 2;
+}
+
+/** La pregunta (última oración con signo de pregunta) del mensaje del agente, o null si no hizo ninguna. */
+export function preguntaDelAgente(texto: string): string | null {
+  const t = String(texto ?? '');
+  const conSignos = t.match(/¿[^?]*\?/g);
+  if (conSignos?.length) return conSignos[conSignos.length - 1].trim();
+  const oraciones = t.split(/(?<=[.!?])\s+/).map(x => x.trim()).filter(x => x.includes('?'));
+  return oraciones.length ? oraciones[oraciones.length - 1] : null;
+}
+
+export function validarExtraccion(raw: any, a: { cfg: ConfigCliente; personaTextos: string[]; ofrecidos: SlotOfrecido[]; /** Último mensaje del agente. */ ultimoAgente?: string; /** Campo que el agente preguntó en ese mensaje. */ preguntaPendiente?: string | null }): Extraccion {
   if (!raw || typeof raw !== 'object' || !Array.isArray(raw.filtros) || !Array.isArray(raw.casilleros)) return extraccionVacia(true);
   const out = extraccionVacia();
   out.oferta_detectada = typeof raw.oferta_detectada === 'string' && a.cfg.ofertas[raw.oferta_detectada] ? raw.oferta_detectada : null;
@@ -2004,7 +2022,19 @@ export function validarExtraccion(raw: any, a: { cfg: ConfigCliente; personaText
     else if (def.tipo === 'numero') valor = /^\d{1,3}$/.test(v) ? v : '';
     else if (def.tipo === 'opcion') { const n = normalizar(v); valor = (def.valores ?? []).includes(n) ? n : ''; }
     else valor = v.length > 0 && v.length <= 120 && !(def.campo === 'nombre' && (NO_ES_NOMBRE.has(normalizar(v)) || ['virtual', 'presencial'].includes(normalizar(v)))) ? v : '';
-    const evidencia = valor ? evidenciaCompleta(String(f?.evidencia ?? '').trim(), a.personaTextos, []) : null;
+    let evidencia = valor ? evidenciaCompleta(String(f?.evidencia ?? '').trim(), a.personaTextos, []) : null;
+    // Un sí o un no corto no tiene palabras propias: vale solo si responde la pregunta que el agente hizo sobre ESTE campo,
+    // y la evidencia es esa pregunta. Con otra pregunta (o sin pregunta) no se registra nada.
+    const ultimoPersona = a.personaTextos[a.personaTextos.length - 1] ?? '';
+    const cortaPersona = esRespuestaCortaSiNo(ultimoPersona);
+    const cortaEvidencia = esRespuestaCortaSiNo(String(f?.evidencia ?? ''));
+    if (valor && def.tipo === 'si_no' && (cortaEvidencia || (evidencia !== null && esRespuestaCortaSiNo(evidencia)))) {
+      const pregunta = preguntaDelAgente(a.ultimoAgente ?? '');
+      const dicenSi = /^(?:si|correcto|exacto|efectivamente|claro|asi)\b/.test(limpiarParaComparar(ultimoPersona));
+      const dicenNo = /^no\b/.test(limpiarParaComparar(ultimoPersona));
+      const coincide = cortaPersona && (valor === 'si' ? dicenSi : dicenNo);
+      evidencia = pregunta && a.preguntaPendiente === def.campo && coincide ? pregunta : null;
+    }
     if (valor && evidencia) out.filtros.push({ campo: def.campo, valor, evidencia: evidencia.slice(0, 300) });
   }
   for (const c of raw.casilleros) {
@@ -2111,10 +2141,21 @@ export function loQueYaSabe(estado: EstadoV2, cfg: ConfigCliente): string[] {
   return out;
 }
 
-/** Decide el objetivo de este mensaje. Toma la primera condición que se cumple y llama las herramientas desde el código. */
+/**
+ * Decide el objetivo de este mensaje (ver dirigirTurnoBase). Mientras el objetivo es de los que no ofrecen nada
+ * (OBJETIVOS_SIN_OFERTA), la salida NO lleva datos de la oferta: ni condición, ni abogado, ni urgencia, ni horarios, ni precios.
+ */
 export async function dirigirTurno(a: EntradaDirector): Promise<SalidaDirector> {
+  const out = await dirigirTurnoBase(a);
+  if (out.objetivos.length > 0 && out.objetivos.every(o => OBJETIVOS_SIN_OFERTA.includes(o.tipo))) out.datos = [];
+  return out;
+}
+
+/** Toma la primera condición que se cumple y llama las herramientas desde el código. */
+async function dirigirTurnoBase(a: EntradaDirector): Promise<SalidaDirector> {
   const { cfg, ext } = a;
   const estado = copiarEstado(a.estado);
+  delete estado.pregunta_pendiente; // solo vale la del turno que se arma ahora
   const out: SalidaDirector = { objetivos: [], estado, slotsOfrecidos: null, agendoOk: false, datos: [], horasPermitidas: a.ofrecidos.map(x => x.hora), derivado: false };
   const oferta = estado.oferta ? cfg.ofertas[estado.oferta] : null;
   if (estado.etapa === 'no_califica' && !(oferta && oferta.filtros.some(f => estado.filtros[f.campo]?.valor === 'no'))) estado.etapa = 'descubrir';
@@ -2159,13 +2200,16 @@ export async function dirigirTurno(a: EntradaDirector): Promise<SalidaDirector> 
    */
   const conBloqueo = async (obj: Objetivo, clave: string): Promise<Objetivo> => {
     if (a.sinBloqueo) return obj;
-    if (ext.pregunta_de_la_persona) { delete estado.bloqueo; return obj; }
+    // Un "qué?" o un "cómo?" suelto es no haber entendido, no participar: no frena el conteo.
+    const hizoPregunta = !!ext.pregunta_de_la_persona && limpiarParaComparar(ext.pregunta_de_la_persona).split(' ').filter(Boolean).length > 2;
+    if (hizoPregunta) { delete estado.bloqueo; return obj; }
     const firma = JSON.stringify([Object.entries(estado.filtros).map(([k, v]) => [k, v.valor]), Object.entries(estado.casilleros).map(([k, v]) => [k, !!v])]);
     const prev = estado.bloqueo;
     const mismo = !!prev && prev.clave === clave && prev.firma === firma;
-    const n = mismo ? (prev!.turno === a.turno ? prev!.n : prev!.turno === a.turno - 1 ? prev!.n + 1 : 1) : 1;
+    // El turno en que el agente HACE la pregunta no cuenta (n = 0). Cada respuesta seguida de la persona que no trajo el dato suma 1.
+    const n = mismo ? (prev!.turno === a.turno ? prev!.n : prev!.turno === a.turno - 1 ? prev!.n + 1 : 0) : 0;
     estado.bloqueo = { clave, firma, turno: a.turno, n };
-    if (n >= 2) return derivar(`Dos turnos seguidos sin que la persona aportara el dato que faltaba (${clave}). Revisar la conversación.`);
+    if (n >= 2) return derivar(`Dos respuestas seguidas sin que la persona aportara el dato que faltaba (${clave}). Revisar la conversación.`);
     return obj;
   };
 
@@ -2192,7 +2236,11 @@ export async function dirigirTurno(a: EntradaDirector): Promise<SalidaDirector> 
     }
     // 5. falta un filtro
     const falta = oferta.filtros.find(f => !estado.filtros[f.campo]);
-    if (falta) return conBloqueo({ tipo: 'obtener_filtro', detalle: falta.campo, texto: `Necesitás saber ${falta.descripcion}. Preguntalo de forma natural y humana, con UNA sola pregunta, sin enumerar otros datos ni decir que necesitás confirmar nada.` }, `obtener_filtro:${falta.campo}`);
+    if (falta) {
+      const obj = await conBloqueo({ tipo: 'obtener_filtro', detalle: falta.campo, texto: `Necesitás saber ${falta.descripcion}. Preguntalo de forma natural y humana, con UNA sola pregunta, sin enumerar otros datos ni decir que necesitás confirmar nada.` }, `obtener_filtro:${falta.campo}`);
+      if (obj.tipo === 'obtener_filtro') estado.pregunta_pendiente = { campo: falta.campo };
+      return obj;
+    }
     // 7. faltan casilleros mínimos
     const casillero = casilleroFaltante(estado, oferta);
     if (casillero) return conBloqueo({ tipo: 'descubrir', detalle: casillero, texto: `Descubrí, con UNA sola pregunta que siga de lo que la persona contó: ${cfg.casilleros[casillero] ?? casillero}. Preguntalo como lo haría una persona${cfg.ejemplos_pregunta?.[casillero]?.length ? `, con tus palabras y variando la forma (por ejemplo: ${cfg.ejemplos_pregunta[casillero].map(x => `«${x}»`).join(' o ')})` : ''}. Nunca digas "objetivo", "casillero" ni "situación actual", y no la presentes como parte de un cuestionario.` }, `descubrir:${casillero}`);
@@ -2370,6 +2418,7 @@ export function armarSistemaRedactor(a: { cfg: ConfigCliente; objetivos: Objetiv
     '',
     '--- DE ESTE TURNO (lo arma el sistema) ---',
     `OBJETIVO DE ESTE MENSAJE:\n${a.objetivos.map((o, i) => `${a.objetivos.length > 1 ? `${i + 1}. ` : ''}${o.texto}`).join('\n')}`,
+    a.estado.oferta && a.cfg.ofertas[a.estado.oferta] ? `TEMA DE LA CONSULTA: «${a.cfg.ofertas[a.estado.oferta].etiqueta}». Si lo nombrás, usá siempre esa forma exacta; nunca lo nombres como lo escribió la persona (con abreviaturas, números sueltos o errores, por ejemplo "art.98").` : '',
     `LO QUE YA SABÉS DE ESTA PERSONA (NO LO PREGUNTES):\n${sabe.length ? sabe.map(x => `- ${x}`).join('\n') : '- Nada todavía.'}`,
     conIdeas ? `IDEAS DE VALOR APROBADAS (elegí UNA que tenga que ver con lo que dijo la persona y decila con sus palabras; no inventes otra):\n${ideas.map(x => `- ${x.texto}`).join('\n')}` : '',
     `DATOS QUE PODÉS USAR:\n${datos.length ? datos.map(x => `- ${x}`).join('\n') : '- Ninguno.'}`,
@@ -2400,6 +2449,18 @@ export function aperturaDeMensaje(txt: string): string {
   const util = oraciones.find(o => !/^hola\b/i.test(o)) ?? '';
   const sinEntonces = util.replace(/^entonces,?\s*(?:si le entend[ií] bien:?\s*)?/i, '');
   return limpiarParaComparar(sinEntonces).split(' ').slice(0, 2).join(' ');
+}
+
+/**
+ * Si el borrador nombra el artículo con un número distinto del de la oferta ("art.98" cuando es el Artículo 9), devuelve lo que escribió.
+ * La etiqueta de la config es la única forma válida de nombrar el tema.
+ */
+export function temaMalNombrado(borrador: string, etiqueta: string): string | null {
+  const REGEX = /\bart(?:[ií]culo)?s?\.?\s*(\d+)/gi;
+  const oficial = new Set([...String(etiqueta).matchAll(REGEX)].map(m => m[1]));
+  if (!oficial.size) return null;
+  for (const m of String(borrador).matchAll(REGEX)) if (!oficial.has(m[1])) return m[0].trim();
+  return null;
 }
 
 /** Si el borrador abre igual que alguno de los últimos 2 mensajes del agente, devuelve la apertura repetida. */
@@ -2549,6 +2610,7 @@ async function turnoV2(a: {
   const cfg = deps.config ?? CONFIG_CLIENTE;
   const traza: Record<string, unknown> = {};
   const personaTextos = [...previos.filter(x => x.from === 'cliente').map(x => x.texto), a.textoCliente];
+  const ultimoAgenteTexto = String([...previos].reverse().find(x => x.from === 'agente')?.texto ?? '');
   const ofrecidos = ofrecidosVigentes(a.datosLead, a.ahora);
   const estadoAntes = leerEstadoV2(a.datosLead);
   traza.estado_antes = estadoAntes;
@@ -2562,6 +2624,8 @@ async function turnoV2(a: {
     estado: { oferta: estadoAntes.oferta, filtros: Object.fromEntries(Object.entries(estadoAntes.filtros).map(([k, v]) => [k, v.valor])), casilleros: Object.fromEntries(Object.entries(estadoAntes.casilleros).filter(([, v]) => v).map(([k, v]) => [k, (v as any).texto])) },
     casilleros_definidos: cfg.casilleros,
     horarios_ofrecidos: ofrecidos.map(x => ({ fecha: x.fecha, hora: x.hora })),
+    ultimo_mensaje_del_agente: ultimoAgenteTexto || null,
+    pregunta_pendiente: estadoAntes.pregunta_pendiente?.campo ?? null,
     mensajes_recientes: recientes,
   });
   const esquema = esquemaExtractor(cfg);
@@ -2571,7 +2635,7 @@ async function turnoV2(a: {
   for (let intento = 1; intento <= (a.esArchivo ? 0 : 2); intento++) {
     try {
       crudo = await deps.extraer!(PROMPT_EXTRACTOR, usuario, esquema);
-      const v = validarExtraccion(crudo, { cfg, personaTextos, ofrecidos });
+      const v = validarExtraccion(crudo, { cfg, personaTextos, ofrecidos, ultimoAgente: ultimoAgenteTexto, preguntaPendiente: estadoAntes.pregunta_pendiente?.campo ?? null });
       if (!v.fallo) { ext = v; break; }
     } catch (e) { console.error('[agente v2] extractor', e instanceof Error ? e.message : e); }
   }
@@ -2632,6 +2696,8 @@ async function turnoV2(a: {
     if (salida.objetivos.some(o => o.tipo === 'reorganizar_y_ofrecer') && !/entonces,?\s+si le entend[ií] bien/i.test(texto)) problemas.push('Arrancá (después del saludo, si corresponde) con «Entonces, si le entendí bien: …» devolviendo su situación ordenada en una frase, y recién después ofrecé la consulta.');
     if (texto && !salida.agendoOk && afirmaTurnoAgendado(texto)) problemas.push('Todavía NO se agendó ningún turno: no digas que quedó agendado ni que se ven.');
     if (salida.objetivos.some(o => o.tipo === 'cerrar_con_respeto') && texto.includes('?')) problemas.push('Cerrá sin ninguna pregunta: agradecé y dejá la puerta abierta.');
+    const temaMal = texto && estado.oferta ? temaMalNombrado(texto, cfg.ofertas[estado.oferta]?.etiqueta ?? '') : null;
+    if (temaMal) problemas.push(`Escribiste «${temaMal}»: nombrá el tema solo como «${cfg.ofertas[estado.oferta!].etiqueta}», nunca como lo escribió la persona.`);
     const muletilla = texto ? muletillaRepetida(texto, anterioresAgente) : null;
     if (muletilla) problemas.push(`Empezaste igual que uno de tus últimos mensajes («${muletilla}…»): variá el reflejo o integralo dentro de la frase, con otra estructura.`);
     let corregir = problemas;

@@ -3,7 +3,7 @@ import { createHmac } from 'node:crypto';
 import handler, {
   clasificarRecibo, TIPOS_CONSULTA, promesaSinCumplir, separarDatosPago, mensajeApurado,
   aMin, limpiarSecreto, camposDeLead, etapaAutomatica, fusionarLead, registrarMensaje, upsertLead, firmaMetaValida, firmaKapsoValida, extraerMensajesKapso, extraerMensajes, aMensajesLLM, procesarMensaje, filaDePersona, esConversacionDeNoa, clasificarMensajeCliente, categoriaMensajeAgente, personaMetrica, agregarMetricasAgente, calcularMetricasAgente, evaluarOptimizaciones, validarOptimizaciones, ejecutarOptimizacion, type MetricasAgente, motivoDeExclusion, resumenEnPalabras, ejecutarAnalista, revisarAnalisisAutomatico, codigosDeEstilo, etapaEmbudo, analizarConversacion, calcularMetricas, mascararDatos, textoParaEtiquetar, validarEtiquetas, promptDelAgente, limpiarCachePrompt, accionAgentes, problemasDeEstilo, textoNoLegible, firmaMercadoPagoValida, importeTexto, importeLindo, asignarImporteUnico, procesarPagoMP, montoMercadoPago, enmascarar, neutralizarMarcas, salidaInsegura, superaLimite, urlMediaSegura, resumenTurnosVigentes, HERRAMIENTAS_LLM, cuerpoNotaDeVoz, notaDeImagen, montoValidadoDe, quitarEtiquetas, aMensajesOpenAI, deOpenAI, ejecutarHerramienta, PROMPT_AGENTE, type Deps, telefonoClave, historialDe, inferirNombre, normalizarFecha, normalizarHora, bloquesDelDia, huecosLibres, localDe, resolverProfesional, diaSemanaISO, fechaValida,
-  registrarSinResponder, registrarUso, fijarDbUso, costoUsd, esDudaOObjecion, esRechazoFirme, horasEnTexto, quitarFrasesHechas, REGEX_CLICHE, condicionesArt9Confirmadas, campanaDelTexto, probarAgentePaso, chatAgentePaso, preguntasAfirmadas, evidenciaCompleta, REGEX_PROMESAS, validarExtraccion, aplicarExtraccion, elegirDosHorarios, armarSistemaRedactor, permiteDeObjetivos, mensajeSeguro, PROMPT_VERIFICADOR, esquemaVerificador, evaluarVerificacion, aperturaDeMensaje, muletillaRepetida, esquemaExtractor, PROMPT_REDACTOR, PROMPT_EXTRACTOR, CONFIG_CLIENTE, leerEstadoV2, estadoV2Vacio, extraccionVacia, funcionesV2, textoFaltaRegistrar, AVISO_DERIVACION, horariosOfrecidosEn, ofrecidosVigentes, textoOfrecidos, horasSinDia, ofertaConDia, condicionDeAgenda, registrarMensajeHumano, extraerHumanosKapso, responderDesdeErp, resumenCampana, analizarCampana, analisisSoloConCifrasReales,
+  registrarSinResponder, registrarUso, fijarDbUso, costoUsd, esDudaOObjecion, esRechazoFirme, horasEnTexto, quitarFrasesHechas, REGEX_CLICHE, condicionesArt9Confirmadas, campanaDelTexto, probarAgentePaso, chatAgentePaso, preguntasAfirmadas, evidenciaCompleta, REGEX_PROMESAS, validarExtraccion, aplicarExtraccion, elegirDosHorarios, armarSistemaRedactor, permiteDeObjetivos, mensajeSeguro, PROMPT_VERIFICADOR, esquemaVerificador, evaluarVerificacion, aperturaDeMensaje, muletillaRepetida, esquemaExtractor, PROMPT_REDACTOR, PROMPT_EXTRACTOR, CONFIG_CLIENTE, leerEstadoV2, estadoV2Vacio, extraccionVacia, funcionesV2, textoFaltaRegistrar, AVISO_DERIVACION, horariosOfrecidosEn, ofrecidosVigentes, textoOfrecidos, horasSinDia, ofertaConDia, condicionDeAgenda, registrarMensajeHumano, extraerHumanosKapso, responderDesdeErp, resumenCampana, analizarCampana, analisisSoloConCifrasReales, esRespuestaCortaSiNo, preguntaDelAgente, temaMalNombrado,
   type Bloque,
 } from '../../api/turnos/[accion]';
 
@@ -3712,18 +3712,20 @@ describe('agente v2 · director + extractor + redactor (todo con modelo simulado
   });
 
   // ------------------------------------------------------------------ bloqueos y derivación (lógica de B5 + aviso)
-  it('dos veces el mismo objetivo sin dato nuevo → el lead pasa al equipo y el modelo recibe el aviso de derivación', async () => {
+  it('la pregunta no cuenta; dos respuestas seguidas sin el dato → el lead pasa al equipo y el modelo recibe el aviso de derivación', async () => {
     const c = await conversar([
       { persona: 'Hola, quiero consultar por Ganancias', extractor: () => raw({ oferta_detectada: 'art9_ganancias' }) },
       { persona: 'No sé, por eso consulto', extractor: () => raw() },
       { persona: 'Ayudame por favor', extractor: () => raw() },
+      { persona: 'Gracias', extractor: () => raw() },
     ]);
-    expect(c.tipos[0]).toEqual(['obtener_filtro:es_docente']);
-    expect(c.tipos[1][0]).toMatch(/^derivar:/);
-    expect(c.cuerpos[1].v2.objetivos[0].texto).toBe(AVISO_DERIVACION);
+    expect(c.tipos[0]).toEqual(['obtener_filtro:es_docente']); // el agente hace la pregunta: no cuenta
+    expect(c.tipos[1]).toEqual(['obtener_filtro:es_docente']); // primera respuesta sin el dato: todavía no deriva
+    expect(c.tipos[2][0]).toMatch(/^derivar:/); // segunda seguida: deriva
+    expect(c.cuerpos[2].v2.objetivos[0].texto).toBe(AVISO_DERIVACION);
     expect(c.lead().datos.derivar_a_humano).toBeDefined();
     expect(leerEstadoV2(c.lead().datos).etapa).toBe('derivado');
-    expect(c.tipos[2]).toEqual(['derivado']);
+    expect(c.tipos[3]).toEqual(['derivado']);
   });
 
   // ------------------------------------------------------------------ EXTRACTOR · validación
@@ -4364,5 +4366,213 @@ describe('agente v2 · ajustes: fotos y documentos, rechazo firme y nombre (mode
     expect(tipoDe(b)).toEqual(['obtener_dato_agenda:modalidad_consulta']);
     b = await turnoTexto('Virtual', b.estado, raw({ filtros: [fil('modalidad_consulta', 'virtual', 'Virtual')] }), 'Ana Gómez');
     expect(tipoDe(b)).toEqual(['ofrecer_horarios']);
+  });
+});
+
+// ===================================================================================================================
+// Bugs de la prueba real "hola" / "art.98" / "si": respuestas cortas, derivación al primer intento, oferta al redactor y typo.
+// ===================================================================================================================
+describe('agente v2 · respuestas cortas, derivación y oferta (modelo simulado, sin costo)', () => {
+  const sinV1 = async () => { throw new Error('la v1 no debe llamarse en la v2'); };
+  const raw = (p: Record<string, unknown> = {}) => ({ oferta_detectada: null, filtros: [], casilleros: [], emocion: null, intencion: 'otro', pregunta_de_la_persona: null, horario_elegido: null, ...p });
+  const fil = (campo: string, valor: string, evidencia: string) => ({ campo, valor, evidencia });
+  const A9 = 'art9_ganancias';
+  const PREGUNTA_DOCENTE = '¿Es usted docente jubilada?';
+
+  type Turno = { persona: string; extractor: (u: any) => any };
+  async function conversar(turnos: Turno[], redactor: (sis: string, mensajes: any[], n: number) => string) {
+    let estado: any;
+    const cuerpos: any[] = [];
+    const sistemas: string[] = [];
+    const entradasExtractor: any[] = [];
+    let n = 0;
+    for (const t of turnos) {
+      const r = await chatAgentePaso(t.persona, estado, sinV1 as any, undefined, {
+        extraer: async (_s, usuario) => { const u = JSON.parse(String(usuario)); entradasExtractor.push(u); return t.extractor(u); },
+        redactar: async (sis, mensajes) => { sistemas.push(sis); return { stop_reason: 'end_turn', content: [{ type: 'text', text: redactor(sis, mensajes, n++) }] }; },
+      });
+      expect(r.code).toBe(200);
+      estado = r.body.estado;
+      cuerpos.push(r.body);
+    }
+    const tipos = cuerpos.map(c => (c.v2?.objetivos ?? []).map((o: any) => o.tipo + (typeof o.detalle === 'string' && o.tipo !== 'derivar' ? ':' + o.detalle : '')));
+    return { cuerpos, estado, tipos, sistemas, entradasExtractor, lead: () => estado.tablas.leads[0], estadoV2: () => leerEstadoV2(estado.tablas.leads[0].datos) };
+  }
+  // El agente pregunta lo que pide el objetivo: si falta es_docente, hace esa pregunta.
+  const redactorPregunta = (sis: string): string =>
+    /pasó a una persona del equipo/.test(sis) ? 'Alguien del estudio se va a comunicar con usted.'
+      : /si es docente/.test(sis) ? `Gracias por escribirnos. ${PREGUNTA_DOCENTE}`
+        : /jubilad/.test(sis.split('OBJETIVO DE ESTE MENSAJE:')[1] ?? '') ? '¿Está jubilada por ANSES?'
+          : 'Cuénteme un poco más. ¿Qué le gustaría lograr?';
+
+  // ---------------------------------------------------------------- 1. respuestas cortas
+  describe('1) un sí o un no corto responde la pregunta que el agente hizo', () => {
+    const cfg = CONFIG_CLIENTE;
+    const validar = (valor: string, persona: string, opc: { agente?: string; pendiente?: string | null; campo?: string } = {}) => validarExtraccion(
+      raw({ filtros: [fil(opc.campo ?? 'es_docente', valor, persona)] }),
+      { cfg, personaTextos: ['hola', 'art.98', persona], ofrecidos: [], ultimoAgente: opc.agente ?? `Gracias. ${PREGUNTA_DOCENTE}`, preguntaPendiente: opc.pendiente === undefined ? 'es_docente' : opc.pendiente },
+    );
+
+    it('"si" a "¿Es usted docente jubilada?" → es_docente: si, con la pregunta como evidencia', () => {
+      const v = validar('si', 'si');
+      expect(v.filtros).toEqual([{ campo: 'es_docente', valor: 'si', evidencia: PREGUNTA_DOCENTE }]);
+    });
+    it('lo mismo con "no", "sí soy" y "correcto"', () => {
+      expect(validar('no', 'no').filtros).toEqual([{ campo: 'es_docente', valor: 'no', evidencia: PREGUNTA_DOCENTE }]);
+      expect(validar('si', 'sí soy').filtros).toEqual([{ campo: 'es_docente', valor: 'si', evidencia: PREGUNTA_DOCENTE }]);
+      expect(validar('si', 'correcto').filtros).toEqual([{ campo: 'es_docente', valor: 'si', evidencia: PREGUNTA_DOCENTE }]);
+      expect(validar('si', 'Sí.').filtros).toHaveLength(1);
+    });
+    it('un "si" a una pregunta que no es un filtro no registra nada', () => {
+      expect(validar('si', 'si', { agente: '¿Le gustaría ver el video?', pendiente: null }).filtros).toEqual([]);
+      expect(validar('si', 'si', { agente: 'Gracias por escribirnos.', pendiente: 'es_docente' }).filtros).toEqual([]); // el agente no hizo ninguna pregunta
+    });
+    it('un "si" a la pregunta de OTRO filtro no se asigna a este', () => {
+      expect(validar('si', 'si', { campo: 'jubilado_anses', pendiente: 'es_docente' }).filtros).toEqual([]);
+    });
+    it('la respuesta tiene que decir lo que dice el valor: "si" no puede registrar "no"', () => {
+      expect(validar('no', 'si').filtros).toEqual([]);
+      expect(validar('si', 'no').filtros).toEqual([]);
+    });
+    it('una oración completa de la persona sigue valiendo como siempre', () => {
+      const F = 'Soy docente jubilada por ANSES';
+      const v = validarExtraccion(raw({ filtros: [fil('es_docente', 'si', F)] }), { cfg, personaTextos: [F], ofrecidos: [] });
+      expect(v.filtros).toEqual([{ campo: 'es_docente', valor: 'si', evidencia: F }]);
+    });
+    it('esRespuestaCortaSiNo y preguntaDelAgente', () => {
+      for (const t of ['si', 'Sí', 'no', 'No.', 'sí soy', 'correcto', 'así es']) expect(esRespuestaCortaSiNo(t)).toBe(true);
+      for (const t of ['si pero no se si tengo el recibo', 'quiero que no me descuenten más', 'virtual', 'no, por la caja']) expect(esRespuestaCortaSiNo(t)).toBe(false);
+      expect(preguntaDelAgente('Gracias. ¿Es usted docente jubilada?')).toBe(PREGUNTA_DOCENTE);
+      expect(preguntaDelAgente('Hola. ¿Cómo está? ¿Es usted docente?')).toBe('¿Es usted docente?');
+      expect(preguntaDelAgente('Gracias por escribirnos.')).toBeNull();
+    });
+    it('el extractor recibe el último mensaje del agente y qué campo preguntó, y su prompt explica las respuestas cortas', async () => {
+      const c = await conversar([
+        { persona: 'art.98', extractor: () => raw({ oferta_detectada: A9 }) },
+        { persona: 'si', extractor: () => raw({ filtros: [fil('es_docente', 'si', 'si')] }) },
+      ], redactorPregunta);
+      expect(c.entradasExtractor[1].ultimo_mensaje_del_agente).toContain(PREGUNTA_DOCENTE);
+      expect(c.entradasExtractor[1].pregunta_pendiente).toBe('es_docente');
+      expect(PROMPT_EXTRACTOR).toMatch(/RESPUESTAS CORTAS/);
+      for (const palabra of ['"sí"', '"si"', '"no"', '"correcto"', '"sí soy"', '"no, por la caja"']) expect(PROMPT_EXTRACTOR).toContain(palabra);
+    });
+    it('conversación: "art.98" → "si" queda registrado en es_docente, no deriva y pasa al siguiente dato', async () => {
+      const c = await conversar([
+        { persona: 'hola', extractor: () => raw() },
+        { persona: 'art.98', extractor: () => raw({ oferta_detectada: A9 }) },
+        { persona: 'si', extractor: () => raw({ filtros: [fil('es_docente', 'si', 'si')] }) },
+      ], redactorPregunta);
+      expect(c.tipos[1]).toEqual(['obtener_filtro:es_docente']);
+      expect(c.estadoV2().filtros.es_docente).toEqual({ valor: 'si', evidencia: PREGUNTA_DOCENTE });
+      expect(c.tipos[2]).toEqual(['obtener_filtro:jubilado_anses']);
+      expect(c.estadoV2().etapa).not.toBe('derivado');
+      expect(c.cuerpos.every(b => !(b.herramientas ?? []).includes('derivar_a_humano'))).toBe(true);
+    });
+    it('conversación: un "si" a una pregunta que no es un filtro no registra nada', async () => {
+      const c = await conversar([
+        { persona: 'hola', extractor: () => raw() },
+        { persona: 'si', extractor: () => raw({ filtros: [fil('es_docente', 'si', 'si')] }) },
+      ], () => 'Hola, soy Karina. ¿Quiere que le cuente cómo trabajamos?');
+      expect(c.estadoV2().filtros).toEqual({});
+    });
+  });
+
+  // ---------------------------------------------------------------- 2. derivación
+  describe('2) la pregunta no cuenta como intento: se deriva después de 2 respuestas seguidas sin el dato', () => {
+    it('pregunta → "si" (registrado) → no deriva', async () => {
+      const c = await conversar([
+        { persona: 'art.98', extractor: () => raw({ oferta_detectada: A9 }) },
+        { persona: 'si', extractor: () => raw({ filtros: [fil('es_docente', 'si', 'si')] }) },
+      ], redactorPregunta);
+      expect(c.tipos[1]).not.toEqual(expect.arrayContaining(['derivar']));
+      expect(c.estadoV2().etapa).not.toBe('derivado');
+    });
+    it('pregunta → "no entiendo" → "qué?" → recién ahí deriva', async () => {
+      const c = await conversar([
+        { persona: 'art.98', extractor: () => raw({ oferta_detectada: A9 }) },
+        { persona: 'no entiendo', extractor: () => raw() },
+        { persona: 'qué?', extractor: () => raw({ intencion: 'pregunta', pregunta_de_la_persona: 'qué?' }) },
+      ], redactorPregunta);
+      expect(c.tipos[0]).toEqual(['obtener_filtro:es_docente']); // la pregunta: no cuenta
+      expect(c.tipos[1]).toEqual(['obtener_filtro:es_docente']); // 1ª respuesta sin el dato: no deriva
+      expect(c.tipos[2]).toEqual(['derivar']); // 2ª seguida: deriva
+      expect(c.cuerpos[2].herramientas).toContain('derivar_a_humano');
+      expect(c.cuerpos[0].herramientas ?? []).not.toContain('derivar_a_humano');
+      expect(c.cuerpos[1].herramientas ?? []).not.toContain('derivar_a_humano');
+    });
+    it('una pregunta de verdad de la persona (no un "qué?") la mantiene participando: no cuenta', async () => {
+      const c = await conversar([
+        { persona: 'art.98', extractor: () => raw({ oferta_detectada: A9 }) },
+        { persona: 'no entiendo', extractor: () => raw() },
+        { persona: '¿Para qué necesitan saber eso?', extractor: () => raw({ intencion: 'pregunta', pregunta_de_la_persona: '¿Para qué necesitan saber eso?' }) },
+      ], redactorPregunta);
+      expect(c.tipos[2]).toContain('obtener_filtro:es_docente');
+      expect(c.tipos[2].join(',')).not.toMatch(/derivar/);
+      expect(c.cuerpos[2].herramientas ?? []).not.toContain('derivar_a_humano');
+    });
+    it('si entre una respuesta y otra aporta un dato, el conteo vuelve a empezar', async () => {
+      const c = await conversar([
+        { persona: 'art.98', extractor: () => raw({ oferta_detectada: A9 }) },
+        { persona: 'no entiendo', extractor: () => raw() },
+        { persona: 'soy maestra', extractor: () => raw({ filtros: [fil('es_docente', 'si', 'soy maestra')] }) },
+        { persona: 'mmm', extractor: () => raw() },
+      ], redactorPregunta);
+      expect(c.tipos[2]).toEqual(['obtener_filtro:jubilado_anses']);
+      expect(c.tipos[3]).toEqual(['obtener_filtro:jubilado_anses']);
+      expect(c.estadoV2().etapa).not.toBe('derivado');
+    });
+  });
+
+  // ---------------------------------------------------------------- 3. el redactor no recibe la oferta
+  describe('3) el redactor no recibe condición, abogado, urgencia, horarios ni precios mientras el objetivo no ofrece nada', () => {
+    const oferta = CONFIG_CLIENTE.ofertas[A9];
+    const datosConOferta = [`Condición de la consulta: ${oferta.condicion}`, `Urgencia real (solo si viene al caso): ${oferta.urgencia}`];
+    const estado = { ...estadoV2Vacio(), oferta: A9 };
+    for (const tipo of ['obtener_filtro', 'descubrir', 'descubrir_situacion', 'profundizar', 'trabajar_objecion', 'no_califica']) {
+      it(`${tipo}: el prompt armado no contiene "Alejandro", "SIN CARGO" ni "2 años"`, () => {
+        const sis = armarSistemaRedactor({ cfg: CONFIG_CLIENTE, objetivos: [{ tipo, detalle: 'es_docente', texto: 'Preguntá una sola cosa.' }], estado, datos: datosConOferta, primerMensaje: false });
+        expect(sis).not.toMatch(/Alejandro/);
+        expect(sis).not.toMatch(/SIN CARGO/i);
+        expect(sis).not.toMatch(/2 años/);
+        expect(sis).toMatch(/DATOS QUE PODÉS USAR:\n- Ninguno\./);
+      });
+    }
+    it('con un objetivo que sí ofrece, los datos de la oferta sí llegan (control)', () => {
+      const sis = armarSistemaRedactor({ cfg: CONFIG_CLIENTE, objetivos: [{ tipo: 'reorganizar_y_ofrecer', texto: 'Ofrecé.' }], estado, datos: datosConOferta, primerMensaje: false });
+      expect(sis).toMatch(/Alejandro/);
+    });
+    it('en la conversación, el director ni siquiera arma los datos para obtener_filtro (la traza los muestra vacíos)', async () => {
+      const c = await conversar([
+        { persona: 'art.98', extractor: () => raw({ oferta_detectada: A9 }) },
+      ], redactorPregunta);
+      expect(c.tipos[0]).toEqual(['obtener_filtro:es_docente']);
+      expect(c.cuerpos[0].v2.datos).toEqual([]);
+      expect(c.sistemas[0]).not.toMatch(/Alejandro|SIN CARGO|2 años/i);
+    });
+  });
+
+  // ---------------------------------------------------------------- 4. el typo de la persona
+  describe('4) el tema se nombra como está en la config, nunca como lo escribió la persona', () => {
+    it('el prompt del redactor lleva el nombre de la config y la orden de no copiar el de la persona', () => {
+      const sis = armarSistemaRedactor({ cfg: CONFIG_CLIENTE, objetivos: [{ tipo: 'obtener_filtro', detalle: 'es_docente', texto: 'x' }], estado: { ...estadoV2Vacio(), oferta: A9 }, datos: [], primerMensaje: false });
+      expect(sis).toContain(`«${CONFIG_CLIENTE.ofertas[A9].etiqueta}»`);
+      expect(sis).toMatch(/nunca lo nombres como lo escribió la persona/);
+    });
+    it('temaMalNombrado detecta "art.98" y deja pasar el nombre correcto', () => {
+      const et = CONFIG_CLIENTE.ofertas[A9].etiqueta;
+      expect(temaMalNombrado('Usted menciona el artículo 98 de Ganancias.', et)).toMatch(/artículo 98/i);
+      expect(temaMalNombrado('Me escribió por art.98, ¿es docente?', et)).toMatch(/art\.98/i);
+      expect(temaMalNombrado('Usted consulta por el Artículo 9 / Ganancias.', et)).toBeNull();
+      expect(temaMalNombrado('Sobre el artículo 9, ¿es docente?', et)).toBeNull();
+      expect(temaMalNombrado('¿Es usted docente?', et)).toBeNull();
+    });
+    it('conversación: si el redactor escribe "art.98", se corrige antes de enviar', async () => {
+      const c = await conversar([
+        { persona: 'art.98', extractor: () => raw({ oferta_detectada: A9 }) },
+      ], (sis, mensajes) => (mensajes.some((m: any) => String(m.content).startsWith('[SISTEMA ERP: Corregí')) ? `Gracias por escribirnos por Artículo 9 / Ganancias. ${PREGUNTA_DOCENTE}` : `Veo que consulta por art.98. ${PREGUNTA_DOCENTE}`));
+      expect(c.cuerpos[0].respuestas.join(' ')).not.toMatch(/art\.?\s*98/i);
+      expect(c.cuerpos[0].respuestas.join(' ')).toContain('Artículo 9 / Ganancias');
+      expect(c.cuerpos[0].v2.redactor.length).toBeGreaterThanOrEqual(2);
+    });
   });
 });
