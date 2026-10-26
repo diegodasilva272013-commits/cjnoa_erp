@@ -1925,6 +1925,8 @@ export type EstadoV2 = {
   dato_pendiente?: DatoPendiente;
   /** Ideas de valor (texto aprobado de la config) que ya se usaron en la conversación: no se vuelven a pasar al redactor. */
   ideas_usadas?: string[];
+  /** En cuántos mensajes de la conversación ya se usó una idea de valor (tope: 2). */
+  mensajes_con_idea?: number;
 };
 const CASILLEROS_V2 = ['situacion', 'objetivo', 'brecha', 'historial', 'compromiso'];
 export const estadoV2Vacio = (): EstadoV2 => ({ oferta: null, filtros: {}, casilleros: Object.fromEntries(CASILLEROS_V2.map(c => [c, null])), emociones_trabajadas: [], etapa: 'descubrir' });
@@ -2230,6 +2232,7 @@ export async function dirigirTurno(a: EntradaDirector): Promise<SalidaDirector> 
   let dp: DatoPendiente | null = null;
   if (o0?.tipo === 'obtener_filtro') dp = { tipo: 'filtro', campo: String(o0.detalle) };
   else if (o0?.tipo === 'obtener_dato_agenda') dp = o0.detalle === 'nombre' ? { tipo: 'nombre' } : { tipo: 'filtro', campo: String(o0.detalle) };
+  else if (o0?.tipo === 'ofrecer_consulta' && o0.detalle) dp = { tipo: 'filtro', campo: String(o0.detalle) };
   else if (o0?.tipo === 'ofrecer_horarios' || o0?.tipo === 'preguntar_cual') dp = { tipo: 'horario' };
   else if (o0?.tipo === 'descubrir') dp = { tipo: 'casillero', campo: String(o0.detalle) };
   if (dp) out.estado.dato_pendiente = dp; else delete out.estado.dato_pendiente;
@@ -2337,7 +2340,17 @@ async function dirigirTurnoBase(a: EntradaDirector): Promise<SalidaDirector> {
     if (estado.etapa === 'descubrir') {
       estado.etapa = 'ofrecer';
       const activo = oferta.activo_de_valor;
-      return {
+      const sinCasilleros = oferta.casilleros_minimos.obligatorios.length === 0 && oferta.casilleros_minimos.al_menos_uno_de.length === 0;
+      if (sinCasilleros && !activo) {
+        // Sin preguntas de diagnóstico: con los filtros completos se ofrece la consulta y, en el mismo mensaje, se pregunta lo que falta para los horarios (la modalidad).
+        const falta = (oferta.datos_antes_de_horarios ?? []).find(f => !estado.filtros[f.campo]);
+        return {
+          tipo: 'ofrecer_consulta', detalle: falta?.campo,
+          texto: `Ofrecele la consulta con tus palabras: contale su condición (mirá DATOS QUE PODÉS USAR: con quién es y que es sin cargo) y terminá con UNA sola pregunta ${falta ? `sobre ${falta.descripcion}` : 'de si le gustaría avanzar'}. No ofrezcas horarios todavía.`,
+        };
+      }
+      // Sin casilleros y con activo de valor (el video): no se ofrece, lo manda el código en el paso siguiente.
+      if (!(sinCasilleros && activo)) return {
         tipo: 'reorganizar_y_ofrecer',
         texto: `Arrancá devolviéndole su situación ordenada en UNA frase que empiece con «Entonces, si le entendí bien:» y use SUS palabras (${Object.entries(estado.casilleros).filter(([, v]) => v).map(([c, v]) => `${cfg.casilleros[c] ?? c}: «${(v as any).evidencia}»`).join('; ')}). Después ofrecele el siguiente paso como lo lógico. ${activo ? `Decile que le vas a mandar un ${activo.descripcion} que le explica cómo sigue, y preguntale si le gustaría verlo. No hables de valores.` : `Contale la condición de la consulta (DATOS QUE PODÉS USAR) y preguntale si le gustaría avanzar. No ofrezcas horarios todavía.`}`,
       };
@@ -2465,13 +2478,14 @@ El sistema ya decidió qué corresponde, qué datos tiene la persona y qué hora
 
 ## Cómo escribís cada mensaje
 Cada mensaje tiene tres partes, en este orden:
-1. Mostrás que entendiste lo que dijo y lo que siente, con SUS palabras, nunca con una fórmula. No expreses emociones ni valoraciones tuyas ("me preocupa", "debe ser difícil", "es frustrante"): repetí lo que dijo, por ejemplo "Usted me cuenta que…" o "Si entiendo bien, …", y seguí.
+1. Si la persona solo respondió un dato ("si", "no", "virtual", un nombre, un horario), NO lo repitas ni lo reflejes: seguí directo, como mucho con una palabra natural ("Perfecto.", "Bien.", "Gracias."), variándola. Si la persona cuenta algo con significado o emoción (una preocupación, una historia, una queja), reflejá lo que siente, no lo que dijo, con SUS palabras y sin fórmulas. No expreses emociones ni valoraciones tuyas ("me preocupa", "debe ser difícil", "es frustrante").
 2. Aportás valor en UNA frase: algo que le ordene la situación o le haga ver algo que no estaba viendo, sin vender ni prometer. Si el sistema te da IDEAS DE VALOR APROBADAS, elegí UNA que tenga que ver con lo que dijo la persona y decila con sus palabras: no inventes otra. Si no te da ninguna en este turno, omití esta parte. Por ejemplo (no se copia literal): "muchas personas en su situación descubren el descuento recién cuando miran el recibo con detalle."
 3. La pregunta del objetivo, si corresponde (UNA sola). Si el objetivo no pide pregunta, no inventes una.
 - Mensajes cortos: de dos a cuatro frases, texto plano de WhatsApp, sin listas, viñetas, negritas ni emojis.
 - Una idea por mensaje. Sin anunciar preguntas ("le voy a hacer unas preguntas"), sin numerar, sin menús de opciones.
 
 ## Lo que nunca hacés
+- Abrir el mensaje con "Usted me cuenta", "Usted me dice", "Usted me confirma", "Usted menciona", "Dado que", "Siendo usted" o "Como usted".
 - Nombrar el método: nunca escribas "objetivo", "casillero" ni "situación actual"; preguntá como lo haría una persona.
 - Frases hechas: "le entiendo", "lo entiendo", "comprendo", "es comprensible que…", "es natural que…", "es válido que…", "estoy aquí para ayudarle", "quedo a su disposición", "no dude en contactarme"; ni empezar con "Entiendo" ni con "Entiendo que…"; tampoco "para poder ayudarle mejor", "es preocupante que" ni "es un gusto conocer". Mostrá que entendiste repitiendo SUS palabras, sin esos giros.
 - Ofrecer o mencionar la consulta, el abogado o coordinar algo, salvo que el objetivo de este mensaje sea justamente ofrecerla. Y no cerrar con "si tiene otra consulta…".
@@ -2491,7 +2505,7 @@ Cada mensaje tiene tres partes, en este orden:
 /** Mientras el objetivo es una de estas, el redactor NO recibe la oferta, el abogado, los horarios ni los precios: no puede mencionar lo que no tiene. */
 export const OBJETIVOS_SIN_OFERTA = ['descubrir', 'descubrir_situacion', 'profundizar', 'obtener_filtro', 'trabajar_objecion', 'no_califica'];
 /** Objetivos cuyo mensaje tiene que traer una pregunta con signos (a ella responde un "sí" o un "no" corto de la persona). */
-export const OBJETIVOS_CON_PREGUNTA = ['obtener_filtro', 'descubrir', 'descubrir_situacion', 'profundizar', 'obtener_dato_agenda', 'ofrecer_horarios', 'preguntar_cual', 'reorganizar_y_ofrecer'];
+export const OBJETIVOS_CON_PREGUNTA = ['obtener_filtro', 'descubrir', 'descubrir_situacion', 'profundizar', 'obtener_dato_agenda', 'ofrecer_horarios', 'preguntar_cual', 'reorganizar_y_ofrecer', 'ofrecer_consulta'];
 export const PROMPT_REDACTOR_HORARIOS = `## Horarios
 - Ofrecé exactamente DOS, cada uno con su día y fecha, tal cual figuran en el objetivo.
 - Usá solo los horarios que figuran en el objetivo. Nunca otros.`;
@@ -2500,8 +2514,8 @@ export const PROMPT_REDACTOR_HORARIOS = `## Horarios
 export function ideasParaElTurno(a: { cfg: ConfigCliente; estado: EstadoV2; objetivos: Objetivo[] }): { texto: string; estado: string }[] {
   const ideas = (a.estado.oferta ? a.cfg.ofertas[a.estado.oferta]?.ideas_de_valor : undefined) ?? [];
   const sinOferta = a.objetivos.every(o => OBJETIVOS_SIN_OFERTA.includes(o.tipo));
-  const permite = (sinOferta && !a.objetivos.some(o => o.tipo === 'no_califica')) || a.objetivos.some(o => o.tipo === 'reorganizar_y_ofrecer');
-  if (!permite) return [];
+  const permite = (sinOferta && !a.objetivos.some(o => o.tipo === 'no_califica')) || a.objetivos.some(o => o.tipo === 'reorganizar_y_ofrecer' || o.tipo === 'ofrecer_consulta');
+  if (!permite || (a.estado.mensajes_con_idea ?? 0) >= 2) return []; // como máximo en 2 mensajes por conversación
   const usadas = new Set(a.estado.ideas_usadas ?? []);
   return ideas.filter(x => !usadas.has(x.texto));
 }
@@ -2547,9 +2561,11 @@ Categorías:
 - formula_empatia: usa una fórmula de empatía en vez de las palabras de la persona ("Es natural que", "Es comprensible que", "Me preocupa que", "Es muy frustrante", "Es preocupante", "Entiendo que", "Comprendo que"), o el agente habla de sus propias emociones.
 - repite_mensaje_anterior: repite una frase o una idea que ya figura en el MENSAJE ANTERIOR (copiá la frase del borrador).
 - estructura_repetida: empieza una oración con la misma estructura con que ya empezaron mensajes anteriores del agente ("Usted me cuenta que", "Usted me dice que", "Veo que", "Entonces, si le entendí bien" o equivalentes). Copiá esa estructura inicial tal cual figura en el borrador. El saludo inicial no cuenta.
+- repite_dato_recien_dado: la persona acaba de responder solo un dato corto (sí, no, virtual, un nombre, un horario) y el borrador lo repite o lo confirma en vez de seguir ("La consulta será virtual", "Usted se jubiló por ANSES"). Decir solo "Perfecto.", "Bien." o "Gracias." no cuenta.
+- apertura_prohibida: el borrador empieza con "Usted me cuenta", "Usted me dice", "Usted me confirma", "Usted menciona", "Dado que", "Siendo usted" o "Como usted".
 No inventes violaciones: si no estás seguro, no la listes.`;
 
-export const REGLAS_VERIFICADOR = ['promesa', 'consulta_o_abogado', 'horarios', 'precios', 'agendado', 'formula_empatia', 'repite_mensaje_anterior', 'estructura_repetida'] as const;
+export const REGLAS_VERIFICADOR = ['promesa', 'consulta_o_abogado', 'horarios', 'precios', 'agendado', 'formula_empatia', 'repite_mensaje_anterior', 'estructura_repetida', 'repite_dato_recien_dado', 'apertura_prohibida'] as const;
 /**
  * Las dos primeras palabras de la oración inicial de un mensaje, sin el saludo ni el "Entonces, si le entendí bien:".
  * Sirve para detectar la muletilla ("Usted me cuenta…" / "Usted me dice…"): dos mensajes seguidos que arrancan con la misma estructura.
@@ -2597,7 +2613,9 @@ const INSTRUCCION_REGLA: Record<string, string> = {
   horarios: 'menciona horarios y todavía no corresponde',
   precios: 'menciona precios y todavía no corresponde',
   agendado: 'da a entender que hay un turno agendado o reservado y todavía no lo está',
-  formula_empatia: 'usa una fórmula o una valoración propia: no expreses emociones tuyas; reformulá esa parte como «Usted me cuenta que…» con las palabras de la persona',
+  formula_empatia: 'usa una fórmula o una valoración propia: no expreses emociones tuyas; mostrá que entendiste con las palabras de la persona',
+  repite_dato_recien_dado: 'repite o confirma el dato que la persona acaba de dar: seguí directo, como mucho con "Perfecto.", "Bien." o "Gracias." (variando)',
+  apertura_prohibida: 'abre con una fórmula prohibida ("Usted me cuenta…", "Usted me dice…", "Dado que…", "Como usted…"): variá cómo empezás e integrá lo que dijo la persona dentro de la frase',
   repite_mensaje_anterior: 'repite lo que ya dijo en su mensaje anterior',
   estructura_repetida: 'empieza con la misma estructura que mensajes anteriores: variá el reflejo o integralo en la frase',
   varias_preguntas: 'tiene más de una pregunta',
@@ -2607,7 +2625,28 @@ const INSTRUCCION_REGLA: Record<string, string> = {
  * Convierte lo que detectó el modelo en { ok, motivo }. El modelo solo señala violaciones citando la frase; el código decide:
  * ignora las citas que no están en el borrador (alucinadas) y las categorías que el objetivo permite.
  */
-export function evaluarVerificacion(crudo: any, a: { borrador: string; permite: ReturnType<typeof permiteDeObjetivos>; anterior: string; personaTextos?: string[]; anteriores?: string[] }): { ok: boolean; motivo: string; violaciones: { regla: string; frase: string }[] } {
+const APERTURAS_PROHIBIDAS = ['usted me cuenta', 'usted me dice', 'usted me confirma', 'usted me menciona', 'usted me comenta', 'usted menciona', 'usted cuenta', 'usted dice', 'usted confirma', 'usted comenta', 'dado que', 'siendo usted', 'como usted'];
+/** La primera oración del mensaje sin el saludo ("Hola, soy Karina…"). */
+function primeraOracionUtil(txt: string): string {
+  const oraciones = String(txt ?? '').split(/(?<=[.!?])\s+/).map(x => x.trim()).filter(Boolean);
+  return oraciones.find(o => !/^hola\b/i.test(o)) ?? '';
+}
+/** Si el mensaje abre con una fórmula prohibida ("Usted me cuenta…", "Dado que…"), devuelve cómo abre. */
+export function aperturaProhibida(txt: string): string | null {
+  const o = primeraOracionUtil(txt);
+  const n = limpiarParaComparar(o);
+  const hit = APERTURAS_PROHIBIDAS.find(p => n === p || n.startsWith(`${p} `));
+  return hit ? o.split(/\s+/).slice(0, 4).join(' ') : null;
+}
+/** Si la primera oración repite una palabra importante del dato corto que la persona acaba de dar ("virtual", un apellido). */
+export function datoRepetidoEnLaPrimeraOracion(borrador: string, ultimoPersona: string): string | null {
+  const palabras = limpiarParaComparar(ultimoPersona).split(' ').filter(w => w.length >= 4 && !/^\d+$/.test(w) && !['correcto', 'exacto', 'claro', 'gracias', 'perfecto', 'bueno', 'dale'].includes(w));
+  const o = primeraOracionUtil(borrador);
+  const n = ` ${limpiarParaComparar(o)} `;
+  return palabras.some(w => n.includes(` ${w} `) || n.includes(` ${w}`)) ? o.slice(0, 120) : null;
+}
+
+export function evaluarVerificacion(crudo: any, a: { borrador: string; permite: ReturnType<typeof permiteDeObjetivos>; anterior: string; personaTextos?: string[]; anteriores?: string[]; /** Último mensaje de la persona (activa el control de "no repetir el dato que acaba de dar"). */ ultimoPersona?: string }): { ok: boolean; motivo: string; violaciones: { regla: string; frase: string }[] } {
   if (!Array.isArray(crudo?.violaciones)) throw new Error('respuesta del verificador inválida');
   const en = (texto: string, frase: string) => { const f = limpiarParaComparar(frase); return f.length >= 4 && limpiarParaComparar(texto).includes(f); };
   const validas: { regla: string; frase: string }[] = [];
@@ -2627,6 +2666,16 @@ export function evaluarVerificacion(crudo: any, a: { borrador: string; permite: 
     validas.push({ regla, frase: frase.slice(0, 200) });
   }
   if ((a.borrador.match(/\?/g) ?? []).length > 1) validas.push({ regla: 'varias_preguntas', frase: 'más de una pregunta' });
+  // Aperturas prohibidas: lo decide el código (no depende de que el modelo la vea).
+  const apertura = aperturaProhibida(a.borrador);
+  if (apertura && !validas.some(v => v.regla === 'apertura_prohibida')) validas.push({ regla: 'apertura_prohibida', frase: apertura });
+  // Si la persona solo dio un dato corto, el borrador no lo repite en su primera oración.
+  if (a.ultimoPersona !== undefined) {
+    const corto = limpiarParaComparar(a.ultimoPersona).split(' ').filter(Boolean).length <= 2;
+    const repetido = corto ? datoRepetidoEnLaPrimeraOracion(a.borrador, a.ultimoPersona) : null;
+    if (repetido && !validas.some(v => v.regla === 'repite_dato_recien_dado')) validas.push({ regla: 'repite_dato_recien_dado', frase: repetido });
+    if (!corto) for (let k = validas.length - 1; k >= 0; k--) if (validas[k].regla === 'repite_dato_recien_dado') validas.splice(k, 1);
+  }
   const motivo = validas.map(v => `La frase «${v.frase}» ${INSTRUCCION_REGLA[v.regla]}.`).join(' ').slice(0, 500);
   return { ok: validas.length === 0, motivo, violaciones: validas };
 }
@@ -2651,8 +2700,9 @@ export function mensajeSeguro(a: { objetivos: Objetivo[]; estado: EstadoV2; cfg:
   const oferta = a.estado.oferta ? a.cfg.ofertas[a.estado.oferta] : null;
   // El reflejo integra lo que dijo la persona (ya resumido en tercera persona por el extractor), sin comillas: «Le descuentan ganancias del haber.»
   const dicho = (a.dicho ?? []).map(x => String(x).trim().replace(/[.\s]+$/, '')).filter(Boolean)[0] ?? '';
-  const reflejo = dicho && !['acepta', 'ambiguo', 'elige_horario', 'rechaza_horarios'].includes(a.intencion)
-    ? `${dicho.charAt(0).toUpperCase()}${dicho.slice(1)}.` : 'Gracias por contármelo.';
+  const personaCorta = limpiarParaComparar(a.textoCliente).split(' ').filter(Boolean).length <= 2;
+  const reflejo = dicho && !personaCorta && !['acepta', 'ambiguo', 'elige_horario', 'rechaza_horarios'].includes(a.intencion)
+    ? `${dicho.charAt(0).toUpperCase()}${dicho.slice(1)}.` : (personaCorta ? 'Perfecto.' : 'Gracias por contármelo.');
   const saludo = a.primerMensaje ? `Hola, soy ${a.cfg.agente.nombre}, del ${a.cfg.agente.estudio}. ` : '';
   const pregunta = (campo: unknown) => { const d = definicionDeFiltro(a.cfg, String(campo)); return d?.pregunta ?? (d ? `¿Me cuenta ${d.descripcion}?` : null); };
   const dia = (x: { fecha: string; hora: string }) => `${nombreDeDia(x.fecha)} a las ${x.hora}`;
@@ -2671,6 +2721,7 @@ export function mensajeSeguro(a: { objetivos: Objetivo[]; estado: EstadoV2; cfg:
         : `Entonces, si le entendí bien: ${frase || 'lo que me contó'}. Le propongo una consulta con un abogado del estudio para analizarlo. ¿Le gustaría avanzar?`;
       break;
     }
+    case 'ofrecer_consulta': { const q = o.detalle ? pregunta(o.detalle) : '¿Le gustaría avanzar?'; cuerpo = q ? `${reflejo} Le propongo una consulta con un abogado del estudio, sin cargo. ${q}` : null; break; }
     case 'obtener_dato_agenda': {
       if (o.detalle === 'nombre') { const e = a.estado.horario_pendiente; cuerpo = e ? `¿Me indica su nombre y apellido para el turno del ${dia(e)}?` : '¿Me indica su nombre y apellido?'; }
       else { const q = pregunta(o.detalle); cuerpo = q; }
@@ -2834,8 +2885,8 @@ async function turnoV2(a: {
       if (!deps.verificar || !texto) break;
       let v: { ok: boolean; motivo: string; violaciones?: { regla: string; frase: string }[] };
       try {
-        const crudoV: any = await deps.verificar(PROMPT_VERIFICADOR, JSON.stringify({ borrador: texto, mensaje_anterior_del_agente: ultimoAgente || null, mensajes_anteriores_del_agente: anterioresAgente }), esquemaVerificador);
-        v = evaluarVerificacion(crudoV, { borrador: texto, permite, anterior: anterioresAgente.join('\n'), personaTextos, anteriores: anterioresAgente });
+        const crudoV: any = await deps.verificar(PROMPT_VERIFICADOR, JSON.stringify({ borrador: texto, mensaje_anterior_del_agente: ultimoAgente || null, mensajes_anteriores_del_agente: anterioresAgente, ultimo_mensaje_de_la_persona: a.textoCliente }), esquemaVerificador);
+        v = evaluarVerificacion(crudoV, { borrador: texto, permite, anterior: anterioresAgente.join('\n'), personaTextos, anteriores: anterioresAgente, ultimoPersona: a.textoCliente });
       } catch (e) {
         console.error('[agente v2] verificador', e instanceof Error ? e.message : e);
         verificaciones.push({ intento: i + 1, ok: true, motivo: '(el verificador no respondió: se acepta el borrador)' });
@@ -2858,7 +2909,7 @@ async function turnoV2(a: {
   const ideasOfrecidas = ideasParaElTurno({ cfg, estado, objetivos: salida.objetivos });
   if (ideasOfrecidas.length && !seguro) {
     const usadas = ideasUsadasEn(texto, ideasOfrecidas);
-    if (usadas.length) estado.ideas_usadas = [...new Set([...(estado.ideas_usadas ?? []), ...usadas])];
+    if (usadas.length) { estado.ideas_usadas = [...new Set([...(estado.ideas_usadas ?? []), ...usadas])]; estado.mensajes_con_idea = (estado.mensajes_con_idea ?? 0) + 1; }
     traza.ideas_usadas_en_este_mensaje = usadas;
   }
   traza.verificador = verificaciones;

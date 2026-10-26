@@ -3,13 +3,20 @@ import { createHmac } from 'node:crypto';
 import handler, {
   clasificarRecibo, TIPOS_CONSULTA, promesaSinCumplir, separarDatosPago, mensajeApurado,
   aMin, limpiarSecreto, camposDeLead, etapaAutomatica, fusionarLead, registrarMensaje, upsertLead, firmaMetaValida, firmaKapsoValida, extraerMensajesKapso, extraerMensajes, aMensajesLLM, procesarMensaje, filaDePersona, esConversacionDeNoa, clasificarMensajeCliente, categoriaMensajeAgente, personaMetrica, agregarMetricasAgente, calcularMetricasAgente, evaluarOptimizaciones, validarOptimizaciones, ejecutarOptimizacion, type MetricasAgente, motivoDeExclusion, resumenEnPalabras, ejecutarAnalista, revisarAnalisisAutomatico, codigosDeEstilo, etapaEmbudo, analizarConversacion, calcularMetricas, mascararDatos, textoParaEtiquetar, validarEtiquetas, promptDelAgente, limpiarCachePrompt, accionAgentes, problemasDeEstilo, textoNoLegible, firmaMercadoPagoValida, importeTexto, importeLindo, asignarImporteUnico, procesarPagoMP, montoMercadoPago, enmascarar, neutralizarMarcas, salidaInsegura, superaLimite, urlMediaSegura, resumenTurnosVigentes, HERRAMIENTAS_LLM, cuerpoNotaDeVoz, notaDeImagen, montoValidadoDe, quitarEtiquetas, aMensajesOpenAI, deOpenAI, ejecutarHerramienta, PROMPT_AGENTE, type Deps, telefonoClave, historialDe, inferirNombre, normalizarFecha, normalizarHora, bloquesDelDia, huecosLibres, localDe, resolverProfesional, diaSemanaISO, fechaValida,
-  registrarSinResponder, registrarUso, fijarDbUso, costoUsd, esDudaOObjecion, esRechazoFirme, horasEnTexto, quitarFrasesHechas, REGEX_CLICHE, condicionesArt9Confirmadas, campanaDelTexto, probarAgentePaso, chatAgentePaso, preguntasAfirmadas, evidenciaCompleta, REGEX_PROMESAS, validarExtraccion, aplicarExtraccion, elegirDosHorarios, horarioSenialado, pareceElNombreDeUnaPersona, primeraPalabraDeMensaje, ideasParaElTurno, ideasUsadasEn, armarSistemaRedactor, permiteDeObjetivos, mensajeSeguro, PROMPT_VERIFICADOR, esquemaVerificador, evaluarVerificacion, aperturaDeMensaje, muletillaRepetida, esquemaExtractor, PROMPT_REDACTOR, PROMPT_EXTRACTOR, CONFIG_CLIENTE, leerEstadoV2, estadoV2Vacio, extraccionVacia, funcionesV2, textoFaltaRegistrar, AVISO_DERIVACION, horariosOfrecidosEn, ofrecidosVigentes, textoOfrecidos, horasSinDia, ofertaConDia, condicionDeAgenda, registrarMensajeHumano, extraerHumanosKapso, responderDesdeErp, resumenCampana, analizarCampana, analisisSoloConCifrasReales, esRespuestaCortaSiNo, preguntaDelAgente, temaMalNombrado,
+  registrarSinResponder, registrarUso, fijarDbUso, costoUsd, esDudaOObjecion, esRechazoFirme, horasEnTexto, quitarFrasesHechas, REGEX_CLICHE, condicionesArt9Confirmadas, campanaDelTexto, probarAgentePaso, chatAgentePaso, preguntasAfirmadas, evidenciaCompleta, REGEX_PROMESAS, validarExtraccion, aplicarExtraccion, elegirDosHorarios, horarioSenialado, pareceElNombreDeUnaPersona, primeraPalabraDeMensaje, ideasParaElTurno, ideasUsadasEn, aperturaProhibida, datoRepetidoEnLaPrimeraOracion, armarSistemaRedactor, permiteDeObjetivos, mensajeSeguro, PROMPT_VERIFICADOR, esquemaVerificador, evaluarVerificacion, aperturaDeMensaje, muletillaRepetida, esquemaExtractor, PROMPT_REDACTOR, PROMPT_EXTRACTOR, CONFIG_CLIENTE, leerEstadoV2, estadoV2Vacio, extraccionVacia, funcionesV2, textoFaltaRegistrar, AVISO_DERIVACION, horariosOfrecidosEn, ofrecidosVigentes, textoOfrecidos, horasSinDia, ofertaConDia, condicionDeAgenda, registrarMensajeHumano, extraerHumanosKapso, responderDesdeErp, resumenCampana, analizarCampana, analisisSoloConCifrasReales, esRespuestaCortaSiNo, preguntaDelAgente, temaMalNombrado,
   type Bloque,
 } from '../../api/turnos/[accion]';
 
 const bloque = (o: Partial<Bloque>): Bloque => ({
   dia_semana: null, fecha: null, hora_desde: '09:00', hora_hasta: '11:00', duracion_min: 30, ...o,
 });
+
+// La config del estudio ya no pide casilleros mínimos (sin preguntas de diagnóstico). Los tests que prueban el MECANISMO del director con
+// casilleros (que otro cliente puede configurar) corren con los mínimos de antes; los tests del estudio llaman a estudio().
+const MINIMOS_VIEJOS = { obligatorios: ['objetivo'], al_menos_uno_de: ['brecha', 'historial', 'compromiso'] };
+const MINIMOS_ESTUDIO = { obligatorios: [] as string[], al_menos_uno_de: [] as string[] };
+function ponerMinimos(m: { obligatorios: string[]; al_menos_uno_de: string[] }) { for (const o of Object.values(CONFIG_CLIENTE.ofertas)) o.casilleros_minimos = { obligatorios: [...m.obligatorios], al_menos_uno_de: [...m.al_menos_uno_de] }; }
+const estudio = () => ponerMinimos(MINIMOS_ESTUDIO);
 
 describe('api/turnos · disponibilidad', () => {
   it('genera slots y descarta los ocupados', () => {
@@ -3477,6 +3484,8 @@ describe('traza del chat de prueba', () => {
 });
 
 describe('agente v2 · director + extractor + redactor (todo con modelo simulado, sin costo)', () => {
+  beforeEach(() => ponerMinimos(MINIMOS_VIEJOS));
+  afterEach(() => ponerMinimos(MINIMOS_ESTUDIO));
   const sinV1 = async () => { throw new Error('la v1 no debe llamarse en la v2'); };
   const raw = (p: Record<string, unknown> = {}) => ({ oferta_detectada: null, filtros: [], casilleros: [], emocion: null, intencion: 'otro', pregunta_de_la_persona: null, horario_elegido: null, ...p });
   const fil = (campo: string, valor: string, evidencia: string) => ({ campo, valor, evidencia });
@@ -3996,7 +4005,7 @@ describe('agente v2 · director + extractor + redactor (todo con modelo simulado
     expect(evaluarVerificacion({ violaciones: [{ regla: 'repite_mensaje_anterior', frase: 'lunes 26 de octubre a las 10:00' }] }, ctx('Es el lunes 26 de octubre a las 10:00. ¿Me confirma?', 'Le ofrezco lunes 26 de octubre a las 10:00')).ok).toBe(true); // horario
     const sis = armarSistemaRedactor({ cfg: CONFIG_CLIENTE, estado: { ...estadoV2Vacio(), oferta: 'art9_ganancias' }, datos: [], primerMensaje: false, objetivos: [{ tipo: 'no_califica', texto: 'x' }] });
     expect(sis).not.toContain('IDEAS DE VALOR APROBADAS (elegí');
-    expect(PROMPT_REDACTOR).toContain('Usted me cuenta que');
+    expect(PROMPT_REDACTOR).toContain('Si la persona solo respondió un dato');
   });
   // ------------------------------------------------------------------ RONDA FINAL
   it('final · config: descuento_art9_ganancias cuenta cualquier descuento o "me sacan plata" como SI, sin lista de palabras obligatorias', () => {
@@ -4011,22 +4020,21 @@ describe('agente v2 · director + extractor + redactor (todo con modelo simulado
   });
   it('final · verificador: una "fórmula" cuya frase está textual en un mensaje de la persona no es una violación; si no está, sí', () => {
     const permite = permiteDeObjetivos([{ tipo: 'profundizar', texto: '' }]);
-    const borrador = 'Usted dice que me preocupa que me sigan sacando plata. ¿Desde cuándo?';
+    const borrador = 'Sobre lo suyo: me preocupa que me sigan sacando plata. ¿Desde cuándo?';
     const crudo = { violaciones: [{ regla: 'formula_empatia', frase: 'me preocupa que me sigan sacando plata' }] };
     expect(evaluarVerificacion(crudo, { borrador, permite, anterior: '', personaTextos: ['Me preocupa que me sigan sacando plata todos los meses'] }).ok).toBe(true);
     expect(evaluarVerificacion(crudo, { borrador, permite, anterior: '', personaTextos: ['Hola'] }).ok).toBe(false);
   });
-  it('final · muletilla: empezar con la misma estructura que un mensaje anterior ("Usted me cuenta que") se rechaza; una estructura nueva no', () => {
+  it('final · muletilla: empezar con la misma estructura que un mensaje anterior ("Veo que") se rechaza; una estructura nueva no', () => {
     const permite = permiteDeObjetivos([{ tipo: 'descubrir', texto: '' }]);
-    const anteriores = ['Hola, soy Karina. Usted me cuenta que es docente jubilada. ¿Qué le gustaría lograr?'];
-    const borrador = 'Usted me cuenta que nunca reclamó. ¿Desde cuándo le descuentan?';
-    const r = evaluarVerificacion({ violaciones: [{ regla: 'estructura_repetida', frase: 'Usted me cuenta que' }] }, { borrador, permite, anterior: anteriores.join('\n'), anteriores });
+    const anteriores = ['Hola, soy Karina. Veo que es docente jubilada. ¿Qué le gustaría lograr?'];
+    const borrador = 'Veo que nunca reclamó. ¿Desde cuándo le descuentan?';
+    const r = evaluarVerificacion({ violaciones: [{ regla: 'estructura_repetida', frase: 'Veo que' }] }, { borrador, permite, anterior: anteriores.join('\n'), anteriores });
     expect(r.ok).toBe(false);
     expect(r.motivo).toContain('misma estructura');
     // sin mensajes anteriores con esa estructura, la cita se descarta
-    expect(evaluarVerificacion({ violaciones: [{ regla: 'estructura_repetida', frase: 'Usted me cuenta que' }] }, { borrador, permite, anterior: '', anteriores: ['Hola, soy Karina. ¿Qué le pasa?'] }).ok).toBe(true);
+    expect(evaluarVerificacion({ violaciones: [{ regla: 'estructura_repetida', frase: 'Veo que' }] }, { borrador, permite, anterior: '', anteriores: ['Hola, soy Karina. ¿Qué le pasa?'] }).ok).toBe(true);
     expect(PROMPT_VERIFICADOR).toContain('estructura_repetida');
-    expect(PROMPT_VERIFICADOR).toContain('Usted me cuenta que');
   });
   it('final · muletilla en el flujo: el verificador recibe los mensajes anteriores del agente y el rechazo reescribe', async () => {
     const recibidos: any[] = [];
@@ -4034,12 +4042,11 @@ describe('agente v2 · director + extractor + redactor (todo con modelo simulado
     const c = await conversar([
       { persona: FRASE1, extractor: () => art9 },
       { persona: P_OBJ, extractor: () => raw({ casilleros: [cas('objetivo', 'quiere que dejen de descontarle', P_OBJ)] }) },
-    ], (_sis, _m) => (n++ === 0 ? 'Usted me cuenta que es docente jubilada. ¿Qué le gustaría lograr con esto?' : n === 2 ? 'Usted me cuenta que quiere frenar el descuento. ¿Desde cuándo lo notó?' : 'Quiere frenar el descuento, entonces. ¿Desde cuándo lo notó?'), undefined,
-    async (_s, u) => { const o = JSON.parse(u); recibidos.push(o); return o.borrador.startsWith('Usted me cuenta que') && o.mensajes_anteriores_del_agente.length ? { violaciones: [{ regla: 'estructura_repetida', frase: 'Usted me cuenta que' }] } : { violaciones: [] }; });
-    expect(recibidos[recibidos.length - 1].mensajes_anteriores_del_agente[0]).toContain('Usted me cuenta que es docente jubilada');
+    ], (_sis, _m) => (n++ === 0 ? 'Veo que es docente jubilada. ¿Qué le gustaría lograr con esto?' : n === 2 ? 'Veo que quiere frenar el descuento. ¿Desde cuándo lo notó?' : 'Quiere frenar el descuento, entonces. ¿Desde cuándo lo notó?'), undefined,
+    async (_s, u) => { const o = JSON.parse(u); recibidos.push(o); return o.borrador.startsWith('Veo que') && o.mensajes_anteriores_del_agente.length ? { violaciones: [{ regla: 'estructura_repetida', frase: 'Veo que' }] } : { violaciones: [] }; });
+    expect(recibidos[recibidos.length - 1].mensajes_anteriores_del_agente[0]).toContain('Veo que es docente jubilada');
     expect(c.cuerpos[1].respuestas[0]).toBe('Quiere frenar el descuento, entonces. ¿Desde cuándo lo notó?');
   });
-  // ------------------------------------------------------------------ CIERRE: muletilla en el código
   it('cierre · muletilla: "Usted me cuenta" / "Usted me dice" abren igual (sin saludo ni "Entonces"); estructuras distintas no', () => {
     expect(aperturaDeMensaje('Hola, soy Karina, del Centro Jurídico NOA. Usted me cuenta que es docente.')).toBe('usted me');
     expect(aperturaDeMensaje('Usted me dice que quiere frenar el descuento.')).toBe('usted me');
@@ -4245,9 +4252,10 @@ describe('agente v2 · director + extractor + redactor (todo con modelo simulado
     const ideas = CONFIG_CLIENTE.ofertas.art9_ganancias.ideas_de_valor!.map(x => x.texto);
     expect(vistas[0]).toEqual(ideas); // el primer mensaje recibe las tres
     expect(vistas[1]).toEqual(ideas.slice(1)); // la primera ya se usó
-    expect(vistas[2]).toEqual(ideas.slice(2));
-    expect(vistas[3]).toEqual([]); // se usaron todas: sin idea de valor
-    expect(leerEstadoV2(c.lead().datos).ideas_usadas).toEqual(ideas);
+    expect(vistas[2]).toEqual([]); // tope: como máximo 2 mensajes por conversación llevan una idea de valor
+    expect(vistas[3]).toEqual([]);
+    expect(leerEstadoV2(c.lead().datos).ideas_usadas).toEqual(ideas.slice(0, 2));
+    expect(leerEstadoV2(c.lead().datos).mensajes_con_idea).toBe(2);
     expect(c.cuerpos[3].respuestas[0]).not.toContain('Muchas veces');
   });
   it('pulido · ideasParaElTurno: no_califica y objetivos que ofrecen no reciben ideas', () => {
@@ -4256,6 +4264,95 @@ describe('agente v2 · director + extractor + redactor (todo con modelo simulado
     expect(ideasParaElTurno({ cfg: CONFIG_CLIENTE, estado: e, objetivos: [{ tipo: 'ofrecer_horarios', texto: '' }] })).toEqual([]);
     expect(ideasParaElTurno({ cfg: CONFIG_CLIENTE, estado: e, objetivos: [{ tipo: 'descubrir', texto: '' }] })).toHaveLength(3);
     expect(ideasParaElTurno({ cfg: CONFIG_CLIENTE, estado: { ...e, ideas_usadas: [CONFIG_CLIENTE.ofertas.art9_ganancias.ideas_de_valor![0].texto] }, objetivos: [{ tipo: 'reorganizar_y_ofrecer', texto: '' }] })).toHaveLength(2);
+    expect(ideasParaElTurno({ cfg: CONFIG_CLIENTE, estado: { ...e, ideas_usadas: CONFIG_CLIENTE.ofertas.art9_ganancias.ideas_de_valor!.map(x => x.texto) }, objetivos: [{ tipo: 'descubrir', texto: '' }] })).toEqual([]); // se usaron todas
+    expect(ideasParaElTurno({ cfg: CONFIG_CLIENTE, estado: { ...e, mensajes_con_idea: 2 }, objetivos: [{ tipo: 'descubrir', texto: '' }] })).toEqual([]); // tope de 2 mensajes
+    expect(ideasParaElTurno({ cfg: CONFIG_CLIENTE, estado: e, objetivos: [{ tipo: 'ofrecer_consulta', texto: '' }] })).toHaveLength(3);
+  });
+  // ------------------------------------------------------------------ ESTRUCTURA DEL ESTUDIO Y EMPATÍA REAL
+  const redactorEstudio = (sis: string): string => {
+    if (/Ofrecele la consulta con tus palabras/.test(sis)) return 'La consulta con el Dr. Alejandro Reyes es sin cargo y puede ser presencial o virtual. ¿Cómo la prefiere?';
+    if (/Necesitás saber[^\n]*docente/i.test(sis)) return '¿Es usted docente jubilada?';
+    if (/Necesitás saber[^\n]*ANSES/i.test(sis)) return '¿Se jubiló por ANSES?';
+    if (/Necesitás saber[^\n]*(descuent|ganancias)/i.test(sis)) return '¿Le descuentan ganancias en el recibo?';
+    return redactorFalso(sis);
+  };
+  it('estudio · config: los dos casilleros_minimos del estudio están vacíos (sin preguntas de diagnóstico)', async () => {
+    const { readFileSync } = await import('node:fs');
+    const src = readFileSync(new URL('../../api/turnos/_config-cjnoa.ts', import.meta.url), 'utf8');
+    const cfg = JSON.parse(src.slice(src.indexOf('= {') + 2, src.lastIndexOf('};') + 1));
+    for (const id of ['art9_ganancias', 'jubilacion']) expect(cfg.ofertas[id].casilleros_minimos).toEqual({ obligatorios: [], al_menos_uno_de: [] });
+  });
+  it('estudio · art9: con los 3 filtros en "si" el siguiente objetivo es ofrecer la consulta y el mismo mensaje pregunta la modalidad', async () => {
+    estudio();
+    const c = await conversar([{ persona: FRASE1, extractor: () => art9 }], redactorEstudio);
+    expect(c.tipos[0]).toEqual(['ofrecer_consulta:modalidad_consulta']);
+    expect(c.cuerpos[0].v2.objetivos[0].detalle).toBe('modalidad_consulta');
+    expect(c.cuerpos[0].v2.objetivos[0].texto).toMatch(/presencial.*virtual/);
+    expect(leerEstadoV2(c.lead().datos).dato_pendiente).toEqual({ tipo: 'filtro', campo: 'modalidad_consulta' });
+    expect(c.cuerpos[0].respuestas[0]).toContain('¿Cómo la prefiere?');
+    expect(JSON.stringify(c.tipos)).not.toMatch(/descubrir|reorganizar/); // ninguna pregunta de diagnóstico
+  });
+  it('estudio · jubilación: con nombre, edad y si trabaja el código manda el video, sin turno extra de "¿le gustaría verlo?"', async () => {
+    estudio();
+    const P1 = 'Hola, soy Ana, tengo 62 años y sigo trabajando como docente';
+    const c = await conversar([{ persona: P1, extractor: () => raw({ oferta_detectada: 'jubilacion', filtros: [fil('nombre', 'Ana', P1), fil('edad', '62', P1), fil('trabaja_docente', 'si', P1)] }) }]);
+    expect(c.tipos[0]).toEqual(['preguntar_que_le_parecio']);
+    expect(c.cuerpos[0].herramientas).toEqual(['enviar_video_jubilacion']);
+    expect(c.cuerpos[0].videos).toBe(1);
+  });
+  it('estudio · conversación completa: HOLA / SOBRE EL ARTICULO 9 / SI / SI / SI / virtual / el primero / Ana Gomez → agenda a nombre de Ana Gomez', async () => {
+    estudio();
+    const c = await conversar([
+      { persona: 'HOLA', extractor: () => raw() },
+      { persona: 'SOBRE EL ARTICULO 9', extractor: () => raw({ oferta_detectada: 'art9_ganancias' }) },
+      { persona: 'SI', extractor: () => raw({ filtros: [fil('es_docente', 'si', 'SI')] }) },
+      { persona: 'SI', extractor: () => raw({ filtros: [fil('jubilado_anses', 'si', 'SI')] }) },
+      { persona: 'SI', extractor: () => raw({ filtros: [fil('descuento_art9_ganancias', 'si', 'SI')] }) },
+      { persona: 'virtual', extractor: () => raw({ filtros: [fil('modalidad_consulta', 'virtual', 'virtual')] }) },
+      { persona: 'el primero', extractor: (u) => raw({ intencion: 'elige_horario', horario_elegido: u.horarios_ofrecidos[0] }) },
+      { persona: 'Ana Gomez', extractor: () => raw({ filtros: [fil('nombre', 'Ana Gomez', 'Ana Gomez')] }) },
+    ], redactorEstudio);
+    expect(c.tipos).toEqual([['descubrir_situacion'], ['obtener_filtro:es_docente'], ['obtener_filtro:jubilado_anses'], ['obtener_filtro:descuento_art9_ganancias'], ['ofrecer_consulta:modalidad_consulta'], ['ofrecer_horarios'], ['obtener_dato_agenda:nombre'], ['confirmar_turno']]);
+    const turno = c.estado.tablas.consultas_agendadas[0];
+    const ofrecido = c.cuerpos[5].v2.objetivos[0].detalle[0];
+    expect(turno).toMatchObject({ cliente_nombre: 'Ana Gomez', fecha_consulta: ofrecido.fecha, hora_consulta: ofrecido.hora });
+    expect(c.cuerpos.some(b => (b.herramientas ?? []).includes('derivar_a_humano'))).toBe(false);
+  });
+  it('estudio · aperturas prohibidas: el código las detecta (sin saludo) y el verificador las rechaza', () => {
+    for (const a of ['Usted me cuenta que es docente.', 'Usted me dice que sí.', 'Usted me confirma que se jubiló.', 'Usted menciona el artículo 9.', 'Dado que se jubiló por ANSES, ¿le descuentan?', 'Siendo usted docente, ¿qué le pasa?', 'Como usted dijo, ¿desde cuándo?'])
+      expect(aperturaProhibida(`Hola, soy Karina, del Centro Jurídico NOA. ${a}`)).not.toBeNull();
+    expect(aperturaProhibida('Hola, soy Karina. ¿Es usted docente jubilada?')).toBeNull();
+    expect(aperturaProhibida('Perfecto. ¿Se jubiló por ANSES?')).toBeNull();
+    const r = evaluarVerificacion({ violaciones: [] }, { borrador: 'Usted me cuenta que es docente. ¿Desde cuándo?', permite: permiteDeObjetivos([{ tipo: 'descubrir', texto: '' }]), anterior: '' });
+    expect(r.ok).toBe(false);
+    expect(r.violaciones.map(v => v.regla)).toEqual(['apertura_prohibida']);
+    expect(PROMPT_REDACTOR).toContain('Abrir el mensaje con "Usted me cuenta"');
+    expect(PROMPT_VERIFICADOR).toContain('apertura_prohibida');
+  });
+  it('estudio · una apertura prohibida en el flujo se rechaza y se reescribe (verificador sin objeciones propias)', async () => {
+    estudio();
+    let n = 0;
+    const c = await conversar([{ persona: 'SOBRE EL ARTICULO 9', extractor: () => raw({ oferta_detectada: 'art9_ganancias' }) }],
+      () => (n++ === 0 ? 'Hola, soy Karina. Usted me cuenta que consulta por el Artículo 9. ¿Es usted docente jubilada?' : 'Hola, soy Karina. Sobre el Artículo 9: ¿es usted docente jubilada?'),
+      undefined, async () => ({ violaciones: [] }));
+    expect(c.cuerpos[0].v2.verificador.map((v: any) => v.ok)).toEqual([false, true]);
+    expect(c.cuerpos[0].v2.verificador[0].motivo).toContain('abre con una fórmula prohibida');
+    expect(c.cuerpos[0].respuestas[0]).toContain('Sobre el Artículo 9');
+  });
+  it('estudio · si la persona solo dio un dato ("virtual", un nombre), el mensaje no lo repite en su primera oración', () => {
+    expect(datoRepetidoEnLaPrimeraOracion('Perfecto, la consulta será virtual. Le ofrezco dos horarios.', 'virtual')).not.toBeNull();
+    expect(datoRepetidoEnLaPrimeraOracion('Perfecto. Le ofrezco dos horarios: lunes 26 a las 09:00 o martes 27 a las 09:00.', 'virtual')).toBeNull();
+    expect(datoRepetidoEnLaPrimeraOracion('Gracias, Ana Gomez. Su consulta está agendada.', 'Ana Gomez')).not.toBeNull();
+    expect(datoRepetidoEnLaPrimeraOracion('Su consulta quedó agendada para el martes.', 'Ana Gomez')).toBeNull();
+    const permite = permiteDeObjetivos([{ tipo: 'ofrecer_horarios', texto: '' }]);
+    const ev = (borrador: string, ultimoPersona: string) => evaluarVerificacion({ violaciones: [] }, { borrador, permite, anterior: '', ultimoPersona });
+    expect(ev('Perfecto, la consulta será virtual. ¿Cuál le queda mejor?', 'virtual').violaciones.map(v => v.regla)).toEqual(['repite_dato_recien_dado']);
+    expect(ev('Perfecto. ¿Cuál le queda mejor?', 'virtual').ok).toBe(true);
+    // si la persona contó algo largo, reflejar lo que siente está permitido
+    expect(ev('Me imagino lo cansador que es seguir con ese descuento. ¿Cuál le queda mejor?', 'estoy cansada de que me descuenten todos los meses').ok).toBe(true);
+    expect(PROMPT_REDACTOR).toContain('NO lo repitas ni lo reflejes');
+    expect(PROMPT_REDACTOR).toContain('reflejá lo que siente, no lo que dijo');
+    expect(PROMPT_VERIFICADOR).toContain('repite_dato_recien_dado');
   });
   it('ronda 1 · config: cada filtro lleva su ayuda para el extractor ("maestra" es docente) y el extractor las recibe', () => {
     const f = CONFIG_CLIENTE.ofertas.art9_ganancias.filtros.find(x => x.campo === 'es_docente')!;
@@ -4392,6 +4489,8 @@ describe('agente v2 · director + extractor + redactor (todo con modelo simulado
 });
 
 describe('agente v2 · ajustes: fotos y documentos, rechazo firme y nombre (modelo simulado)', () => {
+  beforeEach(() => ponerMinimos(MINIMOS_VIEJOS));
+  afterEach(() => ponerMinimos(MINIMOS_ESTUDIO));
   const sinV1 = async () => { throw new Error('la v1 no debe llamarse en la v2'); };
   const raw = (p: Record<string, unknown> = {}) => ({ oferta_detectada: null, filtros: [], casilleros: [], emocion: null, intencion: 'otro', pregunta_de_la_persona: null, horario_elegido: null, ...p });
   const fil = (campo: string, valor: string, evidencia: string) => ({ campo, valor, evidencia });
@@ -4557,6 +4656,8 @@ describe('agente v2 · ajustes: fotos y documentos, rechazo firme y nombre (mode
 // Bugs de la prueba real "hola" / "art.98" / "si": respuestas cortas, derivación al primer intento, oferta al redactor y typo.
 // ===================================================================================================================
 describe('agente v2 · respuestas cortas, derivación y oferta (modelo simulado, sin costo)', () => {
+  beforeEach(() => ponerMinimos(MINIMOS_VIEJOS));
+  afterEach(() => ponerMinimos(MINIMOS_ESTUDIO));
   const sinV1 = async () => { throw new Error('la v1 no debe llamarse en la v2'); };
   const raw = (p: Record<string, unknown> = {}) => ({ oferta_detectada: null, filtros: [], casilleros: [], emocion: null, intencion: 'otro', pregunta_de_la_persona: null, horario_elegido: null, ...p });
   const fil = (campo: string, valor: string, evidencia: string) => ({ campo, valor, evidencia });

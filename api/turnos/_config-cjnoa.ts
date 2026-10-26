@@ -47,14 +47,8 @@ export const CONFIG_CJNOA = {
       ],
       "filtros_de_cierre": [],
       "casilleros_minimos": {
-        "obligatorios": [
-          "objetivo"
-        ],
-        "al_menos_uno_de": [
-          "brecha",
-          "historial",
-          "compromiso"
-        ]
+        "obligatorios": [],
+        "al_menos_uno_de": []
       },
       "condicion": "La consulta con el Dr. Alejandro Reyes es SIN CARGO y sin compromiso, y puede ser presencial en San Salvador de Jujuy o virtual. En la consulta el Dr. Alejandro Reyes analiza su caso y le explica qué se puede hacer y cuáles son los pasos a seguir.",
       "urgencia": "La ley permite reclamar lo descontado hasta 2 años hacia atrás en Artículo 9 y hasta 5 años en Ganancias, contados desde la presentación de la demanda; por eso cada mes que se demora, los descuentos más antiguos pueden quedar fuera del reclamo. Es todo lo que podés decir sobre plazos y nunca prometés un resultado.",
@@ -175,14 +169,8 @@ export const CONFIG_CJNOA = {
         }
       ],
       "casilleros_minimos": {
-        "obligatorios": [
-          "objetivo"
-        ],
-        "al_menos_uno_de": [
-          "brecha",
-          "historial",
-          "compromiso"
-        ]
+        "obligatorios": [],
+        "al_menos_uno_de": []
       },
       "condicion": "La consulta es con el Dr. Fabricio Reyes. El valor y la reserva (la mitad; el resto se abona el día de la consulta) los informa el sistema: nunca los inventes. En la consulta el Dr. Fabricio Reyes analiza su caso y le explica qué se puede hacer y cuáles son los pasos a seguir.",
       "urgencia": null,
