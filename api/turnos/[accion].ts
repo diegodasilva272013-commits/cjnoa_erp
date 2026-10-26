@@ -1604,7 +1604,7 @@ La consulta de Artículo 9 / Ganancias no pasa por estos pasos: directo a pregun
 Usá derivar_a_humano con un motivo claro, y decile que lo contactan en el día, cuando: plantee una urgencia de plazos; el caso sea ambiguo y no puedas clasificarlo; haya un problema con un pago; o pida hablar con alguien.
 Si una herramienta falla de forma repetida, no hables de errores técnicos: tomá nombre, teléfono y tema, derivá y decile: "Ya dejé registrado su pedido. Un integrante del equipo lo contacta en el día para confirmar." Si no entendés un mensaje o no tiene sentido, decile con amabilidad que no lo pudiste entender y pedile que lo repita; no sigas como si nada ni repitas tu pregunta anterior.`;
 
-function sistema(prompt: string, hist: Awaited<ReturnType<typeof historialDe>>, ahora: Date, extra: { esAudio?: boolean; datosPago?: string; pasarDatos?: boolean; referral?: string; conVoz?: boolean; vigentes?: string } = {}) {
+function sistema(prompt: string, hist: Awaited<ReturnType<typeof historialDe>>, ahora: Date, extra: { esAudio?: boolean; datosPago?: string; pasarDatos?: boolean; referral?: string; conVoz?: boolean; vigentes?: string; hilo?: string } = {}) {
   const l = localDe(ahora);
   const dias = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
   const dow = new Date(`${l.fecha}T12:00:00Z`).getUTCDay();
@@ -1621,6 +1621,7 @@ function sistema(prompt: string, hist: Awaited<ReturnType<typeof historialDe>>, 
       ? 'Datos bancarios: todavía no corresponde pasarlos y no los tenés. No los menciones ni los inventes. Hablá de reserva, transferencia o efectivo SOLO si la consulta de esta persona lleva reserva (jubilación u otras situaciones ANSES) y ella ya quiere agendar; en Artículo 9 / Ganancias la consulta es sin cargo y nunca se habla de reserva ni de pagos.'
       : `Datos para transferir la reserva (la persona ya eligió transferencia; el importe lo indica el sistema según el tipo de consulta): ${extra.datosPago || DATOS_PAGO_DEFAULT}`,
     ...(extra.vigentes ? [extra.vigentes] : []),
+    ...(extra.hilo ? [extra.hilo] : []),
     ...(extra.referral ? [`El primer mensaje llegó desde un anuncio de Meta: ${extra.referral}`] : []),
     'Usá las herramientas para disponibilidad y agenda. Respondé siempre en texto plano, corto, sin markdown.',
     ...(extra.conVoz
@@ -1719,6 +1720,12 @@ export async function procesarMensaje(deps: Deps, m: MsgEntrante) {
   const hist = await historialDe(db, m.from).catch(() => ({ tiene_historial: 'false', es_recurrente: 'false', cliente_nombre: '', cliente_historial: '' }));
   const mensajes: MsgLLM[] = aMensajesLLM([...previos, { from: 'cliente', texto: textoCliente }]);
   const textosCliente = [...previos.filter(x => x.from === 'cliente').map(x => x.texto), textoCliente];
+  // El hilo: lo último que dijiste vos y lo que la persona acaba de responder, para que su mensaje se lea como respuesta a eso y no suelto.
+  const ultimoAgente = [...previos].reverse().find(x => x.from !== 'cliente')?.texto;
+  const recorte = (t: string, n: number) => (t.length > n ? `${t.slice(0, n)}…` : t);
+  const hilo = ultimoAgente
+    ? `HILO DE LA CONVERSACIÓN: tu último mensaje fue «${recorte(ultimoAgente, 500)}». La persona acaba de contestar «${recorte(textoCliente, 300)}». Leé su mensaje como la respuesta a eso, con el sentido que tiene en ese momento de la conversación (un «sí», «no», «video», «mañana» o «a la mañana» responde a lo que le preguntaste), no como un mensaje suelto. No repitas ni reformules lo que ya le dijiste y no vuelvas a preguntar lo que ya contestó.`
+    : '';
   const pasarDatos = eligioTransferencia(textosCliente);
   const textosAfirmados = preguntasAfirmadas(previos as any, textoCliente);
   // Con Mercado Pago activo, la reserva solo se da por pagada si Mercado Pago la confirmó; ningún texto ni foto del cliente la valida.
@@ -1757,7 +1764,7 @@ export async function procesarMensaje(deps: Deps, m: MsgEntrante) {
   let ultimoTexto = '';
   try {
     for (let i = 0; i < MAX_VUELTAS_HERRAMIENTAS + 2; i++) {
-      const r = await deps.llm(sistema(deps.prompt, hist, ahora, { esAudio, datosPago, pasarDatos, referral: m.referral, conVoz, vigentes: resumenTurnosVigentes(vigentes) }), mensajes);
+      const r = await deps.llm(sistema(deps.prompt, hist, ahora, { esAudio, datosPago, pasarDatos, referral: m.referral, conVoz, vigentes: resumenTurnosVigentes(vigentes), hilo }), mensajes);
       if (r.stop_reason !== 'tool_use') {
         const txt = r.content.filter(b => b.type === 'text').map(b => String(b.text)).join('\n').trim();
         // Si prometió "voy a chequear…" sin hacerlo, se le pide que lo haga ahora: el cliente no tiene que insistir.
