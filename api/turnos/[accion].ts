@@ -2378,17 +2378,55 @@ export function armarSistemaRedactor(a: { cfg: ConfigCliente; objetivos: Objetiv
 }
 
 // ------------------------------------------------------------------ verificador del borrador (un segundo modelo, no regex)
-export const PROMPT_VERIFICADOR = `Sos el verificador de mensajes de un agente de WhatsApp de un estudio jurídico. Recibís un BORRADOR, el OBJETIVO del mensaje, qué está PERMITIDO mencionar, el mensaje anterior del agente y el último mensaje de la persona. Devolvés SOLO un JSON { ok, motivo }.
-Rechazá (ok=false) si el borrador incumple alguna de estas reglas:
-1. Promete o insinúa resultados, recuperos, reclamos exitosos, montos o soluciones (por ejemplo "tiene solución", "puede reclamar lo descontado", "la buena noticia", "se va a resolver").
-2. Ofrece o describe la consulta del estudio, nombra al abogado, o menciona horarios o precios cuando "permitido" no lo permite. Preguntar "¿tiene alguna otra consulta?" no cuenta.
-3. Dice o da a entender que algo está agendado, reservado o confirmado cuando "permitido.agendado" es false (incluye "queda reservado", "ya está", "le aparto el turno").
-4. La empatía no usa lo que dijo la persona: rechazá las fórmulas ("Es natural que", "Es comprensible que", "Me preocupa que", "Es muy frustrante", "Es preocupante", "Entiendo que" o equivalentes) y que el agente hable de sí mismo con una emoción.
-5. Repite lo que ya dijo en su mensaje anterior (la misma idea o la misma frase).
-6. Tiene más de una pregunta.
-No rechaces por ninguna otra razón (estilo, longitud, tono). Si todo está bien: ok=true y motivo="". Si rechazás: motivo = una instrucción corta y concreta para quien lo reescribe, que diga qué frase cambiar.`;
+export const PROMPT_VERIFICADOR = `Sos un detector de problemas en borradores de mensajes de WhatsApp de un estudio jurídico. Recibís un BORRADOR y, si existe, el MENSAJE ANTERIOR del agente. NO juzgás si el mensaje es bueno: solo listás violaciones y, para cada una, copiás TAL CUAL la frase exacta del BORRADOR donde ocurre. Si no hay ninguna, devolvés la lista vacía.
+Categorías:
+- promesa: promete o insinúa un resultado, un recupero, un reclamo exitoso, un monto o una solución ("tiene solución", "puede reclamar lo descontado", "la buena noticia", "se va a resolver").
+- consulta_o_abogado: ofrece o describe una consulta con el estudio, o nombra a un abogado o doctor. (Preguntar "¿tiene alguna otra consulta?" no cuenta; el nombre del estudio tampoco.)
+- horarios: menciona un día, una fecha o una hora para un encuentro.
+- precios: menciona un precio, un costo, "sin cargo" o un importe.
+- agendado: dice o da a entender que un turno está agendado, reservado o confirmado ("queda reservado", "quedó agendada", "ya está").
+- formula_empatia: usa una fórmula de empatía en vez de las palabras de la persona ("Es natural que", "Es comprensible que", "Me preocupa que", "Es muy frustrante", "Es preocupante", "Entiendo que", "Comprendo que"), o el agente habla de sus propias emociones.
+- repite_mensaje_anterior: repite una frase o una idea que ya figura en el MENSAJE ANTERIOR (copiá la frase del borrador).
+- varias_preguntas: hace más de una pregunta, aunque alguna no lleve signos de interrogación.
+No inventes violaciones: si no estás seguro, no la listes.`;
 
-export const esquemaVerificador = { type: 'object', additionalProperties: false, required: ['ok', 'motivo'], properties: { ok: { type: 'boolean' }, motivo: { type: 'string' } } };
+export const REGLAS_VERIFICADOR = ['promesa', 'consulta_o_abogado', 'horarios', 'precios', 'agendado', 'formula_empatia', 'repite_mensaje_anterior', 'varias_preguntas'] as const;
+export const esquemaVerificador = {
+  type: 'object', additionalProperties: false, required: ['violaciones'],
+  properties: { violaciones: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['regla', 'frase'], properties: { regla: { type: 'string', enum: [...REGLAS_VERIFICADOR] }, frase: { type: 'string' } } } } },
+};
+const INSTRUCCION_REGLA: Record<string, string> = {
+  promesa: 'promete o insinúa un resultado',
+  consulta_o_abogado: 'menciona la consulta o al abogado y todavía no corresponde',
+  horarios: 'menciona horarios y todavía no corresponde',
+  precios: 'menciona precios y todavía no corresponde',
+  agendado: 'da a entender que hay un turno agendado o reservado y todavía no lo está',
+  formula_empatia: 'usa una fórmula de empatía: mostrá que entendiste con las palabras de la persona',
+  repite_mensaje_anterior: 'repite lo que ya dijo en su mensaje anterior',
+  varias_preguntas: 'tiene más de una pregunta',
+};
+
+/**
+ * Convierte lo que detectó el modelo en { ok, motivo }. El modelo solo señala violaciones citando la frase; el código decide:
+ * ignora las citas que no están en el borrador (alucinadas) y las categorías que el objetivo permite.
+ */
+export function evaluarVerificacion(crudo: any, a: { borrador: string; permite: ReturnType<typeof permiteDeObjetivos>; anterior: string }): { ok: boolean; motivo: string; violaciones: { regla: string; frase: string }[] } {
+  if (!Array.isArray(crudo?.violaciones)) throw new Error('respuesta del verificador inválida');
+  const en = (texto: string, frase: string) => { const f = limpiarParaComparar(frase); return f.length >= 4 && limpiarParaComparar(texto).includes(f); };
+  const validas: { regla: string; frase: string }[] = [];
+  for (const v of crudo.violaciones) {
+    const regla = String(v?.regla ?? ''), frase = String(v?.frase ?? '').trim();
+    if (!(REGLAS_VERIFICADOR as readonly string[]).includes(regla) || !en(a.borrador, frase)) continue;
+    if (regla === 'consulta_o_abogado' && a.permite.consulta_y_abogado) continue;
+    if (regla === 'horarios' && a.permite.horarios) continue;
+    if (regla === 'precios' && a.permite.precios) continue;
+    if (regla === 'agendado' && a.permite.agendado) continue;
+    if (regla === 'repite_mensaje_anterior' && !(a.anterior && en(a.anterior, frase))) continue;
+    validas.push({ regla, frase: frase.slice(0, 200) });
+  }
+  const motivo = validas.map(v => `La frase «${v.frase}» ${INSTRUCCION_REGLA[v.regla]}.`).join(' ').slice(0, 500);
+  return { ok: validas.length === 0, motivo, violaciones: validas };
+}
 
 /** Qué puede mencionar el mensaje según el objetivo (lo que recibe el verificador). */
 export function permiteDeObjetivos(objetivos: Objetivo[]) {
@@ -2423,7 +2461,7 @@ export function mensajeSeguro(a: { objetivos: Objetivo[]; estado: EstadoV2; cfg:
     case 'obtener_filtro': { const q = pregunta(o.detalle); cuerpo = q ? `${reflejo} ${q}` : null; break; }
     case 'no_califica': cuerpo = `${reflejo} Este reclamo en particular no le corresponde. ¿Tiene alguna otra consulta?`; break;
     case 'reorganizar_y_ofrecer': {
-      const frase = Object.values(a.estado.casilleros).filter(Boolean).map(c => `«${(c as any).evidencia}»`).join(' y ');
+      const frase = ['objetivo', 'brecha', 'historial', 'compromiso', 'situacion'].map(k => a.estado.casilleros[k]).filter(Boolean).slice(0, 2).map(c => `«${(c as any).evidencia}»`).join(' y ');
       cuerpo = oferta?.activo_de_valor
         ? `Entonces, si le entendí bien: ${frase || 'lo que me contó'}. Le puedo enviar un ${oferta.activo_de_valor.descripcion} que explica cómo sigue. ¿Le gustaría verlo?`
         : `Entonces, si le entendí bien: ${frase || 'lo que me contó'}. Le propongo una consulta con un abogado del estudio para analizarlo. ¿Le gustaría avanzar?`;
@@ -2571,14 +2609,10 @@ async function turnoV2(a: {
     if (!problemas.length || correcciones >= 3) {
       // Las reglas de estilo ya están; ahora lo revisa el verificador (un segundo modelo).
       if (!deps.verificar || !texto) break;
-      let v: { ok: boolean; motivo: string };
+      let v: { ok: boolean; motivo: string; violaciones?: { regla: string; frase: string }[] };
       try {
-        const crudoV: any = await deps.verificar(PROMPT_VERIFICADOR, JSON.stringify({
-          borrador: texto, objetivo: { tipo: salida.objetivos[0]?.tipo, instruccion: salida.objetivos.map(o => o.texto).join(' ') },
-          permitido: permite, mensaje_anterior_del_agente: ultimoAgente || null, ultimo_mensaje_de_la_persona: a.textoCliente,
-        }), esquemaVerificador);
-        if (typeof crudoV?.ok !== 'boolean') throw new Error('respuesta del verificador inválida');
-        v = { ok: crudoV.ok, motivo: String(crudoV.motivo ?? '').slice(0, 300) };
+        const crudoV: any = await deps.verificar(PROMPT_VERIFICADOR, JSON.stringify({ borrador: texto, mensaje_anterior_del_agente: ultimoAgente || null }), esquemaVerificador);
+        v = evaluarVerificacion(crudoV, { borrador: texto, permite, anterior: ultimoAgente });
       } catch (e) {
         console.error('[agente v2] verificador', e instanceof Error ? e.message : e);
         verificaciones.push({ intento: i + 1, ok: true, motivo: '(el verificador no respondió: se acepta el borrador)' });
