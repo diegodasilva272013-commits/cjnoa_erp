@@ -3,7 +3,7 @@ import { createHmac } from 'node:crypto';
 import handler, {
   clasificarRecibo, TIPOS_CONSULTA, promesaSinCumplir, separarDatosPago, mensajeApurado,
   aMin, limpiarSecreto, camposDeLead, etapaAutomatica, fusionarLead, registrarMensaje, upsertLead, firmaMetaValida, firmaKapsoValida, extraerMensajesKapso, extraerMensajes, aMensajesLLM, procesarMensaje, filaDePersona, esConversacionDeNoa, clasificarMensajeCliente, categoriaMensajeAgente, personaMetrica, agregarMetricasAgente, calcularMetricasAgente, evaluarOptimizaciones, validarOptimizaciones, ejecutarOptimizacion, type MetricasAgente, motivoDeExclusion, resumenEnPalabras, ejecutarAnalista, revisarAnalisisAutomatico, codigosDeEstilo, etapaEmbudo, analizarConversacion, calcularMetricas, mascararDatos, textoParaEtiquetar, validarEtiquetas, promptDelAgente, limpiarCachePrompt, accionAgentes, problemasDeEstilo, textoNoLegible, firmaMercadoPagoValida, importeTexto, importeLindo, asignarImporteUnico, procesarPagoMP, montoMercadoPago, enmascarar, neutralizarMarcas, salidaInsegura, superaLimite, urlMediaSegura, resumenTurnosVigentes, HERRAMIENTAS_LLM, cuerpoNotaDeVoz, notaDeImagen, montoValidadoDe, quitarEtiquetas, aMensajesOpenAI, deOpenAI, ejecutarHerramienta, PROMPT_AGENTE, type Deps, telefonoClave, historialDe, inferirNombre, normalizarFecha, normalizarHora, bloquesDelDia, huecosLibres, localDe, resolverProfesional, diaSemanaISO, fechaValida,
-  registrarSinResponder, registrarUso, fijarDbUso, costoUsd, esDudaOObjecion, esRechazoFirme, horasEnTexto, quitarFrasesHechas, REGEX_CLICHE, condicionesArt9Confirmadas, campanaDelTexto, probarAgentePaso, chatAgentePaso, preguntasAfirmadas, evidenciaCompleta, REGEX_PROMESAS, validarExtraccion, aplicarExtraccion, elegirDosHorarios, horarioSenialado, pareceElNombreDeUnaPersona, armarSistemaRedactor, permiteDeObjetivos, mensajeSeguro, PROMPT_VERIFICADOR, esquemaVerificador, evaluarVerificacion, aperturaDeMensaje, muletillaRepetida, esquemaExtractor, PROMPT_REDACTOR, PROMPT_EXTRACTOR, CONFIG_CLIENTE, leerEstadoV2, estadoV2Vacio, extraccionVacia, funcionesV2, textoFaltaRegistrar, AVISO_DERIVACION, horariosOfrecidosEn, ofrecidosVigentes, textoOfrecidos, horasSinDia, ofertaConDia, condicionDeAgenda, registrarMensajeHumano, extraerHumanosKapso, responderDesdeErp, resumenCampana, analizarCampana, analisisSoloConCifrasReales, esRespuestaCortaSiNo, preguntaDelAgente, temaMalNombrado,
+  registrarSinResponder, registrarUso, fijarDbUso, costoUsd, esDudaOObjecion, esRechazoFirme, horasEnTexto, quitarFrasesHechas, REGEX_CLICHE, condicionesArt9Confirmadas, campanaDelTexto, probarAgentePaso, chatAgentePaso, preguntasAfirmadas, evidenciaCompleta, REGEX_PROMESAS, validarExtraccion, aplicarExtraccion, elegirDosHorarios, horarioSenialado, pareceElNombreDeUnaPersona, primeraPalabraDeMensaje, ideasParaElTurno, ideasUsadasEn, armarSistemaRedactor, permiteDeObjetivos, mensajeSeguro, PROMPT_VERIFICADOR, esquemaVerificador, evaluarVerificacion, aperturaDeMensaje, muletillaRepetida, esquemaExtractor, PROMPT_REDACTOR, PROMPT_EXTRACTOR, CONFIG_CLIENTE, leerEstadoV2, estadoV2Vacio, extraccionVacia, funcionesV2, textoFaltaRegistrar, AVISO_DERIVACION, horariosOfrecidosEn, ofrecidosVigentes, textoOfrecidos, horasSinDia, ofertaConDia, condicionDeAgenda, registrarMensajeHumano, extraerHumanosKapso, responderDesdeErp, resumenCampana, analizarCampana, analisisSoloConCifrasReales, esRespuestaCortaSiNo, preguntaDelAgente, temaMalNombrado,
   type Bloque,
 } from '../../api/turnos/[accion]';
 
@@ -4190,6 +4190,72 @@ describe('agente v2 · director + extractor + redactor (todo con modelo simulado
     const turno = c.estado.tablas.consultas_agendadas[0];
     const ofrecido = c.cuerpos[4].v2.objetivos[0].detalle[0];
     expect(turno).toMatchObject({ cliente_nombre: 'Ana Gomez', fecha_consulta: ofrecido.fecha, hora_consulta: ofrecido.hora });
+  });
+  // ------------------------------------------------------------------ PULIDO V2
+  it('pulido · primera palabra del mensaje: sin saludo, sin "¿" y sin "Entonces,"', () => {
+    expect(primeraPalabraDeMensaje('Hola, soy Karina, del Centro Jurídico NOA. Usted me cuenta que es docente.')).toBe('usted');
+    expect(primeraPalabraDeMensaje('¿Prefiere virtual o presencial?')).toBe('prefiere');
+    expect(primeraPalabraDeMensaje('Entonces, si le entendí bien: usted quiere frenar el descuento.')).toBe('usted');
+    expect(primeraPalabraDeMensaje('Usted menciona el artículo.')).toBe('usted');
+  });
+  it('pulido · dos mensajes seguidos no empiezan con la misma palabra: se rechaza con el motivo y se reescribe', async () => {
+    let visto = '';
+    let n = 0;
+    const c = await conversar([
+      { persona: FRASE1, extractor: () => art9 },
+      { persona: P_OBJ, extractor: () => raw({ casilleros: [cas('objetivo', 'quiere que dejen de descontarle', P_OBJ)] }) },
+    ], (_sis, mensajes) => {
+      n++;
+      if (n === 1) return 'Hola, soy Karina. Usted es docente jubilada. ¿Qué le gustaría lograr con esto?';
+      visto = mensajes.map((m: any) => String(m.content)).join('\n');
+      return mensajes.some((m: any) => String(m.content).startsWith('[SISTEMA ERP: Corregí')) ? 'Frenar el descuento es lo que busca. ¿Qué fue lo que hasta ahora se lo impidió?' : 'Usted busca frenar el descuento. ¿Qué fue lo que hasta ahora se lo impidió?';
+    });
+    expect(c.cuerpos[1].v2.redactor).toHaveLength(2);
+    expect(visto).toContain('Variá cómo empezás: integrá lo que dijo la persona dentro de la frase.');
+    expect(c.cuerpos[1].respuestas[0]).toMatch(/^Frenar el descuento/);
+  });
+  it('pulido · una primera palabra distinta no se corrige', async () => {
+    let n = 0;
+    const c = await conversar([
+      { persona: FRASE1, extractor: () => art9 },
+      { persona: P_OBJ, extractor: () => raw({ casilleros: [cas('objetivo', 'quiere que dejen de descontarle', P_OBJ)] }) },
+    ], () => (n++ === 0 ? 'Hola, soy Karina. Usted es docente jubilada. ¿Qué le gustaría lograr con esto?' : 'Quiere frenar el descuento. ¿Qué fue lo que hasta ahora se lo impidió?'));
+    expect(c.cuerpos[1].v2.redactor).toHaveLength(1);
+  });
+  it('pulido · ideas de valor: se reconocen las usadas aunque estén dichas con otras palabras', () => {
+    const ideas = CONFIG_CLIENTE.ofertas.art9_ganancias.ideas_de_valor!;
+    expect(ideasUsadasEn('Muchas veces ese descuento aparece en el recibo y nadie explica de dónde sale.', ideas)).toEqual([ideas[0].texto]);
+    expect(ideasUsadasEn('A menudo el descuento aparece en el recibo y nadie explica de dónde sale', ideas)).toEqual([ideas[0].texto]);
+    expect(ideasUsadasEn('Cuénteme qué le gustaría lograr.', ideas)).toEqual([]);
+  });
+  it('pulido · el código guarda qué ideas se usaron y al redactor le pasa solo las que no; si se usaron todas, el mensaje va sin ideas', async () => {
+    const bloque = (sis: string) => (/IDEAS DE VALOR APROBADAS[^\n]*\n((?:- [^\n]+\n?)+)/.exec(sis)?.[1] ?? '').split('\n').filter(Boolean).map(x => x.replace(/^- /, ''));
+    const vistas: string[][] = [];
+    const redactor = (sis: string) => {
+      const b = bloque(sis);
+      vistas.push(b);
+      return b.length ? `${b[0]} ¿Qué más me cuenta?` : 'Cuénteme algo más. ¿Qué más me cuenta?';
+    };
+    const FR = ['Me preocupa que sigan descontando', 'Estoy cansada de este descuento', 'Me frustra no entender el recibo', 'Necesito entender qué me pasa'];
+    const turnos = [
+      { persona: FRASE1, extractor: () => art9 },
+      ...FR.map(f => ({ persona: f, extractor: () => raw({ emocion: { frase: f } }) })),
+    ];
+    const c = await conversar(turnos, (sis) => redactor(sis));
+    const ideas = CONFIG_CLIENTE.ofertas.art9_ganancias.ideas_de_valor!.map(x => x.texto);
+    expect(vistas[0]).toEqual(ideas); // el primer mensaje recibe las tres
+    expect(vistas[1]).toEqual(ideas.slice(1)); // la primera ya se usó
+    expect(vistas[2]).toEqual(ideas.slice(2));
+    expect(vistas[3]).toEqual([]); // se usaron todas: sin idea de valor
+    expect(leerEstadoV2(c.lead().datos).ideas_usadas).toEqual(ideas);
+    expect(c.cuerpos[3].respuestas[0]).not.toContain('Muchas veces');
+  });
+  it('pulido · ideasParaElTurno: no_califica y objetivos que ofrecen no reciben ideas', () => {
+    const e = { ...estadoV2Vacio(), oferta: 'art9_ganancias' };
+    expect(ideasParaElTurno({ cfg: CONFIG_CLIENTE, estado: e, objetivos: [{ tipo: 'no_califica', texto: '' }] })).toEqual([]);
+    expect(ideasParaElTurno({ cfg: CONFIG_CLIENTE, estado: e, objetivos: [{ tipo: 'ofrecer_horarios', texto: '' }] })).toEqual([]);
+    expect(ideasParaElTurno({ cfg: CONFIG_CLIENTE, estado: e, objetivos: [{ tipo: 'descubrir', texto: '' }] })).toHaveLength(3);
+    expect(ideasParaElTurno({ cfg: CONFIG_CLIENTE, estado: { ...e, ideas_usadas: [CONFIG_CLIENTE.ofertas.art9_ganancias.ideas_de_valor![0].texto] }, objetivos: [{ tipo: 'reorganizar_y_ofrecer', texto: '' }] })).toHaveLength(2);
   });
   it('ronda 1 · config: cada filtro lleva su ayuda para el extractor ("maestra" es docente) y el extractor las recibe', () => {
     const f = CONFIG_CLIENTE.ofertas.art9_ganancias.filtros.find(x => x.campo === 'es_docente')!;

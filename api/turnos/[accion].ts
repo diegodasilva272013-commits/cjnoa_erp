@@ -1923,6 +1923,8 @@ export type EstadoV2 = {
   casillero_pendiente?: string;
   /** El dato que el director pidió en su último mensaje: una respuesta corta de la persona solo puede llenar ESE dato. */
   dato_pendiente?: DatoPendiente;
+  /** Ideas de valor (texto aprobado de la config) que ya se usaron en la conversación: no se vuelven a pasar al redactor. */
+  ideas_usadas?: string[];
 };
 const CASILLEROS_V2 = ['situacion', 'objetivo', 'brecha', 'historial', 'compromiso'];
 export const estadoV2Vacio = (): EstadoV2 => ({ oferta: null, filtros: {}, casilleros: Object.fromEntries(CASILLEROS_V2.map(c => [c, null])), emociones_trabajadas: [], etapa: 'descubrir' });
@@ -2494,13 +2496,32 @@ export const PROMPT_REDACTOR_HORARIOS = `## Horarios
 - Ofrecé exactamente DOS, cada uno con su día y fecha, tal cual figuran en el objetivo.
 - Usá solo los horarios que figuran en el objetivo. Nunca otros.`;
 
+/** Las ideas de valor que puede recibir el redactor en este turno: solo las que el objetivo permite y que todavía no se usaron. */
+export function ideasParaElTurno(a: { cfg: ConfigCliente; estado: EstadoV2; objetivos: Objetivo[] }): { texto: string; estado: string }[] {
+  const ideas = (a.estado.oferta ? a.cfg.ofertas[a.estado.oferta]?.ideas_de_valor : undefined) ?? [];
+  const sinOferta = a.objetivos.every(o => OBJETIVOS_SIN_OFERTA.includes(o.tipo));
+  const permite = (sinOferta && !a.objetivos.some(o => o.tipo === 'no_califica')) || a.objetivos.some(o => o.tipo === 'reorganizar_y_ofrecer');
+  if (!permite) return [];
+  const usadas = new Set(a.estado.ideas_usadas ?? []);
+  return ideas.filter(x => !usadas.has(x.texto));
+}
+
+/** Qué ideas de valor aparecen en el mensaje (con sus palabras: alcanza con que estén la mitad de las palabras importantes de la idea). */
+export function ideasUsadasEn(texto: string, ideas: { texto: string }[]): string[] {
+  const t = ` ${limpiarParaComparar(texto)} `;
+  return ideas.filter(i => {
+    const palabras = [...new Set(limpiarParaComparar(i.texto).split(' ').filter(w => w.length >= 5))];
+    return palabras.length > 0 && palabras.filter(w => t.includes(` ${w}`)).length / palabras.length >= 0.5;
+  }).map(i => i.texto);
+}
+
 export function armarSistemaRedactor(a: { cfg: ConfigCliente; objetivos: Objetivo[]; estado: EstadoV2; datos: string[]; primerMensaje: boolean }): string {
   const sabe = loQueYaSabe(a.estado, a.cfg);
   const sinOferta = a.objetivos.every(o => OBJETIVOS_SIN_OFERTA.includes(o.tipo));
   const conHorarios = a.objetivos.some(o => o.tipo === 'ofrecer_horarios' || o.tipo === 'preguntar_cual');
   const datos = sinOferta ? [] : a.datos;
-  const ideas = (a.estado.oferta ? a.cfg.ofertas[a.estado.oferta]?.ideas_de_valor : undefined) ?? [];
-  const conIdeas = ideas.length > 0 && ((sinOferta && !a.objetivos.some(o => o.tipo === 'no_califica')) || a.objetivos.some(o => o.tipo === 'reorganizar_y_ofrecer'));
+  const ideas = ideasParaElTurno(a);
+  const conIdeas = ideas.length > 0;
   return [
     PROMPT_REDACTOR,
     conHorarios ? `\n${PROMPT_REDACTOR_HORARIOS}` : '',
@@ -2550,6 +2571,13 @@ export function temaMalNombrado(borrador: string, etiqueta: string): string | nu
   if (!oficial.size) return null;
   for (const m of String(borrador).matchAll(REGEX)) if (!oficial.has(m[1])) return m[0].trim();
   return null;
+}
+
+/** La primera palabra del mensaje, sin el saludo ("Hola, soy Karina…") ni el "Entonces,": con ella se detecta que dos mensajes seguidos arrancan igual. */
+export function primeraPalabraDeMensaje(txt: string): string {
+  const oraciones = String(txt ?? '').split(/(?<=[.!?])\s+/).map(x => x.trim()).filter(Boolean);
+  const util = oraciones.find(o => !/^hola\b/i.test(o)) ?? '';
+  return limpiarParaComparar(util.replace(/^entonces,?\s*(?:si le entend[ií] bien:?\s*)?/i, '')).split(' ')[0] ?? '';
 }
 
 /** Si el borrador abre igual que alguno de los últimos 2 mensajes del agente, devuelve la apertura repetida. */
@@ -2796,6 +2824,8 @@ async function turnoV2(a: {
     const temaMal = texto && estado.oferta ? temaMalNombrado(texto, cfg.ofertas[estado.oferta]?.etiqueta ?? '') : null;
     if (temaMal) problemas.push(`Escribiste «${temaMal}»: nombrá el tema solo como «${cfg.ofertas[estado.oferta!].etiqueta}», nunca como lo escribió la persona.`);
     if (texto && salida.objetivos.some(o => OBJETIVOS_CON_PREGUNTA.includes(o.tipo)) && !texto.includes('?')) problemas.push('Terminá con UNA pregunta escrita con signos de interrogación (¿…?): la persona tiene que ver claramente qué se le pregunta.');
+    const primera = texto ? primeraPalabraDeMensaje(texto) : '';
+    if (primera && ultimoAgente && primera === primeraPalabraDeMensaje(ultimoAgente)) problemas.push('Variá cómo empezás: integrá lo que dijo la persona dentro de la frase.');
     const muletilla = texto ? muletillaRepetida(texto, anterioresAgente) : null;
     if (muletilla) problemas.push(`Empezaste igual que uno de tus últimos mensajes («${muletilla}…»): variá el reflejo o integralo dentro de la frase, con otra estructura.`);
     let corregir = problemas;
@@ -2823,6 +2853,13 @@ async function turnoV2(a: {
     } else correcciones++;
     mensajes.push({ role: 'assistant', content: texto });
     mensajes.push({ role: 'user', content: `[SISTEMA ERP: Corregí tu mensaje antes de enviarlo. ${corregir.join(' ')} Mantené el objetivo, un tono cálido y siempre de usted.]` });
+  }
+  // ideas de valor: las que ese mensaje usó no se vuelven a pasar
+  const ideasOfrecidas = ideasParaElTurno({ cfg, estado, objetivos: salida.objetivos });
+  if (ideasOfrecidas.length && !seguro) {
+    const usadas = ideasUsadasEn(texto, ideasOfrecidas);
+    if (usadas.length) estado.ideas_usadas = [...new Set([...(estado.ideas_usadas ?? []), ...usadas])];
+    traza.ideas_usadas_en_este_mensaje = usadas;
   }
   traza.verificador = verificaciones;
   traza.mensaje_seguro = seguro;
