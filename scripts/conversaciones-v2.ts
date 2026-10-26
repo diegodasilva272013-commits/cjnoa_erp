@@ -25,6 +25,7 @@ const CONVERSACIONES: Record<string, { titulo: string; mensajes: string[] }> = {
   },
   C2: { titulo: 'No califica', mensajes: ['No soy docente, era administrativa, me jubilé por ANSES y me descuentan ganancias'] },
   C3: { titulo: 'Palabra de compra', mensajes: ['Me preocupa que me sigan sacando plata todos los meses', 'Soy maestra jubilada de ANSES'] },
+  X: { titulo: 'Conversación a medida (V2_MENSAJES, separada por |)', mensajes: (process.env.V2_MENSAJES ?? '').split('|').map(x => x.trim()).filter(Boolean) },
   C4: { titulo: 'Mensaje largo', mensajes: ['hola mire yo fui maestra 30 años en una escuela de palpala me jubile por anses y ahora me retienen del haber todos los meses y no se que hacer'] },
 };
 
@@ -72,7 +73,8 @@ async function main() {
       log(`${id} T${i + 1} AGENTE : ${agente.replace(/\n/g, ' ⏎ ')}`);
       log(`${id} T${i + 1} OBJETIVO: ${(v2.objetivos ?? []).map((o: any) => `${o.tipo}${typeof o.detalle === 'string' ? ':' + o.detalle : ''}`).join(' + ')} | etapa=${e.etapa}`);
       log(`${id} T${i + 1} ESTADO : oferta=${e.oferta} filtros=${JSON.stringify(Object.fromEntries(Object.entries(e.filtros).map(([k, v]) => [k, v.valor])))} casilleros=${JSON.stringify(Object.fromEntries(Object.entries(e.casilleros).filter(([, v]) => v).map(([k, v]) => [k, (v as any).texto])))} emociones=${JSON.stringify(e.emociones_trabajadas)}`);
-      log(`${id} T${i + 1} EXTRACTOR: ${JSON.stringify(v2.extractor)}${v2.extractor_crudo && v2.extractor?.fallo ? ' | CRUDO: ' + JSON.stringify(v2.extractor_crudo).slice(0, 400) : ''}`);
+      log(`${id} T${i + 1} EXTRACTOR: ${JSON.stringify(v2.extractor)}`);
+      log(`${id} T${i + 1} EXTRACTOR CRUDO (antes de validar): ${JSON.stringify(v2.extractor_crudo ?? null)}`);
       log(`${id} T${i + 1} HERRAMIENTAS(código): ${(r.body.trazas as any[]).map(h => `${h.nombre}(${JSON.stringify(h.input).slice(0, 120)})→${JSON.stringify(h.resultado).slice(0, 220)}`).join(' ; ') || '—'}`);
       log(`${id} T${i + 1} REDACTOR: intentos=${(v2.redactor ?? []).length}${(v2.redactor ?? []).length > 1 ? ' | primero: ' + JSON.stringify((v2.redactor as any[])[0]).slice(0, 300) : ''}`);
       log(`${id} T${i + 1} VERIFICADOR: rechazos=${((v2.verificador ?? []) as any[]).filter(x => !x.ok).length} ${JSON.stringify(v2.verificador ?? [])}${v2.mensaje_seguro ? ' | MENSAJE SEGURO del director' : ''}`);
