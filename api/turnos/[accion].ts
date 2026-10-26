@@ -2391,6 +2391,24 @@ Categorías:
 No inventes violaciones: si no estás seguro, no la listes.`;
 
 export const REGLAS_VERIFICADOR = ['promesa', 'consulta_o_abogado', 'horarios', 'precios', 'agendado', 'formula_empatia', 'repite_mensaje_anterior', 'estructura_repetida'] as const;
+/**
+ * Las dos primeras palabras de la oración inicial de un mensaje, sin el saludo ni el "Entonces, si le entendí bien:".
+ * Sirve para detectar la muletilla ("Usted me cuenta…" / "Usted me dice…"): dos mensajes seguidos que arrancan con la misma estructura.
+ */
+export function aperturaDeMensaje(txt: string): string {
+  const oraciones = String(txt ?? '').split(/(?<=[.!?])\s+/).map(x => x.trim()).filter(Boolean);
+  const util = oraciones.find(o => !/^hola\b/i.test(o)) ?? '';
+  const sinEntonces = util.replace(/^entonces,?\s*(?:si le entend[ií] bien:?\s*)?/i, '');
+  return limpiarParaComparar(sinEntonces).split(' ').slice(0, 2).join(' ');
+}
+
+/** Si el borrador abre igual que alguno de los últimos 2 mensajes del agente, devuelve la apertura repetida. */
+export function muletillaRepetida(borrador: string, anteriores: string[]): string | null {
+  const a = aperturaDeMensaje(borrador);
+  if (a.split(' ').length < 2) return null;
+  return anteriores.slice(-2).some(x => aperturaDeMensaje(x) === a) ? a : null;
+}
+
 export const esquemaVerificador = {
   type: 'object', additionalProperties: false, required: ['violaciones'],
   properties: { violaciones: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['regla', 'frase'], properties: { regla: { type: 'string', enum: [...REGLAS_VERIFICADOR] }, frase: { type: 'string' } } } } },
@@ -2614,6 +2632,8 @@ async function turnoV2(a: {
     if (salida.objetivos.some(o => o.tipo === 'reorganizar_y_ofrecer') && !/entonces,?\s+si le entend[ií] bien/i.test(texto)) problemas.push('Arrancá (después del saludo, si corresponde) con «Entonces, si le entendí bien: …» devolviendo su situación ordenada en una frase, y recién después ofrecé la consulta.');
     if (texto && !salida.agendoOk && afirmaTurnoAgendado(texto)) problemas.push('Todavía NO se agendó ningún turno: no digas que quedó agendado ni que se ven.');
     if (salida.objetivos.some(o => o.tipo === 'cerrar_con_respeto') && texto.includes('?')) problemas.push('Cerrá sin ninguna pregunta: agradecé y dejá la puerta abierta.');
+    const muletilla = texto ? muletillaRepetida(texto, anterioresAgente) : null;
+    if (muletilla) problemas.push(`Empezaste igual que uno de tus últimos mensajes («${muletilla}…»): variá el reflejo o integralo dentro de la frase, con otra estructura.`);
     let corregir = problemas;
     if (!problemas.length || correcciones >= 3) {
       // Las reglas de estilo ya están; ahora lo revisa el verificador (un segundo modelo).

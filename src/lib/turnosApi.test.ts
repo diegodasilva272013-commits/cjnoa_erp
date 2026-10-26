@@ -3,7 +3,7 @@ import { createHmac } from 'node:crypto';
 import handler, {
   clasificarRecibo, TIPOS_CONSULTA, promesaSinCumplir, separarDatosPago, mensajeApurado,
   aMin, limpiarSecreto, camposDeLead, etapaAutomatica, fusionarLead, registrarMensaje, upsertLead, firmaMetaValida, firmaKapsoValida, extraerMensajesKapso, extraerMensajes, aMensajesLLM, procesarMensaje, filaDePersona, esConversacionDeNoa, clasificarMensajeCliente, categoriaMensajeAgente, personaMetrica, agregarMetricasAgente, calcularMetricasAgente, evaluarOptimizaciones, validarOptimizaciones, ejecutarOptimizacion, type MetricasAgente, motivoDeExclusion, resumenEnPalabras, ejecutarAnalista, revisarAnalisisAutomatico, codigosDeEstilo, etapaEmbudo, analizarConversacion, calcularMetricas, mascararDatos, textoParaEtiquetar, validarEtiquetas, promptDelAgente, limpiarCachePrompt, accionAgentes, problemasDeEstilo, textoNoLegible, firmaMercadoPagoValida, importeTexto, importeLindo, asignarImporteUnico, procesarPagoMP, montoMercadoPago, enmascarar, neutralizarMarcas, salidaInsegura, superaLimite, urlMediaSegura, resumenTurnosVigentes, HERRAMIENTAS_LLM, cuerpoNotaDeVoz, notaDeImagen, montoValidadoDe, quitarEtiquetas, aMensajesOpenAI, deOpenAI, ejecutarHerramienta, PROMPT_AGENTE, type Deps, telefonoClave, historialDe, inferirNombre, normalizarFecha, normalizarHora, bloquesDelDia, huecosLibres, localDe, resolverProfesional, diaSemanaISO, fechaValida,
-  registrarSinResponder, registrarUso, fijarDbUso, costoUsd, esDudaOObjecion, esRechazoFirme, horasEnTexto, quitarFrasesHechas, REGEX_CLICHE, condicionesArt9Confirmadas, campanaDelTexto, probarAgentePaso, chatAgentePaso, preguntasAfirmadas, evidenciaCompleta, REGEX_PROMESAS, validarExtraccion, aplicarExtraccion, elegirDosHorarios, armarSistemaRedactor, permiteDeObjetivos, mensajeSeguro, PROMPT_VERIFICADOR, esquemaVerificador, evaluarVerificacion, esquemaExtractor, PROMPT_REDACTOR, PROMPT_EXTRACTOR, CONFIG_CLIENTE, leerEstadoV2, estadoV2Vacio, extraccionVacia, funcionesV2, textoFaltaRegistrar, AVISO_DERIVACION, horariosOfrecidosEn, ofrecidosVigentes, textoOfrecidos, horasSinDia, ofertaConDia, condicionDeAgenda, registrarMensajeHumano, extraerHumanosKapso, responderDesdeErp, resumenCampana, analizarCampana, analisisSoloConCifrasReales,
+  registrarSinResponder, registrarUso, fijarDbUso, costoUsd, esDudaOObjecion, esRechazoFirme, horasEnTexto, quitarFrasesHechas, REGEX_CLICHE, condicionesArt9Confirmadas, campanaDelTexto, probarAgentePaso, chatAgentePaso, preguntasAfirmadas, evidenciaCompleta, REGEX_PROMESAS, validarExtraccion, aplicarExtraccion, elegirDosHorarios, armarSistemaRedactor, permiteDeObjetivos, mensajeSeguro, PROMPT_VERIFICADOR, esquemaVerificador, evaluarVerificacion, aperturaDeMensaje, muletillaRepetida, esquemaExtractor, PROMPT_REDACTOR, PROMPT_EXTRACTOR, CONFIG_CLIENTE, leerEstadoV2, estadoV2Vacio, extraccionVacia, funcionesV2, textoFaltaRegistrar, AVISO_DERIVACION, horariosOfrecidosEn, ofrecidosVigentes, textoOfrecidos, horasSinDia, ofertaConDia, condicionDeAgenda, registrarMensajeHumano, extraerHumanosKapso, responderDesdeErp, resumenCampana, analizarCampana, analisisSoloConCifrasReales,
   type Bloque,
 } from '../../api/turnos/[accion]';
 
@@ -3914,7 +3914,7 @@ describe('agente v2 · director + extractor + redactor (todo con modelo simulado
     busca('horarios', /\d{1,2}:\d{2}|\b(?:lunes|martes|mañana)\b/i);
     busca('agendado', /queda reservado|agendad\w+/i);
     busca('formula_empatia', /es natural que|me preocupa que|es muy frustrante/i);
-    if (u.mensaje_anterior_del_agente && u.mensaje_anterior_del_agente.includes(b.slice(0, 45))) viol.push({ regla: 'repite_mensaje_anterior', frase: b.slice(0, 45) });
+    if (u.mensaje_anterior_del_agente && u.mensaje_anterior_del_agente.toLowerCase().includes(b.slice(8, 50).toLowerCase())) viol.push({ regla: 'repite_mensaje_anterior', frase: b.slice(8, 50) });
     return { violaciones: viol };
   };
   const BUENO = 'Cuénteme con sus palabras, ¿qué le gustaría lograr con esto?';
@@ -3944,7 +3944,7 @@ describe('agente v2 · director + extractor + redactor (todo con modelo simulado
     const c = await conversar([
       { persona: FRASE1, extractor: () => art9 },
       { persona: 'No sé bien', extractor: () => raw() },
-    ], () => (n++ < 2 ? anterior : 'Si lo piensa con calma, ¿qué sería lo más importante para usted?'), undefined, verificadorSimulado(llamadas));
+    ], () => { const k = n++; return k === 0 ? anterior : k === 1 ? 'Perdón: cuénteme con sus palabras, ¿qué le gustaría lograr con esto?' : 'Si lo piensa con calma, ¿qué sería lo más importante para usted?'; }, undefined, verificadorSimulado(llamadas));
     expect(c.cuerpos[1].v2.verificador[0].ok).toBe(false);
     expect(c.cuerpos[1].v2.verificador[0].motivo).toContain('repite lo que ya dijo');
     expect(c.cuerpos[1].respuestas[0]).toContain('lo más importante');
@@ -4036,7 +4036,29 @@ describe('agente v2 · director + extractor + redactor (todo con modelo simulado
     async (_s, u) => { const o = JSON.parse(u); recibidos.push(o); return o.borrador.startsWith('Usted me cuenta que') && o.mensajes_anteriores_del_agente.length ? { violaciones: [{ regla: 'estructura_repetida', frase: 'Usted me cuenta que' }] } : { violaciones: [] }; });
     expect(recibidos[recibidos.length - 1].mensajes_anteriores_del_agente[0]).toContain('Usted me cuenta que es docente jubilada');
     expect(c.cuerpos[1].respuestas[0]).toBe('Quiere frenar el descuento, entonces. ¿Desde cuándo lo notó?');
-    expect(c.cuerpos[1].v2.verificador.some((v: any) => !v.ok && /misma estructura/.test(v.motivo))).toBe(true);
+  });
+  // ------------------------------------------------------------------ CIERRE: muletilla en el código
+  it('cierre · muletilla: "Usted me cuenta" / "Usted me dice" abren igual (sin saludo ni "Entonces"); estructuras distintas no', () => {
+    expect(aperturaDeMensaje('Hola, soy Karina, del Centro Jurídico NOA. Usted me cuenta que es docente.')).toBe('usted me');
+    expect(aperturaDeMensaje('Usted me dice que quiere frenar el descuento.')).toBe('usted me');
+    expect(aperturaDeMensaje('Entonces, si le entendí bien: usted nunca reclamó.')).toBe('usted nunca');
+    expect(muletillaRepetida('Usted me dice que quiere frenar el descuento.', ['Hola, soy Karina. Usted me cuenta que es docente jubilada.'])).toBe('usted me');
+    expect(muletillaRepetida('Quiere frenar el descuento, entonces. ¿Desde cuándo?', ['Hola, soy Karina. Usted me cuenta que es docente jubilada.'])).toBeNull();
+    // solo cuentan los últimos 2 mensajes del agente
+    expect(muletillaRepetida('Usted me dice que sí.', ['Usted me cuenta que a.', 'Perfecto, sigamos.', 'Muy bien, vamos.'])).toBeNull();
+  });
+  it('cierre · muletilla en el flujo: el segundo mensaje que abre con "Usted me dice" se rechaza y se reescribe (sin modelo verificador)', async () => {
+    let n = 0;
+    const c = await conversar([
+      { persona: FRASE1, extractor: () => art9 },
+      { persona: P_OBJ, extractor: () => raw({ casilleros: [cas('objetivo', 'quiere que dejen de descontarle', P_OBJ)] }) },
+    ], (_sis, mensajes) => {
+      n++;
+      if (n === 1) return 'Hola, soy Karina. Usted me cuenta que es docente jubilada. ¿Qué le gustaría lograr con esto?';
+      return mensajes.some((m: any) => String(m.content).startsWith('[SISTEMA ERP: Corregí')) ? 'Quiere frenar el descuento, entonces. ¿Desde cuándo lo notó?' : 'Usted me dice que quiere frenar el descuento. ¿Desde cuándo lo notó?';
+    });
+    expect(c.cuerpos[1].v2.redactor).toHaveLength(2);
+    expect(c.cuerpos[1].respuestas[0]).toBe('Quiere frenar el descuento, entonces. ¿Desde cuándo lo notó?');
   });
   it('ronda 4 · mensajeSeguro: una versión por objetivo, y null si no hay', () => {
     const e = { ...estadoV2Vacio(), oferta: 'art9_ganancias', casilleros: { ...estadoV2Vacio().casilleros, objetivo: { texto: 'quiere que dejen de descontarle', evidencia: 'Quiero que dejen de descontarme' } as any } };
