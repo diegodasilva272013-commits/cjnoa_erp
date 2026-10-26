@@ -3958,7 +3958,8 @@ describe('agente v2 · director + extractor + redactor (todo con modelo simulado
     expect(c.cuerpos[0].v2.mensaje_seguro).toBe(true);
     const r = c.cuerpos[0].respuestas[0];
     expect(r).toContain('Hola, soy Karina');
-    expect(r).toContain('Gracias por contármelo');
+    expect(r).not.toMatch(/[«»"]/); // sin citar entre comillas lo que dijo la persona
+    expect(r).toMatch(/^Hola, soy Karina, del Centro Jurídico NOA\. \S/);
     expect(r).toContain('¿Qué le gustaría lograr con esto?');
     expect(r).not.toMatch(/soluci[oó]n/);
   });
@@ -3995,12 +3996,56 @@ describe('agente v2 · director + extractor + redactor (todo con modelo simulado
     expect(sis).not.toContain('IDEAS DE VALOR APROBADAS (elegí');
     expect(PROMPT_REDACTOR).toContain('Usted me cuenta que');
   });
+  // ------------------------------------------------------------------ RONDA FINAL
+  it('final · config: descuento_art9_ganancias cuenta cualquier descuento o "me sacan plata" como SI, sin lista de palabras obligatorias', () => {
+    const f = CONFIG_CLIENTE.ofertas.art9_ganancias.filtros.find(x => x.campo === 'descuento_art9_ganancias')!;
+    expect(f.ayuda).toBe("Cualquier descuento, retención o 'me sacan plata' del haber cuenta como SI. La persona no tiene por qué saber el nombre del descuento; lo revisa el abogado.");
+    expect(JSON.stringify(f)).not.toMatch(/evidencia_debe|regex/i);
+  });
+  it('final · "me sigan sacando plata" alcanza para el filtro del descuento (la evidencia es la frase de la persona)', () => {
+    const P = 'Me preocupa que me sigan sacando plata todos los meses';
+    const v = validarExtraccion(raw({ filtros: [fil('descuento_art9_ganancias', 'si', P)] }), { cfg: CONFIG_CLIENTE, personaTextos: [P], ofrecidos: [] });
+    expect(v.filtros[0]).toMatchObject({ campo: 'descuento_art9_ganancias', valor: 'si' });
+  });
+  it('final · verificador: una "fórmula" cuya frase está textual en un mensaje de la persona no es una violación; si no está, sí', () => {
+    const permite = permiteDeObjetivos([{ tipo: 'profundizar', texto: '' }]);
+    const borrador = 'Usted dice que me preocupa que me sigan sacando plata. ¿Desde cuándo?';
+    const crudo = { violaciones: [{ regla: 'formula_empatia', frase: 'me preocupa que me sigan sacando plata' }] };
+    expect(evaluarVerificacion(crudo, { borrador, permite, anterior: '', personaTextos: ['Me preocupa que me sigan sacando plata todos los meses'] }).ok).toBe(true);
+    expect(evaluarVerificacion(crudo, { borrador, permite, anterior: '', personaTextos: ['Hola'] }).ok).toBe(false);
+  });
+  it('final · muletilla: empezar con la misma estructura que un mensaje anterior ("Usted me cuenta que") se rechaza; una estructura nueva no', () => {
+    const permite = permiteDeObjetivos([{ tipo: 'descubrir', texto: '' }]);
+    const anteriores = ['Hola, soy Karina. Usted me cuenta que es docente jubilada. ¿Qué le gustaría lograr?'];
+    const borrador = 'Usted me cuenta que nunca reclamó. ¿Desde cuándo le descuentan?';
+    const r = evaluarVerificacion({ violaciones: [{ regla: 'estructura_repetida', frase: 'Usted me cuenta que' }] }, { borrador, permite, anterior: anteriores.join('\n'), anteriores });
+    expect(r.ok).toBe(false);
+    expect(r.motivo).toContain('misma estructura');
+    // sin mensajes anteriores con esa estructura, la cita se descarta
+    expect(evaluarVerificacion({ violaciones: [{ regla: 'estructura_repetida', frase: 'Usted me cuenta que' }] }, { borrador, permite, anterior: '', anteriores: ['Hola, soy Karina. ¿Qué le pasa?'] }).ok).toBe(true);
+    expect(PROMPT_VERIFICADOR).toContain('estructura_repetida');
+    expect(PROMPT_VERIFICADOR).toContain('Usted me cuenta que');
+  });
+  it('final · muletilla en el flujo: el verificador recibe los mensajes anteriores del agente y el rechazo reescribe', async () => {
+    const recibidos: any[] = [];
+    let n = 0;
+    const c = await conversar([
+      { persona: FRASE1, extractor: () => art9 },
+      { persona: P_OBJ, extractor: () => raw({ casilleros: [cas('objetivo', 'quiere que dejen de descontarle', P_OBJ)] }) },
+    ], (_sis, _m) => (n++ === 0 ? 'Usted me cuenta que es docente jubilada. ¿Qué le gustaría lograr con esto?' : n === 2 ? 'Usted me cuenta que quiere frenar el descuento. ¿Desde cuándo lo notó?' : 'Quiere frenar el descuento, entonces. ¿Desde cuándo lo notó?'), undefined,
+    async (_s, u) => { const o = JSON.parse(u); recibidos.push(o); return o.borrador.startsWith('Usted me cuenta que') && o.mensajes_anteriores_del_agente.length ? { violaciones: [{ regla: 'estructura_repetida', frase: 'Usted me cuenta que' }] } : { violaciones: [] }; });
+    expect(recibidos.at(-1).mensajes_anteriores_del_agente[0]).toContain('Usted me cuenta que es docente jubilada');
+    expect(c.cuerpos[1].respuestas[0]).toBe('Quiere frenar el descuento, entonces. ¿Desde cuándo lo notó?');
+    expect(c.cuerpos[1].v2.verificador.some((v: any) => !v.ok && /misma estructura/.test(v.motivo))).toBe(true);
+  });
   it('ronda 4 · mensajeSeguro: una versión por objetivo, y null si no hay', () => {
-    const e = { ...estadoV2Vacio(), oferta: 'art9_ganancias', casilleros: { ...estadoV2Vacio().casilleros, objetivo: { texto: 'x', evidencia: 'Quiero que dejen de descontarme' } as any } };
+    const e = { ...estadoV2Vacio(), oferta: 'art9_ganancias', casilleros: { ...estadoV2Vacio().casilleros, objetivo: { texto: 'quiere que dejen de descontarle', evidencia: 'Quiero que dejen de descontarme' } as any } };
     const b = { estado: e, cfg: CONFIG_CLIENTE, intencion: 'otro', textoCliente: 'Me descuentan ganancias del haber', primerMensaje: false };
     expect(mensajeSeguro({ ...b, objetivos: [{ tipo: 'obtener_filtro', detalle: 'es_docente', texto: '' }] })).toContain('¿Usted es docente?');
     expect(mensajeSeguro({ ...b, objetivos: [{ tipo: 'profundizar', texto: '' }] })).toContain('¿Me cuenta un poco más sobre eso?');
-    expect(mensajeSeguro({ ...b, objetivos: [{ tipo: 'reorganizar_y_ofrecer', texto: '' }] })).toMatch(/^Entonces, si le entendí bien: «Quiero que dejen de descontarme»/);
+    expect(mensajeSeguro({ ...b, objetivos: [{ tipo: 'reorganizar_y_ofrecer', texto: '' }] })).toMatch(/^Entonces, si le entendí bien: quiere que dejen de descontarle\. /);
+    expect(mensajeSeguro({ ...b, dicho: ['le descuentan ganancias del haber.'], objetivos: [{ tipo: 'profundizar', texto: '' }] })).toBe('Le descuentan ganancias del haber. ¿Me cuenta un poco más sobre eso?');
+    expect(mensajeSeguro({ ...b, dicho: ['le descuentan ganancias'], objetivos: [{ tipo: 'descubrir', detalle: 'objetivo', texto: '' }] })).not.toMatch(/[«»]/);
     expect(mensajeSeguro({ ...b, estado: { ...e, horario_pendiente: { fecha: '2026-10-27', hora: '09:00' } }, objetivos: [{ tipo: 'obtener_dato_agenda', detalle: 'nombre', texto: '' }] })).toContain('para el turno del martes 27 de octubre a las 09:00');
     expect(mensajeSeguro({ ...b, objetivos: [{ tipo: 'derivar', texto: '' }] })).toBeNull();
   });

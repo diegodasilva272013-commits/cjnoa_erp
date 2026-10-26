@@ -41,7 +41,7 @@ export const CONFIG_CJNOA = {
           "campo": "descuento_art9_ganancias",
           "tipo": "si_no",
           "descripcion": "si le descuentan Artículo 9 y/o Ganancias",
-          "ayuda": "\"Me descuentan ganancias\", \"me retienen del haber\", \"me sacan del haber por ganancias o por el artículo 9\" => si. Decir solo \"me sacan plata\" sin decir qué es (ganancias, artículo 9 o una retención del haber) NO alcanza: no lo incluyas.",
+          "ayuda": "Cualquier descuento, retención o 'me sacan plata' del haber cuenta como SI. La persona no tiene por qué saber el nombre del descuento; lo revisa el abogado.",
           "pregunta": "¿Le están descontando ganancias en el recibo de su haber?"
         }
       ],

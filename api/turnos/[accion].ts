@@ -1978,7 +1978,7 @@ Informá lo que la persona dijo en su ÚLTIMO mensaje. Lo que ya figura en "esta
 Reglas:
 - oferta_detectada: la oferta (de la lista "ofertas") por la que consulta, o null si todavía no se sabe.
 - filtros: datos de los campos (de la oferta, de datos_para_agendar y los que pide el estado). Cada campo trae una "ayuda": seguila. "si_no" => valor "si" o "no"; "no" SOLO si lo niega o dice algo incompatible, nunca por duda. "numero" => solo el número. "opcion" => uno de los valores permitidos.
-- casilleros (cada uno con su descripción en "casilleros_definidos"): situacion, objetivo, brecha, historial, compromiso, con "texto" = lo que dijo, resumido en pocas palabras, sin agregar nada. "objetivo" es lo que la persona dice que QUIERE lograr ("quiero…", "necesito…", "busco…"): contar su situación o que le descuentan no es un objetivo; si no lo dijo, no lo incluyas. "brecha" es por qué no lo resolvió hasta ahora (no sabía, no se animó, no tuvo tiempo, no pudo). "historial" es qué intentó antes. Un mismo fragmento no sirve de evidencia para dos casilleros.
+- casilleros (cada uno con su descripción en "casilleros_definidos"): situacion, objetivo, brecha, historial, compromiso, con "texto" = lo que dijo, resumido en pocas palabras, sin agregar nada y en tercera persona de cortesía ("le descuentan ganancias", "no sabía que se podía reclamar"), nunca en primera persona. "objetivo" es lo que la persona dice que QUIERE lograr ("quiero…", "necesito…", "busco…"): contar su situación o que le descuentan no es un objetivo; si no lo dijo, no lo incluyas. "brecha" es por qué no lo resolvió hasta ahora (no sabía, no se animó, no tuvo tiempo, no pudo). "historial" es qué intentó antes. Un mismo fragmento no sirve de evidencia para dos casilleros.
 - evidencia (en filtros y casilleros): una frase COPIADA TAL CUAL de un mensaje de la persona que respalde el dato. Si no podés copiarla, no incluyas el dato.
 - emocion: SOLO si el último mensaje de la persona expresa preocupación, frustración, cansancio o necesidad (me preocupa, no puedo, intenté, necesito, quiero que…, me cuesta, estoy cansada, me frustra, es injusto…); "frase" = esa oración copiada tal cual. Aceptar, decir sí, elegir o saludar NO es una emoción: null.
 - intencion del ÚLTIMO mensaje: pregunta (la persona hace una pregunta), objecion (duda o resistencia a una propuesta del agente: "lo voy a pensar", "es caro", "no tengo tiempo"; una queja sobre su situación, como "es injusto", NO es una objeción), acepta (quiere avanzar), elige_horario (elige uno de los horarios ofrecidos), rechaza_horarios (no puede esos días u horarios o pide otro), rechazo_firme (dice con claridad que no le interesa: "no me interesa", "no quiero", "dejá de escribirme"), ambiguo (responde "sí", "dale", "cualquiera" sin precisar a algo que ofrecía varias opciones), otro.
@@ -2387,9 +2387,10 @@ Categorías:
 - agendado: dice o da a entender que un turno está agendado, reservado o confirmado ("queda reservado", "quedó agendada", "ya está").
 - formula_empatia: usa una fórmula de empatía en vez de las palabras de la persona ("Es natural que", "Es comprensible que", "Me preocupa que", "Es muy frustrante", "Es preocupante", "Entiendo que", "Comprendo que"), o el agente habla de sus propias emociones.
 - repite_mensaje_anterior: repite una frase o una idea que ya figura en el MENSAJE ANTERIOR (copiá la frase del borrador).
+- estructura_repetida: empieza una oración con la misma estructura con que ya empezaron mensajes anteriores del agente ("Usted me cuenta que", "Usted me dice que", "Veo que", "Entonces, si le entendí bien" o equivalentes). Copiá esa estructura inicial tal cual figura en el borrador. El saludo inicial no cuenta.
 No inventes violaciones: si no estás seguro, no la listes.`;
 
-export const REGLAS_VERIFICADOR = ['promesa', 'consulta_o_abogado', 'horarios', 'precios', 'agendado', 'formula_empatia', 'repite_mensaje_anterior'] as const;
+export const REGLAS_VERIFICADOR = ['promesa', 'consulta_o_abogado', 'horarios', 'precios', 'agendado', 'formula_empatia', 'repite_mensaje_anterior', 'estructura_repetida'] as const;
 export const esquemaVerificador = {
   type: 'object', additionalProperties: false, required: ['violaciones'],
   properties: { violaciones: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['regla', 'frase'], properties: { regla: { type: 'string', enum: [...REGLAS_VERIFICADOR] }, frase: { type: 'string' } } } } },
@@ -2402,6 +2403,7 @@ const INSTRUCCION_REGLA: Record<string, string> = {
   agendado: 'da a entender que hay un turno agendado o reservado y todavía no lo está',
   formula_empatia: 'usa una fórmula o una valoración propia: no expreses emociones tuyas; reformulá esa parte como «Usted me cuenta que…» con las palabras de la persona',
   repite_mensaje_anterior: 'repite lo que ya dijo en su mensaje anterior',
+  estructura_repetida: 'empieza con la misma estructura que mensajes anteriores: variá el reflejo o integralo en la frase',
   varias_preguntas: 'tiene más de una pregunta',
 };
 
@@ -2409,7 +2411,7 @@ const INSTRUCCION_REGLA: Record<string, string> = {
  * Convierte lo que detectó el modelo en { ok, motivo }. El modelo solo señala violaciones citando la frase; el código decide:
  * ignora las citas que no están en el borrador (alucinadas) y las categorías que el objetivo permite.
  */
-export function evaluarVerificacion(crudo: any, a: { borrador: string; permite: ReturnType<typeof permiteDeObjetivos>; anterior: string }): { ok: boolean; motivo: string; violaciones: { regla: string; frase: string }[] } {
+export function evaluarVerificacion(crudo: any, a: { borrador: string; permite: ReturnType<typeof permiteDeObjetivos>; anterior: string; personaTextos?: string[]; anteriores?: string[] }): { ok: boolean; motivo: string; violaciones: { regla: string; frase: string }[] } {
   if (!Array.isArray(crudo?.violaciones)) throw new Error('respuesta del verificador inválida');
   const en = (texto: string, frase: string) => { const f = limpiarParaComparar(frase); return f.length >= 4 && limpiarParaComparar(texto).includes(f); };
   const validas: { regla: string; frase: string }[] = [];
@@ -2421,6 +2423,10 @@ export function evaluarVerificacion(crudo: any, a: { borrador: string; permite: 
     if (regla === 'precios' && a.permite.precios) continue;
     if (regla === 'agendado' && a.permite.agendado) continue;
     // repetir los horarios o el nombre del turno es necesario; lo que cuenta es repetir una frase propia
+    // si la frase está textualmente en un mensaje de la persona, no es una fórmula del agente: son sus palabras
+    if (regla === 'formula_empatia' && (a.personaTextos ?? []).some(x => en(x, frase))) continue;
+    // la estructura tiene que ser de verdad una que ya usó (sus primeras tres palabras figuran en un mensaje anterior del agente)
+    if (regla === 'estructura_repetida') { const ini = limpiarParaComparar(frase).split(' ').slice(0, 3).join(' '); if (!(ini.split(' ').length >= 2 && (a.anteriores ?? []).some(x => limpiarParaComparar(x).includes(ini)))) continue; }
     if (regla === 'repite_mensaje_anterior' && !(a.anterior && en(a.anterior, frase) && frase.split(/\s+/).length >= 5 && !/\d{1,2}[:.]\d{2}/.test(frase))) continue;
     validas.push({ regla, frase: frase.slice(0, 200) });
   }
@@ -2443,13 +2449,14 @@ export function permiteDeObjetivos(objetivos: Objetivo[]) {
 }
 
 /** Mensaje seguro armado por el director (sin modelo): reflejo breve de lo que dijo la persona + la pregunta del objetivo. null si el objetivo no tiene versión segura. */
-export function mensajeSeguro(a: { objetivos: Objetivo[]; estado: EstadoV2; cfg: ConfigCliente; intencion: string; textoCliente: string; primerMensaje: boolean }): string | null {
+export function mensajeSeguro(a: { objetivos: Objetivo[]; estado: EstadoV2; cfg: ConfigCliente; intencion: string; textoCliente: string; primerMensaje: boolean; dicho?: string[] }): string | null {
   const o = a.objetivos[0];
   if (!o) return null;
   const oferta = a.estado.oferta ? a.cfg.ofertas[a.estado.oferta] : null;
-  const dicho = a.textoCliente.trim().replace(/\s+/g, ' ');
-  const reflejo = dicho.length >= 12 && !['acepta', 'ambiguo', 'elige_horario', 'rechaza_horarios'].includes(a.intencion)
-    ? `Gracias por contármelo: «${dicho.length > 100 ? `${dicho.slice(0, 97).replace(/\s+\S*$/, '').trim()}…` : dicho}».` : 'Perfecto.';
+  // El reflejo integra lo que dijo la persona (ya resumido en tercera persona por el extractor), sin comillas: «Le descuentan ganancias del haber.»
+  const dicho = (a.dicho ?? []).map(x => String(x).trim().replace(/[.\s]+$/, '')).filter(Boolean)[0] ?? '';
+  const reflejo = dicho && !['acepta', 'ambiguo', 'elige_horario', 'rechaza_horarios'].includes(a.intencion)
+    ? `${dicho.charAt(0).toUpperCase()}${dicho.slice(1)}.` : 'Gracias por contármelo.';
   const saludo = a.primerMensaje ? `Hola, soy ${a.cfg.agente.nombre}, del ${a.cfg.agente.estudio}. ` : '';
   const pregunta = (campo: unknown) => { const d = definicionDeFiltro(a.cfg, String(campo)); return d?.pregunta ?? (d ? `¿Me cuenta ${d.descripcion}?` : null); };
   const dia = (x: { fecha: string; hora: string }) => `${nombreDeDia(x.fecha)} a las ${x.hora}`;
@@ -2462,7 +2469,7 @@ export function mensajeSeguro(a: { objetivos: Objetivo[]; estado: EstadoV2; cfg:
     case 'obtener_filtro': { const q = pregunta(o.detalle); cuerpo = q ? `${reflejo} ${q}` : null; break; }
     case 'no_califica': cuerpo = `${reflejo} Este reclamo en particular no le corresponde. ¿Tiene alguna otra consulta?`; break;
     case 'reorganizar_y_ofrecer': {
-      const frase = ['objetivo', 'brecha', 'historial', 'compromiso', 'situacion'].map(k => a.estado.casilleros[k]).filter(Boolean).slice(0, 2).map(c => `«${(c as any).evidencia}»`).join(' y ');
+      const frase = ['objetivo', 'brecha', 'historial', 'compromiso', 'situacion'].map(k => a.estado.casilleros[k]).filter(Boolean).slice(0, 2).map(c => String((c as any).texto).replace(/[.\s]+$/, '')).join(' y ');
       cuerpo = oferta?.activo_de_valor
         ? `Entonces, si le entendí bien: ${frase || 'lo que me contó'}. Le puedo enviar un ${oferta.activo_de_valor.descripcion} que explica cómo sigue. ¿Le gustaría verlo?`
         : `Entonces, si le entendí bien: ${frase || 'lo que me contó'}. Le propongo una consulta con un abogado del estudio para analizarlo. ¿Le gustaría avanzar?`;
@@ -2593,7 +2600,8 @@ async function turnoV2(a: {
   const intentos: unknown[] = [];
   const verificaciones: { intento: number; ok: boolean; motivo: string }[] = [];
   const permite = permiteDeObjetivos(salida.objetivos);
-  const ultimoAgente = [...previos].reverse().find(x => x.from === 'agente')?.texto ?? '';
+  const anterioresAgente = previos.filter(x => x.from === 'agente').map(x => String(x.texto)).slice(-4);
+  const ultimoAgente = anterioresAgente[anterioresAgente.length - 1] ?? '';
   for (let i = 0; i < 8; i++) {
     const r = await deps.redactar!(sistemaTxt, mensajes);
     texto = r.content.filter(b => b.type === 'text').map(b => String(b.text)).join('\n').trim();
@@ -2612,8 +2620,8 @@ async function turnoV2(a: {
       if (!deps.verificar || !texto) break;
       let v: { ok: boolean; motivo: string; violaciones?: { regla: string; frase: string }[] };
       try {
-        const crudoV: any = await deps.verificar(PROMPT_VERIFICADOR, JSON.stringify({ borrador: texto, mensaje_anterior_del_agente: ultimoAgente || null }), esquemaVerificador);
-        v = evaluarVerificacion(crudoV, { borrador: texto, permite, anterior: ultimoAgente });
+        const crudoV: any = await deps.verificar(PROMPT_VERIFICADOR, JSON.stringify({ borrador: texto, mensaje_anterior_del_agente: ultimoAgente || null, mensajes_anteriores_del_agente: anterioresAgente }), esquemaVerificador);
+        v = evaluarVerificacion(crudoV, { borrador: texto, permite, anterior: anterioresAgente.join('\n'), personaTextos, anteriores: anterioresAgente });
       } catch (e) {
         console.error('[agente v2] verificador', e instanceof Error ? e.message : e);
         verificaciones.push({ intento: i + 1, ok: true, motivo: '(el verificador no respondió: se acepta el borrador)' });
@@ -2623,7 +2631,7 @@ async function turnoV2(a: {
       if (v.ok) break;
       rechazosV++;
       if (rechazosV > 2) {
-        const msj = mensajeSeguro({ objetivos: salida.objetivos, estado, cfg, intencion: ext.intencion, textoCliente: a.textoCliente, primerMensaje });
+        const msj = mensajeSeguro({ objetivos: salida.objetivos, estado, cfg, intencion: ext.intencion, textoCliente: a.textoCliente, primerMensaje, dicho: ext.casilleros.map(c => c.texto) });
         if (msj) { texto = msj; seguro = true; }
         break;
       }
