@@ -3963,7 +3963,7 @@ describe('agente v2 · director + extractor + redactor (todo con modelo simulado
   it('ronda 4 · después de 2 rechazos del verificador se envía el mensaje seguro del director (reflejo + pregunta del objetivo)', async () => {
     const llamadas: any[] = [];
     let redactadas = 0;
-    const c = await conversar([{ persona: FRASE1, extractor: () => art9 }], () => { redactadas++; return 'Esto tiene solución. ¿Qué le gustaría lograr?'; }, undefined, async (_s, u) => { llamadas.push(JSON.parse(u)); return { violaciones: [{ regla: 'promesa', frase: 'Esto tiene solución' }] }; });
+    const c = await conversar([{ persona: FRASE1, extractor: () => art9 }], () => { redactadas++; return 'Con esto se puede reclamar lo descontado. ¿Qué le gustaría lograr con esto?'; }, undefined, async (_s, u) => { llamadas.push(JSON.parse(u)); return { violaciones: [{ regla: 'promesa', frase: 'reclamar lo descontado' }] }; });
     expect(redactadas).toBeGreaterThanOrEqual(3);
     expect(llamadas).toHaveLength(3);
     expect(c.cuerpos[0].v2.mensaje_seguro).toBe(true);
@@ -4371,6 +4371,32 @@ describe('agente v2 · director + extractor + redactor (todo con modelo simulado
     expect(ev('Perfecto. ¿Es usted docente jubilada?', 'SOBRE EL ARTICULO 9').ok).toBe(true);
     expect(ev('Se nota que le preocupa. ¿Desde cuándo?', 'me preocupa mucho').ok).toBe(false);
     expect(ev('Se nota que le preocupa. ¿Desde cuándo?', 'me preocupa mucho', true).ok).toBe(true);
+  });
+  it('cierre · si el redactor agota las correcciones de estilo, sale el mensaje seguro del director, nunca el borrador con el defecto', async () => {
+    let llamadas = 0;
+    const c = await conversar([{ persona: FRASE1, extractor: () => art9 }], () => { llamadas++; return 'Para poder ayudarle mejor, ¿qué desea lograr?'; });
+    expect(llamadas).toBe(4); // el borrador + 3 correcciones
+    expect(c.cuerpos[0].v2.mensaje_seguro).toBe(true);
+    const r = c.cuerpos[0].respuestas[0];
+    expect(r).not.toMatch(/ayudarle mejor/i);
+    expect(r).toContain('¿Qué le gustaría lograr con esto?');
+    expect(r).toMatch(/^Hola, soy Karina/);
+  });
+  it('cierre · lo mismo con un defecto de otra regla (promesa) en un objetivo que pide un filtro', async () => {
+    estudio();
+    const c = await conversar([
+      { persona: 'hola', extractor: () => raw({ oferta_detectada: 'art9_ganancias' }) },
+    ], () => 'Hay posibilidades de recuperar lo descontado. ¿Es usted docente?');
+    expect(c.tipos[0]).toEqual(['obtener_filtro:es_docente']);
+    expect(c.cuerpos[0].v2.mensaje_seguro).toBe(true);
+    expect(c.cuerpos[0].respuestas[0]).toContain('¿Usted es docente?');
+    expect(c.cuerpos[0].respuestas[0]).not.toMatch(/recuper/i);
+  });
+  it('cierre · si el borrador queda bien dentro de las correcciones, sale el borrador (no el seguro)', async () => {
+    let n = 0;
+    const c = await conversar([{ persona: FRASE1, extractor: () => art9 }], () => (n++ < 2 ? 'Para poder ayudarle mejor, ¿qué desea lograr?' : 'Cuénteme, ¿qué le gustaría lograr con esto?'));
+    expect(c.cuerpos[0].v2.mensaje_seguro).toBe(false);
+    expect(c.cuerpos[0].respuestas[0]).toContain('Cuénteme, ¿qué le gustaría lograr con esto?');
   });
   it('ronda 1 · config: cada filtro lleva su ayuda para el extractor ("maestra" es docente) y el extractor las recibe', () => {
     const f = CONFIG_CLIENTE.ofertas.art9_ganancias.filtros.find(x => x.campo === 'es_docente')!;

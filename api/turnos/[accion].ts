@@ -2892,6 +2892,12 @@ async function turnoV2(a: {
     if (muletilla) problemas.push(`Empezaste igual que uno de tus últimos mensajes («${muletilla}…»): variá el reflejo o integralo dentro de la frase, con otra estructura.`);
     let corregir = problemas;
     if (!problemas.length || correcciones >= 3) {
+      // Se agotaron las correcciones y el borrador todavía tiene un defecto de estilo: sale el mensaje seguro del director, nunca el borrador con el defecto.
+      if (problemas.length) {
+        const msj = mensajeSeguro({ objetivos: salida.objetivos, estado, cfg, intencion: ext.intencion, textoCliente: a.textoCliente, primerMensaje, dicho: ext.casilleros.map(c => c.texto) });
+        if (msj) { texto = msj; seguro = true; }
+        break;
+      }
       // Las reglas de estilo ya están; ahora lo revisa el verificador (un segundo modelo).
       if (!deps.verificar || !texto) break;
       let v: { ok: boolean; motivo: string; violaciones?: { regla: string; frase: string }[] };
