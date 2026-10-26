@@ -1939,7 +1939,7 @@ export function deOpenAI(msg: any): { stop_reason: string; content: BloqueLLM[] 
 }
 
 /** Precio de lista en dólares por millón de tokens (entrada, salida). */
-const PRECIOS_USD: Record<string, [number, number]> = { 'gpt-4o-mini': [0.15, 0.6], 'gpt-4o': [2.5, 10] };
+const PRECIOS_USD: Record<string, [number, number]> = { 'gpt-4o-mini': [0.15, 0.6], 'gpt-4.1-mini': [0.4, 1.6], 'gpt-4o': [2.5, 10] };
 export const usoOpenAI = { llamadas: 0, entrada: 0, salida: 0, usd: 0 };
 export const costoUsd = (modelo: string, entrada: number, salida: number) => { const [e, o] = PRECIOS_USD[modelo] ?? PRECIOS_USD['gpt-4o']; return (entrada * e + salida * o) / 1_000_000; };
 let dbUso: Db | null = null;
@@ -1962,10 +1962,10 @@ export async function registrarUso(modelo: string, uso: any, origen: string = or
 /** Modelo de respaldo para cuando el principal está saturado (tiene su propio cupo de uso en OpenAI). */
 const MODELO_RESPALDO = 'gpt-4o-mini';
 
-async function llamarModelo(system: string, mensajes: MsgLLM[], opts: { respaldo?: boolean } = { respaldo: true }) {
+async function llamarModelo(system: string, mensajes: MsgLLM[], opts: { respaldo?: boolean; modelo?: string } = { respaldo: true }) {
   let r!: Response;
   for (let intento = 1; intento <= 3; intento++) {
-    r = await fetchModelo(system, mensajes);
+    r = await fetchModelo(system, mensajes, opts.modelo);
     if (r.status !== 429 && r.status < 500) break;
     if (intento < 3) await esperar(intento * 3000);
   }
@@ -3711,7 +3711,9 @@ async function agentesHttp(req: VercelRequest, res: VercelResponse, db: Db, raw:
   if (body?.accion === 'chat_agente') {
     const rol = String((perfil as any).rol ?? '');
     if (rol !== 'admin' && rol !== 'socio') return res.status(403).json({ error: 'No tenés permiso para probar el agente.' });
-    try { const r = await chatAgentePaso(String(body?.texto ?? ''), body?.estado, llamarModelo, db); return res.status(r.code).json(r.body); }
+    // Solo el chat de prueba puede elegir otro modelo (para comparar); el agente real usa siempre el de producción.
+    const modeloElegido = ['gpt-4o-mini', 'gpt-4.1-mini'].includes(String(body?.modelo ?? '')) ? String(body.modelo) : undefined;
+    try { const r = await chatAgentePaso(String(body?.texto ?? ''), body?.estado, (sis, msgs) => llamarModelo(sis, msgs, { respaldo: false, modelo: modeloElegido }), db); return res.status(r.code).json(r.body); }
     catch (e) { console.error('[chat_agente]', e); return res.status(500).json({ error: e instanceof Error ? e.message.slice(0, 200) : 'Error en el chat' }); }
   }
   if (body?.accion === 'gasto_cuenta' || body?.accion === 'gasto_saldo') {

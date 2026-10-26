@@ -11,6 +11,7 @@ export default function ChatAgente() {
   const [enviando, setEnviando] = useState(false);
   const [error, setError] = useState('');
   const [herramientas, setHerramientas] = useState<string[]>([]);
+  const [modelo, setModelo] = useState('gpt-4o-mini');
   const estado = useRef<any>(null);
   const fin = useRef<HTMLDivElement>(null);
 
@@ -22,7 +23,7 @@ export default function ChatAgente() {
     setTexto(''); setError(''); setEnviando(true);
     setLineas(l => [...l, { de: 'yo', texto: t }]);
     try {
-      const r = await llamarAgentes<any>('chat_agente', { texto: t, estado: estado.current });
+      const r = await llamarAgentes<any>('chat_agente', { texto: t, estado: estado.current, modelo });
       estado.current = r.estado;
       setLineas(l => [...l, ...(r.respuestas as string[]).map(x => ({ de: 'agente' as const, texto: x }))]);
       if (r.herramientas?.length) setHerramientas(h => [...h, ...r.herramientas]);
@@ -40,6 +41,13 @@ export default function ChatAgente() {
         <button type="button" onClick={reiniciar} className="ml-auto flex items-center gap-1.5 text-xs text-gray-400 hover:text-white">
           <RotateCcw className="w-3.5 h-3.5" /> Empezar de cero
         </button>
+      </div>
+      <div className="flex items-center gap-2 text-xs text-gray-400">
+        <span>Modelo de esta prueba:</span>
+        <select value={modelo} onChange={e => setModelo(e.target.value)} className="rounded-lg bg-white/[0.04] border border-white/10 px-2 py-1 text-xs text-white">
+          <option value="gpt-4o-mini">gpt-4o-mini (el de producción)</option>
+          <option value="gpt-4.1-mini">gpt-4.1-mini (solo para comparar, ~3 veces más caro)</option>
+        </select>
       </div>
       <p className="text-xs text-gray-500">
         Hablás con el agente real, pero nada sale por WhatsApp y no se guarda en los clientes ni en la agenda reales. Cada mensaje que mandás usa OpenAI (una fracción de centavo).
