@@ -70,7 +70,31 @@ export const CONFIG_CJNOA = {
           ],
           "descripcion": "si prefiere la consulta presencial (en San Salvador de Jujuy) o virtual",
           "ayuda": "\"Virtual\", \"por videollamada\", \"por Meet o Zoom\", \"desde casa\" => virtual; \"presencial\", \"en persona\", \"voy al estudio\" => presencial.",
-          "pregunta": "¿Prefiere que la consulta sea presencial o virtual?"
+          "pregunta": "¿Prefiere que la consulta sea presencial o virtual?",
+          "sinonimos": {
+            "virtual": [
+              "virtual",
+              "videollamada",
+              "video llamada",
+              "meet",
+              "zoom",
+              "online",
+              "a distancia",
+              "desde casa",
+              "por video",
+              "remota"
+            ],
+            "presencial": [
+              "presencial",
+              "en persona",
+              "personalmente",
+              "en el estudio",
+              "en la oficina",
+              "en las oficinas",
+              "voy al estudio",
+              "ir al estudio"
+            ]
+          }
         }
       ],
       "ideas_de_valor": [
@@ -127,7 +151,27 @@ export const CONFIG_CJNOA = {
           ],
           "descripcion": "cómo prefiere abonar la reserva (transferencia o efectivo)",
           "ayuda": "\"Transferencia\", \"por banco\", \"por Mercado Pago\" => transferencia; \"efectivo\", \"en las oficinas\" => efectivo.",
-          "pregunta": "¿Prefiere abonar la reserva por transferencia o en efectivo?"
+          "pregunta": "¿Prefiere abonar la reserva por transferencia o en efectivo?",
+          "sinonimos": {
+            "transferencia": [
+              "transferencia",
+              "transferir",
+              "transfiero",
+              "banco",
+              "mercado pago",
+              "mercadopago",
+              "alias",
+              "cbu"
+            ],
+            "efectivo": [
+              "efectivo",
+              "en mano",
+              "en la oficina",
+              "en las oficinas",
+              "en el estudio",
+              "cash"
+            ]
+          }
         }
       ],
       "casilleros_minimos": {

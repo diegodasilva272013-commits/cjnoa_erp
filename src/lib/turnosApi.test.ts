@@ -3,7 +3,7 @@ import { createHmac } from 'node:crypto';
 import handler, {
   clasificarRecibo, TIPOS_CONSULTA, promesaSinCumplir, separarDatosPago, mensajeApurado,
   aMin, limpiarSecreto, camposDeLead, etapaAutomatica, fusionarLead, registrarMensaje, upsertLead, firmaMetaValida, firmaKapsoValida, extraerMensajesKapso, extraerMensajes, aMensajesLLM, procesarMensaje, filaDePersona, esConversacionDeNoa, clasificarMensajeCliente, categoriaMensajeAgente, personaMetrica, agregarMetricasAgente, calcularMetricasAgente, evaluarOptimizaciones, validarOptimizaciones, ejecutarOptimizacion, type MetricasAgente, motivoDeExclusion, resumenEnPalabras, ejecutarAnalista, revisarAnalisisAutomatico, codigosDeEstilo, etapaEmbudo, analizarConversacion, calcularMetricas, mascararDatos, textoParaEtiquetar, validarEtiquetas, promptDelAgente, limpiarCachePrompt, accionAgentes, problemasDeEstilo, textoNoLegible, firmaMercadoPagoValida, importeTexto, importeLindo, asignarImporteUnico, procesarPagoMP, montoMercadoPago, enmascarar, neutralizarMarcas, salidaInsegura, superaLimite, urlMediaSegura, resumenTurnosVigentes, HERRAMIENTAS_LLM, cuerpoNotaDeVoz, notaDeImagen, montoValidadoDe, quitarEtiquetas, aMensajesOpenAI, deOpenAI, ejecutarHerramienta, PROMPT_AGENTE, type Deps, telefonoClave, historialDe, inferirNombre, normalizarFecha, normalizarHora, bloquesDelDia, huecosLibres, localDe, resolverProfesional, diaSemanaISO, fechaValida,
-  registrarSinResponder, registrarUso, fijarDbUso, costoUsd, esDudaOObjecion, esRechazoFirme, horasEnTexto, quitarFrasesHechas, REGEX_CLICHE, condicionesArt9Confirmadas, campanaDelTexto, probarAgentePaso, chatAgentePaso, preguntasAfirmadas, evidenciaCompleta, REGEX_PROMESAS, validarExtraccion, aplicarExtraccion, elegirDosHorarios, armarSistemaRedactor, permiteDeObjetivos, mensajeSeguro, PROMPT_VERIFICADOR, esquemaVerificador, evaluarVerificacion, aperturaDeMensaje, muletillaRepetida, esquemaExtractor, PROMPT_REDACTOR, PROMPT_EXTRACTOR, CONFIG_CLIENTE, leerEstadoV2, estadoV2Vacio, extraccionVacia, funcionesV2, textoFaltaRegistrar, AVISO_DERIVACION, horariosOfrecidosEn, ofrecidosVigentes, textoOfrecidos, horasSinDia, ofertaConDia, condicionDeAgenda, registrarMensajeHumano, extraerHumanosKapso, responderDesdeErp, resumenCampana, analizarCampana, analisisSoloConCifrasReales, esRespuestaCortaSiNo, preguntaDelAgente, temaMalNombrado,
+  registrarSinResponder, registrarUso, fijarDbUso, costoUsd, esDudaOObjecion, esRechazoFirme, horasEnTexto, quitarFrasesHechas, REGEX_CLICHE, condicionesArt9Confirmadas, campanaDelTexto, probarAgentePaso, chatAgentePaso, preguntasAfirmadas, evidenciaCompleta, REGEX_PROMESAS, validarExtraccion, aplicarExtraccion, elegirDosHorarios, horarioSenialado, pareceElNombreDeUnaPersona, armarSistemaRedactor, permiteDeObjetivos, mensajeSeguro, PROMPT_VERIFICADOR, esquemaVerificador, evaluarVerificacion, aperturaDeMensaje, muletillaRepetida, esquemaExtractor, PROMPT_REDACTOR, PROMPT_EXTRACTOR, CONFIG_CLIENTE, leerEstadoV2, estadoV2Vacio, extraccionVacia, funcionesV2, textoFaltaRegistrar, AVISO_DERIVACION, horariosOfrecidosEn, ofrecidosVigentes, textoOfrecidos, horasSinDia, ofertaConDia, condicionDeAgenda, registrarMensajeHumano, extraerHumanosKapso, responderDesdeErp, resumenCampana, analizarCampana, analisisSoloConCifrasReales, esRespuestaCortaSiNo, preguntaDelAgente, temaMalNombrado,
   type Bloque,
 } from '../../api/turnos/[accion]';
 
@@ -4082,7 +4082,7 @@ describe('agente v2 · director + extractor + redactor (todo con modelo simulado
     ]);
     expect(c.tipos[1]).toEqual(['descubrir:brecha']);
     expect(visto.casillero_pendiente).toBe('brecha');
-    expect(leerEstadoV2(c.lead().datos).casilleros.historial?.texto).toBe('no hizo nada');
+    expect(leerEstadoV2(c.lead().datos).casilleros.brecha?.texto).toBe('no hizo nada'); // la respuesta corta llena el casillero que se preguntó, aunque el extractor lo haya rotulado historial
     expect(c.tipos[2]).toEqual(['reorganizar_y_ofrecer']);
     expect(PROMPT_EXTRACTOR).toContain('RESPUESTA A UN CASILLERO');
   });
@@ -4100,6 +4100,96 @@ describe('agente v2 · director + extractor + redactor (todo con modelo simulado
       { persona: 'el primero', extractor: () => raw({ filtros: [fil('forma_reserva', 'efectivo', 'el primero')] }) },
     ]);
     expect(leerEstadoV2(c.lead().datos).filtros.forma_reserva).toBeUndefined();
+  });
+  // ------------------------------------------------------------------ DATO PENDIENTE (ronda nueva)
+  const SLOTS = [{ fecha: '2026-10-26', hora: '15:30', profesional: 'Alejandro' }, { fecha: '2026-10-27', hora: '09:00', profesional: 'Alejandro' }];
+  const valida = (rawExt: any, persona: string, datoPendiente: any) => validarExtraccion(raw(rawExt), { cfg: CONFIG_CLIENTE, personaTextos: [persona], ofrecidos: SLOTS, datoPendiente });
+
+  it('pendiente · el director guarda el dato que pidió: filtro, modalidad, horario, nombre y casillero', async () => {
+    const c = await conversar([...art9Hasta(2)]);
+    expect(leerEstadoV2(c.lead().datos).dato_pendiente).toEqual({ tipo: 'casillero', campo: 'brecha' });
+    const c1 = await conversar([{ persona: 'hola', extractor: () => raw({ oferta_detectada: 'art9_ganancias' }) }]);
+    expect(leerEstadoV2(c1.lead().datos).dato_pendiente).toEqual({ tipo: 'filtro', campo: 'es_docente' });
+    const c2 = await conversar([...art9Hasta(3), { persona: 'si', extractor: () => raw({ intencion: 'acepta' }) }]);
+    expect(leerEstadoV2(c2.lead().datos).dato_pendiente).toEqual({ tipo: 'filtro', campo: 'modalidad_consulta' });
+    const c3 = await conversar([...art9Hasta(3), ...ACEPTA_Y_VIRTUAL]);
+    expect(leerEstadoV2(c3.lead().datos).dato_pendiente).toEqual({ tipo: 'horario' });
+    const c4 = await conversar([...art9Hasta(3), ...ACEPTA_Y_VIRTUAL, { persona: 'el primero', extractor: (u) => raw({ intencion: 'elige_horario', horario_elegido: u.horarios_ofrecidos[0] }) }]);
+    expect(leerEstadoV2(c4.lead().datos).dato_pendiente).toEqual({ tipo: 'nombre' });
+  });
+  it('pendiente · el extractor recibe dato_pendiente y su prompt lo explica', async () => {
+    let visto: any = null;
+    await conversar([
+      { persona: 'hola', extractor: () => raw({ oferta_detectada: 'art9_ganancias' }) },
+      { persona: 'si', extractor: (u) => { visto = u; return raw(); } },
+    ]);
+    expect(visto.dato_pendiente).toEqual({ tipo: 'filtro', campo: 'es_docente' });
+    expect(PROMPT_EXTRACTOR).toContain('llena SOLO ese dato');
+    expect(PROMPT_EXTRACTOR).toContain('un "si" nunca elige');
+  });
+  it('pendiente · una respuesta corta llena solo el dato pendiente: lo demás que invente el extractor se descarta', () => {
+    const v = valida({ filtros: [fil('es_docente', 'si', 'si'), fil('jubilado_anses', 'si', 'si'), fil('descuento_art9_ganancias', 'si', 'si')] }, 'si', { tipo: 'filtro', campo: 'es_docente' });
+    expect(v.filtros.map(f => f.campo)).toEqual([]); // sin ultimoAgente no hay pregunta que sirva de evidencia: no registra nada
+    const v2 = validarExtraccion(raw({ filtros: [fil('es_docente', 'si', 'si'), fil('jubilado_anses', 'si', 'si')] }), { cfg: CONFIG_CLIENTE, personaTextos: ['si'], ofrecidos: SLOTS, ultimoAgente: '¿Es usted docente jubilada?', preguntaPendiente: 'es_docente', datoPendiente: { tipo: 'filtro', campo: 'es_docente' } });
+    expect(v2.filtros.map(f => f.campo)).toEqual(['es_docente']);
+  });
+  it('pendiente · opciones: la evidencia tiene que mencionar el valor o un sinónimo de la config', () => {
+    expect(valida({ filtros: [fil('modalidad_consulta', 'virtual', 'quiero que no me descuenten mas')] }, 'quiero que no me descuenten mas', { tipo: 'filtro', campo: 'modalidad_consulta' }).filtros).toEqual([]);
+    expect(valida({ filtros: [fil('modalidad_consulta', 'virtual', 'virtual')] }, 'virtual', { tipo: 'filtro', campo: 'modalidad_consulta' }).filtros).toHaveLength(1);
+    expect(valida({ filtros: [fil('modalidad_consulta', 'virtual', 'por videollamada')] }, 'por videollamada', { tipo: 'filtro', campo: 'modalidad_consulta' }).filtros).toHaveLength(1);
+    expect(valida({ filtros: [fil('modalidad_consulta', 'presencial', 'voy al estudio')] }, 'voy al estudio', { tipo: 'filtro', campo: 'modalidad_consulta' }).filtros).toHaveLength(1);
+    expect(valida({ filtros: [fil('forma_reserva', 'efectivo', 'el primero')] }, 'el primero', { tipo: 'filtro', campo: 'forma_reserva' }).filtros).toEqual([]);
+    expect(valida({ filtros: [fil('forma_reserva', 'transferencia', 'lo hago por banco')] }, 'lo hago por banco', { tipo: 'filtro', campo: 'forma_reserva' }).filtros).toHaveLength(1);
+    expect(CONFIG_CLIENTE.ofertas.art9_ganancias.datos_antes_de_horarios![0].sinonimos!.virtual).toContain('videollamada');
+  });
+  it('pendiente · horario elegido: solo si el pendiente es horario y señala uno de los DOS (ordinal, día, hora o fecha); un "si" nunca', () => {
+    const H = { tipo: 'horario' as const };
+    const elige = (persona: string, pend: any = H, intencion = 'elige_horario') => valida({ intencion, horario_elegido: { fecha: '2026-10-26', hora: '15:30' } }, persona, pend);
+    expect(elige('si', H, 'acepta').horario_elegido).toBeNull();
+    expect(elige('si', H, 'elige_horario').intencion).toBe('ambiguo');
+    expect(elige('el primero').horario_elegido).toEqual({ fecha: '2026-10-26', hora: '15:30' });
+    expect(elige('el lunes').horario_elegido).toEqual({ fecha: '2026-10-26', hora: '15:30' });
+    expect(elige('a las 15:30').horario_elegido).toEqual({ fecha: '2026-10-26', hora: '15:30' });
+    expect(elige('el 26').horario_elegido).toEqual({ fecha: '2026-10-26', hora: '15:30' });
+    expect(elige('el primero', { tipo: 'filtro', campo: 'es_docente' }).horario_elegido).toBeNull(); // no se había pedido un horario
+    expect(elige('el primero', null).horario_elegido).toBeNull();
+    // aunque el extractor no lo haya devuelto, si señala uno se toma
+    expect(valida({ intencion: 'otro' }, 'el martes', H).horario_elegido).toEqual({ fecha: '2026-10-27', hora: '09:00' });
+    expect(horarioSenialado('el primero o el segundo', SLOTS)).toBeNull();
+    expect(horarioSenialado('si', SLOTS)).toBeNull();
+    expect(horarioSenialado('la segunda', SLOTS)).toEqual(SLOTS[1]);
+    expect(horarioSenialado('a las 9', SLOTS)).toEqual(SLOTS[1]);
+  });
+  it('pendiente · nombre: solo si lo pendiente es el nombre (o la persona se presenta); se rechazan ordinales, elecciones y palabras de horario', () => {
+    const N = { tipo: 'nombre' as const };
+    const nom = (valor: string, persona = valor, pend: any = N) => valida({ filtros: [fil('nombre', valor, persona)] }, persona, pend).filtros;
+    expect(nom('Ana Gomez')).toEqual([expect.objectContaining({ campo: 'nombre', valor: 'Ana Gomez' })]);
+    for (const malo of ['el primero', 'la segunda', 'uno', 'martes', 'el martes', 'a las 9', 'virtual']) expect(nom(malo)).toEqual([]);
+    expect(nom('Ana Gomez', 'Ana Gomez', { tipo: 'horario' })).toEqual([]); // no se había pedido el nombre
+    expect(nom('Ana Gomez', 'Ana Gomez', null)).toEqual([]);
+    expect(nom('Ana Gomez', 'me llamo Ana Gomez', { tipo: 'horario' })).toHaveLength(1); // se presenta sola
+    expect(pareceElNombreDeUnaPersona('María López')).toBe(true);
+    expect(pareceElNombreDeUnaPersona('el primero')).toBe(false);
+    expect(pareceElNombreDeUnaPersona('Ana 2')).toBe(false);
+  });
+  it('pendiente · conversación completa: modalidad preguntada, "si" ambiguo → cuál de los dos, "el primero", nombre → agenda a nombre de Ana Gomez en el horario elegido', async () => {
+    const c = await conversar([
+      ...art9Hasta(3),
+      { persona: 'si', extractor: () => raw({ intencion: 'acepta', filtros: [fil('modalidad_consulta', 'virtual', 'quiero que no me descuenten mas')] }) }, // alucinación: se descarta
+      { persona: 'virtual', extractor: () => raw({ filtros: [fil('modalidad_consulta', 'virtual', 'virtual')] }) },
+      { persona: 'si', extractor: (u) => raw({ intencion: 'acepta', horario_elegido: u.horarios_ofrecidos[0] }) }, // "si" nunca elige
+      { persona: 'el primero', extractor: (u) => raw({ intencion: 'acepta', horario_elegido: u.horarios_ofrecidos[0], filtros: [fil('forma_reserva', 'efectivo', 'el primero'), fil('nombre', 'el primero', 'el primero')] }) },
+      { persona: 'Ana Gomez', extractor: (u) => raw({ filtros: [fil('nombre', 'Ana Gomez', 'Ana Gomez')], horario_elegido: u.horarios_ofrecidos[1] }) },
+    ]);
+    expect(c.tipos[3]).toEqual(['obtener_dato_agenda:modalidad_consulta']); // pregunta la modalidad
+    expect(c.tipos[4]).toEqual(['ofrecer_horarios']);
+    expect(c.tipos[5]).toEqual(['preguntar_cual']); // ante el "si" ambiguo pregunta cuál de los dos
+    expect(c.tipos[6]).toEqual(['obtener_dato_agenda:nombre']); // "el primero" elige, no es el nombre
+    expect(leerEstadoV2(c.lead().datos).filtros.forma_reserva).toBeUndefined();
+    expect(c.tipos[7]).toEqual(['confirmar_turno']);
+    const turno = c.estado.tablas.consultas_agendadas[0];
+    const ofrecido = c.cuerpos[4].v2.objetivos[0].detalle[0];
+    expect(turno).toMatchObject({ cliente_nombre: 'Ana Gomez', fecha_consulta: ofrecido.fecha, hora_consulta: ofrecido.hora });
   });
   it('ronda 1 · config: cada filtro lleva su ayuda para el extractor ("maestra" es docente) y el extractor las recibe', () => {
     const f = CONFIG_CLIENTE.ofertas.art9_ganancias.filtros.find(x => x.campo === 'es_docente')!;

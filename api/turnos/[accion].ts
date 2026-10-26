@@ -1885,7 +1885,7 @@ export function promesaSinCumplir(txt: string): boolean {
 // Las ofertas (filtros, casilleros mínimos, condición, activo de valor, cierre) salen de _config-cjnoa.ts (un archivo de datos aparte), no del código.
 // =====================================================================================
 
-export type ConfigFiltro = { campo: string; tipo: 'si_no' | 'texto' | 'numero' | 'opcion'; descripcion: string; valores?: string[]; ayuda?: string; /** Cómo se lo preguntaría una persona (lo usa el mensaje seguro). */ pregunta?: string };
+export type ConfigFiltro = { campo: string; tipo: 'si_no' | 'texto' | 'numero' | 'opcion'; descripcion: string; valores?: string[]; ayuda?: string; /** Para las opciones: palabras que valen como cada valor (la evidencia tiene que mencionar el valor o uno de estos). */ sinonimos?: Record<string, string[]>; /** Cómo se lo preguntaría una persona (lo usa el mensaje seguro). */ pregunta?: string };
 export type ConfigOferta = {
   etiqueta: string; descripcion: string; campana: string; profesional: 'alejandro' | 'fabricio'; tipo_consulta: string;
   filtros: ConfigFiltro[]; filtros_de_cierre: ConfigFiltro[];
@@ -1903,6 +1903,7 @@ export const CONFIG_CLIENTE = CONFIG_CJNOA as unknown as ConfigCliente;
 
 export type EtapaV2 = 'descubrir' | 'ofrecer' | 'activo_valor' | 'reserva' | 'horarios' | 'agendado' | 'derivado' | 'no_califica' | 'cerrado';
 export type CasilleroV2 = { texto: string; evidencia: string } | null;
+export type DatoPendiente = { tipo: 'filtro' | 'casillero' | 'horario' | 'nombre'; campo?: string };
 export type EstadoV2 = {
   oferta: string | null;
   filtros: Record<string, { valor: string; evidencia: string }>;
@@ -1920,6 +1921,8 @@ export type EstadoV2 = {
   pregunta_pendiente?: { campo: string };
   /** El casillero que el agente quiso descubrir en su último mensaje: una respuesta corta de la persona ("no hice nada") contesta ESA pregunta. */
   casillero_pendiente?: string;
+  /** El dato que el director pidió en su último mensaje: una respuesta corta de la persona solo puede llenar ESE dato. */
+  dato_pendiente?: DatoPendiente;
 };
 const CASILLEROS_V2 = ['situacion', 'objetivo', 'brecha', 'historial', 'compromiso'];
 export const estadoV2Vacio = (): EstadoV2 => ({ oferta: null, filtros: {}, casilleros: Object.fromEntries(CASILLEROS_V2.map(c => [c, null])), emociones_trabajadas: [], etapa: 'descubrir' });
@@ -1983,6 +1986,7 @@ Reglas:
 - oferta_detectada: la oferta (de la lista "ofertas") por la que consulta, o null si todavía no se sabe.
 - filtros: datos de los campos (de la oferta, de datos_para_agendar y los que pide el estado). Cada campo trae una "ayuda": seguila. "si_no" => valor "si" o "no"; "no" SOLO si lo niega o dice algo incompatible, nunca por duda. "numero" => solo el número. "opcion" => uno de los valores permitidos.
 - RESPUESTAS CORTAS: "ultimo_mensaje_del_agente" es lo último que dijo el agente y "pregunta_pendiente" es el campo que esa pregunta quería saber (o null). Si el ÚLTIMO mensaje de la persona es una respuesta corta ("sí", "si", "no", "correcto", "sí soy", "no, por la caja"), responde a ESA pregunta del agente: registrá el filtro de "pregunta_pendiente" con el valor que la respuesta indica y, como evidencia, la respuesta de la persona copiada tal cual (por ejemplo "si"). Un sí o un no a una pregunta que no pide ninguno de los campos no es un dato: no incluyas nada. "No hice nada", "no sé" o "no entiendo" NO son un "no" al dato: no incluyas ese filtro.
+- DATO PENDIENTE: "dato_pendiente" es el dato que el agente pidió en su último mensaje (o null): su tipo (filtro, casillero, horario o nombre) y su campo. Una respuesta corta de la persona ("si", "no", "el primero", "Ana Gomez", "virtual") llena SOLO ese dato. Cualquier otro campo lo incluís únicamente si la persona lo dice de forma explícita en su último mensaje, con una evidencia que lo nombre. "horario_elegido" solo si dato_pendiente es horario y la persona señala uno de los dos horarios con un ordinal, un día, una hora o una fecha: un "si" nunca elige. "nombre" solo si dato_pendiente es nombre (o la persona dice "me llamo…"): una elección como "el primero" o "martes" no es un nombre.
 - RESPUESTA A UN CASILLERO: "casillero_pendiente" es el casillero que el agente quiso descubrir en su último mensaje (o null). Si el ÚLTIMO mensaje de la persona contesta esa pregunta, aunque sea con pocas palabras, registralo en ESE casillero, con texto en tercera persona y la respuesta copiada como evidencia ("no hice nada" contesta qué intentó o por qué no lo resolvió: texto "no hizo nada"; "no sabía" es brecha).
 - casilleros (cada uno con su descripción en "casilleros_definidos"): situacion, objetivo, brecha, historial, compromiso, con "texto" = lo que dijo, resumido en pocas palabras, sin agregar nada y en tercera persona de cortesía ("le descuentan ganancias", "no sabía que se podía reclamar"), nunca en primera persona. "objetivo" es lo que la persona dice que QUIERE lograr ("quiero…", "necesito…", "busco…"): contar su situación o que le descuentan no es un objetivo; si no lo dijo, no lo incluyas. "brecha" es por qué no lo resolvió hasta ahora (no sabía, no se animó, no tuvo tiempo, no pudo). "historial" es qué intentó antes. Un mismo fragmento no sirve de evidencia para dos casilleros.
 - evidencia (en filtros y casilleros): una frase COPIADA TAL CUAL de un mensaje de la persona que respalde el dato. Si no podés copiarla, no incluyas el dato.
@@ -2012,12 +2016,43 @@ export function preguntaDelAgente(texto: string): string | null {
   return oraciones.length ? oraciones[oraciones.length - 1] : null;
 }
 
+const PALABRAS_QUE_NO_SON_NOMBRE = new Set(['primero', 'primera', 'primer', 'segundo', 'segunda', 'ultimo', 'ultima', 'uno', 'dos', 'ese', 'esa', 'esos', 'esas', 'otro', 'otra', 'lunes', 'martes', 'miercoles', 'jueves', 'viernes', 'sabado', 'domingo', 'manana', 'tarde', 'hoy', 'si', 'no', 'virtual', 'presencial', 'ok', 'dale', 'listo', 'bueno']);
+/** Un nombre no puede ser una elección ("el primero", "la segunda", "uno"), una palabra de horario ("martes") ni llevar números. */
+export function pareceElNombreDeUnaPersona(valor: string): boolean {
+  const n = limpiarParaComparar(valor);
+  if (!n || /\d/.test(n)) return false;
+  return !n.split(' ').some(w => PALABRAS_QUE_NO_SON_NOMBRE.has(w));
+}
+
+/** Si la persona señala UNO de los dos horarios ofrecidos con un ordinal, un día, una hora o una fecha. Un "si" nunca señala nada. */
+export function horarioSenialado(texto: string, slots: SlotOfrecido[]): SlotOfrecido | null {
+  const dos = slots.slice(0, 2);
+  const n = ` ${limpiarParaComparar(texto)} `;
+  if (dos.length < 2 || n.trim() === '') return null;
+  const hits = new Set<number>();
+  if (/ (?:primer|primero|primera) /.test(n) || n.trim() === '1') hits.add(0);
+  if (/ (?:segundo|segunda|ultimo|ultima) /.test(n) || n.trim() === '2') hits.add(1);
+  dos.forEach((s, i) => {
+    const [y, m, d] = s.fecha.split('-').map(Number);
+    const dia = limpiarParaComparar(DIAS_NOMBRE[new Date(Date.UTC(y, m - 1, d)).getUTCDay()]);
+    if (n.includes(` ${dia} `)) hits.add(i);
+    if (new RegExp(`(?:^| )el 0?${d}(?: |$)`).test(n.trim())) hits.add(i);
+    const [hh, mm] = s.hora.split(':');
+    if (new RegExp(`(?:^| )(?:a las |las )?0?${Number(hh)}(?: ${mm})?(?: hs| horas| h)?(?: |$)`).test(n.trim())) hits.add(i);
+  });
+  return hits.size === 1 ? dos[[...hits][0]] : null;
+}
+
 /** "no sé", "no entiendo", "no hice nada": empiezan con "no" pero no niegan el dato por el que se preguntó. */
 const REGEX_NO_NIEGA = /^no (?:se|entiendo|entendi|hice|hicimos|recuerdo|me acuerdo|tengo idea|comprendo|puedo|quiero)\b/;
 
-export function validarExtraccion(raw: any, a: { cfg: ConfigCliente; personaTextos: string[]; ofrecidos: SlotOfrecido[]; /** Último mensaje del agente. */ ultimoAgente?: string; /** Campo que el agente preguntó en ese mensaje. */ preguntaPendiente?: string | null }): Extraccion {
+export function validarExtraccion(raw: any, a: { cfg: ConfigCliente; personaTextos: string[]; ofrecidos: SlotOfrecido[]; /** Último mensaje del agente. */ ultimoAgente?: string; /** Campo que el agente preguntó en ese mensaje. */ preguntaPendiente?: string | null; /** El dato que el agente pidió en su último mensaje. Si no se pasa, no se aplica el principio del dato pendiente. */ datoPendiente?: DatoPendiente | null }): Extraccion {
   if (!raw || typeof raw !== 'object' || !Array.isArray(raw.filtros) || !Array.isArray(raw.casilleros)) return extraccionVacia(true);
   const out = extraccionVacia();
+  const aplicaPendiente = a.datoPendiente !== undefined;
+  const pend = a.datoPendiente ?? null;
+  const ultimoMsg = a.personaTextos[a.personaTextos.length - 1] ?? '';
+  const corto = limpiarParaComparar(ultimoMsg).split(' ').filter(Boolean).length <= 4;
   out.oferta_detectada = typeof raw.oferta_detectada === 'string' && a.cfg.ofertas[raw.oferta_detectada] ? raw.oferta_detectada : null;
   for (const f of raw.filtros) {
     const def = definicionDeFiltro(a.cfg, String(f?.campo ?? ''));
@@ -2027,7 +2062,7 @@ export function validarExtraccion(raw: any, a: { cfg: ConfigCliente; personaText
     if (def.tipo === 'si_no') { const n = normalizar(v); valor = n === 'si' || n === 'no' ? n : ''; }
     else if (def.tipo === 'numero') valor = /^\d{1,3}$/.test(v) ? v : '';
     else if (def.tipo === 'opcion') { const n = normalizar(v); valor = (def.valores ?? []).includes(n) ? n : ''; }
-    else valor = v.length > 0 && v.length <= 120 && !(def.campo === 'nombre' && (NO_ES_NOMBRE.has(normalizar(v)) || ['virtual', 'presencial'].includes(normalizar(v)))) ? v : '';
+    else valor = v.length > 0 && v.length <= 120 && !(def.campo === 'nombre' && (NO_ES_NOMBRE.has(normalizar(v)) || !pareceElNombreDeUnaPersona(v))) ? v : '';
     let evidencia = valor ? evidenciaCompleta(String(f?.evidencia ?? '').trim(), a.personaTextos, []) : null;
     // Un sí o un no corto no tiene palabras propias: vale solo si responde la pregunta que el agente hizo sobre ESTE campo,
     // y la evidencia es esa pregunta. Con otra pregunta (o sin pregunta) no se registra nada.
@@ -2041,6 +2076,24 @@ export function validarExtraccion(raw: any, a: { cfg: ConfigCliente; personaText
       const coincide = cortaPersona && (valor === 'si' ? dicenSi : dicenNo);
       evidencia = pregunta && a.preguntaPendiente === def.campo && coincide ? pregunta : null;
     }
+    // Opciones (modalidad, forma de reserva): la evidencia tiene que mencionar el valor o un sinónimo de la config.
+    if (valor && def.tipo === 'opcion') {
+      const buscadas = [valor, ...(def.sinonimos?.[valor] ?? [])].map(limpiarParaComparar).filter(Boolean);
+      const dicho = ` ${limpiarParaComparar(f?.evidencia ?? '')} `;
+      if (!buscadas.some(b => dicho.includes(` ${b} `) || dicho.includes(` ${b}`))) continue;
+    }
+    if (valor && aplicaPendiente) {
+      const esElPendiente = (pend?.tipo === 'filtro' && pend.campo === def.campo) || (def.campo === 'nombre' && pend?.tipo === 'nombre');
+      if (def.campo === 'nombre') {
+        // el nombre solo se registra si era lo que se pidió, o si la persona se presenta ("me llamo…", "soy Ana")
+        const seDijo = /\b(?:me llamo|mi nombre es)\b/i.test(String(f?.evidencia ?? '')) || /\bsoy [A-ZÁÉÍÓÚÑ][a-záéíóúñ]+/.test(String(f?.evidencia ?? ''));
+        if (!esElPendiente && !seDijo) continue;
+      } else if (corto && !esElPendiente) {
+        // una respuesta corta solo llena el dato pendiente; otro campo necesita que la persona lo diga explícitamente (más de una palabra, no un sí/no/ordinal)
+        const ev = limpiarParaComparar(f?.evidencia ?? '');
+        if (ev.split(' ').filter(Boolean).length < 2 || esRespuestaCortaSiNo(ev) || /(?:^| )(?:primer|primero|primera|segundo|segunda|ultimo|ultima)(?: |$)/.test(ev)) continue;
+      }
+    }
     // un "no hice nada" / "no sé" / "no entiendo" no es un NO al dato
     if (valor === 'no' && def.tipo === 'si_no' && REGEX_NO_NIEGA.test(limpiarParaComparar(f?.evidencia ?? ''))) continue;
     if (valor && evidencia) out.filtros.push({ campo: def.campo, valor, evidencia: evidencia.slice(0, 300) });
@@ -2050,6 +2103,12 @@ export function validarExtraccion(raw: any, a: { cfg: ConfigCliente; personaText
     const texto = String(c?.texto ?? '').trim();
     if (!(casillero in a.cfg.casilleros) || !texto) continue;
     const evidencia = evidenciaCompleta(String(c?.evidencia ?? '').trim(), a.personaTextos, []);
+    // Una respuesta corta a la pregunta de un casillero llena ESE casillero (aunque el extractor la haya rotulado en otro); un sí/no/ordinal pelado no llena ninguno.
+    if (aplicaPendiente && evidencia) {
+      const ev = limpiarParaComparar(c?.evidencia ?? '');
+      if (esRespuestaCortaSiNo(ev) || /(?:^| )(?:primer|primero|primera|segundo|segunda|ultimo|ultima)(?: |$)/.test(ev)) continue;
+      if (corto && pend?.tipo === 'casillero' && pend.campo && pend.campo in a.cfg.casilleros) { if (!out.casilleros.some(x => x.casillero === pend.campo)) { if (pend.campo === 'objetivo' && !REGEX_QUIERE.test(limpiarParaComparar(evidencia))) continue; out.casilleros.push({ casillero: pend.campo, texto: texto.slice(0, 300), evidencia: evidencia.slice(0, 300) }); } continue; }
+    }
     // El objetivo es lo que la persona dice que QUIERE: contar su situación no alcanza (el extractor a veces lo inventa de la misma frase).
     if (casillero === 'objetivo' && evidencia && !REGEX_QUIERE.test(limpiarParaComparar(evidencia))) continue;
     if (evidencia) out.casilleros.push({ casillero, texto: texto.slice(0, 300), evidencia: evidencia.slice(0, 300) });
@@ -2074,6 +2133,12 @@ export function validarExtraccion(raw: any, a: { cfg: ConfigCliente; personaText
     const fecha = String(h.fecha ?? '').trim();
     const hora = normalizarHoraSimple(String(h.hora ?? ''));
     if (a.ofrecidos.some(o => o.fecha === fecha && o.hora === hora)) out.horario_elegido = { fecha, hora };
+  }
+  if (aplicaPendiente) {
+    // El horario elegido vale solo si se había pedido un horario y la persona señala uno de los DOS ofrecidos (ordinal, día, hora o fecha). Un "si" nunca elige.
+    const senialado = pend?.tipo === 'horario' ? horarioSenialado(ultimoMsg, a.ofrecidos) : null;
+    out.horario_elegido = senialado ? { fecha: senialado.fecha, hora: senialado.hora } : null;
+    if (!senialado && out.intencion === 'elige_horario') out.intencion = 'ambiguo';
   }
   // Un horario que existe entre los ofrecidos y que la persona eligió vale como elección aunque el extractor la haya rotulado "acepta" (un "el primero" es aceptar Y elegir).
   if (out.horario_elegido && ['acepta', 'otro', 'ambiguo'].includes(out.intencion)) out.intencion = 'elige_horario';
@@ -2158,6 +2223,14 @@ export function loQueYaSabe(estado: EstadoV2, cfg: ConfigCliente): string[] {
 export async function dirigirTurno(a: EntradaDirector): Promise<SalidaDirector> {
   const out = await dirigirTurnoBase(a);
   if (out.objetivos.length > 0 && out.objetivos.every(o => OBJETIVOS_SIN_OFERTA.includes(o.tipo))) out.datos = [];
+  // El dato que este mensaje le pide a la persona: su respuesta corta del próximo turno solo puede llenar ESE dato.
+  const o0 = out.objetivos[0];
+  let dp: DatoPendiente | null = null;
+  if (o0?.tipo === 'obtener_filtro') dp = { tipo: 'filtro', campo: String(o0.detalle) };
+  else if (o0?.tipo === 'obtener_dato_agenda') dp = o0.detalle === 'nombre' ? { tipo: 'nombre' } : { tipo: 'filtro', campo: String(o0.detalle) };
+  else if (o0?.tipo === 'ofrecer_horarios' || o0?.tipo === 'preguntar_cual') dp = { tipo: 'horario' };
+  else if (o0?.tipo === 'descubrir') dp = { tipo: 'casillero', campo: String(o0.detalle) };
+  if (dp) out.estado.dato_pendiente = dp; else delete out.estado.dato_pendiente;
   return out;
 }
 
@@ -2643,6 +2716,7 @@ async function turnoV2(a: {
     ultimo_mensaje_del_agente: ultimoAgenteTexto || null,
     pregunta_pendiente: estadoAntes.pregunta_pendiente?.campo ?? null,
     casillero_pendiente: estadoAntes.casillero_pendiente ?? null,
+    dato_pendiente: estadoAntes.dato_pendiente ?? null,
     mensajes_recientes: recientes,
   });
   const esquema = esquemaExtractor(cfg);
@@ -2652,7 +2726,7 @@ async function turnoV2(a: {
   for (let intento = 1; intento <= (a.esArchivo ? 0 : 2); intento++) {
     try {
       crudo = await deps.extraer!(PROMPT_EXTRACTOR, usuario, esquema);
-      const v = validarExtraccion(crudo, { cfg, personaTextos, ofrecidos, ultimoAgente: ultimoAgenteTexto, preguntaPendiente: estadoAntes.pregunta_pendiente?.campo ?? null });
+      const v = validarExtraccion(crudo, { cfg, personaTextos, ofrecidos, ultimoAgente: ultimoAgenteTexto, preguntaPendiente: estadoAntes.pregunta_pendiente?.campo ?? null, datoPendiente: estadoAntes.dato_pendiente ?? null });
       if (!v.fallo) {
         // con la oferta ya definida, solo valen los campos de ESA oferta (un "el primero" no puede ser una forma de pago de otra)
         const ofertaActiva = estadoAntes.oferta ?? v.oferta_detectada;
