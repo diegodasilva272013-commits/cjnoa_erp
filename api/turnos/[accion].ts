@@ -1980,7 +1980,7 @@ Informá lo que la persona dijo en su ÚLTIMO mensaje. Lo que ya figura en "esta
 Reglas:
 - oferta_detectada: la oferta (de la lista "ofertas") por la que consulta, o null si todavía no se sabe.
 - filtros: datos de los campos (de la oferta, de datos_para_agendar y los que pide el estado). Cada campo trae una "ayuda": seguila. "si_no" => valor "si" o "no"; "no" SOLO si lo niega o dice algo incompatible, nunca por duda. "numero" => solo el número. "opcion" => uno de los valores permitidos.
-- RESPUESTAS CORTAS: "ultimo_mensaje_del_agente" es lo último que dijo el agente y "pregunta_pendiente" es el campo que esa pregunta quería saber (o null). Si el ÚLTIMO mensaje de la persona es una respuesta corta ("sí", "si", "no", "correcto", "sí soy", "no, por la caja"), responde a ESA pregunta del agente: registrá el filtro de "pregunta_pendiente" con el valor que la respuesta indica y, como evidencia, la respuesta de la persona copiada tal cual (por ejemplo "si"). Un sí o un no a una pregunta que no pide ninguno de los campos no es un dato: no incluyas nada.
+- RESPUESTAS CORTAS: "ultimo_mensaje_del_agente" es lo último que dijo el agente y "pregunta_pendiente" es el campo que esa pregunta quería saber (o null). Si el ÚLTIMO mensaje de la persona es una respuesta corta ("sí", "si", "no", "correcto", "sí soy", "no, por la caja"), responde a ESA pregunta del agente: registrá el filtro de "pregunta_pendiente" con el valor que la respuesta indica y, como evidencia, la respuesta de la persona copiada tal cual (por ejemplo "si"). Un sí o un no a una pregunta que no pide ninguno de los campos no es un dato: no incluyas nada. "No hice nada", "no sé" o "no entiendo" NO son un "no" al dato: no incluyas ese filtro.
 - casilleros (cada uno con su descripción en "casilleros_definidos"): situacion, objetivo, brecha, historial, compromiso, con "texto" = lo que dijo, resumido en pocas palabras, sin agregar nada y en tercera persona de cortesía ("le descuentan ganancias", "no sabía que se podía reclamar"), nunca en primera persona. "objetivo" es lo que la persona dice que QUIERE lograr ("quiero…", "necesito…", "busco…"): contar su situación o que le descuentan no es un objetivo; si no lo dijo, no lo incluyas. "brecha" es por qué no lo resolvió hasta ahora (no sabía, no se animó, no tuvo tiempo, no pudo). "historial" es qué intentó antes. Un mismo fragmento no sirve de evidencia para dos casilleros.
 - evidencia (en filtros y casilleros): una frase COPIADA TAL CUAL de un mensaje de la persona que respalde el dato. Si no podés copiarla, no incluyas el dato.
 - emocion: SOLO si el último mensaje de la persona expresa preocupación, frustración, cansancio o necesidad (me preocupa, no puedo, intenté, necesito, quiero que…, me cuesta, estoy cansada, me frustra, es injusto…); "frase" = esa oración copiada tal cual. Aceptar, decir sí, elegir o saludar NO es una emoción: null.
@@ -2009,6 +2009,9 @@ export function preguntaDelAgente(texto: string): string | null {
   return oraciones.length ? oraciones[oraciones.length - 1] : null;
 }
 
+/** "no sé", "no entiendo", "no hice nada": empiezan con "no" pero no niegan el dato por el que se preguntó. */
+const REGEX_NO_NIEGA = /^no (?:se|entiendo|entendi|hice|hicimos|recuerdo|me acuerdo|tengo idea|comprendo|puedo|quiero)\b/;
+
 export function validarExtraccion(raw: any, a: { cfg: ConfigCliente; personaTextos: string[]; ofrecidos: SlotOfrecido[]; /** Último mensaje del agente. */ ultimoAgente?: string; /** Campo que el agente preguntó en ese mensaje. */ preguntaPendiente?: string | null }): Extraccion {
   if (!raw || typeof raw !== 'object' || !Array.isArray(raw.filtros) || !Array.isArray(raw.casilleros)) return extraccionVacia(true);
   const out = extraccionVacia();
@@ -2035,6 +2038,8 @@ export function validarExtraccion(raw: any, a: { cfg: ConfigCliente; personaText
       const coincide = cortaPersona && (valor === 'si' ? dicenSi : dicenNo);
       evidencia = pregunta && a.preguntaPendiente === def.campo && coincide ? pregunta : null;
     }
+    // un "no hice nada" / "no sé" / "no entiendo" no es un NO al dato
+    if (valor === 'no' && def.tipo === 'si_no' && REGEX_NO_NIEGA.test(limpiarParaComparar(f?.evidencia ?? ''))) continue;
     if (valor && evidencia) out.filtros.push({ campo: def.campo, valor, evidencia: evidencia.slice(0, 300) });
   }
   for (const c of raw.casilleros) {
@@ -2401,6 +2406,8 @@ Cada mensaje tiene tres partes, en este orden:
 
 /** Mientras el objetivo es una de estas, el redactor NO recibe la oferta, el abogado, los horarios ni los precios: no puede mencionar lo que no tiene. */
 export const OBJETIVOS_SIN_OFERTA = ['descubrir', 'descubrir_situacion', 'profundizar', 'obtener_filtro', 'trabajar_objecion', 'no_califica'];
+/** Objetivos cuyo mensaje tiene que traer una pregunta con signos (a ella responde un "sí" o un "no" corto de la persona). */
+export const OBJETIVOS_CON_PREGUNTA = ['obtener_filtro', 'descubrir', 'descubrir_situacion', 'profundizar', 'obtener_dato_agenda', 'ofrecer_horarios', 'preguntar_cual', 'reorganizar_y_ofrecer'];
 export const PROMPT_REDACTOR_HORARIOS = `## Horarios
 - Ofrecé exactamente DOS, cada uno con su día y fecha, tal cual figuran en el objetivo.
 - Usá solo los horarios que figuran en el objetivo. Nunca otros.`;
@@ -2698,6 +2705,7 @@ async function turnoV2(a: {
     if (salida.objetivos.some(o => o.tipo === 'cerrar_con_respeto') && texto.includes('?')) problemas.push('Cerrá sin ninguna pregunta: agradecé y dejá la puerta abierta.');
     const temaMal = texto && estado.oferta ? temaMalNombrado(texto, cfg.ofertas[estado.oferta]?.etiqueta ?? '') : null;
     if (temaMal) problemas.push(`Escribiste «${temaMal}»: nombrá el tema solo como «${cfg.ofertas[estado.oferta!].etiqueta}», nunca como lo escribió la persona.`);
+    if (texto && salida.objetivos.some(o => OBJETIVOS_CON_PREGUNTA.includes(o.tipo)) && !texto.includes('?')) problemas.push('Terminá con UNA pregunta escrita con signos de interrogación (¿…?): la persona tiene que ver claramente qué se le pregunta.');
     const muletilla = texto ? muletillaRepetida(texto, anterioresAgente) : null;
     if (muletilla) problemas.push(`Empezaste igual que uno de tus últimos mensajes («${muletilla}…»): variá el reflejo o integralo dentro de la frase, con otra estructura.`);
     let corregir = problemas;

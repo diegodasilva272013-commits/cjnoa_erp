@@ -3784,10 +3784,10 @@ describe('agente v2 · director + extractor + redactor (todo con modelo simulado
   });
   it('ronda 1 · aplicar: un dato ya sabido no se pisa con un re-informe que no sale del último mensaje', () => {
     const e0 = aplicarExtraccion(estadoV2Vacio(), validarExtraccion(raw({ oferta_detectada: 'art9_ganancias', filtros: [fil('es_docente', 'si', 'soy docente jubilada')] }), { cfg: CONFIG_CLIENTE, personaTextos: ['soy docente jubilada'], ofrecidos: [] }), CONFIG_CLIENTE, null, 'soy docente jubilada');
-    const textos = ['soy docente jubilada', 'No sé'];
-    const e1 = aplicarExtraccion(e0, validarExtraccion(raw({ filtros: [fil('es_docente', 'no', 'No sé')] }), { cfg: CONFIG_CLIENTE, personaTextos: textos, ofrecidos: [] }), CONFIG_CLIENTE, null, 'otra cosa');
+    const textos = ['soy docente jubilada', 'No soy docente'];
+    const e1 = aplicarExtraccion(e0, validarExtraccion(raw({ filtros: [fil('es_docente', 'no', 'No soy docente')] }), { cfg: CONFIG_CLIENTE, personaTextos: textos, ofrecidos: [] }), CONFIG_CLIENTE, null, 'otra cosa');
     expect(e1.filtros.es_docente.valor).toBe('si');
-    const e2 = aplicarExtraccion(e0, validarExtraccion(raw({ filtros: [fil('es_docente', 'no', 'No sé')] }), { cfg: CONFIG_CLIENTE, personaTextos: textos, ofrecidos: [] }), CONFIG_CLIENTE, null, 'No sé');
+    const e2 = aplicarExtraccion(e0, validarExtraccion(raw({ filtros: [fil('es_docente', 'no', 'No soy docente')] }), { cfg: CONFIG_CLIENTE, personaTextos: textos, ofrecidos: [] }), CONFIG_CLIENTE, null, 'No soy docente');
     expect(e2.filtros.es_docente.valor).toBe('no');
   });
   it('ronda 2 · extractor: un "objetivo" inventado de la frase de la situación se descarta; el que dice lo que quiere se guarda', () => {
@@ -3945,7 +3945,7 @@ describe('agente v2 · director + extractor + redactor (todo con modelo simulado
     const anterior = 'Cuénteme con sus palabras, ¿qué le gustaría lograr con esto?';
     const c = await conversar([
       { persona: FRASE1, extractor: () => art9 },
-      { persona: 'No sé bien', extractor: () => raw() },
+      { persona: 'No soy docente bien', extractor: () => raw() },
     ], () => { const k = n++; return k === 0 ? anterior : k === 1 ? 'Perdón: cuénteme con sus palabras, ¿qué le gustaría lograr con esto?' : 'Si lo piensa con calma, ¿qué sería lo más importante para usted?'; }, undefined, verificadorSimulado(llamadas));
     expect(c.cuerpos[1].v2.verificador[0].ok).toBe(false);
     expect(c.cuerpos[1].v2.verificador[0].motivo).toContain('repite lo que ya dijo');
@@ -4467,6 +4467,21 @@ describe('agente v2 · respuestas cortas, derivación y oferta (modelo simulado,
       expect(c.tipos[2]).toEqual(['obtener_filtro:jubilado_anses']);
       expect(c.estadoV2().etapa).not.toBe('derivado');
       expect(c.cuerpos.every(b => !(b.herramientas ?? []).includes('derivar_a_humano'))).toBe(true);
+    });
+    it('ronda 1 · "no hice nada" / "no sé" / "no entiendo" no son un NO al dato por el que se preguntó', () => {
+      for (const frase of ['no hice nada', 'no se', 'no entiendo']) expect(validar('no', frase, { agente: '¿Le descuentan Ganancias?', pendiente: 'descuento_art9_ganancias' }).filtros).toEqual([]);
+      expect(validar('no', 'no me descuentan', { agente: '¿Le descuentan Ganancias?', pendiente: 'descuento_art9_ganancias' }).filtros).toHaveLength(1);
+      expect(PROMPT_EXTRACTOR).toContain('"No hice nada", "no sé" o "no entiendo" NO son un "no" al dato');
+    });
+    it('ronda 1 · el mensaje que pregunta un filtro sin signos de pregunta se corrige para que lleve su pregunta (a ella responde el "si")', async () => {
+      let n = 0;
+      const c = await conversar([
+        { persona: 'hola', extractor: () => raw() },
+        { persona: 'art.98', extractor: () => raw({ oferta_detectada: A9 }) },
+      ], (_s, mensajes) => { n++; if (n < 2) return 'Hola, soy Karina. ¿En qué puedo ayudarle?'; return mensajes.some((m: any) => String(m.content).startsWith('[SISTEMA ERP: Corregí')) ? 'Sobre el Artículo 9: ¿es usted docente jubilada?' : 'Me gustaría saber si es usted docente jubilada.'; });
+      expect(c.tipos[1]).toEqual(['obtener_filtro:es_docente']);
+      expect(c.cuerpos[1].v2.redactor).toHaveLength(2);
+      expect(c.cuerpos[1].respuestas[0]).toContain('¿es usted docente jubilada?');
     });
     it('conversación: un "si" a una pregunta que no es un filtro no registra nada', async () => {
       const c = await conversar([
