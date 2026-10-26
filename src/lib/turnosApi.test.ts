@@ -3787,6 +3787,23 @@ describe('agente v2 · director + extractor + redactor (todo con modelo simulado
     const e2 = aplicarExtraccion(e0, validarExtraccion(raw({ filtros: [fil('es_docente', 'no', 'No sé')] }), { cfg: CONFIG_CLIENTE, personaTextos: textos, ofrecidos: [] }), CONFIG_CLIENTE, null, 'No sé');
     expect(e2.filtros.es_docente.valor).toBe('no');
   });
+  it('ronda 2 · extractor: un "objetivo" inventado de la frase de la situación se descarta; el que dice lo que quiere se guarda', () => {
+    const P = 'Hola, soy docente jubilada por ANSES y me descuentan ganancias';
+    const base = { cfg: CONFIG_CLIENTE, personaTextos: [P], ofrecidos: [] };
+    expect(validarExtraccion(raw({ casilleros: [cas('situacion', 'docente jubilada', P), cas('objetivo', 'consultar sobre descuentos', P)] }), base).casilleros.map(c => c.casillero)).toEqual(['situacion']);
+    const Q = 'Quiero que dejen de sacarme plata, es injusto';
+    expect(validarExtraccion(raw({ casilleros: [cas('objetivo', 'que dejen de descontarle', Q)] }), { ...base, personaTextos: [P, Q] }).casilleros.map(c => c.casillero)).toEqual(['objetivo']);
+    expect(PROMPT_EXTRACTOR).toContain('casilleros_definidos');
+    expect(PROMPT_EXTRACTOR).toContain('es injusto');
+  });
+  it('ronda 2 · una queja antes de proponer algo no es una objeción: se atiende como emoción (profundizar), no trabajar_objecion', async () => {
+    const Q = 'Quiero que dejen de sacarme plata, es injusto';
+    const c = await conversar([
+      { persona: FRASE1, extractor: () => art9 },
+      { persona: Q, extractor: () => raw({ intencion: 'objecion', emocion: { frase: Q }, casilleros: [cas('objetivo', 'que dejen de descontarle', Q)] }) },
+    ]);
+    expect(c.tipos[1]).toEqual([`profundizar:${Q}`]);
+  });
   it('ronda 1 · config: cada filtro lleva su ayuda para el extractor ("maestra" es docente) y el extractor las recibe', () => {
     const f = CONFIG_CLIENTE.ofertas.art9_ganancias.filtros.find(x => x.campo === 'es_docente')!;
     expect(f.ayuda).toMatch(/maestra/i);

@@ -1971,10 +1971,10 @@ Informá lo que la persona dijo en su ÚLTIMO mensaje. Lo que ya figura en "esta
 Reglas:
 - oferta_detectada: la oferta (de la lista "ofertas") por la que consulta, o null si todavía no se sabe.
 - filtros: datos de los campos (de la oferta, de datos_para_agendar y los que pide el estado). Cada campo trae una "ayuda": seguila. "si_no" => valor "si" o "no"; "no" SOLO si lo niega o dice algo incompatible, nunca por duda. "numero" => solo el número. "opcion" => uno de los valores permitidos.
-- casilleros: situacion, objetivo, brecha, historial, compromiso, con "texto" = lo que dijo, resumido en pocas palabras, sin agregar nada.
+- casilleros (cada uno con su descripción en "casilleros_definidos"): situacion, objetivo, brecha, historial, compromiso, con "texto" = lo que dijo, resumido en pocas palabras, sin agregar nada. "objetivo" es lo que la persona dice que QUIERE lograr ("quiero…", "necesito…", "busco…"): contar su situación o que le descuentan no es un objetivo; si no lo dijo, no lo incluyas. "brecha" es por qué no lo resolvió hasta ahora (no sabía, no se animó, no tuvo tiempo, no pudo). "historial" es qué intentó antes. Un mismo fragmento no sirve de evidencia para dos casilleros.
 - evidencia (en filtros y casilleros): una frase COPIADA TAL CUAL de un mensaje de la persona que respalde el dato. Si no podés copiarla, no incluyas el dato.
 - emocion: SOLO si el último mensaje de la persona expresa preocupación, frustración, cansancio o necesidad (me preocupa, no puedo, intenté, necesito, quiero que…, me cuesta, estoy cansada, me frustra, es injusto…); "frase" = esa oración copiada tal cual. Aceptar, decir sí, elegir o saludar NO es una emoción: null.
-- intencion del ÚLTIMO mensaje: pregunta (la persona hace una pregunta), objecion (duda, excusa, "lo voy a pensar", "es caro"), acepta (quiere avanzar), elige_horario (elige uno de los horarios ofrecidos), rechaza_horarios (no puede esos días u horarios o pide otro), rechazo_firme (dice con claridad que no le interesa: "no me interesa", "no quiero", "dejá de escribirme"), ambiguo (responde "sí", "dale", "cualquiera" sin precisar a algo que ofrecía varias opciones), otro.
+- intencion del ÚLTIMO mensaje: pregunta (la persona hace una pregunta), objecion (duda o resistencia a una propuesta del agente: "lo voy a pensar", "es caro", "no tengo tiempo"; una queja sobre su situación, como "es injusto", NO es una objeción), acepta (quiere avanzar), elige_horario (elige uno de los horarios ofrecidos), rechaza_horarios (no puede esos días u horarios o pide otro), rechazo_firme (dice con claridad que no le interesa: "no me interesa", "no quiero", "dejá de escribirme"), ambiguo (responde "sí", "dale", "cualquiera" sin precisar a algo que ofrecía varias opciones), otro.
 - pregunta_de_la_persona: SOLO si el último mensaje de la persona contiene una pregunta suya, copiada tal cual; nunca una pregunta del agente. "No sé qué hacer" no es una pregunta: null.
 - horario_elegido: solo si eligió uno de "horarios_ofrecidos" ("el primero", "el segundo", "el martes", "a las 10"): copiá su fecha y hora exactas de esa lista; si no, null.
 Devolvé solo el JSON.`;
@@ -1982,6 +1982,8 @@ Devolvé solo el JSON.`;
 const normalizarHoraSimple = (h: string) => { const m = /^(\d{1,2}):(\d{2})/.exec(String(h).trim()); return m ? `${m[1].padStart(2, '0')}:${m[2]}` : ''; };
 
 /** Valida lo que devolvió el extractor contra lo que la persona escribió de verdad. Lo que no valida, se descarta. */
+const REGEX_QUIERE = /\b(?:quiero|queremos|quisiera|quisieramos|necesito|necesitamos|busco|buscamos|espero|pretendo|deseo|me gustaria|nos gustaria|lograr|dejen de|dejar de|que (?:me )?(?:devuelvan|reintegren|reconozcan|corrijan|paren|saquen)|recuperar|reclamar|saber si|poder\b)/;
+
 export function validarExtraccion(raw: any, a: { cfg: ConfigCliente; personaTextos: string[]; ofrecidos: SlotOfrecido[] }): Extraccion {
   if (!raw || typeof raw !== 'object' || !Array.isArray(raw.filtros) || !Array.isArray(raw.casilleros)) return extraccionVacia(true);
   const out = extraccionVacia();
@@ -2003,6 +2005,8 @@ export function validarExtraccion(raw: any, a: { cfg: ConfigCliente; personaText
     const texto = String(c?.texto ?? '').trim();
     if (!(casillero in a.cfg.casilleros) || !texto) continue;
     const evidencia = evidenciaCompleta(String(c?.evidencia ?? '').trim(), a.personaTextos, []);
+    // El objetivo es lo que la persona dice que QUIERE: contar su situación no alcanza (el extractor a veces lo inventa de la misma frase).
+    if (casillero === 'objetivo' && evidencia && !REGEX_QUIERE.test(limpiarParaComparar(evidencia))) continue;
     if (evidencia) out.casilleros.push({ casillero, texto: texto.slice(0, 300), evidencia: evidencia.slice(0, 300) });
   }
   out.intencion = (INTENCIONES as readonly string[]).includes(raw.intencion) ? raw.intencion : 'otro';
@@ -2150,7 +2154,7 @@ export async function dirigirTurno(a: EntradaDirector): Promise<SalidaDirector> 
 
   const principal = async (): Promise<Objetivo> => {
     // 2. objeción
-    if (ext.intencion === 'objecion') {
+    if (ext.intencion === 'objecion' && estado.etapa !== 'descubrir') { // antes de proponer algo, una queja no es una objeción: se atiende como emoción
       return { tipo: 'trabajar_objecion', texto: 'La persona puso una duda u objeción. Primero entendé qué hay detrás con UNA pregunta abierta y cálida. No discutas, no insistas y no la respondas todavía con argumentos.' };
     }
     // 3. emoción nueva
@@ -2313,7 +2317,8 @@ El sistema ya decidió qué corresponde, qué datos tiene la persona y qué hora
 - Una idea por mensaje. Sin anunciar preguntas ("le voy a hacer unas preguntas"), sin numerar, sin menús de opciones.
 
 ## Lo que nunca hacés
-- Frases hechas: "le entiendo", "lo entiendo", "comprendo", "es comprensible", "estoy aquí para ayudarle", "quedo a su disposición", "no dude en contactarme"; ni empezar con "Entiendo,".
+- Frases hechas: "le entiendo", "lo entiendo", "comprendo", "es comprensible que…", "es natural que…", "es válido que…", "estoy aquí para ayudarle", "quedo a su disposición", "no dude en contactarme"; ni empezar con "Entiendo" ni con "Entiendo que…". Mostrá que entendiste repitiendo SUS palabras, sin esos giros.
+- Ofrecer o mencionar la consulta, el abogado o coordinar algo, salvo que el objetivo de este mensaje sea justamente ofrecerla. Y no cerrar con "si tiene otra consulta…".
 - Prometer o insinuar resultados, montos, recuperos ni plazos de resolución. Del abogado solo decís que analiza su caso y explica qué se puede hacer y los pasos.
 - Decir "necesito confirmar", "necesito saber", "un par de detalles" ni nada parecido.
 - Preguntar algo que figure en LO QUE YA SABÉS DE ESTA PERSONA, aunque lo haya dicho con otras palabras.
@@ -2397,6 +2402,7 @@ async function turnoV2(a: {
     ofertas: Object.fromEntries(Object.entries(cfg.ofertas).map(([id, o]) => [id, { descripcion: o.descripcion, campos: [...o.filtros, ...o.filtros_de_cierre, ...(o.datos_antes_de_horarios ?? [])].map(f => ({ campo: f.campo, tipo: f.tipo, valores: f.valores, descripcion: f.descripcion, ayuda: f.ayuda })) }])),
     datos_para_agendar: (cfg.datos_agenda ?? []).map(f => ({ campo: f.campo, tipo: f.tipo, descripcion: f.descripcion, ayuda: f.ayuda })),
     estado: { oferta: estadoAntes.oferta, filtros: Object.fromEntries(Object.entries(estadoAntes.filtros).map(([k, v]) => [k, v.valor])), casilleros: Object.fromEntries(Object.entries(estadoAntes.casilleros).filter(([, v]) => v).map(([k, v]) => [k, (v as any).texto])) },
+    casilleros_definidos: cfg.casilleros,
     horarios_ofrecidos: ofrecidos.map(x => ({ fecha: x.fecha, hora: x.hora })),
     mensajes_recientes: recientes,
   });
