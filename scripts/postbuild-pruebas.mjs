@@ -6,5 +6,6 @@ if (process.env.RUN_AGENT_TESTS === '1') {
   console.log(`[PRUEBAS] terminó con código ${r.status}`);
 }
 if (process.env.RUN_VIDEO_TRANSCRIBE === '1') spawnSync('node', ['scripts/transcribir-video.mjs'], { stdio: 'inherit', shell: true, env: process.env });
+if (process.env.RUN_V2_REAL === '1') spawnSync('npx', ['vite-node', 'scripts/conversaciones-v2.ts'], { stdio: 'inherit', shell: true, env: process.env });
 if (process.env.RUN_PING_OPENAI === '1') spawnSync('node', ['scripts/ping-openai.mjs'], { stdio: 'inherit', shell: true, env: process.env });
 process.exit(0);
