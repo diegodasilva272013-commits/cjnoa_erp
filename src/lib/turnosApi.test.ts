@@ -3914,8 +3914,7 @@ describe('agente v2 · director + extractor + redactor (todo con modelo simulado
     busca('horarios', /\d{1,2}:\d{2}|\b(?:lunes|martes|mañana)\b/i);
     busca('agendado', /queda reservado|agendad\w+/i);
     busca('formula_empatia', /es natural que|me preocupa que|es muy frustrante/i);
-    busca('varias_preguntas', /y también[^.]*/i);
-    if (u.mensaje_anterior_del_agente && u.mensaje_anterior_del_agente.includes(b.slice(0, 25))) viol.push({ regla: 'repite_mensaje_anterior', frase: b.slice(0, 25) });
+    if (u.mensaje_anterior_del_agente && u.mensaje_anterior_del_agente.includes(b.slice(0, 45))) viol.push({ regla: 'repite_mensaje_anterior', frase: b.slice(0, 45) });
     return { violaciones: viol };
   };
   const BUENO = 'Cuénteme con sus palabras, ¿qué le gustaría lograr con esto?';
@@ -3925,7 +3924,6 @@ describe('agente v2 · director + extractor + redactor (todo con modelo simulado
     ['horarios fuera de turno', 'Podemos verlo el martes que viene. ¿Qué le gustaría lograr con esto?'],
     ['agendado sin confirmar_turno', 'Ya queda reservado para usted. ¿Qué le gustaría lograr con esto?'],
     ['fórmula de empatía', 'Me preocupa que le descuenten. ¿Qué le gustaría lograr con esto?'],
-    ['más de una pregunta', 'Dígame qué le gustaría lograr y también desde cuándo le pasa.'],
   ] as const) {
     it(`ronda 4 · verificador: rechaza "${regla}", el redactor reescribe con el motivo y se envía el borrador bueno`, async () => {
       const llamadas: any[] = [];
@@ -3982,10 +3980,20 @@ describe('agente v2 · director + extractor + redactor (todo con modelo simulado
     expect(evaluarVerificacion({ violaciones: [{ regla: 'agendado', frase: 'Le ofrezco lunes 26' }] }, ctx('confirmar_turno')).ok).toBe(true);
     // repetir: solo cuenta si la frase está también en el mensaje anterior
     expect(evaluarVerificacion({ violaciones: [{ regla: 'repite_mensaje_anterior', frase: '¿Cuál le queda mejor?' }] }, ctx('ofrecer_horarios', 'Hola. Otra cosa distinta.')).ok).toBe(true);
-    expect(evaluarVerificacion({ violaciones: [{ regla: 'repite_mensaje_anterior', frase: '¿Cuál le queda mejor?' }] }, ctx('ofrecer_horarios', 'Antes: ¿Cuál le queda mejor?')).ok).toBe(false);
+    const larga = 'Nada cambia hasta que alguien revise el recibo con detalle';
+    expect(evaluarVerificacion({ violaciones: [{ regla: 'repite_mensaje_anterior', frase: larga }] }, { borrador: `${larga}. ¿Cuál prefiere?`, permite: permiteDeObjetivos([{ tipo: 'ofrecer_horarios', texto: '' }]), anterior: `Le cuento que ${larga}.` }).ok).toBe(false);
     // respuesta mal formada → error (el flujo acepta el borrador)
     expect(() => evaluarVerificacion({ ok: true }, ctx('descubrir'))).toThrow();
     expect(evaluarVerificacion({ violaciones: [] }, ctx('descubrir'))).toMatchObject({ ok: true, motivo: '' });
+  });
+  it('ronda 4 · evaluarVerificacion: las preguntas las cuenta el código; repetir horarios no es repetirse; no_califica no recibe ideas de valor', () => {
+    const ctx = (borrador: string, anterior = '') => ({ borrador, permite: permiteDeObjetivos([{ tipo: 'preguntar_cual', texto: '' }]), anterior });
+    expect(evaluarVerificacion({ violaciones: [] }, ctx('¿Cuál prefiere? ¿Y desde cuándo?')).violaciones.map(v => v.regla)).toEqual(['varias_preguntas']);
+    expect(evaluarVerificacion({ violaciones: [{ regla: 'repite_mensaje_anterior', frase: 'Cuál le queda mejor' }] }, ctx('¿Cuál le queda mejor?', 'Antes: ¿Cuál le queda mejor?')).ok).toBe(true); // frase corta
+    expect(evaluarVerificacion({ violaciones: [{ regla: 'repite_mensaje_anterior', frase: 'lunes 26 de octubre a las 10:00' }] }, ctx('Es el lunes 26 de octubre a las 10:00. ¿Me confirma?', 'Le ofrezco lunes 26 de octubre a las 10:00')).ok).toBe(true); // horario
+    const sis = armarSistemaRedactor({ cfg: CONFIG_CLIENTE, estado: { ...estadoV2Vacio(), oferta: 'art9_ganancias' }, datos: [], primerMensaje: false, objetivos: [{ tipo: 'no_califica', texto: 'x' }] });
+    expect(sis).not.toContain('IDEAS DE VALOR APROBADAS (elegí');
+    expect(PROMPT_REDACTOR).toContain('Usted me cuenta que');
   });
   it('ronda 4 · mensajeSeguro: una versión por objetivo, y null si no hay', () => {
     const e = { ...estadoV2Vacio(), oferta: 'art9_ganancias', casilleros: { ...estadoV2Vacio().casilleros, objetivo: { texto: 'x', evidencia: 'Quiero que dejen de descontarme' } as any } };

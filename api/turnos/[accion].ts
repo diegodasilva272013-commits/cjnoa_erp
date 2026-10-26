@@ -2328,7 +2328,7 @@ El sistema ya decidió qué corresponde, qué datos tiene la persona y qué hora
 
 ## Cómo escribís cada mensaje
 Cada mensaje tiene tres partes, en este orden:
-1. Mostrás que entendiste lo que dijo y lo que siente, con SUS palabras, nunca con una fórmula.
+1. Mostrás que entendiste lo que dijo y lo que siente, con SUS palabras, nunca con una fórmula. No expreses emociones ni valoraciones tuyas ("me preocupa", "debe ser difícil", "es frustrante"): repetí lo que dijo, por ejemplo "Usted me cuenta que…" o "Si entiendo bien, …", y seguí.
 2. Aportás valor en UNA frase: algo que le ordene la situación o le haga ver algo que no estaba viendo, sin vender ni prometer. Si el sistema te da IDEAS DE VALOR APROBADAS, elegí UNA que tenga que ver con lo que dijo la persona y decila con sus palabras: no inventes otra. Si no te da ninguna en este turno, omití esta parte. Por ejemplo (no se copia literal): "muchas personas en su situación descubren el descuento recién cuando miran el recibo con detalle."
 3. La pregunta del objetivo, si corresponde (UNA sola). Si el objetivo no pide pregunta, no inventes una.
 - Mensajes cortos: de dos a cuatro frases, texto plano de WhatsApp, sin listas, viñetas, negritas ni emojis.
@@ -2363,7 +2363,7 @@ export function armarSistemaRedactor(a: { cfg: ConfigCliente; objetivos: Objetiv
   const conHorarios = a.objetivos.some(o => o.tipo === 'ofrecer_horarios' || o.tipo === 'preguntar_cual');
   const datos = sinOferta ? [] : a.datos;
   const ideas = (a.estado.oferta ? a.cfg.ofertas[a.estado.oferta]?.ideas_de_valor : undefined) ?? [];
-  const conIdeas = ideas.length > 0 && (sinOferta || a.objetivos.some(o => o.tipo === 'reorganizar_y_ofrecer'));
+  const conIdeas = ideas.length > 0 && ((sinOferta && !a.objetivos.some(o => o.tipo === 'no_califica')) || a.objetivos.some(o => o.tipo === 'reorganizar_y_ofrecer'));
   return [
     PROMPT_REDACTOR,
     conHorarios ? `\n${PROMPT_REDACTOR_HORARIOS}` : '',
@@ -2387,10 +2387,9 @@ Categorías:
 - agendado: dice o da a entender que un turno está agendado, reservado o confirmado ("queda reservado", "quedó agendada", "ya está").
 - formula_empatia: usa una fórmula de empatía en vez de las palabras de la persona ("Es natural que", "Es comprensible que", "Me preocupa que", "Es muy frustrante", "Es preocupante", "Entiendo que", "Comprendo que"), o el agente habla de sus propias emociones.
 - repite_mensaje_anterior: repite una frase o una idea que ya figura en el MENSAJE ANTERIOR (copiá la frase del borrador).
-- varias_preguntas: hace más de una pregunta, aunque alguna no lleve signos de interrogación.
 No inventes violaciones: si no estás seguro, no la listes.`;
 
-export const REGLAS_VERIFICADOR = ['promesa', 'consulta_o_abogado', 'horarios', 'precios', 'agendado', 'formula_empatia', 'repite_mensaje_anterior', 'varias_preguntas'] as const;
+export const REGLAS_VERIFICADOR = ['promesa', 'consulta_o_abogado', 'horarios', 'precios', 'agendado', 'formula_empatia', 'repite_mensaje_anterior'] as const;
 export const esquemaVerificador = {
   type: 'object', additionalProperties: false, required: ['violaciones'],
   properties: { violaciones: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['regla', 'frase'], properties: { regla: { type: 'string', enum: [...REGLAS_VERIFICADOR] }, frase: { type: 'string' } } } } },
@@ -2401,7 +2400,7 @@ const INSTRUCCION_REGLA: Record<string, string> = {
   horarios: 'menciona horarios y todavía no corresponde',
   precios: 'menciona precios y todavía no corresponde',
   agendado: 'da a entender que hay un turno agendado o reservado y todavía no lo está',
-  formula_empatia: 'usa una fórmula de empatía: mostrá que entendiste con las palabras de la persona',
+  formula_empatia: 'usa una fórmula o una valoración propia: no expreses emociones tuyas; reformulá esa parte como «Usted me cuenta que…» con las palabras de la persona',
   repite_mensaje_anterior: 'repite lo que ya dijo en su mensaje anterior',
   varias_preguntas: 'tiene más de una pregunta',
 };
@@ -2421,9 +2420,11 @@ export function evaluarVerificacion(crudo: any, a: { borrador: string; permite: 
     if (regla === 'horarios' && a.permite.horarios) continue;
     if (regla === 'precios' && a.permite.precios) continue;
     if (regla === 'agendado' && a.permite.agendado) continue;
-    if (regla === 'repite_mensaje_anterior' && !(a.anterior && en(a.anterior, frase))) continue;
+    // repetir los horarios o el nombre del turno es necesario; lo que cuenta es repetir una frase propia
+    if (regla === 'repite_mensaje_anterior' && !(a.anterior && en(a.anterior, frase) && frase.split(/\s+/).length >= 5 && !/\d{1,2}[:.]\d{2}/.test(frase))) continue;
     validas.push({ regla, frase: frase.slice(0, 200) });
   }
+  if ((a.borrador.match(/\?/g) ?? []).length > 1) validas.push({ regla: 'varias_preguntas', frase: 'más de una pregunta' });
   const motivo = validas.map(v => `La frase «${v.frase}» ${INSTRUCCION_REGLA[v.regla]}.`).join(' ').slice(0, 500);
   return { ok: validas.length === 0, motivo, violaciones: validas };
 }
@@ -2448,7 +2449,7 @@ export function mensajeSeguro(a: { objetivos: Objetivo[]; estado: EstadoV2; cfg:
   const oferta = a.estado.oferta ? a.cfg.ofertas[a.estado.oferta] : null;
   const dicho = a.textoCliente.trim().replace(/\s+/g, ' ');
   const reflejo = dicho.length >= 12 && !['acepta', 'ambiguo', 'elige_horario', 'rechaza_horarios'].includes(a.intencion)
-    ? `Gracias por contármelo: «${dicho.length > 160 ? `${dicho.slice(0, 157).trim()}…` : dicho}».` : 'Perfecto.';
+    ? `Gracias por contármelo: «${dicho.length > 100 ? `${dicho.slice(0, 97).replace(/\s+\S*$/, '').trim()}…` : dicho}».` : 'Perfecto.';
   const saludo = a.primerMensaje ? `Hola, soy ${a.cfg.agente.nombre}, del ${a.cfg.agente.estudio}. ` : '';
   const pregunta = (campo: unknown) => { const d = definicionDeFiltro(a.cfg, String(campo)); return d?.pregunta ?? (d ? `¿Me cuenta ${d.descripcion}?` : null); };
   const dia = (x: { fecha: string; hora: string }) => `${nombreDeDia(x.fecha)} a las ${x.hora}`;
