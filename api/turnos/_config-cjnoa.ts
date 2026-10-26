@@ -27,19 +27,22 @@ export const CONFIG_CJNOA = {
           "campo": "es_docente",
           "tipo": "si_no",
           "descripcion": "si es docente jubilado/a",
-          "ayuda": "Docente incluye maestra/o, profesora/o y personal de escuela o de colegio. \"Soy maestra\", \"fui maestra 30 años\", \"me jubilé como docente\" => si. Solo es no si lo niega o dice otra ocupación (administrativa, empleada, etc.)."
+          "ayuda": "Docente incluye maestra/o, profesora/o y personal de escuela o de colegio. \"Soy maestra\", \"fui maestra 30 años\", \"me jubilé como docente\" => si. Solo es no si lo niega o dice otra ocupación (administrativa, empleada, etc.).",
+          "pregunta": "¿Usted es docente?"
         },
         {
           "campo": "jubilado_anses",
           "tipo": "si_no",
           "descripcion": "si se jubiló por ANSES",
-          "ayuda": "\"Me jubilé por ANSES\", \"jubilada de ANSES\", \"cobro de ANSES\" => si. \"Caja provincial\" u otra caja => no."
+          "ayuda": "\"Me jubilé por ANSES\", \"jubilada de ANSES\", \"cobro de ANSES\" => si. \"Caja provincial\" u otra caja => no.",
+          "pregunta": "¿Se jubiló por ANSES?"
         },
         {
           "campo": "descuento_art9_ganancias",
           "tipo": "si_no",
           "descripcion": "si le descuentan Artículo 9 y/o Ganancias",
-          "ayuda": "\"Me descuentan ganancias\", \"me retienen del haber\", \"me sacan del haber por ganancias o por el artículo 9\" => si. Decir solo \"me sacan plata\" sin decir qué es (ganancias, artículo 9 o una retención del haber) NO alcanza: no lo incluyas."
+          "ayuda": "\"Me descuentan ganancias\", \"me retienen del haber\", \"me sacan del haber por ganancias o por el artículo 9\" => si. Decir solo \"me sacan plata\" sin decir qué es (ganancias, artículo 9 o una retención del haber) NO alcanza: no lo incluyas.",
+          "pregunta": "¿Le están descontando ganancias en el recibo de su haber?"
         }
       ],
       "filtros_de_cierre": [],
@@ -66,7 +69,22 @@ export const CONFIG_CJNOA = {
             "virtual"
           ],
           "descripcion": "si prefiere la consulta presencial (en San Salvador de Jujuy) o virtual",
-          "ayuda": "\"Virtual\", \"por videollamada\", \"por Meet o Zoom\", \"desde casa\" => virtual; \"presencial\", \"en persona\", \"voy al estudio\" => presencial."
+          "ayuda": "\"Virtual\", \"por videollamada\", \"por Meet o Zoom\", \"desde casa\" => virtual; \"presencial\", \"en persona\", \"voy al estudio\" => presencial.",
+          "pregunta": "¿Prefiere que la consulta sea presencial o virtual?"
+        }
+      ],
+      "ideas_de_valor": [
+        {
+          "texto": "Muchas veces ese descuento aparece en el recibo y nadie explica de dónde sale.",
+          "estado": "pendiente de aprobación del estudio"
+        },
+        {
+          "texto": "Cada caso es distinto, porque depende del haber y de cómo se calculó el descuento. Por eso lo mira un abogado.",
+          "estado": "pendiente de aprobación del estudio"
+        },
+        {
+          "texto": "Revisar el recibo con alguien que conoce el tema suele aclarar mucho.",
+          "estado": "pendiente de aprobación del estudio"
         }
       ]
     },
@@ -81,19 +99,22 @@ export const CONFIG_CJNOA = {
           "campo": "nombre",
           "tipo": "texto",
           "descripcion": "su nombre",
-          "ayuda": "Solo si la persona dice su nombre (\"me llamo…\", \"soy Ana López\") o contesta a una pregunta por su nombre. Una palabra suelta que contesta OTRA pregunta (virtual, presencial, sí, no) NO es un nombre."
+          "ayuda": "Solo si la persona dice su nombre (\"me llamo…\", \"soy Ana López\") o contesta a una pregunta por su nombre. Una palabra suelta que contesta OTRA pregunta (virtual, presencial, sí, no) NO es un nombre.",
+          "pregunta": "¿Me indica su nombre y apellido?"
         },
         {
           "campo": "edad",
           "tipo": "numero",
           "descripcion": "su edad",
-          "ayuda": "Solo el número que dice como su edad."
+          "ayuda": "Solo el número que dice como su edad.",
+          "pregunta": "¿Qué edad tiene?"
         },
         {
           "campo": "trabaja_docente",
           "tipo": "si_no",
           "descripcion": "si actualmente trabaja como docente",
-          "ayuda": "\"Sigo trabajando como docente\", \"todavía doy clases\" => si."
+          "ayuda": "\"Sigo trabajando como docente\", \"todavía doy clases\" => si.",
+          "pregunta": "¿Sigue trabajando como docente?"
         }
       ],
       "filtros_de_cierre": [
@@ -105,7 +126,8 @@ export const CONFIG_CJNOA = {
             "transferencia"
           ],
           "descripcion": "cómo prefiere abonar la reserva (transferencia o efectivo)",
-          "ayuda": "\"Transferencia\", \"por banco\", \"por Mercado Pago\" => transferencia; \"efectivo\", \"en las oficinas\" => efectivo."
+          "ayuda": "\"Transferencia\", \"por banco\", \"por Mercado Pago\" => transferencia; \"efectivo\", \"en las oficinas\" => efectivo.",
+          "pregunta": "¿Prefiere abonar la reserva por transferencia o en efectivo?"
         }
       ],
       "casilleros_minimos": {
@@ -126,7 +148,17 @@ export const CONFIG_CJNOA = {
         "descripcion": "video grabado por el Dr. Fabricio Reyes"
       },
       "cierre": "reserva_y_turno",
-      "datos_antes_de_horarios": []
+      "datos_antes_de_horarios": [],
+      "ideas_de_valor": [
+        {
+          "texto": "La edad y los años de servicio abren opciones distintas, por eso conviene revisarlo antes de iniciar el trámite.",
+          "estado": "pendiente de aprobación del estudio"
+        },
+        {
+          "texto": "Muchas personas llegan al trámite sin saber qué les conviene, y ahí se pierden opciones.",
+          "estado": "pendiente de aprobación del estudio"
+        }
+      ]
     }
   },
   "datos_agenda": [
@@ -134,7 +166,8 @@ export const CONFIG_CJNOA = {
       "campo": "nombre",
       "tipo": "texto",
       "descripcion": "su nombre y apellido",
-      "ayuda": "Solo si la persona dice su nombre (\"me llamo…\", \"soy Ana López\") o contesta a una pregunta por su nombre. Una palabra suelta que contesta OTRA pregunta (virtual, presencial, sí, no) NO es un nombre."
+      "ayuda": "Solo si la persona dice su nombre (\"me llamo…\", \"soy Ana López\") o contesta a una pregunta por su nombre. Una palabra suelta que contesta OTRA pregunta (virtual, presencial, sí, no) NO es un nombre.",
+      "pregunta": "¿Me indica su nombre y apellido?"
     }
   ],
   "ejemplos_pregunta": {

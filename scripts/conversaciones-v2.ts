@@ -75,6 +75,7 @@ async function main() {
       log(`${id} T${i + 1} EXTRACTOR: ${JSON.stringify(v2.extractor)}${v2.extractor_crudo && v2.extractor?.fallo ? ' | CRUDO: ' + JSON.stringify(v2.extractor_crudo).slice(0, 400) : ''}`);
       log(`${id} T${i + 1} HERRAMIENTAS(código): ${(r.body.trazas as any[]).map(h => `${h.nombre}(${JSON.stringify(h.input).slice(0, 120)})→${JSON.stringify(h.resultado).slice(0, 220)}`).join(' ; ') || '—'}`);
       log(`${id} T${i + 1} REDACTOR: intentos=${(v2.redactor ?? []).length}${(v2.redactor ?? []).length > 1 ? ' | primero: ' + JSON.stringify((v2.redactor as any[])[0]).slice(0, 300) : ''}`);
+      log(`${id} T${i + 1} VERIFICADOR: rechazos=${((v2.verificador ?? []) as any[]).filter(x => !x.ok).length} ${JSON.stringify(v2.verificador ?? [])}${v2.mensaje_seguro ? ' | MENSAJE SEGURO del director' : ''}`);
       log(`${id} T${i + 1} CONTROLES: ${JSON.stringify(marcas(agente))}`);
     }
     const agendas = (estado?.tablas?.consultas_agendadas ?? []).filter((x: any) => x.origen === 'agente');
