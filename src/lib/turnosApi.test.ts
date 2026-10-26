@@ -4086,6 +4086,21 @@ describe('agente v2 · director + extractor + redactor (todo con modelo simulado
     expect(c.tipos[2]).toEqual(['reorganizar_y_ofrecer']);
     expect(PROMPT_EXTRACTOR).toContain('RESPUESTA A UN CASILLERO');
   });
+  it('ronda 3 · "el primero" rotulado "acepta" por el extractor, con un horario ofrecido válido, vale como elección', () => {
+    const ofrecidos = [{ fecha: '2026-10-26', hora: '15:30', profesional: 'Alejandro' }, { fecha: '2026-10-27', hora: '09:00', profesional: 'Alejandro' }];
+    const v = validarExtraccion(raw({ intencion: 'acepta', horario_elegido: { fecha: '2026-10-26', hora: '15:30' } }), { cfg: CONFIG_CLIENTE, personaTextos: ['el primero'], ofrecidos });
+    expect(v.intencion).toBe('elige_horario');
+    expect(v.horario_elegido).toEqual({ fecha: '2026-10-26', hora: '15:30' });
+    // un horario que no está entre los ofrecidos no se acepta
+    expect(validarExtraccion(raw({ intencion: 'acepta', horario_elegido: { fecha: '2026-10-30', hora: '10:00' } }), { cfg: CONFIG_CLIENTE, personaTextos: ['el primero'], ofrecidos }).intencion).toBe('acepta');
+  });
+  it('ronda 3 · con la oferta Art. 9 ya definida, un filtro de otra oferta (forma_reserva) no se registra', async () => {
+    const c = await conversar([
+      { persona: FRASE1, extractor: () => art9 },
+      { persona: 'el primero', extractor: () => raw({ filtros: [fil('forma_reserva', 'efectivo', 'el primero')] }) },
+    ]);
+    expect(leerEstadoV2(c.lead().datos).filtros.forma_reserva).toBeUndefined();
+  });
   it('ronda 1 · config: cada filtro lleva su ayuda para el extractor ("maestra" es docente) y el extractor las recibe', () => {
     const f = CONFIG_CLIENTE.ofertas.art9_ganancias.filtros.find(x => x.campo === 'es_docente')!;
     expect(f.ayuda).toMatch(/maestra/i);

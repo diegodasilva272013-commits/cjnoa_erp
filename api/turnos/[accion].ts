@@ -2075,6 +2075,8 @@ export function validarExtraccion(raw: any, a: { cfg: ConfigCliente; personaText
     const hora = normalizarHoraSimple(String(h.hora ?? ''));
     if (a.ofrecidos.some(o => o.fecha === fecha && o.hora === hora)) out.horario_elegido = { fecha, hora };
   }
+  // Un horario que existe entre los ofrecidos y que la persona eligió vale como elección aunque el extractor la haya rotulado "acepta" (un "el primero" es aceptar Y elegir).
+  if (out.horario_elegido && ['acepta', 'otro', 'ambiguo'].includes(out.intencion)) out.intencion = 'elige_horario';
   return out;
 }
 
@@ -2651,7 +2653,13 @@ async function turnoV2(a: {
     try {
       crudo = await deps.extraer!(PROMPT_EXTRACTOR, usuario, esquema);
       const v = validarExtraccion(crudo, { cfg, personaTextos, ofrecidos, ultimoAgente: ultimoAgenteTexto, preguntaPendiente: estadoAntes.pregunta_pendiente?.campo ?? null });
-      if (!v.fallo) { ext = v; break; }
+      if (!v.fallo) {
+        // con la oferta ya definida, solo valen los campos de ESA oferta (un "el primero" no puede ser una forma de pago de otra)
+        const ofertaActiva = estadoAntes.oferta ?? v.oferta_detectada;
+        const of = ofertaActiva ? cfg.ofertas[ofertaActiva] : null;
+        if (of) { const validos = new Set([...of.filtros, ...of.filtros_de_cierre, ...(of.datos_antes_de_horarios ?? []), ...(cfg.datos_agenda ?? [])].map(f => f.campo)); v.filtros = v.filtros.filter(f => validos.has(f.campo)); }
+        ext = v; break;
+      }
     } catch (e) { console.error('[agente v2] extractor', e instanceof Error ? e.message : e); }
   }
   traza.extractor_crudo = crudo;
