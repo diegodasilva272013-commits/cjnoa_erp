@@ -769,7 +769,7 @@ export type MsgEntrante = { id: string; from: string; nombre: string | null; tex
 export type MsgGuardado = { from: 'cliente' | 'agente'; texto: string; t?: number | null; wid?: string; at?: number; humano?: string };
 type BloqueLLM = { type: string; [k: string]: any };
 type MsgLLM = { role: 'user' | 'assistant'; content: string | BloqueLLM[] };
-type CtxHerramienta = { textosCliente?: string[]; textosAfirmados?: string[]; telefono: string; conversationId: string; montoValidado?: number | null; pagoMpId?: string; pasarDatos?: boolean; modalidad?: 'transferencia' | 'efectivo' | null; enviarVideo?: (to: string) => Promise<void> };
+type CtxHerramienta = { textosCliente?: string[]; textosAfirmados?: string[]; telefono: string; conversationId: string; montoValidado?: number | null; pagoMpId?: string; pasarDatos?: boolean; enviarVideo?: (to: string) => Promise<void> };
 
 /** Meta firma el cuerpo con `X-Hub-Signature-256: sha256=<hex>` usando el App Secret. */
 export function firmaMetaValida(appSecret: string, header: string, raw: string) {
@@ -955,22 +955,6 @@ export function separarDatosPago(texto: string): { voz: string; escrito: string 
   return { voz: voz.join('\n').replace(/\n{3,}/g, '\n\n').trim(), escrito: escrito.join('\n').trim() };
 }
 
-/** Qué forma de abonar la reserva eligió la persona (lo último que dijo entre transferencia y efectivo). */
-export function modalidadElegida(textosCliente: string[]): 'transferencia' | 'efectivo' | null {
-  let ultima: 'transferencia' | 'efectivo' | null = null;
-  for (const t of textosCliente) {
-    const tr = /\btransfer|\bcbu\b|\bcvu\b|\balias\b|mercado ?pago/i.test(t);
-    const ef = /\befectivo\b|\bpersonalmente\b|\ben las oficinas\b/i.test(t);
-    if (tr && !ef) ultima = 'transferencia'; else if (ef && !tr) ultima = 'efectivo';
-  }
-  return ultima;
-}
-
-/** La persona eligió transferencia como forma de abonar la reserva. */
-export function eligioTransferencia(textosCliente: string[]): boolean {
-  return modalidadElegida(textosCliente) === 'transferencia';
-}
-
 // ---------------------------------------------------------------- estilo profesional (se revisa cada mensaje antes de enviarlo)
 
 /** Formas de tú y de vos: el estudio habla SIEMPRE de usted. */
@@ -1121,14 +1105,68 @@ export function preguntasAfirmadas(conv: { from: string; texto: string }[], text
   return out;
 }
 
-/** ¿Lo que escribió la persona confirma que reúne las condiciones de Artículo 9 / Ganancias (docente, jubilada por ANSES, con descuentos)? */
-export function condicionesArt9Confirmadas(textos: string[]): { ok: boolean; falta: string[] } {
-  const t = textos.join(' \n ').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
-  const falta: string[] = [];
-  if (!/docente|maestr|profesor|escuela|colegio|docencia/.test(t)) falta.push('si es docente jubilado/a');
-  if (!/anses/.test(t) || /no\s+(?:por|de|fue|me jubile por)\s+(?:la\s+)?anses/.test(t)) falta.push('si se jubiló por ANSES');
-  if (!/descuent|ganancias|articulo\s*9|art\.?\s*9/.test(t)) falta.push('si le descuentan Artículo 9 y/o Ganancias');
-  return { ok: falta.length === 0, falta };
+/** Lo que el agente registra con registrar_confirmacion (queda en leads.datos junto con la frase que lo respalda). */
+export const CAMPOS_CONFIRMACION: Record<string, { valores: string[]; etiqueta: string }> = {
+  es_docente: { valores: ['si', 'no'], etiqueta: 'si es docente jubilado/a' },
+  jubilado_anses: { valores: ['si', 'no'], etiqueta: 'si se jubiló por ANSES' },
+  descuento_art9_ganancias: { valores: ['si', 'no'], etiqueta: 'si le descuentan Artículo 9 y/o Ganancias' },
+  forma_reserva: { valores: ['efectivo', 'transferencia'], etiqueta: 'cómo abona la reserva' },
+  modalidad_consulta: { valores: ['presencial', 'virtual'], etiqueta: 'si la consulta es presencial o virtual' },
+};
+const CAMPOS_ART9 = ['es_docente', 'jubilado_anses', 'descuento_art9_ganancias'];
+
+const limpiarParaComparar = (t: unknown) => String(t ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9ñ]+/g, ' ').trim();
+
+const oracionesDe = (t: unknown) => String(t ?? '').split(/[.?!\n]+/).map(limpiarParaComparar).filter(Boolean);
+const preguntasDe = (t: unknown) => [...String(t ?? '').matchAll(/¿[^?]*\?/g)].map(m => limpiarParaComparar(m[0]));
+
+/**
+ * La evidencia tiene que ser una ORACIÓN COMPLETA (partida por . ? ! o salto de línea; sin importar tildes, mayúsculas ni signos) de lo que escribió la persona,
+ * o la pregunta completa del agente que la persona contestó con un sí. Un fragmento no alcanza.
+ */
+export function evidenciaValida(evidencia: unknown, textosCliente: string[], textosAfirmados: string[] = []): boolean {
+  const e = limpiarParaComparar(evidencia);
+  if (e.length < 4) return false;
+  if (textosCliente.some(t => oracionesDe(t).includes(e))) return true;
+  return textosAfirmados.some(t => limpiarParaComparar(t) === e || oracionesDe(t).includes(e) || preguntasDe(t).includes(e));
+}
+
+/** Lo que recibe el modelo cuando el lead pasa a una persona del equipo. */
+export const AVISO_DERIVACION = 'Esta conversación pasó a una persona del equipo. Avisale con calidez que alguien del estudio se va a comunicar con ella, y no vuelvas a preguntarle por estos datos.';
+
+/** El texto que recibe el modelo cuando falta registrar una confirmación. */
+export function textoFaltaRegistrar(campos: string[]): string {
+  const lista = campos.map(c => `${c} (${CAMPOS_CONFIRMACION[c]?.etiqueta ?? c})`).join(', ');
+  return `Falta registrar: ${lista}. Releé la conversación: si la persona ya lo dijo, aunque sea con otras palabras ('me retienen', 'me sacan plata del haber', 'trabajé en la escuela'), registralo con su frase como evidencia y NO se lo preguntes. Preguntá solo lo que de verdad no dijo, una pregunta por mensaje, siguiendo el hilo de la charla.`;
+}
+
+/** ¿Están registradas las tres confirmaciones de Artículo 9 / Ganancias? Lee SOLO los campos que registró el agente en la ficha (leads.datos). */
+export function condicionesArt9Confirmadas(datos: Record<string, unknown> | null | undefined): { ok: boolean; falta: string[]; no: string[] } {
+  const d = datos ?? {};
+  const falta = CAMPOS_ART9.filter(c => d[c] !== 'si' && d[c] !== 'no');
+  const no = CAMPOS_ART9.filter(c => d[c] === 'no');
+  return { ok: falta.length === 0 && no.length === 0, falta, no };
+}
+
+/**
+ * Dos bloqueos seguidos por FALTA DE UN REGISTRO (no por una reserva sin pagar), sin que se registre nada nuevo entre uno y otro: el lead se marca para el equipo
+ * (mismo mecanismo que derivar_a_humano). Devuelve true si en este bloqueo quedó marcado.
+ */
+async function contarBloqueoPorRegistro(db: Db, ctx: CtxHerramienta, datos: any, falta: string[]): Promise<boolean> {
+  const turno = (ctx.textosCliente ?? []).length;
+  const firma = JSON.stringify(Object.keys(CAMPOS_CONFIRMACION).map(k => datos?.[k] ?? null));
+  const prev = datos?.bloqueo_confirmaciones ?? {};
+  let n = prev.firma === firma ? Number(prev.n ?? 0) : 0;
+  if (prev.firma !== firma || prev.turno !== turno) n += 1;
+  const nuevo = { n, firma, turno };
+  const extra: Record<string, unknown> = { bloqueo_confirmaciones: nuevo };
+  const marcar = n === 2;
+  if (marcar) {
+    extra.derivar_a_humano = `Dos intentos de agendar sin que se registraran confirmaciones (faltan: ${falta.join(', ')}). Revisar la conversación.`;
+    extra.derivado_el = new Date().toISOString();
+  }
+  await upsertLeadSeguro(db, ctx.telefono, camposDeLead(marcar ? { requiere_turno: true, datos: extra } : { datos: extra }));
+  return marcar;
 }
 
 export async function condicionDeAgenda(db: Db, ctx: CtxHerramienta): Promise<{ ok: true } | { ok: false; mensaje: string }> {
@@ -1140,13 +1178,25 @@ export async function condicionDeAgenda(db: Db, ctx: CtxHerramienta): Promise<{ 
     datos = (data as any)?.datos ?? {};
     campana = String((data as any)?.campana ?? '');
   } catch (e) { console.error('[agente] condición de agenda', e); }
-  if (datos.categoria_recibo === 'art9_sin_cargo' || datos.tipo_consulta === 'articulo9_ganancias') return { ok: true };
+  if (datos.categoria_recibo === 'art9_sin_cargo') return { ok: true };
+  if (campana === 'art9_ganancias' || datos.tipo_consulta === 'articulo9_ganancias') {
+    const c = condicionesArt9Confirmadas(datos);
+    if (c.ok) return { ok: true };
+    if (c.no.length) return { ok: false, mensaje: `La persona dijo que NO cumple (${c.no.join(', ')}): el reclamo sin cargo de Artículo 9 / Ganancias no le corresponde. Explicáselo con tacto y preguntale qué consulta quiere hacer. No ofrezcas horarios.` };
+    if (await contarBloqueoPorRegistro(db, ctx, datos, c.falta)) return { ok: false, mensaje: AVISO_DERIVACION };
+    return { ok: false, mensaje: `TODAVÍA NO se puede agendar. ${textoFaltaRegistrar(c.falta)} No ofrezcas horarios hasta entonces.` };
+  }
   const reserva = Number(datos.reserva_esperada);
   if (Number.isFinite(reserva) && reserva > 0) {
-    if (ctx.modalidad === 'efectivo') return { ok: true };
-    return { ok: false, mensaje: 'TODAVÍA NO se puede agendar: primero la persona tiene que abonar la reserva. Si elige transferencia, pasale los datos y pedile el comprobante; recién cuando el sistema lo valide se coordina el turno. Si prefiere efectivo, coordiná con ella el día y la hora para abonar en las oficinas. No ofrezcas horarios ni agendes hasta entonces.' };
+    if (datos.forma_reserva === 'efectivo') return { ok: true };
+    if (!datos.forma_reserva) {
+      // Falta un REGISTRO (cómo abona): cuenta para el aviso al equipo. Con la forma ya registrada, el bloqueo es por reserva sin pagar y no cuenta.
+      if (await contarBloqueoPorRegistro(db, ctx, datos, ['forma_reserva'])) return { ok: false, mensaje: AVISO_DERIVACION };
+      return { ok: false, mensaje: `TODAVÍA NO se puede agendar. ${textoFaltaRegistrar(['forma_reserva'])} Una vez registrada: si es transferencia, pasale los datos y pedile el comprobante; si es efectivo, coordiná con ella el día y la hora para abonar en las oficinas. No ofrezcas horarios ni agendes hasta entonces.` };
+    }
+    return { ok: false, mensaje: 'TODAVÍA NO se puede agendar: primero la persona tiene que abonar la reserva. Si elige transferencia, pasale los datos y pedile el comprobante; recién cuando el sistema lo valide se coordina el turno. Si prefiere efectivo, registralo con registrar_confirmacion (forma_reserva) y coordiná con ella el día y la hora para abonar en las oficinas. No ofrezcas horarios ni agendes hasta entonces.' };
   }
-  return { ok: false, mensaje: 'TODAVÍA NO se puede agendar: no está definido qué consulta le corresponde a esta persona. Si es Artículo 9 / Ganancias, confirmá con la persona que es docente jubilada por ANSES y que le descuentan Artículo 9 y/o Ganancias, y después usá definir_tipo_consulta con articulo9_ganancias; si es jubilación docente u otras situaciones, usá definir_tipo_consulta y seguí la secuencia (valor, forma de pago, comprobante). No ofrezcas horarios hasta entonces.' };
+  return { ok: false, mensaje: 'TODAVÍA NO se puede agendar: no está definido qué consulta le corresponde a esta persona. Si es jubilación docente u otras situaciones, usá definir_tipo_consulta y seguí la secuencia (valor, forma de pago, comprobante). Si es Artículo 9 / Ganancias, guardá la campaña (art9_ganancias) con guardar_datos_cliente. ' + textoFaltaRegistrar(CAMPOS_ART9) + ' No ofrezcas horarios hasta entonces.' };
 }
 
 /** El modelo a veces escribe un id de turno inventado. Si ese id no existe en ningún turno y la persona tiene uno solo, se descarta para usar el suyo. */
@@ -1215,6 +1265,19 @@ export const HERRAMIENTAS_LLM = [
         campana: { type: 'string', enum: ['art9_ganancias', 'jubilacion_docente'], description: 'Campaña de la que viene (por el primer mensaje)' },
         resumen: { type: 'string', description: 'Resumen corto del caso, en español' },
       },
+    },
+  },
+  {
+    name: 'registrar_confirmacion',
+    description: 'Registra algo que la persona confirmó, con la frase textual que lo respalda. Campos: es_docente, jubilado_anses, descuento_art9_ganancias (valor si/no), forma_reserva (efectivo/transferencia), modalidad_consulta (presencial/virtual). La evidencia tiene que ser una oración completa que la persona escribió (o tu pregunta completa que ella contestó con un sí), copiada tal cual; un fragmento no alcanza y, si no aparece en la conversación, el registro se rechaza.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        campo: { type: 'string', enum: ['es_docente', 'jubilado_anses', 'descuento_art9_ganancias', 'forma_reserva', 'modalidad_consulta'] },
+        valor: { type: 'string', description: 'si/no, efectivo/transferencia o presencial/virtual, según el campo' },
+        evidencia: { type: 'string', description: 'oración completa, textual, de la conversación que respalda el valor' },
+      },
+      required: ['campo', 'valor', 'evidencia'],
     },
   },
   {
@@ -1386,6 +1449,19 @@ export async function ejecutarHerramienta(db: Db, nombre: string, input: any, ct
       ...(t.reserva_pagada ? { nota: 'La reserva ya estaba pagada: NO prometas devolución ni descuento; decile que el equipo se comunica para coordinarlo.' } : {}),
     };
   }
+  if (nombre === 'registrar_confirmacion') {
+    const campo = String(input?.campo ?? '');
+    const def = CAMPOS_CONFIRMACION[campo];
+    if (!def) return { error: `campo debe ser uno de: ${Object.keys(CAMPOS_CONFIRMACION).join(', ')}` };
+    const valor = normalizar(String(input?.valor ?? ''));
+    if (!def.valores.includes(valor)) return { error: `valor de ${campo} debe ser: ${def.valores.join(' o ')}` };
+    const evidencia = String(input?.evidencia ?? '').trim().slice(0, 300);
+    if (!evidenciaValida(evidencia, ctx.textosCliente ?? [], ctx.textosAfirmados ?? [])) {
+      return { error: 'No se registró: la evidencia tiene que ser una ORACIÓN COMPLETA que la persona escribió (o tu pregunta completa que ella contestó con un sí), copiada tal cual de la conversación; un fragmento no alcanza.' };
+    }
+    await upsertLeadSeguro(db, ctx.telefono, camposDeLead({ datos: { [campo]: valor, [`${campo}_evidencia`]: evidencia, [`${campo}_registrado_el`]: new Date().toISOString() } }));
+    return { registrado: true, campo, valor };
+  }
   if (nombre === 'guardar_datos_cliente') {
     // Solo estos campos y con tope de largo: el modelo no puede escribir claves arbitrarias (por ejemplo la reserva esperada) en la ficha.
     const limpio: Record<string, string> = {};
@@ -1402,10 +1478,15 @@ export async function ejecutarHerramienta(db: Db, nombre: string, input: any, ct
     if (t === 'articulo9_ganancias') {
       // Sin cargo solo para la campaña de Artículo 9 / Ganancias: el modelo no puede usarlo para saltear el pago de otra consulta.
       let campana = '';
-      try { const r = await db.from('leads').select('campana').eq('telefono_clave', telefonoClave(ctx.telefono)).maybeSingle(); campana = String((r.data as any)?.campana ?? ''); } catch (e) { console.error('[agente] campaña', e); }
+      let datosLead: any = {};
+      try { const r = await db.from('leads').select('campana, datos').eq('telefono_clave', telefonoClave(ctx.telefono)).maybeSingle(); campana = String((r.data as any)?.campana ?? ''); datosLead = (r.data as any)?.datos ?? {}; } catch (e) { console.error('[agente] campaña', e); }
       if (campana !== 'art9_ganancias') return { error: 'Primero guardá la campaña (art9_ganancias) con guardar_datos_cliente, una vez que la persona confirmó que consulta por Artículo 9 / Ganancias.' };
-      const cond = condicionesArt9Confirmadas([...(ctx.textosCliente ?? []), ...(ctx.textosAfirmados ?? [])]);
-      if (!cond.ok) return { error: `Todavía falta confirmar con la persona: ${cond.falta.join(', ')}. Preguntáselo con amabilidad (una pregunta por mensaje) y recién cuando lo diga usá esta herramienta.` };
+      const cond = condicionesArt9Confirmadas(datosLead);
+      if (cond.no.length) return { error: `La persona dijo que NO cumple (${cond.no.join(', ')}): el reclamo sin cargo de Artículo 9 / Ganancias no le corresponde. Explicáselo con tacto y preguntale qué consulta quiere hacer.` };
+      if (!cond.ok) {
+        if (await contarBloqueoPorRegistro(db, ctx, datosLead, cond.falta)) return { error: AVISO_DERIVACION };
+        return { error: textoFaltaRegistrar(cond.falta) };
+      }
       await upsertLeadSeguro(db, ctx.telefono, camposDeLead({ datos: { tipo_consulta: t, valor_consulta: 0, reserva_esperada: 0 } }));
       return { sin_cargo: true, valor_consulta: 0, abogado: c.abogado, nota: 'Consulta SIN CARGO con el Dr. Alejandro Reyes, presencial en San Salvador de Jujuy o virtual si vive en el interior. No hables de pagos ni de reserva. Ahora preguntá cuándo le queda cómodo.' };
     }
@@ -1469,11 +1550,12 @@ export const PROMPT_AGENTE = `Sos Karina, del Centro Jurídico NOA (San Salvador
 ## Cómo conversás (esto manda sobre todo lo demás en cuanto al estilo; los flujos dicen QUÉ datos y pasos corresponden, esto dice CÓMO)
 Sos una persona atenta, no un formulario. Tu objetivo es que la persona agende la consulta, y lo lográs comprendiendo y ayudando, sin presionar: la gente percibe la intención aunque no la nombres.
 - Primero la persona, después el paso. Antes de preguntar o informar, contestá a lo que acaba de escribir (una pregunta, una duda, algo que cuenta) y mostrá que entendiste lo que hay detrás: lo que siente, teme o quiere evitar, dicho con SUS palabras (su edad, su trabajo, lo que le descuentan, su preocupación) y con una frase cálida y sincera, sin exagerar y sin inventar nada sobre su situación. Esa empatía es lo que la hace sentir escuchada; después avanzás.
+Después de mostrar que entendiste, aportá valor en UNA frase: algo que ordene o aclare su situación con criterio. Aportar valor no es vender ni explicar el servicio. Es ayudarla a ver algo que todavía no estaba viendo. Recién después, la pregunta. El orden es siempre: empatizar, aportar valor, preguntar.
 - PROHIBIDAS las frases hechas: "estoy aquí para ayudarle", "quedo a su disposición", "es comprensible que", "es válido que", "lamento la confusión", "le entiendo", "lo entiendo", "entiendo completamente", "entiendo perfectamente", "comprendo", "es totalmente comprensible", "no dude en contactarme", "estoy a su disposición", y empezar un mensaje con "Entiendo,". Tampoco repitas muletillas de cortesía en cada mensaje ("perfecto, gracias por la confirmación").
-- UNA sola pregunta por mensaje, la primera que falte, natural y con propósito. Nunca dos preguntas juntas, nunca una lista de requisitos, nunca le digas qué datos "necesitás saber": esos datos son para vos, se obtienen conversando. Antes de preguntar, releé la conversación: lo que ya dijo (o lo que se deduce de su "sí" a una pregunta tuya) no se vuelve a preguntar.
-- Escuchá en profundidad: lo que dijo, lo que quiso decir y lo que siente. Palabras como "me preocupa", "no puedo", "intenté", "estoy cansada", "necesito" son puertas: respondé a eso antes de seguir con tu guion. Seguí el hilo de lo que cuenta; no cambies de tema.
+- UNA sola pregunta por mensaje, natural y con propósito. Nunca dos preguntas juntas, nunca una lista de requisitos, nunca le digas qué datos "necesitás saber": esos datos son para vos, se obtienen conversando. Antes de preguntar, releé la conversación y su historial: lo que ya dijo, aunque haya sido con otras palabras o en otro orden (o lo que se deduce de su "sí" a una pregunta tuya), no se vuelve a preguntar. La pregunta sale de lo último que dijo la persona. El orden de los datos es una guía, no un guion. Nunca anuncies preguntas, nunca las numeres y nunca ofrezcas opciones tipo menú.
+- Escuchá en profundidad: lo que dijo, lo que quiso decir y lo que siente. Palabras como "me preocupa", "no puedo", "intenté", "estoy cansada", "necesito", "quiero" o "me cuesta" son puertas: tu siguiente pregunta profundiza en ESO (qué exactamente, desde cuándo, qué intentó) antes de volver a los datos que falten. Seguí el hilo de lo que cuenta; no cambies de tema.
 - Si su respuesta no alcanza para avanzar (un "sí" a una pregunta con varias opciones, algo ambiguo o un error de tipeo evidente), no repitas lo que ya dijiste ni la misma oferta con otras palabras: pedí la precisión con naturalidad o interpretá lo que el contexto vuelve obvio: si la pregunta pendiente era presencial o virtual, "video", "videollamada", "zoom" o "meet" significa virtual (videollamada) y seguís con eso. Si no es claro a qué se refiere, preguntá con una frase corta (por ejemplo: "¿Se refiere a hacer la consulta por videollamada?"); nunca des por hecho que habla de un video que no pidió ni que le mandaste, y no preguntes qué le pareció un video que no se envió.
-- Adaptá el lenguaje a cómo habla la persona sin cambiar nunca la verdad ni la propuesta: si se expresa desde lo emocional, más calidez y menos datos; si pregunta cómo funciona, una explicación clara y ordenada; si quiere lo práctico, pasos concretos. Contale casos de otras personas solo de forma general y real, nunca inventados.
+- Adaptá el lenguaje a cómo habla la persona sin cambiar nunca la verdad ni la propuesta: si se expresa desde lo emocional, más calidez y menos datos; si pregunta cómo funciona, una explicación clara y ordenada; si quiere lo práctico, pasos concretos. Contale casos de otras personas solo de forma general y real, nunca inventados. Si pregunta cómo les fue a otras personas, respondé con experiencias generales y reales del estudio, sin inventar nombres, montos ni resultados.
 - Estilo profesional (obligatorio). Tratá SIEMPRE de "usted", con tono formal, cordial y cálido, como una recepcionista de un estudio jurídico, aunque la persona escriba de "vos" o de "tú". Prohibido "podrías", "prefieres", "tu caso", "contame", "decime", "tenés", "querés", "te ayudo"; usá "podría", "prefiere", "su caso", "cuénteme", "dígame", "tiene", "quiere", "le ayudo". No asumas el género de la persona: usá fórmulas neutras hasta que lo diga. Muchas personas tienen 57 años o más: paciencia, claridad, cero tecnicismos, sin apurar.
 - Texto plano como en WhatsApp, mensajes cortos, una idea por mensaje, con frases completas, sin markdown, sin listas ni viñetas, sin emojis, sin errores de ortografía y sin mezclar tratamientos.
 - Nada de frases secas, de reproche ni de apuro: nunca "necesito que me confirme", "solo necesito saber", "ya le pregunté" ni "como le dije". Si la persona contesta solo una parte, agradecé con una palabra y pedí con amabilidad únicamente lo que falta.
@@ -1521,6 +1603,7 @@ Por el primer mensaje (el texto precargado del anuncio) o por lo que cuenta, ded
 ## Flujo A: Artículo 9 e Impuesto a las Ganancias (objetivo e información a recabar; no es un guion)
 Objetivo: que la persona agende la consulta SIN CARGO con el Dr. Alejandro Reyes. Para ofrecérsela necesitás saber tres cosas: (1) si es jubilado/a docente, (2) si se jubiló por ANSES y (3) si le descuentan Artículo 9 y/o Impuesto a las Ganancias. NO se pide el recibo.
 Cómo lo recabás: conversando, no preguntando en fila. Nunca le enumeres las tres cosas ni le pidas que "confirme esos datos": eso es para vos, no para decírselo así; preguntá de forma natural y humana solo lo que falte, una cosa por mensaje. Quizás ya lo dijo (en el anuncio, en el primer mensaje, mientras cuenta lo que le pasa, o con un "sí" a algo que le preguntaste): lo que ya sabés no se repregunta. Entendé primero su situación y respondé a lo que preguntó o contó; después completá solo lo que realmente falte, en el orden que fluya con lo que va diciendo y de a una pregunta por mensaje. Si te lo dio todo junto, alcanza con confirmarlo con sus palabras en una sola frase.
+Apenas la persona dé cada una de esas tres confirmaciones (con sus palabras, aunque sea indirecta, o con un "sí" a tu pregunta), o diga que NO, registrala en ese mismo turno con registrar_confirmacion (es_docente, jubilado_anses, descuento_art9_ganancias: "si" o "no"), usando su oración completa como evidencia. Lo mismo con modalidad_consulta (presencial o virtual) cuando la elija.
 Cuando tengas las tres cosas (porque las dijo o las confirmó), en ese mismo turno guardá la campaña (guardar_datos_cliente con campana art9_ganancias) y usá definir_tipo_consulta con articulo9_ganancias. Sin ese paso el sistema no te deja agendar.
 Después retomá lo que la persona te contó con sus palabras e informale que la consulta es SIN CARGO. Nada de pagos, valores ni reserva en este flujo. Para coordinar necesitás dos datos: si prefiere presencial en San Salvador de Jujuy o virtual (si dice "video", "videollamada", "zoom" o "meet", quiere virtual; no le hables de ningún video previo en este flujo), y qué día o franja le queda cómodo. Pedilos al ritmo de la conversación, no en bloques fijos. Contale en una frase lo que logra con la consulta: el abogado le detalla los pasos a seguir, cuánto le descuentan por mes y un cálculo de lo recuperable (vos nunca calculás montos).
 Con el día o la franja, usá consultar_disponibilidad con el Dr. Alejandro Reyes y ofrecé hasta 3 horarios reales en una frase. Tu consulta termina con el turno agendado.
@@ -1536,11 +1619,13 @@ Con el día o la franja, usá consultar_disponibilidad con el Dr. Alejandro Reye
    Al explicarlo, mencioná siempre al menos dos cosas: que no se puede hacer un análisis serio con información general (por eso hace falta la consulta) y que en la consulta se revisan los recibos de sueldo y los aportes. No alcanza con decir "el abogado analiza su caso".
    Antes de proponer agendar, contestá siempre lo que la persona preguntó del video, de la consulta o del valor.
 4. Si quiere agendar: usá definir_tipo_consulta con jubilacion_docente. El sistema te dice el valor que corresponde (es_valor_de_hoy indica si rige el de hoy) y la reserva, que es la mitad. Usá solo esos importes, escritos siempre con el signo de pesos adelante y punto para separar los miles, nunca con coma (si el sistema te dice cincuenta mil, escribís el signo de pesos seguido de 50.000). Seguí la secuencia comercial.
+   Apenas la persona elija cómo abonar la reserva (efectivo o transferencia) o la modalidad de la consulta (presencial o virtual), registralo en ese mismo turno con registrar_confirmacion (forma_reserva, modalidad_consulta), usando su oración completa como evidencia.
 5. Si le piden cuánto sale, o dicen que no pueden ver el video, usá definir_tipo_consulta con jubilacion_docente y decile por escrito el valor que te da el sistema (con el signo de pesos), explicándole lo único que sabés del video: que es del Dr. Fabricio Reyes y que en la consulta él analiza su caso y le explica los pasos a seguir. No digas que no podés decirlo.
 5. Si duda o prefiere pensarlo, seguí la sección "Objeciones y dudas" (nunca la aceptes sin trabajarla una vez), sin inventar plazos: podés decirle con sinceridad que el valor de hoy rige para quien agenda hoy, y dejar la puerta abierta con una frase propia (por ejemplo: "Cuando lo decida, me escribe y coordinamos la consulta"). Si vuelve otro día, el sistema te da el valor que corresponde ese día: usá ese.
 Aplica lo mismo si consulta por otros regímenes o por el régimen general: tomá el motivo y el contexto, y el abogado asesora en la consulta.
 
 ## Objeciones y dudas (se trabajan con honestidad, no se aceptan sin más)
+Nunca discutas ni intentes ganar. Primero entendé qué hay detrás, con una pregunta. Después respondé así: reflejá lo que siente; reargumentá (su problema, otra forma de verlo, qué gana si lo ve así, y un hecho real si lo hay); y cerrá con una pregunta. Si hace falta, confirmá con algo como '¿tiene sentido lo que le digo?'. Nunca repitas el mismo argumento.
 Si la persona dice "lo voy a pensar", "no sé", "es caro", "no tengo tiempo" o duda, NO cierres con "cuando decida me escribe". Seguí estos pasos, un mensaje por paso:
 1. Reconocé lo concreto que dijo con tus palabras, sin frases hechas.
 2. Si no es obvio el motivo, hacé UNA pregunta abierta y cálida para descubrir qué la frena (por ejemplo: "¿Hay algo en particular que le genere dudas?").
@@ -1736,10 +1821,12 @@ export async function procesarMensaje(deps: Deps, m: MsgEntrante) {
   const hilo = ultimoAgente
     ? `HILO DE LA CONVERSACIÓN: tu último mensaje fue «${recorte(ultimoAgente, 500)}». La persona acaba de contestar «${recorte(textoCliente, 300)}». Leé su mensaje como la respuesta a eso, con el sentido que tiene en ese momento de la conversación (un «sí», «no», «video», «mañana» o «a la mañana» responde a lo que le preguntaste), no como un mensaje suelto. No repitas ni reformules lo que ya le dijiste y no vuelvas a preguntar lo que ya contestó.`
     : '';
-  const pasarDatos = eligioTransferencia(textosCliente);
+  const datosLead = await datosDeLead(db, m.from);
+  let pasarDatos = datosLead.forma_reserva === 'transferencia';
+  let transferenciaRegistradaAhora = false;
   const textosAfirmados = preguntasAfirmadas(previos as any, textoCliente);
   // Con Mercado Pago activo, la reserva solo se da por pagada si Mercado Pago la confirmó; ningún texto ni foto del cliente la valida.
-  const mp = usaMercadoPago() ? montoMercadoPago(await datosDeLead(db, m.from)) : null;
+  const mp = usaMercadoPago() ? montoMercadoPago(datosLead) : null;
   const ctx: CtxHerramienta = {
     textosCliente,
     textosAfirmados,
@@ -1748,7 +1835,6 @@ export async function procesarMensaje(deps: Deps, m: MsgEntrante) {
     montoValidado: mp ? mp.monto : (usaMercadoPago() ? null : montoValidadoDe(textosCliente)),
     pagoMpId: mp ? mp.id : undefined,
     pasarDatos,
-    modalidad: modalidadElegida(textosCliente),
     enviarVideo: deps.enviarVideo,
   };
   const datosPago = limpiarSecreto(process.env.AGENTE_DATOS_PAGO ?? '');
@@ -1835,6 +1921,7 @@ export async function procesarMensaje(deps: Deps, m: MsgEntrante) {
         let out: unknown;
         try { out = await deps.ejecutar(b.name, b.input, ctx); }
         catch (e) { console.error('[agente] herramienta', b.name, JSON.stringify(b.input ?? {}).slice(0, 400), e); out = { error: e instanceof Error ? e.message : 'falló la herramienta' }; }
+        if (b.name === 'registrar_confirmacion' && (out as any)?.registrado && (out as any)?.campo === 'forma_reserva') { pasarDatos = (out as any).valor === 'transferencia'; ctx.pasarDatos = pasarDatos; if (pasarDatos) transferenciaRegistradaAhora = true; }
         if ((out as any)?.error || (out as any)?.status === 'conflict') console.warn('[agente] herramienta sin éxito', b.name, JSON.stringify(out).slice(0, 300));
         if ((b.name === 'agendar_turno' || b.name === 'reprogramar_turno') && (out as any)?.status === 'success') agendoOk = true;
         if (b.name === 'consultar_disponibilidad' || b.name === 'agendar_turno' || b.name === 'reprogramar_turno' || b.name === 'consultar_mis_turnos') for (const h of horasEnTexto(JSON.stringify(out).replace(/"/g, ' '))) { horasPermitidas.add(h); if (b.name === 'consultar_disponibilidad') horasAgenda.add(h); }
@@ -1852,7 +1939,7 @@ export async function procesarMensaje(deps: Deps, m: MsgEntrante) {
   // Último recurso: nunca sale un mensaje que da por agendado un turno que no existe.
   if (respuesta && !agendoOk && vigentes.length === 0 && afirmaTurnoAgendado(respuesta)) respuesta = 'Para dejar reservado su turno todavía necesito confirmar con usted el día y la hora. ¿Qué día y qué franja horaria le queda más cómoda?';
   // Si la persona recién eligió transferencia y el modelo habló de transferir sin pasar los datos, se los agrega el sistema.
-  if (pasarDatos && eligioTransferencia([textoCliente]) && /transfer/i.test(respuesta) && !LINEA_DATOS_PAGO.test(respuesta) && !/centrojuridiconoa680|\bCVU\b/i.test(respuesta)) {
+  if (pasarDatos && transferenciaRegistradaAhora && /transfer/i.test(respuesta) && !LINEA_DATOS_PAGO.test(respuesta) && !/centrojuridiconoa680|\bCVU\b/i.test(respuesta)) {
     respuesta = `${respuesta.trim()}\n\n${(datosPago || DATOS_PAGO_DEFAULT).split(/\s*·\s*/).join('\n')}`;
   }
   // Red de seguridad: los datos bancarios solo salen si la persona ya eligió transferencia.
@@ -2234,9 +2321,8 @@ export function etapaEmbudo(mensajes: MsgGuardado[], lead: LeadAnalisis, turnos:
   if (turnos.length) return 'agendada';
   const d = lead?.datos ?? {};
   if (d.pago_validado_mp || d.pago_mp_usado) return 'reserva';
-  const cli = mensajes.filter(m => m.from === 'cliente').map(m => m.texto);
   const ag = mensajes.filter(m => m.from === 'agente' && !m.humano).map(m => m.texto);
-  if (modalidadElegida(cli)) return 'forma_pago';
+  if (d.forma_reserva) return 'forma_pago';
   if (ag.some(t => /consulta/i.test(t) && /\$\s?\d/.test(t))) return 'propuesta';
   if (lead && lead.nombre && (lead.rama || lead.dni_cuil || lead.calificacion)) return 'datos';
   return 'consulto';

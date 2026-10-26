@@ -2,8 +2,8 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { createHmac } from 'node:crypto';
 import handler, {
   clasificarRecibo, TIPOS_CONSULTA, promesaSinCumplir, separarDatosPago, mensajeApurado,
-  aMin, limpiarSecreto, camposDeLead, etapaAutomatica, fusionarLead, registrarMensaje, upsertLead, firmaMetaValida, firmaKapsoValida, extraerMensajesKapso, extraerMensajes, aMensajesLLM, procesarMensaje, filaDePersona, esConversacionDeNoa, clasificarMensajeCliente, categoriaMensajeAgente, personaMetrica, agregarMetricasAgente, calcularMetricasAgente, evaluarOptimizaciones, validarOptimizaciones, ejecutarOptimizacion, type MetricasAgente, motivoDeExclusion, resumenEnPalabras, ejecutarAnalista, revisarAnalisisAutomatico, codigosDeEstilo, etapaEmbudo, analizarConversacion, calcularMetricas, mascararDatos, textoParaEtiquetar, validarEtiquetas, promptDelAgente, limpiarCachePrompt, accionAgentes, problemasDeEstilo, textoNoLegible, firmaMercadoPagoValida, importeTexto, importeLindo, asignarImporteUnico, procesarPagoMP, montoMercadoPago, modalidadElegida, enmascarar, neutralizarMarcas, salidaInsegura, superaLimite, urlMediaSegura, resumenTurnosVigentes, HERRAMIENTAS_LLM, cuerpoNotaDeVoz, eligioTransferencia, notaDeImagen, montoValidadoDe, quitarEtiquetas, aMensajesOpenAI, deOpenAI, ejecutarHerramienta, PROMPT_AGENTE, type Deps, telefonoClave, historialDe, inferirNombre, normalizarFecha, normalizarHora, bloquesDelDia, huecosLibres, localDe, resolverProfesional, diaSemanaISO, fechaValida,
-  registrarSinResponder, registrarUso, fijarDbUso, costoUsd, esDudaOObjecion, esRechazoFirme, horasEnTexto, quitarFrasesHechas, REGEX_CLICHE, condicionesArt9Confirmadas, campanaDelTexto, probarAgentePaso, chatAgentePaso, preguntasAfirmadas, condicionDeAgenda, registrarMensajeHumano, extraerHumanosKapso, responderDesdeErp, resumenCampana, analizarCampana, analisisSoloConCifrasReales,
+  aMin, limpiarSecreto, camposDeLead, etapaAutomatica, fusionarLead, registrarMensaje, upsertLead, firmaMetaValida, firmaKapsoValida, extraerMensajesKapso, extraerMensajes, aMensajesLLM, procesarMensaje, filaDePersona, esConversacionDeNoa, clasificarMensajeCliente, categoriaMensajeAgente, personaMetrica, agregarMetricasAgente, calcularMetricasAgente, evaluarOptimizaciones, validarOptimizaciones, ejecutarOptimizacion, type MetricasAgente, motivoDeExclusion, resumenEnPalabras, ejecutarAnalista, revisarAnalisisAutomatico, codigosDeEstilo, etapaEmbudo, analizarConversacion, calcularMetricas, mascararDatos, textoParaEtiquetar, validarEtiquetas, promptDelAgente, limpiarCachePrompt, accionAgentes, problemasDeEstilo, textoNoLegible, firmaMercadoPagoValida, importeTexto, importeLindo, asignarImporteUnico, procesarPagoMP, montoMercadoPago, enmascarar, neutralizarMarcas, salidaInsegura, superaLimite, urlMediaSegura, resumenTurnosVigentes, HERRAMIENTAS_LLM, cuerpoNotaDeVoz, notaDeImagen, montoValidadoDe, quitarEtiquetas, aMensajesOpenAI, deOpenAI, ejecutarHerramienta, PROMPT_AGENTE, type Deps, telefonoClave, historialDe, inferirNombre, normalizarFecha, normalizarHora, bloquesDelDia, huecosLibres, localDe, resolverProfesional, diaSemanaISO, fechaValida,
+  registrarSinResponder, registrarUso, fijarDbUso, costoUsd, esDudaOObjecion, esRechazoFirme, horasEnTexto, quitarFrasesHechas, REGEX_CLICHE, condicionesArt9Confirmadas, campanaDelTexto, probarAgentePaso, chatAgentePaso, preguntasAfirmadas, evidenciaValida, textoFaltaRegistrar, AVISO_DERIVACION, condicionDeAgenda, registrarMensajeHumano, extraerHumanosKapso, responderDesdeErp, resumenCampana, analizarCampana, analisisSoloConCifrasReales,
   type Bloque,
 } from '../../api/turnos/[accion]';
 
@@ -115,13 +115,13 @@ describe('api/turnos · limpiarSecreto', () => {
 });
 
 // ------------------------------------------------------------------ agente de respaldo
-function dbConversaciones(inicial: any | null = null) {
+function dbConversaciones(inicial: any | null = null, lead: any | null = null) {
   const estado = { fila: inicial as any, upserts: [] as any[] };
   const cadena = (tabla: string) => {
     const c: any = {
       eq: () => c, not: () => c, order: () => c,
       limit: () => Promise.resolve({ data: [], error: null }),
-      maybeSingle: () => Promise.resolve({ data: tabla === 'conversaciones_whatsapp' ? estado.fila : null, error: null }),
+      maybeSingle: () => Promise.resolve({ data: tabla === 'conversaciones_whatsapp' ? estado.fila : tabla === 'leads' ? lead : null, error: null }),
     };
     return c;
   };
@@ -244,7 +244,7 @@ describe('respaldo · procesarMensaje', () => {
       ejecutar: async (nombre, input, ctx) => { llamadas.push({ nombre, input, ctx }); return { horarios_disponibles: ['09:00'] }; },
     });
     await procesarMensaje(d, msg);
-    expect(llamadas).toEqual([{ nombre: 'consultar_disponibilidad', input: { profesional: 'alejandro' }, ctx: { textosCliente: ['Hola, quiero un turno'], textosAfirmados: [], telefono: '5493884867965', conversationId: 'respaldo-5493884867965', montoValidado: null, pasarDatos: false, modalidad: null } }]);
+    expect(llamadas).toEqual([{ nombre: 'consultar_disponibilidad', input: { profesional: 'alejandro' }, ctx: { textosCliente: ['Hola, quiero un turno'], textosAfirmados: [], telefono: '5493884867965', conversationId: 'respaldo-5493884867965', montoValidado: null, pasarDatos: false } }]);
     expect(enviados).toEqual(['Tengo lugar el martes 09:00']);
   });
 
@@ -734,7 +734,7 @@ describe('agente · voz y secuencia comercial', () => {
     expect(enviados[0]).toContain('transferencia o en efectivo');
   });
   it('con voz siempre, contesta con nota de voz aunque el cliente escriba, y los datos de pago van por escrito', async () => {
-    const { db } = dbConversaciones();
+    const { db } = dbConversaciones(null, { datos: { forma_reserva: 'transferencia' } });
     const audios: string[] = [];
     const { d, enviados } = deps(db, {
       vozSiempre: true,
@@ -922,14 +922,6 @@ describe('agente · agendar turno de punta a punta', () => {
 
 
 describe('agente · datos bancarios solo después de elegir transferencia', () => {
-  it('detecta qué eligió la persona (lo último que dijo)', () => {
-    expect(eligioTransferencia(['Hola', '55 hombre y sí'])).toBe(false);
-    expect(eligioTransferencia(['Prefiero transferencia'])).toBe(true);
-    expect(eligioTransferencia(['transferencia', 'mejor en efectivo'])).toBe(false);
-    expect(eligioTransferencia(['efectivo', 'no, mejor por transferencia'])).toBe(true);
-    expect(eligioTransferencia(['[Audio] hago la transferencia hoy'])).toBe(true);
-  });
-
   it('si todavía no eligió, el modelo no recibe los datos y, si igual los escribe, se quitan del mensaje', async () => {
     const { db } = dbConversaciones();
     const sistemas: string[] = [];
@@ -943,8 +935,8 @@ describe('agente · datos bancarios solo después de elegir transferencia', () =
     expect(enviados[0]).toContain('¿Prefiere transferencia o efectivo?');
   });
 
-  it('cuando elige transferencia, el modelo recibe los datos', async () => {
-    const { db } = dbConversaciones();
+  it('cuando elige transferencia (registrado en la ficha), el modelo recibe los datos', async () => {
+    const { db } = dbConversaciones(null, { datos: { forma_reserva: 'transferencia' } });
     const sistemas: string[] = [];
     const { d } = deps(db, { llm: async (sys) => { sistemas.push(sys); return texto('Ahí le paso los datos.'); } });
     await procesarMensaje(d, { ...msg, texto: 'Por transferencia' });
@@ -1183,10 +1175,10 @@ describe('agente · no se agenda sin reserva abonada', () => {
 
   it('consulta con reserva y sin comprobante: no ofrece horarios ni agenda', async () => {
     const { db, tablas } = mundo({ tipo_consulta: 'jubilacion_docente', reserva_esperada: 40000 });
-    const horarios: any = await ejecutarHerramienta(db, 'consultar_disponibilidad', { profesional: 'fabricio', fecha }, { ...base, modalidad: 'transferencia' });
+    const horarios: any = await ejecutarHerramienta(db, 'consultar_disponibilidad', { profesional: 'fabricio', fecha }, base);
     expect(horarios.status).toBe('requiere_reserva');
     expect(horarios.horarios_disponibles).toBeUndefined();
-    const r: any = await ejecutarHerramienta(db, 'agendar_turno', pedir, { ...base, modalidad: 'transferencia' });
+    const r: any = await ejecutarHerramienta(db, 'agendar_turno', pedir, base);
     expect(r.status).toBe('requiere_reserva');
     expect(r.mensaje).toContain('comprobante');
     expect(tablas.consultas_agendadas).toHaveLength(0);
@@ -1210,8 +1202,8 @@ describe('agente · no se agenda sin reserva abonada', () => {
   });
 
   it('si eligió efectivo (y ya está definida la consulta), coordina el turno sin marcarlo como pagado', async () => {
-    const { db, tablas } = mundo({ reserva_esperada: 40000 });
-    const r: any = await ejecutarHerramienta(db, 'agendar_turno', pedir, { ...base, modalidad: 'efectivo' });
+    const { db, tablas } = mundo({ reserva_esperada: 40000, forma_reserva: 'efectivo' });
+    const r: any = await ejecutarHerramienta(db, 'agendar_turno', pedir, base);
     expect(r.status).toBe('success');
     expect(tablas.consultas_agendadas[0]).toMatchObject({ reserva_pagada: false, monto_reserva: 0 });
     expect(tablas.consultas_agendadas[0].observaciones).not.toContain('VERIFICAR');
@@ -1220,6 +1212,36 @@ describe('agente · no se agenda sin reserva abonada', () => {
   it('consulta sin cargo confirmada por el recibo: agenda directo', async () => {
     const { db } = mundo({ categoria_recibo: 'art9_sin_cargo', reserva_esperada: 0 });
     expect(((await ejecutarHerramienta(db, 'agendar_turno', pedir, base)) as any).status).toBe('success');
+  });
+
+  it('Art. 9 con una confirmación sin registrar: ni ofrece horarios ni agenda, y el modelo recibe "Falta registrar…"', async () => {
+    const { db, tablas } = mundo({ tipo_consulta: 'articulo9_ganancias', es_docente: 'si', jubilado_anses: 'si' });
+    const horarios: any = await ejecutarHerramienta(db, 'consultar_disponibilidad', { profesional: 'alejandro', fecha }, base);
+    expect(horarios.status).toBe('requiere_reserva');
+    expect(horarios.mensaje).toContain('Falta registrar: descuento_art9_ganancias');
+    expect(horarios.horarios_disponibles).toBeUndefined();
+    const r: any = await ejecutarHerramienta(db, 'agendar_turno', pedir, base);
+    expect(r.status).toBe('requiere_reserva');
+    expect(r.mensaje).toContain('NO se lo preguntes');
+    expect(tablas.consultas_agendadas).toHaveLength(0);
+  });
+
+  it('aviso de derivación: en el segundo bloqueo, la herramienta le entrega al modelo el texto de pasar a una persona', async () => {
+    const { db, tablas } = mundo({ tipo_consulta: 'articulo9_ganancias', es_docente: 'si' });
+    const primero: any = await ejecutarHerramienta(db, 'agendar_turno', pedir, { ...base, textosCliente: ['soy docente'] });
+    expect(primero.status).toBe('requiere_reserva');
+    expect(primero.mensaje).toContain('Falta registrar');
+    const segundo: any = await ejecutarHerramienta(db, 'agendar_turno', pedir, { ...base, textosCliente: ['soy docente', 'hola?'] });
+    expect(segundo.status).toBe('requiere_reserva');
+    expect(segundo.mensaje).toBe('Esta conversación pasó a una persona del equipo. Avisale con calidez que alguien del estudio se va a comunicar con ella, y no vuelvas a preguntarle por estos datos.');
+    expect(tablas.leads[0].datos.derivar_a_humano).toBeDefined();
+    expect(tablas.consultas_agendadas).toHaveLength(0);
+  });
+
+  it('Art. 9 con las tres confirmaciones registradas en "si": agenda', async () => {
+    const { db, tablas } = mundo({ tipo_consulta: 'articulo9_ganancias', es_docente: 'si', jubilado_anses: 'si', descuento_art9_ganancias: 'si', reserva_esperada: 0 });
+    expect(((await ejecutarHerramienta(db, 'agendar_turno', pedir, base)) as any).status).toBe('success');
+    expect(tablas.consultas_agendadas).toHaveLength(1);
   });
 
   it('si todavía no está definido qué consulta le corresponde, no agenda', async () => {
@@ -1231,10 +1253,11 @@ describe('agente · no se agenda sin reserva abonada', () => {
     }
   });
 
-  it('el modelo no puede saltear la condición escribiendo la palabra efectivo o diciendo que pagó: lo decide el cliente y el sistema', () => {
-    expect(modalidadElegida(['hola', 'prefiero efectivo'])).toBe('efectivo');
-    expect(modalidadElegida(['efectivo', 'mejor transferencia'])).toBe('transferencia');
-    expect(modalidadElegida(['hola'])).toBeNull();
+  it('el modelo no puede saltear la condición escribiendo la palabra efectivo o diciendo que pagó: lo decide la ficha registrada y el sistema', async () => {
+    const { db, tablas } = mundo({ reserva_esperada: 40000 });
+    const r: any = await ejecutarHerramienta(db, 'agendar_turno', { ...pedir, pago: true }, { ...base, textosCliente: ['prefiero efectivo', 'ya pagué'] });
+    expect(r.status).toBe('requiere_reserva');
+    expect(tablas.consultas_agendadas).toHaveLength(0);
   });
 });
 
@@ -1583,7 +1606,8 @@ describe('agentes · análisis de conversaciones', () => {
     expect(etapaEmbudo([mm('cliente', 'hola')], null, [])).toBe('consulto');
     expect(etapaEmbudo([mm('cliente', 'hola')], lead, [])).toBe('datos');
     expect(etapaEmbudo([mm('cliente', 'hola'), mm('agente', 'La consulta vale $80.000, la reserva $40.000.')], lead, [])).toBe('propuesta');
-    expect(etapaEmbudo([mm('agente', 'La consulta vale $80.000'), mm('cliente', 'prefiero transferencia')], lead, [])).toBe('forma_pago');
+    expect(etapaEmbudo([mm('agente', 'La consulta vale $80.000'), mm('cliente', 'prefiero transferencia')], { ...lead, datos: { forma_reserva: 'transferencia' } }, [])).toBe('forma_pago');
+    expect(etapaEmbudo([mm('agente', 'La consulta vale $80.000'), mm('cliente', 'prefiero transferencia')], lead, [])).toBe('propuesta');
     expect(etapaEmbudo([mm('cliente', 'hola')], { ...lead, datos: { pago_validado_mp: { id: '1' } } }, [])).toBe('reserva');
     expect(etapaEmbudo([mm('cliente', 'hola')], lead, [{ fecha_consulta: '2026-10-27' }])).toBe('agendada');
   });
@@ -2604,7 +2628,8 @@ describe('agente · nuevo flujo (Art. 9 sin recibo, jubilación con video y valo
     expect(await ejecutarHerramienta(sin.db, 'definir_tipo_consulta', { tipo: 'articulo9_ganancias' }, { ...ctx, textosCliente: ['Soy docente jubilada por ANSES y me descuentan Ganancias'] })).toHaveProperty('error');
     const { db, tablas } = dbMemoria({ leads: [{ telefono: tel, campana: 'art9_ganancias', datos: {} }] });
     const sinDichos: any = await ejecutarHerramienta(db, 'definir_tipo_consulta', { tipo: 'articulo9_ganancias' }, { ...ctx, textosCliente: ['Hola, quiero información'] });
-    expect(sinDichos.error).toContain('falta confirmar');
+    expect(sinDichos.error).toContain('Falta registrar');
+    tablas.leads[0].datos = { es_docente: 'si', jubilado_anses: 'si', descuento_art9_ganancias: 'si' };
     const r: any = await ejecutarHerramienta(db, 'definir_tipo_consulta', { tipo: 'articulo9_ganancias' }, { ...ctx, textosCliente: ['Soy docente jubilada por ANSES y me descuentan Artículo 9 y Ganancias'] });
     expect(r).toMatchObject({ sin_cargo: true, valor_consulta: 0, abogado: 'Alejandro' });
     expect(r.datos_para_transferir).toBeUndefined();
@@ -2612,7 +2637,7 @@ describe('agente · nuevo flujo (Art. 9 sin recibo, jubilación con video y valo
   });
 
   it('con Art. 9 declarado se puede agendar sin recibo ni reserva; sin declarar, no', async () => {
-    const { db } = dbMemoria({ leads: [{ telefono: tel, campana: 'art9_ganancias', datos: { tipo_consulta: 'articulo9_ganancias', reserva_esperada: 0 } }] });
+    const { db } = dbMemoria({ leads: [{ telefono: tel, campana: 'art9_ganancias', datos: { tipo_consulta: 'articulo9_ganancias', reserva_esperada: 0, es_docente: 'si', jubilado_anses: 'si', descuento_art9_ganancias: 'si' } }] });
     expect(await condicionDeAgenda(db, ctx)).toEqual({ ok: true });
     const otro = dbMemoria({ leads: [{ telefono: tel, datos: {} }] });
     expect((await condicionDeAgenda(otro.db, ctx)).ok).toBe(false);
@@ -2621,18 +2646,162 @@ describe('agente · nuevo flujo (Art. 9 sin recibo, jubilación con video y valo
   it('para agendar Art. 9 no alcanza con la campaña: hay que haber confirmado las condiciones y definido la consulta', async () => {
     const solo = dbMemoria({ leads: [{ telefono: tel, campana: 'art9_ganancias', datos: {} }] });
     expect((await condicionDeAgenda(solo.db, ctx)).ok).toBe(false);
-    const definida = dbMemoria({ leads: [{ telefono: tel, campana: 'art9_ganancias', datos: { tipo_consulta: 'articulo9_ganancias', reserva_esperada: 0 } }] });
+    const definida = dbMemoria({ leads: [{ telefono: tel, campana: 'art9_ganancias', datos: { tipo_consulta: 'articulo9_ganancias', reserva_esperada: 0, es_docente: 'si', jubilado_anses: 'si', descuento_art9_ganancias: 'si' } }] });
     expect(await condicionDeAgenda(definida.db, ctx)).toEqual({ ok: true });
     const jub = dbMemoria({ leads: [{ telefono: tel, campana: 'jubilacion_docente', datos: {} }] });
     expect((await condicionDeAgenda(jub.db, ctx)).ok).toBe(false);
   });
 
-  it('las condiciones de Art. 9 las verifica el código sobre lo que dijo la persona', () => {
-    expect(condicionesArt9Confirmadas(['Hola, soy docente jubilada por ANSES y me descuentan Artículo 9']).ok).toBe(true);
-    expect(condicionesArt9Confirmadas(['Soy docente', 'me jubilé por ANSES', 'me descuentan Ganancias']).ok).toBe(true);
-    expect(condicionesArt9Confirmadas(['Soy docente jubilada']).falta).toEqual(['si se jubiló por ANSES', 'si le descuentan Artículo 9 y/o Ganancias']);
-    expect(condicionesArt9Confirmadas(['Soy docente, me jubilé por la caja de la provincia, no por ANSES, y me descuentan Ganancias']).ok).toBe(false);
-    expect(condicionesArt9Confirmadas(['Fui empleada administrativa, jubilada por ANSES, me descuentan Ganancias']).falta).toEqual(['si es docente jubilado/a']);
+  it('las condiciones de Art. 9 salen SOLO de lo que el agente registró en la ficha', () => {
+    expect(condicionesArt9Confirmadas({ es_docente: 'si', jubilado_anses: 'si', descuento_art9_ganancias: 'si' }).ok).toBe(true);
+    expect(condicionesArt9Confirmadas({ es_docente: 'si' }).falta).toEqual(['jubilado_anses', 'descuento_art9_ganancias']);
+    expect(condicionesArt9Confirmadas({}).falta).toHaveLength(3);
+    expect(condicionesArt9Confirmadas({ es_docente: 'no', jubilado_anses: 'si', descuento_art9_ganancias: 'si' })).toMatchObject({ ok: false, no: ['es_docente'], falta: [] });
+    expect(condicionesArt9Confirmadas(['Soy docente jubilada por ANSES y me descuentan Artículo 9'] as any).ok).toBe(false);
+  });
+
+  it('registrar_confirmacion: "No soy docente, era administrativa" queda es_docente: no', async () => {
+    const { db, tablas } = dbMemoria({ leads: [{ telefono: tel, campana: 'art9_ganancias', datos: {} }] });
+    const r: any = await ejecutarHerramienta(db, 'registrar_confirmacion', { campo: 'es_docente', valor: 'no', evidencia: 'No soy docente, era administrativa' }, { ...ctx, textosCliente: ['No soy docente, era administrativa'] });
+    expect(r).toMatchObject({ registrado: true, campo: 'es_docente', valor: 'no' });
+    expect(tablas.leads[0].datos).toMatchObject({ es_docente: 'no', es_docente_evidencia: 'No soy docente, era administrativa' });
+    const d: any = await ejecutarHerramienta(db, 'definir_tipo_consulta', { tipo: 'articulo9_ganancias' }, { ...ctx, textosCliente: ['No soy docente, era administrativa'] });
+    expect(d.error).toContain('NO cumple');
+  });
+
+  it('registrar_confirmacion: "No me descuentan ganancias" queda descuento_art9_ganancias: no', async () => {
+    const { db, tablas } = dbMemoria({ leads: [{ telefono: tel, datos: {} }] });
+    const r: any = await ejecutarHerramienta(db, 'registrar_confirmacion', { campo: 'descuento_art9_ganancias', valor: 'no', evidencia: 'No me descuentan ganancias' }, { ...ctx, textosCliente: ['No me descuentan ganancias'] });
+    expect(r.registrado).toBe(true);
+    expect(tablas.leads[0].datos.descuento_art9_ganancias).toBe('no');
+  });
+
+  it('registrar_confirmacion: "No tengo efectivo, prefiero transferir" queda forma_reserva: transferencia', async () => {
+    const { db, tablas } = dbMemoria({ leads: [{ telefono: tel, datos: {} }] });
+    const r: any = await ejecutarHerramienta(db, 'registrar_confirmacion', { campo: 'forma_reserva', valor: 'transferencia', evidencia: 'No tengo efectivo, prefiero transferir' }, { ...ctx, textosCliente: ['No tengo efectivo, prefiero transferir'] });
+    expect(r).toMatchObject({ registrado: true, valor: 'transferencia' });
+    expect(tablas.leads[0].datos.forma_reserva).toBe('transferencia');
+  });
+
+  it('registrar_confirmacion: una evidencia que no está en lo que dijo la persona se rechaza y no se guarda nada', async () => {
+    const { db, tablas } = dbMemoria({ leads: [{ telefono: tel, datos: {} }] });
+    const r: any = await ejecutarHerramienta(db, 'registrar_confirmacion', { campo: 'es_docente', valor: 'si', evidencia: 'soy docente jubilada hace diez años' }, { ...ctx, textosCliente: ['Hola', 'quiero consultar'] });
+    expect(r.error).toContain('No se registró');
+    expect(tablas.leads[0].datos.es_docente).toBeUndefined();
+    const v: any = await ejecutarHerramienta(db, 'registrar_confirmacion', { campo: 'es_docente', valor: 'quizás', evidencia: 'quiero consultar' }, { ...ctx, textosCliente: ['quiero consultar'] });
+    expect(v.error).toContain('valor de es_docente');
+    const a: any = await ejecutarHerramienta(db, 'registrar_confirmacion', { campo: 'es_docente', valor: 'si', evidencia: 'ab' }, { ...ctx, textosCliente: ['ab'] });
+    expect(a.error).toContain('No se registró');
+  });
+
+  it('evidencia = oración completa: un fragmento ("docente") sacado de "No soy docente, era administrativa" no alcanza para es_docente: si', async () => {
+    const { db, tablas } = dbMemoria({ leads: [{ telefono: tel, datos: {} }] });
+    const c = { ...ctx, textosCliente: ['No soy docente, era administrativa'] };
+    const frag: any = await ejecutarHerramienta(db, 'registrar_confirmacion', { campo: 'es_docente', valor: 'si', evidencia: 'docente' }, c);
+    expect(frag.error).toContain('ORACIÓN COMPLETA');
+    expect(tablas.leads[0].datos.es_docente).toBeUndefined();
+    const medio: any = await ejecutarHerramienta(db, 'registrar_confirmacion', { campo: 'es_docente', valor: 'no', evidencia: 'No soy docente' }, c);
+    expect(medio.error).toContain('ORACIÓN COMPLETA');
+    const ok: any = await ejecutarHerramienta(db, 'registrar_confirmacion', { campo: 'es_docente', valor: 'no', evidencia: 'no soy docente era administrativa' }, c);
+    expect(ok).toMatchObject({ registrado: true, valor: 'no' });
+    expect(tablas.leads[0].datos.es_docente).toBe('no');
+  });
+
+  it('evidencia = oración completa: la persona contesta solo "sí" a "¿Usted es docente?" y la pregunta completa sirve de evidencia', async () => {
+    const { db, tablas } = dbMemoria({ leads: [{ telefono: tel, datos: {} }] });
+    const conv = [{ from: 'karina', texto: '¿Usted es docente?' }, { from: 'cliente', texto: 'sí' }];
+    const r: any = await ejecutarHerramienta(db, 'registrar_confirmacion', { campo: 'es_docente', valor: 'si', evidencia: '¿Usted es docente?' }, { ...ctx, textosCliente: ['sí'], textosAfirmados: preguntasAfirmadas(conv) });
+    expect(r).toMatchObject({ registrado: true, valor: 'si' });
+    expect(tablas.leads[0].datos).toMatchObject({ es_docente: 'si', es_docente_evidencia: '¿Usted es docente?' });
+  });
+
+  it('evidencia = oración completa: un mensaje con las tres cosas registra los tres campos con esa misma oración', async () => {
+    const { db, tablas } = dbMemoria({ leads: [{ telefono: tel, campana: 'art9_ganancias', datos: {} }] });
+    const frase = 'Soy maestra jubilada por ANSES y me descuentan ganancias';
+    const c = { ...ctx, textosCliente: ['Hola', frase] };
+    for (const [campo, valor] of [['es_docente', 'si'], ['jubilado_anses', 'si'], ['descuento_art9_ganancias', 'si']]) {
+      const r: any = await ejecutarHerramienta(db, 'registrar_confirmacion', { campo, valor, evidencia: frase }, c);
+      expect(r.registrado).toBe(true);
+    }
+    expect(condicionesArt9Confirmadas(tablas.leads[0].datos).ok).toBe(true);
+    expect(tablas.leads[0].datos.jubilado_anses_evidencia).toBe(frase);
+  });
+
+  it('conteo: dos bloqueos por reserva no pagada (forma ya registrada) NO marcan al lead', async () => {
+    const { db, tablas } = dbMemoria({ leads: [{ telefono: tel, datos: { reserva_esperada: 40000, forma_reserva: 'transferencia' } }] });
+    const a: any = await condicionDeAgenda(db, { ...ctx, textosCliente: ['transferencia'] });
+    const b: any = await condicionDeAgenda(db, { ...ctx, textosCliente: ['transferencia', 'y ahora'] });
+    expect(a.ok).toBe(false);
+    expect(b.ok).toBe(false);
+    expect(b.mensaje).not.toBe(AVISO_DERIVACION);
+    expect(tablas.leads[0].datos.derivar_a_humano).toBeUndefined();
+    expect(tablas.leads[0].datos.bloqueo_confirmaciones).toBeUndefined();
+  });
+
+  it('conteo: dos bloqueos por falta de forma_reserva (jubilación) marcan al lead y el modelo recibe el aviso', async () => {
+    const { db, tablas } = dbMemoria({ leads: [{ telefono: tel, datos: { reserva_esperada: 40000 } }] });
+    const a: any = await condicionDeAgenda(db, { ...ctx, textosCliente: ['hola'] });
+    expect(a.mensaje).toContain('Falta registrar: forma_reserva');
+    const b: any = await condicionDeAgenda(db, { ...ctx, textosCliente: ['hola', 'sigo acá'] });
+    expect(b).toEqual({ ok: false, mensaje: AVISO_DERIVACION });
+    expect(tablas.leads[0].datos.derivar_a_humano).toContain('forma_reserva');
+    expect(tablas.leads[0].requiere_turno).toBe(true);
+  });
+
+  it('conteo: los errores de definir_tipo_consulta por falta de registro también cuentan, y el segundo trae el aviso', async () => {
+    const { db, tablas } = dbMemoria({ leads: [{ telefono: tel, campana: 'art9_ganancias', datos: { es_docente: 'si' } }] });
+    const a: any = await ejecutarHerramienta(db, 'definir_tipo_consulta', { tipo: 'articulo9_ganancias' }, { ...ctx, textosCliente: ['soy docente'] });
+    expect(a.error).toContain('Falta registrar');
+    const b: any = await ejecutarHerramienta(db, 'definir_tipo_consulta', { tipo: 'articulo9_ganancias' }, { ...ctx, textosCliente: ['soy docente', 'hola?'] });
+    expect(b.error).toBe(AVISO_DERIVACION);
+    expect(tablas.leads[0].datos.derivar_a_humano).toBeDefined();
+  });
+
+  it('registrar_confirmacion: acepta como evidencia la pregunta del agente que la persona contestó con un sí', async () => {
+    const { db, tablas } = dbMemoria({ leads: [{ telefono: tel, datos: {} }] });
+    const conv = [{ from: 'karina', texto: '¿Se jubiló por ANSES?' }, { from: 'cliente', texto: 'si' }];
+    const r: any = await ejecutarHerramienta(db, 'registrar_confirmacion', { campo: 'jubilado_anses', valor: 'si', evidencia: 'Se jubiló por ANSES' }, { ...ctx, textosCliente: ['si'], textosAfirmados: preguntasAfirmadas(conv) });
+    expect(r.registrado).toBe(true);
+    expect(tablas.leads[0].datos.jubilado_anses).toBe('si');
+    expect(evidenciaValida('SE JUBILO POR ansés', [], ['¿Se jubiló por ANSES?'])).toBe(true);
+    expect(evidenciaValida('me jubilé por la caja', [], ['¿Se jubiló por ANSES?'])).toBe(false);
+  });
+
+  it('las tres confirmaciones en "si": condicionDeAgenda deja agendar', async () => {
+    const { db } = dbMemoria({ leads: [{ telefono: tel, campana: 'art9_ganancias', datos: { es_docente: 'si', jubilado_anses: 'si', descuento_art9_ganancias: 'si' } }] });
+    expect(await condicionDeAgenda(db, ctx)).toEqual({ ok: true });
+  });
+
+  it('si falta una confirmación: requiere_reserva con el texto "Falta registrar…"', async () => {
+    const { db } = dbMemoria({ leads: [{ telefono: tel, campana: 'art9_ganancias', datos: { es_docente: 'si', jubilado_anses: 'si' } }] });
+    const c: any = await condicionDeAgenda(db, ctx);
+    expect(c.ok).toBe(false);
+    expect(c.mensaje).toContain('Falta registrar: descuento_art9_ganancias');
+    expect(c.mensaje).toContain("'me retienen', 'me sacan plata del haber', 'trabajé en la escuela'");
+    expect(c.mensaje).toContain('NO se lo preguntes');
+    expect(c.mensaje).toBe(`TODAVÍA NO se puede agendar. ${textoFaltaRegistrar(['descuento_art9_ganancias'])} No ofrezcas horarios hasta entonces.`);
+  });
+
+  it('dos requiere_reserva seguidos sin registro nuevo: el lead queda marcado para el equipo', async () => {
+    const { db, tablas } = dbMemoria({ leads: [{ telefono: tel, campana: 'art9_ganancias', datos: { es_docente: 'si' } }] });
+    await condicionDeAgenda(db, { ...ctx, textosCliente: ['soy docente'] });
+    expect(tablas.leads[0].datos.derivar_a_humano).toBeUndefined();
+    // mismo mensaje (dos herramientas en el mismo turno): no cuenta dos veces
+    await condicionDeAgenda(db, { ...ctx, textosCliente: ['soy docente'] });
+    expect(tablas.leads[0].datos.derivar_a_humano).toBeUndefined();
+    // otro mensaje de la persona y sigue sin registrarse nada nuevo
+    await condicionDeAgenda(db, { ...ctx, textosCliente: ['soy docente', 'sigo esperando'] });
+    expect(tablas.leads[0].datos.derivar_a_humano).toContain('Dos intentos de agendar');
+    expect(tablas.leads[0].requiere_turno).toBe(true);
+  });
+
+  it('si entre un bloqueo y otro se registra algo nuevo, el conteo vuelve a empezar', async () => {
+    const { db, tablas } = dbMemoria({ leads: [{ telefono: tel, campana: 'art9_ganancias', datos: { es_docente: 'si' } }] });
+    await condicionDeAgenda(db, { ...ctx, textosCliente: ['soy docente'] });
+    tablas.leads[0].datos.jubilado_anses = 'si';
+    await condicionDeAgenda(db, { ...ctx, textosCliente: ['soy docente', 'me jubilé por ANSES'] });
+    expect(tablas.leads[0].datos.derivar_a_humano).toBeUndefined();
+    expect(tablas.leads[0].datos.bloqueo_confirmaciones.n).toBe(1);
   });
 
   it('la campaña se detecta por código desde el texto de la persona', () => {
@@ -2808,7 +2977,7 @@ describe('pruebas del agente · 60 conversaciones que terminan en un resultado',
   it('Artículo 9: una conversación que llega al turno agendado con Alejandro pasa todos los chequeos', async () => {
     const b = await conversar('a9-presencial-simple', (n) => {
       if (n === 0) return agente([{ text: 'Hola, soy Karina, del Centro Jurídico NOA. Entonces es docente jubilada por ANSES y le descuentan Artículo 9 y Ganancias, ¿es así?' }]);
-      if (n === 1) return agente([{ tool: 'definir_tipo_consulta', input: { tipo: 'articulo9_ganancias' } }, { text: 'Gracias por confirmármelo. La consulta con el Dr. Alejandro Reyes es sin cargo. ¿Prefiere presencial en San Salvador de Jujuy o virtual?' }]);
+      if (n === 1) return agente([{ tool: 'registrar_confirmacion', input: { campo: 'es_docente', valor: 'si', evidencia: 'Sí, soy docente jubilada por ANSES y me descuentan los dos' } }, { tool: 'registrar_confirmacion', input: { campo: 'jubilado_anses', valor: 'si', evidencia: 'Sí, soy docente jubilada por ANSES y me descuentan los dos' } }, { tool: 'registrar_confirmacion', input: { campo: 'descuento_art9_ganancias', valor: 'si', evidencia: 'Sí, soy docente jubilada por ANSES y me descuentan los dos' } }, { tool: 'definir_tipo_consulta', input: { tipo: 'articulo9_ganancias' } }, { text: 'Gracias por confirmármelo. La consulta con el Dr. Alejandro Reyes es sin cargo. ¿Prefiere presencial en San Salvador de Jujuy o virtual?' }]);
       if (n === 2) return agente([{ text: 'Perfecto, presencial. ¿Qué día o franja le queda cómodo?' }]);
       if (n === 3) return conAgenda('alejandro');
       return async (_s: string, mensajes: any[]) => {
@@ -2828,7 +2997,7 @@ describe('pruebas del agente · 60 conversaciones que terminan en un resultado',
     let horaOfrecida = '';
     const b = await conversar('a9-presencial-simple', (n, estado) => {
       if (n === 0) return agente([{ text: 'Hola, soy Karina, del Centro Jurídico NOA. Entonces es docente jubilada por ANSES y le descuentan Artículo 9 y Ganancias, ¿es así?' }]);
-      if (n === 1) return agente([{ tool: 'definir_tipo_consulta', input: { tipo: 'articulo9_ganancias' } }, { text: 'Gracias por confirmármelo. La consulta con el Dr. Alejandro Reyes es sin cargo. ¿Prefiere presencial en San Salvador de Jujuy o virtual?' }]);
+      if (n === 1) return agente([{ tool: 'registrar_confirmacion', input: { campo: 'es_docente', valor: 'si', evidencia: 'Sí, soy docente jubilada por ANSES y me descuentan los dos' } }, { tool: 'registrar_confirmacion', input: { campo: 'jubilado_anses', valor: 'si', evidencia: 'Sí, soy docente jubilada por ANSES y me descuentan los dos' } }, { tool: 'registrar_confirmacion', input: { campo: 'descuento_art9_ganancias', valor: 'si', evidencia: 'Sí, soy docente jubilada por ANSES y me descuentan los dos' } }, { tool: 'definir_tipo_consulta', input: { tipo: 'articulo9_ganancias' } }, { text: 'Gracias por confirmármelo. La consulta con el Dr. Alejandro Reyes es sin cargo. ¿Prefiere presencial en San Salvador de Jujuy o virtual?' }]);
       if (n === 2) return agente([{ text: 'Perfecto, presencial. ¿Qué día o franja le queda cómodo?' }]);
       if (n === 3) return conAgenda('alejandro');
       const d = estado.herramientas.find((h: any) => h.nombre === 'consultar_disponibilidad').resultado;
@@ -2983,23 +3152,36 @@ describe('chat de prueba a mano desde el ERP', () => {
 });
 
 describe('Articulo 9 · lo que la persona confirma con un "si" cuenta', () => {
-  it('las condiciones se dan por confirmadas cuando contesta "si" a las preguntas del agente', () => {
+  it('las preguntas del agente que la persona contestó con "si" sirven de evidencia', () => {
     const conv = [
       { from: 'cliente', texto: 'Por el tema del articulo 9' },
-      { from: 'karina', texto: 'Para poder ayudarle, ¿es usted jubilado/a docente?' },
+      { from: 'karina', texto: 'Para poder ayudarle con el tema, ¿es usted jubilado/a docente?' },
       { from: 'cliente', texto: 'Si' },
       { from: 'karina', texto: 'Gracias. ¿Se jubiló por ANSES?' },
       { from: 'cliente', texto: 'si' },
     ];
     const afirmadas = preguntasAfirmadas(conv, 'si');
-    const antes = condicionesArt9Confirmadas(['Hola', 'Por el tema del articulo 9', 'Si', 'si', 'si']);
-    expect(antes.ok).toBe(false);
-    const ya = condicionesArt9Confirmadas(['Por el tema del articulo 9', 'Si', 'si', ...preguntasAfirmadas([...conv, { from: 'karina', texto: '¿Tiene los descuentos por Artículo 9 e Impuesto a las Ganancias en su recibo?' }], 'si')]);
-    expect(ya.ok).toBe(true);
     expect(afirmadas).toHaveLength(2);
+    expect(evidenciaValida('es usted jubilado/a docente', [], afirmadas)).toBe(true);
+    expect(evidenciaValida('Se jubiló por ANSES', [], afirmadas)).toBe(true);
+    expect(evidenciaValida('le descuentan Ganancias', [], afirmadas)).toBe(false);
   });
   it('un "no" o una respuesta que no afirma no cuenta', () => {
     const conv = [{ from: 'karina', texto: '¿Es usted docente jubilado?' }, { from: 'cliente', texto: 'no, soy empleado' }];
     expect(preguntasAfirmadas(conv)).toEqual([]);
+  });
+});
+
+describe('prompt · confirmaciones registradas', () => {
+  it('los flujos A y B piden registrar cada confirmación con su frase como evidencia', () => {
+    expect(PROMPT_AGENTE).toContain('registrar_confirmacion (es_docente, jubilado_anses, descuento_art9_ganancias');
+    expect(PROMPT_AGENTE).toContain('registrar_confirmacion (forma_reserva, modalidad_consulta)');
+    expect(HERRAMIENTAS_LLM.map(h => h.name)).toContain('registrar_confirmacion');
+  });
+  it('la parte A del prompt: aportar valor, una pregunta sin guion, palabras de compra y objeciones', () => {
+    expect(PROMPT_AGENTE).toContain('El orden es siempre: empatizar, aportar valor, preguntar.');
+    expect(PROMPT_AGENTE).toContain('El orden de los datos es una guía, no un guion.');
+    expect(PROMPT_AGENTE).toContain('tu siguiente pregunta profundiza en ESO');
+    expect(PROMPT_AGENTE).toContain('Nunca discutas ni intentes ganar.');
   });
 });
