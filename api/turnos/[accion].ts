@@ -957,6 +957,19 @@ export function separarDatosPago(texto: string): { voz: string; escrito: string 
 
 // ---------------------------------------------------------------- estilo profesional (se revisa cada mensaje antes de enviarlo)
 
+/**
+ * Promesas o insinuaciones de resultado: las de GARANTIAS (el control de las pruebas) más "recuperar" en cualquier forma, "devolver lo descontado",
+ * "va a cobrar" y "le van a devolver". Un mensaje que las contenga se corrige antes de enviarse.
+ */
+export const REGEX_PROMESAS = new RegExp(
+  [
+    'le garantiz', 'garantizamos que (?:va|vamos|ganar)', 'le aseguro que (?:va|vamos|ganar|recuper|obtendr|cobrar|conseguir)', '100\\s?%',
+    'seguro que (?:va|vamos) a ganar', 'ganar[ée]mos? (?:el|su) (?:juicio|caso)', 'sin ning[uú]n riesgo',
+    '\\brecuper\\w*', 'devolver lo descontado', 'posibilidades de recuperar', 'va a cobrar', 'le van a devolver',
+  ].join('|'),
+  'i',
+);
+
 /** Formas de tú y de vos: el estudio habla SIEMPRE de usted. */
 const FORMAS_INFORMALES = [
   'tú', 'tu', 'tus', 'ti', 'contigo', 'vos', 'te', 'tuyo', 'tuya',
@@ -991,6 +1004,7 @@ export function quitarFrasesHechas(txt: string): string {
 
 export function problemasDeEstilo(txt: string): string[] {
   const out: string[] = [];
+  if (REGEX_PROMESAS.test(txt)) out.push('No prometas ni insinúes resultados ni recuperos. Decí que el abogado analiza su caso en la consulta.');
   if (ocurrenciasDeHora(txt).length > 2) out.push('Ofrecé exactamente DOS horarios (nunca tres ni más), en una sola frase corrida.');
   if (horasSinDia(txt).length) out.push('Cada horario que ofrezcas va con su día y fecha: "martes 27 a las 9:00 o miércoles 28 a las 10:00".');
   if ((txt.match(/\?/g) ?? []).length > 1 || /(?:^|\s)y si\s[^?]*\?/i.test(txt)) out.push('Hacé como máximo UNA pregunta por mensaje (la primera que falte) y esperá la respuesta: no encadenes varias preguntas ni repitas las que la persona ya contestó.');
@@ -1119,18 +1133,21 @@ const CAMPOS_ART9 = ['es_docente', 'jubilado_anses', 'descuento_art9_ganancias']
 
 const limpiarParaComparar = (t: unknown) => String(t ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9ñ]+/g, ' ').trim();
 
-const oracionesDe = (t: unknown) => String(t ?? '').split(/[.?!\n]+/).map(limpiarParaComparar).filter(Boolean);
-const preguntasDe = (t: unknown) => [...String(t ?? '').matchAll(/¿[^?]*\?/g)].map(m => limpiarParaComparar(m[0]));
+const trozosDe = (t: unknown) => (String(t ?? '').match(/[^.?!\n]+[.?!]*/g) ?? []).map(x => x.trim()).filter(Boolean);
 
 /**
- * La evidencia tiene que ser una ORACIÓN COMPLETA (partida por . ? ! o salto de línea; sin importar tildes, mayúsculas ni signos) de lo que escribió la persona,
- * o la pregunta completa del agente que la persona contestó con un sí. Un fragmento no alcanza.
+ * La evidencia puede ser un fragmento: si está dentro de una oración de la persona (o de una pregunta tuya que ella afirmó), se acepta y se devuelve la
+ * oración COMPLETA que lo contiene (esa es la que se guarda). Sin importar tildes, mayúsculas ni signos. Si no aparece en ningún lado, devuelve null.
  */
-export function evidenciaValida(evidencia: unknown, textosCliente: string[], textosAfirmados: string[] = []): boolean {
+export function evidenciaCompleta(evidencia: unknown, textosCliente: string[], textosAfirmados: string[] = []): string | null {
   const e = limpiarParaComparar(evidencia);
-  if (e.length < 4) return false;
-  if (textosCliente.some(t => oracionesDe(t).includes(e))) return true;
-  return textosAfirmados.some(t => limpiarParaComparar(t) === e || oracionesDe(t).includes(e) || preguntasDe(t).includes(e));
+  if (e.length < 4) return null;
+  for (const t of textosCliente) for (const o of trozosDe(t)) if (limpiarParaComparar(o).includes(e)) return o;
+  for (const t of textosAfirmados) {
+    for (const q of String(t ?? '').match(/¿[^?]*\?/g) ?? []) if (limpiarParaComparar(q).includes(e)) return q.trim();
+    for (const o of trozosDe(t)) if (limpiarParaComparar(o).includes(e)) return o;
+  }
+  return null;
 }
 
 /** Lo que recibe el modelo cuando el lead pasa a una persona del equipo. */
@@ -1271,13 +1288,13 @@ export const HERRAMIENTAS_LLM = [
   },
   {
     name: 'registrar_confirmacion',
-    description: 'Registra algo que la persona confirmó, con la frase textual que lo respalda. Campos: es_docente, jubilado_anses, descuento_art9_ganancias (valor si/no), forma_reserva (efectivo/transferencia), modalidad_consulta (presencial/virtual). La evidencia tiene que ser una oración completa que la persona escribió (o tu pregunta completa que ella contestó con un sí), copiada tal cual; un fragmento no alcanza y, si no aparece en la conversación, el registro se rechaza.',
+    description: 'Registra algo que la persona confirmó, con la frase textual que lo respalda. Campos: es_docente, jubilado_anses, descuento_art9_ganancias (valor si/no), forma_reserva (efectivo/transferencia), modalidad_consulta (presencial/virtual). La evidencia es la frase de la conversación que lo respalda (puede ser un fragmento de una oración de la persona o de tu pregunta que ella contestó con un sí): se guarda la oración completa que la contiene. Si no aparece en la conversación, el registro se rechaza.',
     input_schema: {
       type: 'object',
       properties: {
         campo: { type: 'string', enum: ['es_docente', 'jubilado_anses', 'descuento_art9_ganancias', 'forma_reserva', 'modalidad_consulta'] },
         valor: { type: 'string', description: 'si/no, efectivo/transferencia o presencial/virtual, según el campo' },
-        evidencia: { type: 'string', description: 'oración completa, textual, de la conversación que respalda el valor' },
+        evidencia: { type: 'string', description: 'frase textual de la conversación que respalda el valor' },
       },
       required: ['campo', 'valor', 'evidencia'],
     },
@@ -1457,12 +1474,12 @@ export async function ejecutarHerramienta(db: Db, nombre: string, input: any, ct
     if (!def) return { error: `campo debe ser uno de: ${Object.keys(CAMPOS_CONFIRMACION).join(', ')}` };
     const valor = normalizar(String(input?.valor ?? ''));
     if (!def.valores.includes(valor)) return { error: `valor de ${campo} debe ser: ${def.valores.join(' o ')}` };
-    const evidencia = String(input?.evidencia ?? '').trim().slice(0, 300);
-    if (!evidenciaValida(evidencia, ctx.textosCliente ?? [], ctx.textosAfirmados ?? [])) {
-      return { error: 'No se registró: la evidencia tiene que ser una ORACIÓN COMPLETA que la persona escribió (o tu pregunta completa que ella contestó con un sí), copiada tal cual de la conversación; un fragmento no alcanza.' };
+    const evidencia = evidenciaCompleta(String(input?.evidencia ?? '').trim(), ctx.textosCliente ?? [], ctx.textosAfirmados ?? [])?.slice(0, 300);
+    if (!evidencia) {
+      return { error: 'No se registró: esa frase no aparece en ningún mensaje de la persona ni en una pregunta tuya que ella contestó con un sí. Copiá la frase tal cual de la conversación.' };
     }
     await upsertLeadSeguro(db, ctx.telefono, camposDeLead({ datos: { [campo]: valor, [`${campo}_evidencia`]: evidencia, [`${campo}_registrado_el`]: new Date().toISOString() } }));
-    return { registrado: true, campo, valor };
+    return { registrado: true, campo, valor, evidencia };
   }
   if (nombre === 'guardar_datos_cliente') {
     // Solo estos campos y con tope de largo: el modelo no puede escribir claves arbitrarias (por ejemplo la reserva esperada) en la ficha.
@@ -1605,7 +1622,7 @@ Por el primer mensaje (el texto precargado del anuncio) o por lo que cuenta, ded
 ## Flujo A: Artículo 9 e Impuesto a las Ganancias (objetivo e información a recabar; no es un guion)
 Objetivo: que la persona agende la consulta SIN CARGO con el Dr. Alejandro Reyes. Para ofrecérsela necesitás saber tres cosas: (1) si es jubilado/a docente, (2) si se jubiló por ANSES y (3) si le descuentan Artículo 9 y/o Impuesto a las Ganancias. NO se pide el recibo.
 Cómo lo recabás: conversando, no preguntando en fila. Nunca le enumeres las tres cosas ni le pidas que "confirme esos datos": eso es para vos, no para decírselo así; preguntá de forma natural y humana solo lo que falte, una cosa por mensaje. Quizás ya lo dijo (en el anuncio, en el primer mensaje, mientras cuenta lo que le pasa, o con un "sí" a algo que le preguntaste): lo que ya sabés no se repregunta. Entendé primero su situación y respondé a lo que preguntó o contó; después completá solo lo que realmente falte, en el orden que fluya con lo que va diciendo y de a una pregunta por mensaje. Si te lo dio todo junto, alcanza con confirmarlo con sus palabras en una sola frase.
-Apenas la persona dé cada una de esas tres confirmaciones (con sus palabras, aunque sea indirecta, o con un "sí" a tu pregunta), o diga que NO, registrala en ese mismo turno con registrar_confirmacion (es_docente, jubilado_anses, descuento_art9_ganancias: "si" o "no"), usando su oración completa como evidencia. Lo mismo con modalidad_consulta (presencial o virtual) cuando la elija.
+Apenas la persona dé cada una de esas tres confirmaciones (con sus palabras, aunque sea indirecta, o con un "sí" a tu pregunta), o diga que NO, registrala en ese mismo turno con registrar_confirmacion (es_docente, jubilado_anses, descuento_art9_ganancias: "si" o "no"), usando su frase como evidencia. Lo mismo con modalidad_consulta (presencial o virtual) cuando la elija.
 Cuando tengas las tres cosas (porque las dijo o las confirmó), en ese mismo turno guardá la campaña (guardar_datos_cliente con campana art9_ganancias) y usá definir_tipo_consulta con articulo9_ganancias. Sin ese paso el sistema no te deja agendar.
 Con las tres cosas confirmadas, todavía NO ofrecés la consulta. Primero descubrís, conversando, de a una pregunta, siguiendo el hilo y con el orden empatizar, aportar valor, preguntar: qué quiere lograr (objetivo), y al menos una de estas tres: qué la frenó hasta ahora, qué intentó antes, o qué tan importante es para ella resolverlo ya. Lo que ya dijo cuenta y no se pregunta. Después reorganizás su situación en una o dos frases, con sus palabras, y recién ahí le ofrecés la consulta SIN CARGO con el Dr. Alejandro Reyes como el paso lógico. Nada de pagos, valores ni reserva en este flujo. Para coordinar necesitás dos datos: si prefiere presencial en San Salvador de Jujuy o virtual (si dice "video", "videollamada", "zoom" o "meet", quiere virtual; no le hables de ningún video previo en este flujo), y qué día o franja le queda cómodo. Pedilos al ritmo de la conversación, no en bloques fijos. Contale en una frase lo que logra con la consulta: el Dr. Alejandro Reyes analiza su caso y le explica qué se puede hacer y cuáles son los pasos a seguir. Nunca anticipes montos, cálculos ni resultados.
 Con el día o la franja, usá consultar_disponibilidad con el Dr. Alejandro Reyes y ofrecé exactamente DOS horarios reales, en una frase corrida (nunca tres ni en formato menú). Cada horario que ofrezcas va con su día y fecha: 'martes 27 a las 9:00 o miércoles 28 a las 10:00'. Tu consulta termina con el turno agendado.
@@ -1621,7 +1638,7 @@ Con el día o la franja, usá consultar_disponibilidad con el Dr. Alejandro Reye
    Al explicarlo, mencioná siempre al menos dos cosas: que no se puede hacer un análisis serio con información general (por eso hace falta la consulta) y que en la consulta se revisan los recibos de sueldo y los aportes. No alcanza con decir "el abogado analiza su caso".
    Antes de proponer agendar, contestá siempre lo que la persona preguntó del video, de la consulta o del valor.
 4. Si quiere agendar: usá definir_tipo_consulta con jubilacion_docente. El sistema te dice el valor que corresponde (es_valor_de_hoy indica si rige el de hoy) y la reserva, que es la mitad. Usá solo esos importes, escritos siempre con el signo de pesos adelante y punto para separar los miles, nunca con coma (si el sistema te dice cincuenta mil, escribís el signo de pesos seguido de 50.000). Seguí la secuencia comercial.
-   Apenas la persona elija cómo abonar la reserva (efectivo o transferencia) o la modalidad de la consulta (presencial o virtual), registralo en ese mismo turno con registrar_confirmacion (forma_reserva, modalidad_consulta), usando su oración completa como evidencia.
+   Apenas la persona elija cómo abonar la reserva (efectivo o transferencia) o la modalidad de la consulta (presencial o virtual), registralo en ese mismo turno con registrar_confirmacion (forma_reserva, modalidad_consulta), usando su frase como evidencia.
 5. Si le piden cuánto sale, o dicen que no pueden ver el video, usá definir_tipo_consulta con jubilacion_docente y decile por escrito el valor que te da el sistema (con el signo de pesos), explicándole lo único que sabés del video: que es del Dr. Fabricio Reyes y que en la consulta él analiza su caso y le explica los pasos a seguir. No digas que no podés decirlo.
 5. Si duda o prefiere pensarlo, seguí la sección "Objeciones y dudas" (nunca la aceptes sin trabajarla una vez), sin inventar plazos: podés decirle con sinceridad que el valor de hoy rige para quien agenda hoy, y dejar la puerta abierta con una frase propia (por ejemplo: "Cuando lo decida, me escribe y coordinamos la consulta"). Si vuelve otro día, el sistema te da el valor que corresponde ese día: usá ese.
 Aplica lo mismo si consulta por otros regímenes o por el régimen general: tomá el motivo y el contexto, y el abogado asesora en la consulta.
@@ -3450,7 +3467,7 @@ export async function chatAgentePaso(texto: string, estadoIn: any, llm: Deps['ll
   await procesarMensaje(deps, { id: `chat-${Date.now()}-${paso}`, from: '5490000000000', nombre: null, texto: limpio, esTexto: true });
   if (respuestas.length === 0 || (respuestas.length === 1 && respuestas[0] === MSG_SIN_RESPUESTA)) return { code: 503, body: { error: 'OpenAI no contestó (límite de uso o saldo). Probá de nuevo.' } };
   for (const t of respuestas) estado.transcript.push({ de: 'karina', texto: t, paso });
-  return { code: 200, body: { respuestas, estado, herramientas: estado.herramientas.slice(antes).map((h: any) => h.nombre), videos: estado.videos } };
+  return { code: 200, body: { respuestas, estado, herramientas: estado.herramientas.slice(antes).map((h: any) => h.nombre), trazas: estado.herramientas.slice(antes), videos: estado.videos } };
 }
 
 export async function probarAgentePaso(id: string, paso: number, estadoIn: any, llm: Deps['llm'] = (sis, msgs) => llamarModelo(sis, msgs, { respaldo: false }), real?: Db, cliente: ClienteSimulado = simularClienteOpenAI): Promise<Resp> {
