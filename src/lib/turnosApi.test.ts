@@ -3525,6 +3525,11 @@ describe('agente v2 · director + extractor + redactor (todo con modelo simulado
     { persona: P_OBJ, extractor: () => raw({ casilleros: [cas('objetivo', 'que dejen de descontar y que le devuelvan lo descontado', P_OBJ)] }) },
     { persona: P_HIST, extractor: () => raw({ casilleros: [cas('historial', 'fue a ANSES y le dijeron que no se podía', P_HIST)] }) },
   ].slice(0, n);
+  /** Acepta la consulta y contesta presencial o virtual: recién ahí el director ofrece los horarios. */
+  const ACEPTA_Y_VIRTUAL: Turno[] = [
+    { persona: 'Sí, me gustaría avanzar', extractor: () => raw({ intencion: 'acepta' }) },
+    { persona: 'Virtual', extractor: () => raw({ filtros: [fil('modalidad_consulta', 'virtual', 'Virtual')] }) },
+  ];
 
   // ------------------------------------------------------------------ DIRECTOR · los 9 casos
   it('1) "Hola, soy docente jubilada por ANSES y me descuentan ganancias": los 3 filtros salen del extractor y el director da descubrir: objetivo, NUNCA obtener_filtro', async () => {
@@ -3572,29 +3577,29 @@ describe('agente v2 · director + extractor + redactor (todo con modelo simulado
     let ofrecidos: any[] = [];
     const c = await conversar([
       ...art9Hasta(3),
-      { persona: 'Sí, me gustaría avanzar', extractor: () => raw({ intencion: 'acepta' }) },
+      ...ACEPTA_Y_VIRTUAL,
       { persona: 'si', extractor: (u) => { ofrecidos = u.horarios_ofrecidos; return raw({ intencion: 'ambiguo' }); } },
       { persona: 'el primero', extractor: (u) => raw({ intencion: 'elige_horario', horario_elegido: u.horarios_ofrecidos[0] }) },
     ], undefined, 'Ana Gómez');
     // turno 4: el CÓDIGO consultó la agenda y eligió DOS
-    expect(c.tipos[3]).toEqual(['ofrecer_horarios']);
-    expect(c.cuerpos[3].herramientas).toContain('consultar_disponibilidad');
-    const dos = c.cuerpos[3].v2.objetivos[0].detalle;
+    expect(c.tipos[4]).toEqual(['ofrecer_horarios']);
+    expect(c.cuerpos[4].herramientas).toContain('consultar_disponibilidad');
+    const dos = c.cuerpos[4].v2.objetivos[0].detalle;
     expect(dos).toHaveLength(2);
-    expect(c.cuerpos[3].respuestas[0]).toMatch(new RegExp(`${DIAS[new Date(`${dos[0].fecha}T12:00:00Z`).getUTCDay()]}.*${dos[0].hora}.* o .*${dos[1].hora}`));
+    expect(c.cuerpos[4].respuestas[0]).toMatch(new RegExp(`${DIAS[new Date(`${dos[0].fecha}T12:00:00Z`).getUTCDay()]}.*${dos[0].hora}.* o .*${dos[1].hora}`));
     // turno 5: "si" → pregunta cuál de los MISMOS dos, sin consultar de nuevo
-    expect(c.tipos[4]).toEqual(['preguntar_cual']);
-    expect(c.cuerpos[4].herramientas).not.toContain('consultar_disponibilidad'); // no consulta de nuevo
-    expect(c.cuerpos[4].herramientas).not.toContain('agendar_turno');
+    expect(c.tipos[5]).toEqual(['preguntar_cual']);
+    expect(c.cuerpos[5].herramientas).not.toContain('consultar_disponibilidad'); // no consulta de nuevo
+    expect(c.cuerpos[5].herramientas).not.toContain('agendar_turno');
     expect(ofrecidos.map(x => x.hora)).toEqual(dos.map((x: any) => x.hora));
-    expect(c.cuerpos[4].v2.objetivos[0].detalle.map((x: any) => `${x.fecha} ${x.hora}`)).toEqual(dos.map((x: any) => `${x.fecha} ${x.hora}`));
+    expect(c.cuerpos[5].v2.objetivos[0].detalle.map((x: any) => `${x.fecha} ${x.hora}`)).toEqual(dos.map((x: any) => `${x.fecha} ${x.hora}`));
     // turno 6: "el primero" → agendar_turno con ese horario exacto → confirmar_turno
-    expect(c.tipos[5]).toEqual(['confirmar_turno']);
-    const ag = c.cuerpos[5].trazas.find((h: any) => h.nombre === 'agendar_turno');
+    expect(c.tipos[6]).toEqual(['confirmar_turno']);
+    const ag = c.cuerpos[6].trazas.find((h: any) => h.nombre === 'agendar_turno');
     expect(ag.input).toMatchObject({ profesional: 'alejandro', fecha: dos[0].fecha, hora: dos[0].hora });
     expect(ag.resultado.status).toBe('success');
     expect(c.estado.tablas.consultas_agendadas[0]).toMatchObject({ fecha_consulta: dos[0].fecha, hora_consulta: dos[0].hora, abogado_asignado: 'Alejandro' });
-    expect(c.cuerpos[5].respuestas[0]).toContain('YA QUEDÓ AGENDADA');
+    expect(c.cuerpos[6].respuestas[0]).toContain('YA QUEDÓ AGENDADA');
     expect(c.lead().datos.horarios_ofrecidos).toBeNull();
     expect(leerEstadoV2(c.lead().datos).etapa).toBe('agendado');
   });
@@ -3602,10 +3607,10 @@ describe('agente v2 · director + extractor + redactor (todo con modelo simulado
   it('5b) confirmar_turno NUNCA sin success: si el modelo dice "quedó agendada" sin turno, se corrige antes de enviar', async () => {
     const c = await conversar([
       ...art9Hasta(3),
-      { persona: 'Sí, me gustaría avanzar', extractor: () => raw({ intencion: 'acepta' }) },
+      ...ACEPTA_Y_VIRTUAL,
     ], (sis, mensajes, n) => (mensajes.some((m: any) => String(m.content).startsWith('[SISTEMA ERP: Corregí')) ? redactorFalso(sis) : (/Ofrecele exactamente DOS/.test(sis) ? 'Perfecto, su consulta ya quedó agendada.' : redactorFalso(sis))), 'Ana Gómez');
-    expect(c.cuerpos[3].respuestas[0]).not.toMatch(/quedó agendada/i);
-    expect(c.cuerpos[3].v2.redactor.length).toBeGreaterThanOrEqual(2);
+    expect(c.cuerpos[4].respuestas[0]).not.toMatch(/quedó agendada/i);
+    expect(c.cuerpos[4].v2.redactor.length).toBeGreaterThanOrEqual(2);
     expect(c.estado.tablas.consultas_agendadas).toHaveLength(0);
   });
 
@@ -3613,7 +3618,7 @@ describe('agente v2 · director + extractor + redactor (todo con modelo simulado
     let dos: any[] = [];
     const c = await conversar([
       ...art9Hasta(3),
-      { persona: 'Sí, me gustaría avanzar', extractor: () => raw({ intencion: 'acepta' }) },
+      ...ACEPTA_Y_VIRTUAL,
       {
         persona: 'el primero',
         antes: (estado) => { // mientras tanto alguien toma ese horario
@@ -3624,10 +3629,10 @@ describe('agente v2 · director + extractor + redactor (todo con modelo simulado
         extractor: (u) => raw({ intencion: 'elige_horario', horario_elegido: u.horarios_ofrecidos[0] }),
       },
     ], undefined, 'Ana Gómez');
-    expect(c.tipos[4]).toEqual(['ofrecer_horarios']);
-    const ag = c.cuerpos[4].trazas.find((h: any) => h.nombre === 'agendar_turno');
+    expect(c.tipos[5]).toEqual(['ofrecer_horarios']);
+    const ag = c.cuerpos[5].trazas.find((h: any) => h.nombre === 'agendar_turno');
     expect(ag.resultado.status).toBe('conflict');
-    const nuevos = c.cuerpos[4].v2.objetivos[0].detalle;
+    const nuevos = c.cuerpos[5].v2.objetivos[0].detalle;
     expect(nuevos).toHaveLength(2);
     expect(nuevos.map((x: any) => `${x.fecha} ${x.hora}`)).not.toContain(`${dos[0].fecha} ${dos[0].hora}`);
     expect(c.estado.tablas.consultas_agendadas).toHaveLength(1); // solo el que ya estaba: no se agendó nada encima
@@ -3638,11 +3643,11 @@ describe('agente v2 · director + extractor + redactor (todo con modelo simulado
     let antes: any[] = [];
     const c = await conversar([
       ...art9Hasta(3),
-      { persona: 'Sí, me gustaría avanzar', extractor: () => raw({ intencion: 'acepta' }) },
+      ...ACEPTA_Y_VIRTUAL,
       { persona: 'No puedo esos días', antes: (e) => { antes = e.tablas.leads[0].datos.horarios_ofrecidos.lista; }, extractor: () => raw({ intencion: 'rechaza_horarios' }) },
     ], undefined, 'Ana Gómez');
-    expect(c.tipos[4]).toEqual(['ofrecer_horarios']);
-    expect(c.cuerpos[4].herramientas).toContain('consultar_disponibilidad');
+    expect(c.tipos[5]).toEqual(['ofrecer_horarios']);
+    expect(c.cuerpos[5].herramientas).toContain('consultar_disponibilidad');
     const nuevos = c.lead().datos.horarios_ofrecidos.lista;
     expect(nuevos).toHaveLength(2);
     for (const n of nuevos) expect(antes.some(a => a.fecha === n.fecha && a.hora === n.hora)).toBe(false);
@@ -3746,7 +3751,67 @@ describe('agente v2 · director + extractor + redactor (todo con modelo simulado
     const P = 'No soy docente, era administrativa';
     const v = validarExtraccion(raw({ filtros: [fil('es_docente', 'no', P)] }), { cfg: CONFIG_CLIENTE, personaTextos: [P], ofrecidos: [] });
     expect(v.filtros[0]).toMatchObject({ campo: 'es_docente', valor: 'no' });
-    expect(PROMPT_EXTRACTOR).toContain('"No soy docente", "no me descuentan") es valor "no"');
+    expect(PROMPT_EXTRACTOR).toContain('"no" SOLO si lo niega o dice algo incompatible');
+    expect(PROMPT_EXTRACTOR).toContain('Cada campo trae una "ayuda"');
+  });
+  // ------------------------------------------------------------------ RONDA 1 (modelo real): extractor
+  it('ronda 1 · extractor: la emoción tiene que estar en el ÚLTIMO mensaje, y aceptar o elegir no es una emoción', () => {
+    const viejo = 'Quiero que dejen de sacarme plata, es injusto';
+    const nuevo = 'Sí, me interesa';
+    const base = { cfg: CONFIG_CLIENTE, personaTextos: [viejo, nuevo], ofrecidos: [] };
+    expect(validarExtraccion(raw({ emocion: { frase: viejo }, intencion: 'otro' }), base).emocion).toBeNull();
+    expect(validarExtraccion(raw({ emocion: { frase: nuevo }, intencion: 'acepta' }), base).emocion).toBeNull();
+    expect(validarExtraccion(raw({ emocion: { frase: 'Me preocupa que me sigan sacando plata' }, intencion: 'otro' }), { ...base, personaTextos: [viejo, 'Me preocupa que me sigan sacando plata'] }).emocion).toEqual({ frase: 'Me preocupa que me sigan sacando plata' });
+  });
+  it('ronda 1 · extractor: "no sé qué hacer" o una pregunta del agente no son una pregunta de la persona', () => {
+    const P = 'ahora me retienen del haber y no se que hacer';
+    const base = { cfg: CONFIG_CLIENTE, personaTextos: [P], ofrecidos: [] };
+    const v = validarExtraccion(raw({ pregunta_de_la_persona: 'no se que hacer', intencion: 'pregunta' }), base);
+    expect(v.pregunta_de_la_persona).toBeNull();
+    expect(v.intencion).toBe('otro');
+    const q = 'Mi caso se puede reclamar?';
+    const v2 = validarExtraccion(raw({ pregunta_de_la_persona: q, intencion: 'pregunta' }), { ...base, personaTextos: [q] });
+    expect(v2.pregunta_de_la_persona).toBe(q);
+    expect(v2.intencion).toBe('pregunta');
+  });
+  it('ronda 1 · extractor: "Virtual" o "Sí" no se guardan como nombre', () => {
+    const base = { cfg: CONFIG_CLIENTE, personaTextos: ['Virtual', 'Sí'], ofrecidos: [] };
+    expect(validarExtraccion(raw({ filtros: [fil('nombre', 'Virtual', 'Virtual')] }), base).filtros).toEqual([]);
+    expect(validarExtraccion(raw({ filtros: [fil('nombre', 'Sí', 'Sí')] }), base).filtros).toEqual([]);
+  });
+  it('ronda 1 · aplicar: un dato ya sabido no se pisa con un re-informe que no sale del último mensaje', () => {
+    const e0 = aplicarExtraccion(estadoV2Vacio(), validarExtraccion(raw({ oferta_detectada: 'art9_ganancias', filtros: [fil('es_docente', 'si', 'soy docente jubilada')] }), { cfg: CONFIG_CLIENTE, personaTextos: ['soy docente jubilada'], ofrecidos: [] }), CONFIG_CLIENTE, null, 'soy docente jubilada');
+    const textos = ['soy docente jubilada', 'No sé'];
+    const e1 = aplicarExtraccion(e0, validarExtraccion(raw({ filtros: [fil('es_docente', 'no', 'No sé')] }), { cfg: CONFIG_CLIENTE, personaTextos: textos, ofrecidos: [] }), CONFIG_CLIENTE, null, 'otra cosa');
+    expect(e1.filtros.es_docente.valor).toBe('si');
+    const e2 = aplicarExtraccion(e0, validarExtraccion(raw({ filtros: [fil('es_docente', 'no', 'No sé')] }), { cfg: CONFIG_CLIENTE, personaTextos: textos, ofrecidos: [] }), CONFIG_CLIENTE, null, 'No sé');
+    expect(e2.filtros.es_docente.valor).toBe('no');
+  });
+  it('ronda 1 · config: cada filtro lleva su ayuda para el extractor ("maestra" es docente) y el extractor las recibe', () => {
+    const f = CONFIG_CLIENTE.ofertas.art9_ganancias.filtros.find(x => x.campo === 'es_docente')!;
+    expect(f.ayuda).toMatch(/maestra/i);
+    expect(CONFIG_CLIENTE.ofertas.art9_ganancias.datos_antes_de_horarios?.[0]).toMatchObject({ campo: 'modalidad_consulta', valores: ['presencial', 'virtual'] });
+  });
+
+  // ------------------------------------------------------------------ RONDA 1: controles de salida del redactor
+  it('ronda 1 · una pregunta compuesta ("¿qué…, y desde cuándo…?") y "necesito…" se corrigen', () => {
+    expect(problemasDeEstilo('¿Qué le preocupa exactamente y desde cuándo le ocurre esto?').length).toBeGreaterThan(0);
+    expect(problemasDeEstilo('Necesito que elija uno de los dos horarios. ¿Cuál prefiere?').length).toBeGreaterThan(0);
+    expect(problemasDeEstilo('¿Qué le preocupa exactamente de esos descuentos?')).toEqual([]);
+  });
+
+  // ------------------------------------------------------------------ RONDA 1: director
+  it('ronda 1 · después de agendar no se vuelve a ofrecer nada: turno_agendado_seguimiento con los datos del turno', async () => {
+    const c = await conversar([
+      ...art9Hasta(3),
+      ...ACEPTA_Y_VIRTUAL,
+      { persona: 'el primero', extractor: (u) => raw({ intencion: 'elige_horario', horario_elegido: u.horarios_ofrecidos[0] }) },
+      { persona: 'Gracias, ¿dónde queda?', extractor: () => raw({ intencion: 'pregunta', pregunta_de_la_persona: 'Gracias, ¿dónde queda?' }) },
+    ], undefined, 'Ana Gómez');
+    expect(c.tipos[5]).toEqual(['confirmar_turno']);
+    expect(c.tipos[6]).toEqual(['turno_agendado_seguimiento']);
+    expect(c.cuerpos[6].herramientas).toEqual([]);
+    expect(c.estado.tablas.consultas_agendadas).toHaveLength(1);
   });
   it('extractor: salida que no cumple el schema → se reintenta una vez; si falla otra vez se ignora y el estado no cambia', async () => {
     let llamadas = 0;
@@ -3779,7 +3844,7 @@ describe('agente v2 · director + extractor + redactor (todo con modelo simulado
       for (const alt of n?.anyOf ?? []) revisar(alt, `${ruta}|`);
     };
     revisar(esq, 'raiz');
-    expect(esq.properties.filtros.items.properties.campo.enum.sort()).toEqual(['descuento_art9_ganancias', 'edad', 'es_docente', 'forma_reserva', 'jubilado_anses', 'nombre', 'trabaja_docente']);
+    expect(esq.properties.filtros.items.properties.campo.enum.sort()).toEqual(['descuento_art9_ganancias', 'edad', 'es_docente', 'forma_reserva', 'jubilado_anses', 'modalidad_consulta', 'nombre', 'trabaja_docente']);
     expect(esq.properties.oferta_detectada.enum).toEqual(['art9_ganancias', 'jubilacion', null]);
   });
   it('extractor y redactor llaman al modelo como dice la orden: extractor con json_schema estricto y temperatura 0; redactor sin herramientas', async () => {
@@ -3807,15 +3872,15 @@ describe('agente v2 · director + extractor + redactor (todo con modelo simulado
   it('redactor: con el objetivo ofrecer_horarios y 2 horarios, el mensaje los nombra con día y fecha (si no, se corrige)', async () => {
     const c = await conversar([
       ...art9Hasta(3),
-      { persona: 'Sí, me gustaría avanzar', extractor: () => raw({ intencion: 'acepta' }) },
+      ...ACEPTA_Y_VIRTUAL,
     ], (sis, mensajes) => {
       if (mensajes.some((m: any) => String(m.content).startsWith('[SISTEMA ERP: Corregí'))) return redactorFalso(sis);
       if (/Ofrecele exactamente DOS/.test(sis)) return 'Tengo lugar a las 09:00 o a las 09:30. ¿Cuál le queda mejor?';
       return redactorFalso(sis);
     }, 'Ana Gómez');
-    const dos = c.cuerpos[3].v2.objetivos[0].detalle;
-    expect(c.cuerpos[3].v2.redactor).toHaveLength(2);
-    const final = c.cuerpos[3].respuestas[0];
+    const dos = c.cuerpos[4].v2.objetivos[0].detalle;
+    expect(c.cuerpos[4].v2.redactor).toHaveLength(2);
+    const final = c.cuerpos[4].respuestas[0];
     for (const d of dos) expect(final).toContain(`${d.hora}`);
     expect(final).toMatch(/(lunes|martes|miércoles|jueves|viernes) \d{1,2} de [a-z]+ a las/);
   });
@@ -3984,28 +4049,36 @@ describe('agente v2 · ajustes: fotos y documentos, rechazo firme y nombre (mode
   });
 
   // ------------------------------------------------------------------ 3. nombre en Art. 9
-  it('3) sin nombre (ni filtro ni perfil de WhatsApp) el objetivo antes de ofrecer_horarios es obtener_dato_agenda: nombre; con el nombre se agenda a su nombre', async () => {
+  it('3) sin nombre: primero modalidad, después los horarios, y el nombre recién cuando elige uno; con el nombre se agenda ese mismo horario a su nombre', async () => {
     let b = await turnoTexto(FRASE1, undefined, art9);
     b = await turnoTexto(P_OBJ, b.estado, raw({ casilleros: [cas('objetivo', 'que dejen de descontar', P_OBJ)] }));
     b = await turnoTexto(P_HIST, b.estado, raw({ casilleros: [cas('historial', 'fue a ANSES', P_HIST)] }));
     expect(tipoDe(b)).toEqual(['reorganizar_y_ofrecer']);
     b = await turnoTexto('Sí, quiero avanzar', b.estado, raw({ intencion: 'acepta' }));
-    expect(tipoDe(b)).toEqual(['obtener_dato_agenda:nombre']); // antes de ofrecer horarios
+    expect(tipoDe(b)).toEqual(['obtener_dato_agenda:modalidad_consulta']); // antes de ofrecer horarios
     expect(b.herramientas).not.toContain('consultar_disponibilidad');
+    b = await turnoTexto('Virtual', b.estado, raw({ filtros: [fil('modalidad_consulta', 'virtual', 'Virtual')] }));
+    expect(tipoDe(b)).toEqual(['ofrecer_horarios']);
+    const elegido = b.estado.tablas.leads[0].datos.horarios_ofrecidos.lista[0];
+    b = await turnoTexto('el primero', b.estado, raw({ intencion: 'elige_horario', horario_elegido: elegido }));
+    expect(tipoDe(b)).toEqual(['obtener_dato_agenda:nombre']); // pide el nombre con el horario elegido en espera
+    expect(b.herramientas).not.toContain('agendar_turno');
     expect(b.v2.objetivos[0].texto).toContain('nombre y apellido');
+    expect(leerEstadoV2(b.estado.tablas.leads[0].datos).horario_pendiente).toEqual({ fecha: elegido.fecha, hora: elegido.hora });
     const NOMBRE = 'Me llamo Ana Gómez';
     b = await turnoTexto(NOMBRE, b.estado, raw({ filtros: [fil('nombre', 'Ana Gómez', NOMBRE)], intencion: 'otro' }));
-    expect(tipoDe(b)).toEqual(['ofrecer_horarios']);
-    expect(b.estado.tablas.leads[0].nombre).toBe('Ana Gómez');
-    b = await turnoTexto('el primero', b.estado, raw({ intencion: 'elige_horario', horario_elegido: b.estado.tablas.leads[0].datos.horarios_ofrecidos.lista[0] }));
     expect(tipoDe(b)).toEqual(['confirmar_turno']);
-    expect(b.estado.tablas.consultas_agendadas[0].cliente_nombre).toBe('Ana Gómez');
+    expect(b.estado.tablas.leads[0].nombre).toBe('Ana Gómez');
+    expect(b.estado.tablas.consultas_agendadas[0]).toMatchObject({ cliente_nombre: 'Ana Gómez', fecha_consulta: elegido.fecha, hora_consulta: elegido.hora });
+    expect(b.estado.tablas.consultas_agendadas[0].observaciones).toContain('Virtual');
   });
-  it('3b) con el nombre del perfil de WhatsApp no se lo pide: va directo a ofrecer_horarios', async () => {
+  it('3b) con el nombre del perfil de WhatsApp no se lo pide: modalidad y directo a ofrecer_horarios', async () => {
     let b = await turnoTexto(FRASE1, undefined, art9, 'Ana Gómez');
     b = await turnoTexto(P_OBJ, b.estado, raw({ casilleros: [cas('objetivo', 'x', P_OBJ)] }), 'Ana Gómez');
     b = await turnoTexto(P_HIST, b.estado, raw({ casilleros: [cas('historial', 'y', P_HIST)] }), 'Ana Gómez');
     b = await turnoTexto('Sí, quiero avanzar', b.estado, raw({ intencion: 'acepta' }), 'Ana Gómez');
+    expect(tipoDe(b)).toEqual(['obtener_dato_agenda:modalidad_consulta']);
+    b = await turnoTexto('Virtual', b.estado, raw({ filtros: [fil('modalidad_consulta', 'virtual', 'Virtual')] }), 'Ana Gómez');
     expect(tipoDe(b)).toEqual(['ofrecer_horarios']);
   });
 });

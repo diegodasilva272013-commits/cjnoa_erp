@@ -26,17 +26,20 @@ export const CONFIG_CJNOA = {
         {
           "campo": "es_docente",
           "tipo": "si_no",
-          "descripcion": "si es docente jubilado/a"
+          "descripcion": "si es docente jubilado/a",
+          "ayuda": "Docente incluye maestra/o, profesora/o y personal de escuela o de colegio. \"Soy maestra\", \"fui maestra 30 años\", \"me jubilé como docente\" => si. Solo es no si lo niega o dice otra ocupación (administrativa, empleada, etc.)."
         },
         {
           "campo": "jubilado_anses",
           "tipo": "si_no",
-          "descripcion": "si se jubiló por ANSES"
+          "descripcion": "si se jubiló por ANSES",
+          "ayuda": "\"Me jubilé por ANSES\", \"jubilada de ANSES\", \"cobro de ANSES\" => si. \"Caja provincial\" u otra caja => no."
         },
         {
           "campo": "descuento_art9_ganancias",
           "tipo": "si_no",
-          "descripcion": "si le descuentan Artículo 9 y/o Ganancias"
+          "descripcion": "si le descuentan Artículo 9 y/o Ganancias",
+          "ayuda": "\"Me descuentan ganancias\", \"me retienen del haber\", \"me sacan del haber por ganancias o por el artículo 9\" => si. Decir solo \"me sacan plata\" sin decir qué es (ganancias, artículo 9 o una retención del haber) NO alcanza: no lo incluyas."
         }
       ],
       "filtros_de_cierre": [],
@@ -53,7 +56,19 @@ export const CONFIG_CJNOA = {
       "condicion": "La consulta con el Dr. Alejandro Reyes es SIN CARGO y sin compromiso, y puede ser presencial en San Salvador de Jujuy o virtual. En la consulta el Dr. Alejandro Reyes analiza su caso y le explica qué se puede hacer y cuáles son los pasos a seguir.",
       "urgencia": "La ley permite reclamar lo descontado hasta 2 años hacia atrás en Artículo 9 y hasta 5 años en Ganancias, contados desde la presentación de la demanda; por eso cada mes que se demora, los descuentos más antiguos pueden quedar fuera del reclamo. Es todo lo que podés decir sobre plazos y nunca prometés un resultado.",
       "activo_de_valor": null,
-      "cierre": "turno_directo"
+      "cierre": "turno_directo",
+      "datos_antes_de_horarios": [
+        {
+          "campo": "modalidad_consulta",
+          "tipo": "opcion",
+          "valores": [
+            "presencial",
+            "virtual"
+          ],
+          "descripcion": "si prefiere la consulta presencial (en San Salvador de Jujuy) o virtual",
+          "ayuda": "\"Virtual\", \"por videollamada\", \"por Meet o Zoom\", \"desde casa\" => virtual; \"presencial\", \"en persona\", \"voy al estudio\" => presencial."
+        }
+      ]
     },
     "jubilacion": {
       "etiqueta": "Jubilación docente",
@@ -65,17 +80,20 @@ export const CONFIG_CJNOA = {
         {
           "campo": "nombre",
           "tipo": "texto",
-          "descripcion": "su nombre"
+          "descripcion": "su nombre",
+          "ayuda": "Solo si la persona dice su nombre (\"me llamo…\", \"soy Ana López\") o contesta a una pregunta por su nombre. Una palabra suelta que contesta OTRA pregunta (virtual, presencial, sí, no) NO es un nombre."
         },
         {
           "campo": "edad",
           "tipo": "numero",
-          "descripcion": "su edad"
+          "descripcion": "su edad",
+          "ayuda": "Solo el número que dice como su edad."
         },
         {
           "campo": "trabaja_docente",
           "tipo": "si_no",
-          "descripcion": "si actualmente trabaja como docente"
+          "descripcion": "si actualmente trabaja como docente",
+          "ayuda": "\"Sigo trabajando como docente\", \"todavía doy clases\" => si."
         }
       ],
       "filtros_de_cierre": [
@@ -86,7 +104,8 @@ export const CONFIG_CJNOA = {
             "efectivo",
             "transferencia"
           ],
-          "descripcion": "cómo prefiere abonar la reserva (transferencia o efectivo)"
+          "descripcion": "cómo prefiere abonar la reserva (transferencia o efectivo)",
+          "ayuda": "\"Transferencia\", \"por banco\", \"por Mercado Pago\" => transferencia; \"efectivo\", \"en las oficinas\" => efectivo."
         }
       ],
       "casilleros_minimos": {
@@ -106,14 +125,16 @@ export const CONFIG_CJNOA = {
         "herramienta": "enviar_video_jubilacion",
         "descripcion": "video grabado por el Dr. Fabricio Reyes"
       },
-      "cierre": "reserva_y_turno"
+      "cierre": "reserva_y_turno",
+      "datos_antes_de_horarios": []
     }
   },
   "datos_agenda": [
     {
       "campo": "nombre",
       "tipo": "texto",
-      "descripcion": "su nombre y apellido"
+      "descripcion": "su nombre y apellido",
+      "ayuda": "Solo si la persona dice su nombre (\"me llamo…\", \"soy Ana López\") o contesta a una pregunta por su nombre. Una palabra suelta que contesta OTRA pregunta (virtual, presencial, sí, no) NO es un nombre."
     }
   ]
 };
