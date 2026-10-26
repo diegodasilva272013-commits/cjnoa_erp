@@ -3,7 +3,7 @@ import { createHmac } from 'node:crypto';
 import handler, {
   clasificarRecibo, TIPOS_CONSULTA, promesaSinCumplir, separarDatosPago, mensajeApurado,
   aMin, limpiarSecreto, camposDeLead, etapaAutomatica, fusionarLead, registrarMensaje, upsertLead, firmaMetaValida, firmaKapsoValida, extraerMensajesKapso, extraerMensajes, aMensajesLLM, procesarMensaje, filaDePersona, esConversacionDeNoa, clasificarMensajeCliente, categoriaMensajeAgente, personaMetrica, agregarMetricasAgente, calcularMetricasAgente, evaluarOptimizaciones, validarOptimizaciones, ejecutarOptimizacion, type MetricasAgente, motivoDeExclusion, resumenEnPalabras, ejecutarAnalista, revisarAnalisisAutomatico, codigosDeEstilo, etapaEmbudo, analizarConversacion, calcularMetricas, mascararDatos, textoParaEtiquetar, validarEtiquetas, promptDelAgente, limpiarCachePrompt, accionAgentes, problemasDeEstilo, textoNoLegible, firmaMercadoPagoValida, importeTexto, importeLindo, asignarImporteUnico, procesarPagoMP, montoMercadoPago, enmascarar, neutralizarMarcas, salidaInsegura, superaLimite, urlMediaSegura, resumenTurnosVigentes, HERRAMIENTAS_LLM, cuerpoNotaDeVoz, notaDeImagen, montoValidadoDe, quitarEtiquetas, aMensajesOpenAI, deOpenAI, ejecutarHerramienta, PROMPT_AGENTE, type Deps, telefonoClave, historialDe, inferirNombre, normalizarFecha, normalizarHora, bloquesDelDia, huecosLibres, localDe, resolverProfesional, diaSemanaISO, fechaValida,
-  registrarSinResponder, registrarUso, fijarDbUso, costoUsd, esDudaOObjecion, esRechazoFirme, horasEnTexto, quitarFrasesHechas, REGEX_CLICHE, condicionesArt9Confirmadas, campanaDelTexto, probarAgentePaso, chatAgentePaso, preguntasAfirmadas, evidenciaCompleta, REGEX_PROMESAS, validarExtraccion, aplicarExtraccion, esquemaExtractor, PROMPT_REDACTOR, PROMPT_EXTRACTOR, CONFIG_CLIENTE, leerEstadoV2, estadoV2Vacio, extraccionVacia, funcionesV2, textoFaltaRegistrar, AVISO_DERIVACION, horariosOfrecidosEn, ofrecidosVigentes, textoOfrecidos, horasSinDia, ofertaConDia, condicionDeAgenda, registrarMensajeHumano, extraerHumanosKapso, responderDesdeErp, resumenCampana, analizarCampana, analisisSoloConCifrasReales,
+  registrarSinResponder, registrarUso, fijarDbUso, costoUsd, esDudaOObjecion, esRechazoFirme, horasEnTexto, quitarFrasesHechas, REGEX_CLICHE, condicionesArt9Confirmadas, campanaDelTexto, probarAgentePaso, chatAgentePaso, preguntasAfirmadas, evidenciaCompleta, REGEX_PROMESAS, validarExtraccion, aplicarExtraccion, elegirDosHorarios, esquemaExtractor, PROMPT_REDACTOR, PROMPT_EXTRACTOR, CONFIG_CLIENTE, leerEstadoV2, estadoV2Vacio, extraccionVacia, funcionesV2, textoFaltaRegistrar, AVISO_DERIVACION, horariosOfrecidosEn, ofrecidosVigentes, textoOfrecidos, horasSinDia, ofertaConDia, condicionDeAgenda, registrarMensajeHumano, extraerHumanosKapso, responderDesdeErp, resumenCampana, analizarCampana, analisisSoloConCifrasReales,
   type Bloque,
 } from '../../api/turnos/[accion]';
 
@@ -1552,13 +1552,13 @@ describe('agente · tono profesional (siempre de usted)', () => {
       llm: async (_sys, msgs) => {
         llamadas++;
         sistemas.push(JSON.stringify(msgs.slice(-1)));
-        return llamadas === 1 ? texto('Para poder ayudarte mejor, ¿podrías decirme tu edad?') : texto('Para poder ayudarle mejor, ¿me podría indicar su edad, por favor?');
+        return llamadas === 1 ? texto('Para poder ayudarte mejor, ¿podrías decirme tu edad?') : texto('Sobre su consulta, ¿me podría indicar su edad, por favor?');
       },
     });
     await procesarMensaje(d, msg);
     expect(llamadas).toBe(2);
     expect(sistemas[1]).toContain('usted');
-    expect(enviados[0]).toBe('Para poder ayudarle mejor, ¿me podría indicar su edad, por favor?');
+    expect(enviados[0]).toBe('Sobre su consulta, ¿me podría indicar su edad, por favor?');
   });
 
   it('si propone la consulta sin decir el valor, se corrige antes de enviar', async () => {
@@ -3803,6 +3803,51 @@ describe('agente v2 · director + extractor + redactor (todo con modelo simulado
       { persona: Q, extractor: () => raw({ intencion: 'objecion', emocion: { frase: Q }, casilleros: [cas('objetivo', 'que dejen de descontarle', Q)] }) },
     ]);
     expect(c.tipos[1]).toEqual([`profundizar:${Q}`]);
+  });
+  // ------------------------------------------------------------------ RONDA 3
+  it('ronda 3 · prompt del redactor: las tres partes (entender con sus palabras, valor en una frase, pregunta) y no nombrar el método', () => {
+    expect(PROMPT_REDACTOR).toContain('Cada mensaje tiene tres partes, en este orden');
+    expect(PROMPT_REDACTOR).toContain('Aportás valor en UNA frase');
+    expect(PROMPT_REDACTOR).toContain('descubren el descuento recién cuando miran el recibo con detalle');
+    expect(PROMPT_REDACTOR).toMatch(/nunca escribas "objetivo", "casillero" ni "situación actual"/);
+  });
+  it('ronda 3 · control de salida: fórmulas de empatía y promesas se corrigen', () => {
+    for (const f of ['Es natural que no haya reclamado.', 'Es comprensible que se preocupe.', 'Es muy comprensible su enojo.', 'Es preocupante que le descuenten.', 'Entiendo que está cansada.', 'Para poder ayudarla mejor, ¿desde cuándo?', 'Es un gusto conocer su profesión.'])
+      expect(problemasDeEstilo(f).join(' ')).toContain('no con una fórmula');
+    for (const f of ['La buena noticia es que hay camino.', 'Esto tiene solución.', 'Va a poder cobrar menos descuento.', 'Se puede recuperar.'])
+      expect(problemasDeEstilo(f).join(' ')).toContain('No prometas');
+    expect(problemasDeEstilo('Cuénteme qué le gustaría lograr con esto, ¿le parece?')).toEqual([]);
+  });
+  it('ronda 3 · descubrir objetivo se pregunta como una persona (ejemplos de la config) y sin nombrar el método', async () => {
+    const c = await conversar([{ persona: FRASE1, extractor: () => art9 }]);
+    const o = c.cuerpos[0].v2.objetivos[0];
+    expect(o.tipo).toBe('descubrir');
+    expect(o.texto).toContain('¿Qué le gustaría lograr con esto?');
+    expect(o.texto).toMatch(/Nunca digas "objetivo"/);
+  });
+  it('ronda 3 · el redactor que nombra el método ("su objetivo") se corrige antes de enviar', async () => {
+    const c = await conversar([{ persona: FRASE1, extractor: () => art9 }], (sis, mensajes) =>
+      (mensajes.some((m: any) => String(m.content).startsWith('[SISTEMA ERP: Corregí')) ? 'Cuénteme, ¿qué le gustaría lograr con esto?' : 'Hola, soy Karina. ¿Cuál es su objetivo respecto a este descuento?'));
+    expect(c.cuerpos[0].v2.redactor).toHaveLength(2);
+    expect(c.cuerpos[0].respuestas[0]).not.toMatch(/objetivo/i);
+  });
+  it('ronda 3 · reorganizar_y_ofrecer le pasa al redactor las palabras de la persona y exige arrancar con «Entonces, si le entendí bien:»', async () => {
+    const c = await conversar(art9Hasta(3), (sis, mensajes) =>
+      (mensajes.some((m: any) => String(m.content).startsWith('[SISTEMA ERP: Corregí')) ? 'Entonces, si le entendí bien: quiere que dejen de descontarle. ¿Le gustaría avanzar con una consulta sin cargo?' : redactorFalso(sis)));
+    const o = c.cuerpos[2].v2.objetivos[0];
+    expect(o.tipo).toBe('reorganizar_y_ofrecer');
+    expect(o.texto).toContain('Entonces, si le entendí bien:');
+    expect(o.texto).toContain(P_OBJ);
+    expect(c.cuerpos[2].v2.redactor.length).toBeGreaterThanOrEqual(2);
+    expect(c.cuerpos[2].respuestas[0]).toMatch(/^Entonces, si le entendí bien:/);
+  });
+  it('ronda 3 · dos horarios: días distintos; si hay un solo día, mañana y tarde; si hay una sola franja, los más separados', () => {
+    const s = (fecha: string, hora: string) => ({ fecha, hora, profesional: 'Alejandro' });
+    expect(elegirDosHorarios([s('2026-10-26', '09:00'), s('2026-10-26', '09:30'), s('2026-10-27', '10:00'), s('2026-10-28', '09:00')]).map(x => `${x.fecha} ${x.hora}`)).toEqual(['2026-10-26 09:00', '2026-10-27 10:00']);
+    expect(elegirDosHorarios([s('2026-10-26', '09:00'), s('2026-10-26', '09:30'), s('2026-10-26', '16:00'), s('2026-10-26', '17:00')]).map(x => x.hora)).toEqual(['09:00', '16:00']);
+    expect(elegirDosHorarios([s('2026-10-26', '09:00'), s('2026-10-26', '09:30'), s('2026-10-26', '10:00'), s('2026-10-26', '11:30')]).map(x => x.hora)).toEqual(['09:00', '11:30']);
+    expect(elegirDosHorarios([s('2026-10-27', '15:00'), s('2026-10-26', '16:00')]).map(x => x.fecha)).toEqual(['2026-10-26', '2026-10-27']);
+    expect(elegirDosHorarios([s('2026-10-26', '09:00')])).toHaveLength(1);
   });
   it('ronda 1 · config: cada filtro lleva su ayuda para el extractor ("maestra" es docente) y el extractor las recibe', () => {
     const f = CONFIG_CLIENTE.ofertas.art9_ganancias.filtros.find(x => x.campo === 'es_docente')!;

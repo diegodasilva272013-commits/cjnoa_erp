@@ -967,7 +967,7 @@ export const REGEX_PROMESAS = new RegExp(
   [
     'le garantiz', 'garantizamos que (?:va|vamos|ganar)', 'le aseguro que (?:va|vamos|ganar|recuper|obtendr|cobrar|conseguir)', '100\\s?%',
     'seguro que (?:va|vamos) a ganar', 'ganar[ée]mos? (?:el|su) (?:juicio|caso)', 'sin ning[uú]n riesgo',
-    '\\brecuper\\w*', 'devolver lo descontado', 'posibilidades de recuperar', 'va a cobrar', 'le van a devolver',
+    '\\brecuper\\w*', 'la buena noticia', 'tiene soluci[oó]n', 'va a poder', 'devolver lo descontado', 'posibilidades de recuperar', 'va a cobrar', 'le van a devolver',
   ].join('|'),
   'i',
 );
@@ -981,6 +981,8 @@ const FORMAS_INFORMALES = [
   'tenés', 'querés', 'podés', 'sabés', 'necesitás', 'preferís', 'decime', 'contame', 'avisame', 'mandame', 'pasame', 'escribime', 'llamame', 'fijate', 'mirá', 'andá', 'vení', 'decí', 'contá',
 ];
 const REGEX_TUTEO = new RegExp(`(?<![\\p{L}\\p{N}_])(?:${FORMAS_INFORMALES.join('|')})(?![\\p{L}\\p{N}_])`, 'iu');
+/** Fórmulas de empatía que suenan a libreto: la empatía se muestra con las palabras de la persona. */
+const REGEX_FORMULA = /es natural que|es comprensible que|es muy comprensible|es preocupante que|entiendo que|para poder ayudar(?:le|la|lo) mejor|es un gusto conocer/i;
 const REGEX_REPROCHE = /\b(?:necesito que (?:me )?(?:confirme|diga|responda|aclare|indique)|ya (?:le|te) (?:pregunt|dije)|como (?:le|te) (?:dije|mencion)|le repito|te repito)/i;
 
 /** Qué hay que corregir en un mensaje antes de mandarlo (vacío si está bien). */
@@ -1012,6 +1014,7 @@ export function problemasDeEstilo(txt: string): string[] {
   if ((txt.match(/\?/g) ?? []).length > 1 || /(?:^|\s)y si\s[^?]*\?/i.test(txt) || /¿[^?]*\s(?:y|e)\s+(?:qu[eé]|c[oó]mo|cu[aá]ndo|desde cu[aá]ndo|d[oó]nde|por qu[eé]|cu[aá]l(?:es)?|qui[eé]n)\b[^?]*\?/i.test(txt)) out.push('Hacé como máximo UNA pregunta por mensaje (la primera que falte) y esperá la respuesta: no encadenes varias preguntas ni repitas las que la persona ya contestó.');
   if (/^\s*[-•*]\s/m.test(txt) || (txt.match(/\b\d{1,2}[:.]\d{2}\b/g) ?? []).length > 4) out.push('Sin listas ni viñetas: ofrecé exactamente DOS horarios, en una sola frase corrida, y no vuelques el calendario.');
   if (REGEX_CLICHE.test(txt)) out.push('Sin frases hechas ("le entiendo", "entiendo completamente", "no dude en", "estoy aquí para ayudarle", "Entiendo,"): mostrá empatía respondiendo a lo concreto que contó la persona, con calidez real, y avanzá.');
+  if (REGEX_FORMULA.test(txt)) out.push('Mostrá que entendiste con las palabras de la persona, no con una fórmula.');
   if (REGEX_TUTEO.test(txt)) out.push('Tratá SIEMPRE de usted: nunca de tú ni de vos (nada de "podrías", "prefieres", "tu caso", "contame", "tenés"; usá "podría", "prefiere", "su caso", "cuénteme", "tiene").');
   if (/\bnecesit(?:o|amos)\b/i.test(txt)) out.push('Sin "necesito…" (ni "necesito que…"): pedí con amabilidad, por ejemplo "¿me indica…?" o "¿cuál prefiere?".');
   if (REGEX_REPROCHE.test(txt)) out.push('Sin reproches ni apuro: agradecé y pedí con amabilidad solamente lo que falta.');
@@ -1891,7 +1894,7 @@ export type ConfigOferta = {
   activo_de_valor: { tipo: string; herramienta: string; descripcion: string } | null;
   cierre: 'turno_directo' | 'reserva_y_turno';
 };
-export type ConfigCliente = { cliente: string; agente: { nombre: string; estudio: string; direccion: string }; casilleros: Record<string, string>; datos_agenda: ConfigFiltro[]; ofertas: Record<string, ConfigOferta> };
+export type ConfigCliente = { cliente: string; agente: { nombre: string; estudio: string; direccion: string }; casilleros: Record<string, string>; /** Cómo preguntaría una persona cada casillero (variantes). */ ejemplos_pregunta?: Record<string, string[]>; datos_agenda: ConfigFiltro[]; ofertas: Record<string, ConfigOferta> };
 export const CONFIG_CLIENTE = CONFIG_CJNOA as unknown as ConfigCliente;
 
 export type EtapaV2 = 'descubrir' | 'ofrecer' | 'activo_valor' | 'reserva' | 'horarios' | 'agendado' | 'derivado' | 'no_califica' | 'cerrado';
@@ -2071,6 +2074,16 @@ const aplanarDisponibilidad = (r: any): SlotOfrecido[] => {
   else if (r?.fecha && Array.isArray(r?.horarios_disponibles)) for (const h of r.horarios_disponibles) out.push({ fecha: String(r.fecha), hora: String(h), profesional: prof });
   return out;
 };
+/** Dos horarios: de días distintos; si solo hay un día, uno de mañana y otro de tarde; si hay una sola franja, los dos más separados. */
+export function elegirDosHorarios(libres: SlotOfrecido[]): SlotOfrecido[] {
+  const orden = [...libres].sort((x, y) => (x.fecha + x.hora).localeCompare(y.fecha + y.hora));
+  if (orden.length < 2) return orden;
+  const dias = [...new Set(orden.map(x => x.fecha))];
+  if (dias.length >= 2) return [orden.find(x => x.fecha === dias[0])!, orden.find(x => x.fecha === dias[1])!];
+  const manana = orden.filter(x => x.hora < '13:00'), tarde = orden.filter(x => x.hora >= '13:00');
+  if (manana.length && tarde.length) return [manana[0], tarde[0]];
+  return [orden[0], orden[orden.length - 1]];
+}
 const pesosV2 = (n: number) => `$${String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, '.')}`;
 
 function casilleroFaltante(estado: EstadoV2, oferta: ConfigOferta): string | null {
@@ -2178,14 +2191,14 @@ export async function dirigirTurno(a: EntradaDirector): Promise<SalidaDirector> 
     if (falta) return conBloqueo({ tipo: 'obtener_filtro', detalle: falta.campo, texto: `Necesitás saber ${falta.descripcion}. Preguntalo de forma natural y humana, con UNA sola pregunta, sin enumerar otros datos ni decir que necesitás confirmar nada.` }, `obtener_filtro:${falta.campo}`);
     // 7. faltan casilleros mínimos
     const casillero = casilleroFaltante(estado, oferta);
-    if (casillero) return conBloqueo({ tipo: 'descubrir', detalle: casillero, texto: `Descubrí, con UNA sola pregunta que siga de lo que la persona contó: ${cfg.casilleros[casillero] ?? casillero}. No la presentes como parte de un cuestionario.` }, `descubrir:${casillero}`);
+    if (casillero) return conBloqueo({ tipo: 'descubrir', detalle: casillero, texto: `Descubrí, con UNA sola pregunta que siga de lo que la persona contó: ${cfg.casilleros[casillero] ?? casillero}. Preguntalo como lo haría una persona${cfg.ejemplos_pregunta?.[casillero]?.length ? `, con tus palabras y variando la forma (por ejemplo: ${cfg.ejemplos_pregunta[casillero].map(x => `«${x}»`).join(' o ')})` : ''}. Nunca digas "objetivo", "casillero" ni "situación actual", y no la presentes como parte de un cuestionario.` }, `descubrir:${casillero}`);
     // 8. casilleros completos: reorganizar y ofrecer
     if (estado.etapa === 'descubrir') {
       estado.etapa = 'ofrecer';
       const activo = oferta.activo_de_valor;
       return {
         tipo: 'reorganizar_y_ofrecer',
-        texto: `Reorganizá en una o dos frases la situación de la persona con SUS palabras (mirá LO QUE YA SABÉS), mejor ordenada de lo que ella la dijo, y ofrecele el siguiente paso como lo lógico. ${activo ? `Decile que le vas a mandar un ${activo.descripcion} que le explica cómo sigue, y preguntale si le gustaría verlo. No hables de valores.` : `Contale la condición de la consulta (DATOS QUE PODÉS USAR) y preguntale si le gustaría avanzar. No ofrezcas horarios todavía.`}`,
+        texto: `Arrancá devolviéndole su situación ordenada en UNA frase que empiece con «Entonces, si le entendí bien:» y use SUS palabras (${Object.entries(estado.casilleros).filter(([, v]) => v).map(([c, v]) => `${cfg.casilleros[c] ?? c}: «${(v as any).evidencia}»`).join('; ')}). Después ofrecele el siguiente paso como lo lógico. ${activo ? `Decile que le vas a mandar un ${activo.descripcion} que le explica cómo sigue, y preguntale si le gustaría verlo. No hables de valores.` : `Contale la condición de la consulta (DATOS QUE PODÉS USAR) y preguntale si le gustaría avanzar. No ofrezcas horarios todavía.`}`,
       };
     }
     // 9. activo de valor: lo envía el código
@@ -2234,7 +2247,7 @@ export async function dirigirTurno(a: EntradaDirector): Promise<SalidaDirector> 
       const r: any = await a.ejecutar('consultar_disponibilidad', { profesional }, a.ctx);
       if (r?.status === 'requiere_reserva') return { tipo: 'reserva', texto: String(r.mensaje ?? '') };
       const libres = aplanarDisponibilidad(r).filter(s => !excluir.some(e => e.fecha === s.fecha && e.hora === s.hora));
-      const dos = libres.slice(0, 2);
+      const dos = elegirDosHorarios(libres);
       if (dos.length < 2) return derivar('No hay dos horarios libres para ofrecer.');
       estado.etapa = 'horarios';
       out.slotsOfrecidos = dos;
@@ -2309,17 +2322,19 @@ El sistema ya decidió qué corresponde, qué datos tiene la persona y qué hora
 - Si te preguntan con quién hablan: "Soy Karina, la asistente del Centro Jurídico NOA."
 - Si te preguntan si sos una IA, un robot o una persona real: "Soy una asistente de inteligencia artificial del Centro Jurídico NOA."
 
-## Cómo escribís cada mensaje (método EAP)
-1. Empatizá: mostrá que entendiste lo que dijo y lo que hay detrás (lo que siente, teme o quiere evitar), con SUS palabras y una frase sincera.
-2. Aportá valor en UNA frase: algo que ordene o aclare su situación con criterio. No es vender ni explicar el servicio.
-3. Preguntá: UNA sola pregunta, solo si el objetivo la pide. Si el objetivo no pide pregunta, no inventes una.
+## Cómo escribís cada mensaje
+Cada mensaje tiene tres partes, en este orden:
+1. Mostrás que entendiste lo que dijo y lo que siente, con SUS palabras, nunca con una fórmula.
+2. Aportás valor en UNA frase: algo que le ordene la situación o le haga ver algo que no estaba viendo, sin vender ni prometer. Por ejemplo (no se copia literal): "muchas personas en su situación descubren el descuento recién cuando miran el recibo con detalle."
+3. La pregunta del objetivo, si corresponde (UNA sola). Si el objetivo no pide pregunta, no inventes una.
 - Mensajes cortos: de dos a cuatro frases, texto plano de WhatsApp, sin listas, viñetas, negritas ni emojis.
 - Una idea por mensaje. Sin anunciar preguntas ("le voy a hacer unas preguntas"), sin numerar, sin menús de opciones.
 
 ## Lo que nunca hacés
-- Frases hechas: "le entiendo", "lo entiendo", "comprendo", "es comprensible que…", "es natural que…", "es válido que…", "estoy aquí para ayudarle", "quedo a su disposición", "no dude en contactarme"; ni empezar con "Entiendo" ni con "Entiendo que…". Mostrá que entendiste repitiendo SUS palabras, sin esos giros.
+- Nombrar el método: nunca escribas "objetivo", "casillero" ni "situación actual"; preguntá como lo haría una persona.
+- Frases hechas: "le entiendo", "lo entiendo", "comprendo", "es comprensible que…", "es natural que…", "es válido que…", "estoy aquí para ayudarle", "quedo a su disposición", "no dude en contactarme"; ni empezar con "Entiendo" ni con "Entiendo que…"; tampoco "para poder ayudarle mejor", "es preocupante que" ni "es un gusto conocer". Mostrá que entendiste repitiendo SUS palabras, sin esos giros.
 - Ofrecer o mencionar la consulta, el abogado o coordinar algo, salvo que el objetivo de este mensaje sea justamente ofrecerla. Y no cerrar con "si tiene otra consulta…".
-- Prometer o insinuar resultados, montos, recuperos ni plazos de resolución. Del abogado solo decís que analiza su caso y explica qué se puede hacer y los pasos.
+- Prometer o insinuar resultados, montos, recuperos ni plazos de resolución (nada de "la buena noticia es…", "tiene solución", "va a poder…"). Del abogado solo decís que analiza su caso y explica qué se puede hacer y los pasos.
 - Decir "necesito confirmar", "necesito saber", "un par de detalles" ni nada parecido.
 - Preguntar algo que figure en LO QUE YA SABÉS DE ESTA PERSONA, aunque lo haya dicho con otras palabras.
 - Inventar datos, horarios, precios, plazos, enlaces o cómo funciona la consulta virtual (si preguntan, el equipo coordina los detalles antes de la consulta).
@@ -2456,7 +2471,7 @@ async function turnoV2(a: {
   let texto = '';
   let correcciones = 0;
   const intentos: unknown[] = [];
-  for (let i = 0; i < 3; i++) {
+  for (let i = 0; i < 4; i++) {
     const r = await deps.redactar!(sistemaTxt, mensajes);
     texto = r.content.filter(b => b.type === 'text').map(b => String(b.text)).join('\n').trim();
     intentos.push(texto);
@@ -2464,9 +2479,11 @@ async function turnoV2(a: {
     const malas = horasEnTexto(texto).filter(h => !permitidas.has(h));
     if (malas.length) problemas.push(`Mencionaste horarios que no están permitidos (${malas.join(', ')}). Usá solo: ${[...permitidas].join(', ') || 'ninguno'}.`);
     if (horasExigidas.length && !horasExigidas.every(h => horasEnTexto(texto).includes(h))) problemas.push(`Nombrá exactamente estos dos horarios, cada uno con su día y fecha: ${(exigeHorarios!.detalle as SlotOfrecido[]).map(x => `${nombreDeDia(x.fecha)} a las ${x.hora}`).join(' o ')}.`);
+    if (/\bobjetivo\b|\bcasilleros?\b|situaci[oó]n actual/i.test(texto)) problemas.push('No nombres el método: nada de "objetivo", "casillero" ni "situación actual"; preguntalo como lo haría una persona (por ejemplo "¿Qué le gustaría lograr con esto?").');
+    if (salida.objetivos.some(o => o.tipo === 'reorganizar_y_ofrecer') && !/entonces,?\s+si le entend[ií] bien/i.test(texto)) problemas.push('Arrancá (después del saludo, si corresponde) con «Entonces, si le entendí bien: …» devolviendo su situación ordenada en una frase, y recién después ofrecé la consulta.');
     if (texto && !salida.agendoOk && afirmaTurnoAgendado(texto)) problemas.push('Todavía NO se agendó ningún turno: no digas que quedó agendado ni que se ven.');
     if (salida.objetivos.some(o => o.tipo === 'cerrar_con_respeto') && texto.includes('?')) problemas.push('Cerrá sin ninguna pregunta: agradecé y dejá la puerta abierta.');
-    if (!problemas.length || correcciones >= 2) break;
+    if (!problemas.length || correcciones >= 3) break;
     correcciones++;
     mensajes.push({ role: 'assistant', content: texto });
     mensajes.push({ role: 'user', content: `[SISTEMA ERP: Corregí tu mensaje antes de enviarlo. ${problemas.join(' ')} Mantené el objetivo, un tono cálido y siempre de usted.]` });
