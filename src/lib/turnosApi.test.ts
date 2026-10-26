@@ -3933,7 +3933,7 @@ describe('agente v2 · director + extractor + redactor (todo con modelo simulado
       expect(c.cuerpos[0].respuestas[0]).toContain(BUENO);
       expect(llamadas.length).toBeGreaterThanOrEqual(2);
       expect(c.cuerpos[0].v2.verificador.some((v: any) => !v.ok)).toBe(true);
-      expect(c.cuerpos[0].v2.verificador.at(-1).ok).toBe(true);
+      expect(c.cuerpos[0].v2.verificador[c.cuerpos[0].v2.verificador.length - 1].ok).toBe(true);
       expect(visto).toContain('Un revisor rechazó tu borrador');
     });
   }
@@ -4034,7 +4034,7 @@ describe('agente v2 · director + extractor + redactor (todo con modelo simulado
       { persona: P_OBJ, extractor: () => raw({ casilleros: [cas('objetivo', 'quiere que dejen de descontarle', P_OBJ)] }) },
     ], (_sis, _m) => (n++ === 0 ? 'Usted me cuenta que es docente jubilada. ¿Qué le gustaría lograr con esto?' : n === 2 ? 'Usted me cuenta que quiere frenar el descuento. ¿Desde cuándo lo notó?' : 'Quiere frenar el descuento, entonces. ¿Desde cuándo lo notó?'), undefined,
     async (_s, u) => { const o = JSON.parse(u); recibidos.push(o); return o.borrador.startsWith('Usted me cuenta que') && o.mensajes_anteriores_del_agente.length ? { violaciones: [{ regla: 'estructura_repetida', frase: 'Usted me cuenta que' }] } : { violaciones: [] }; });
-    expect(recibidos.at(-1).mensajes_anteriores_del_agente[0]).toContain('Usted me cuenta que es docente jubilada');
+    expect(recibidos[recibidos.length - 1].mensajes_anteriores_del_agente[0]).toContain('Usted me cuenta que es docente jubilada');
     expect(c.cuerpos[1].respuestas[0]).toBe('Quiere frenar el descuento, entonces. ¿Desde cuándo lo notó?');
     expect(c.cuerpos[1].v2.verificador.some((v: any) => !v.ok && /misma estructura/.test(v.motivo))).toBe(true);
   });
