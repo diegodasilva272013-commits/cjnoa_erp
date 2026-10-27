@@ -4768,7 +4768,16 @@ describe('agente v2 · director + extractor + redactor (todo con modelo simulado
       { persona: 'era administrativa, me descuentan ganancias, puedo tener un turno?', extractor: () => raw({ oferta_detectada: 'art9_ganancias', filtros: [fil('es_docente', 'no', 'era administrativa')], intencion: 'pregunta', pregunta_de_la_persona: 'puedo tener un turno?' }) },
     ], redactorEstudio);
     expect(c.tipos[0]).toEqual(['responder:puedo tener un turno?', 'no_califica:es_docente']);
-    expect(c.cuerpos[0].v2.objetivos[0].texto).toMatch(/NO califica para ese reclamo: no le confirmes consulta, turno ni horarios/);
+    expect(c.cuerpos[0].v2.objetivos[0].texto).toMatch(/NO califica para ese reclamo: no le confirmes consulta, turno ni horarios ni afirmes si existen otras vías/);
+  });
+  it('corridas 3 · una pregunta que abarca varias oraciones ("esto es una estafa? quien sos vos") se reconoce entera', async () => {
+    estudio();
+    const P = 'esto es una estafa? quien sos vos';
+    const v = validarExtraccion(raw({ intencion: 'pregunta', pregunta_de_la_persona: P }), { cfg: CONFIG_CLIENTE, personaTextos: [P], ofrecidos: [] });
+    expect(v.pregunta_de_la_persona).toBe(P);
+    const c = await conversar([{ persona: P, extractor: () => raw({ intencion: 'pregunta', pregunta_de_la_persona: P }) }], redactorEstudio);
+    expect(c.tipos[0][0]).toMatch(/^responder:/);
+    expect(c.cuerpos[0].v2.datos.join(' | ')).toContain(datosDeIdentidad(CONFIG_CLIENTE));
   });
   it('corridas 2 · el extractor: oferta solo por lo que dice la persona, datos aunque la oferta no esté clara, preguntas sobre quién escribe y despedida', () => {
     for (const x of ['nunca por lo que dijo el agente', 'aunque todavía no esté clara la oferta', '¿esto es una estafa?', 'Dudar de que sea real NO es una emoción', '- despedida:']) expect(PROMPT_EXTRACTOR).toContain(x);

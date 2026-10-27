@@ -2184,7 +2184,8 @@ export function validarExtraccion(raw: any, a: { cfg: ConfigCliente; personaText
   // La pregunta tiene que ser de la persona (estar en su último mensaje) y ser una pregunta de verdad.
   const pregunta = typeof raw.pregunta_de_la_persona === 'string' ? raw.pregunta_de_la_persona.trim() : '';
   if (pregunta) {
-    const oracion = evidenciaCompleta(pregunta, [ultimo], []);
+    // la pregunta puede abarcar varias oraciones ("esto es una estafa? quien sos vos"): alcanza con que esté entera en el último mensaje
+    const oracion = evidenciaCompleta(pregunta, [ultimo], []) ?? (limpiarParaComparar(pregunta).length >= 4 && limpiarParaComparar(ultimo).includes(limpiarParaComparar(pregunta)) ? pregunta : null);
     // la pregunta puede ir dentro de un mensaje más largo ("hola soy maestra … cuanto sale la consulta"): se mira ella, no la oración que la contiene
     const hay = oracion !== null && (oracion.includes('?') || pregunta.includes('?') || /^\s*¿?\s*(?:qu[eé]|c[oó]mo|cu[aá]nt[oa]s?|cu[aá]nd[oa]|d[oó]nde|por qu[eé]|qui[eé]n(?:es)?|cu[aá]l(?:es)?|me pueden|se puede|puedo|tienen|tiene|hay)\b/i.test(pregunta));
     if (hay) out.pregunta_de_la_persona = pregunta.slice(0, 300);
@@ -2654,7 +2655,7 @@ async function dirigirTurnoBase(a: EntradaDirector): Promise<SalidaDirector> {
 
   const loContestaElOfrecimiento = !!ext.preferencia && (ext.intencion === 'rechaza_horarios' || ext.intencion === 'reprogramar');
   const pre: Objetivo | null = ext.pregunta_de_la_persona && !loContestaElOfrecimiento
-    ? { tipo: 'responder', detalle: ext.pregunta_de_la_persona, texto: `Respondé primero, breve y con verdad, esta pregunta de la persona: «${ext.pregunta_de_la_persona}». Usá solo DATOS QUE PODÉS USAR; si no está ahí, decile con naturalidad que lo explica el abogado en la consulta. Si pregunta por un tema o un servicio que no figura en "Se ocupa de", no digas que lo atienden.${noCorresponde ? ' Esta persona NO califica para ese reclamo: no le confirmes consulta, turno ni horarios; explicale con tacto que no le corresponde.' : ''} Después seguí con el objetivo siguiente, con una sola pregunta en total.` }
+    ? { tipo: 'responder', detalle: ext.pregunta_de_la_persona, texto: `Respondé primero, breve y con verdad, esta pregunta de la persona: «${ext.pregunta_de_la_persona}». Usá solo DATOS QUE PODÉS USAR; si no está ahí, decile con naturalidad que lo explica el abogado en la consulta. Si pregunta por un tema o un servicio que no figura en "Se ocupa de", no digas que lo atienden.${noCorresponde ? ' Esta persona NO califica para ese reclamo: no le confirmes consulta, turno ni horarios ni afirmes si existen otras vías (no lo sabés); explicale con tacto que este reclamo en particular no le corresponde.' : ''} Después seguí con el objetivo siguiente, con una sola pregunta en total.` }
     : null;
   const obj = await principal();
   out.objetivos = pre ? [pre, obj] : [obj];
@@ -2761,7 +2762,7 @@ Categorías:
 - pago_confirmado: dice o da a entender que recibió, verificó o validó un pago o un comprobante ("ya verifiqué el comprobante", "recibimos su pago", "todo en orden con la transferencia").
 - promete_lo_no_dado: ofrece o promete algo del estudio que no figura en el objetivo ni en los datos: recordatorios, llamados, mails, avisos, plazos, envío de documentos.
 - cancelacion_confirmada: dice o da a entender que el turno YA está cancelado o anulado, o promete devolución o descuento de lo abonado.
-- formula_empatia: usa una fórmula de empatía en vez de las palabras de la persona ("Es natural que", "Es comprensible que", "Me preocupa que", "Es muy frustrante", "Es preocupante", "Es difícil que", "Es importante que", "Es bueno saber que", "Me doy cuenta de que", "Se nota que", "Entiendo que", "Comprendo que", o "puede generar confusión / inquietud / preocupación"), o el agente habla de sus propias emociones.
+- formula_empatia: usa una fórmula de empatía en vez de las palabras de la persona ("Es natural que", "Es comprensible que", "Me preocupa que", "Es muy frustrante", "Es preocupante", "Es difícil que", "Es complicado que", "Lamento que", "Es importante que", "Es bueno saber que", "Me doy cuenta de que", "Se nota que", "Entiendo que", "Comprendo que", o "puede generar confusión / inquietud / preocupación"), o el agente habla de sus propias emociones.
 - repite_mensaje_anterior: repite una frase o una idea que ya figura en el MENSAJE ANTERIOR (copiá la frase del borrador).
 - estructura_repetida: empieza una oración con la misma estructura con que ya empezaron mensajes anteriores del agente ("Usted me cuenta que", "Usted me dice que", "Veo que", "Entonces, si le entendí bien" o equivalentes). Copiá esa estructura inicial tal cual figura en el borrador. El saludo inicial no cuenta.
 - repite_dato_recien_dado: la persona acaba de responder solo un dato corto (sí, no, virtual, un nombre, un horario) y el borrador lo repite o lo confirma en vez de seguir ("La consulta será virtual", "Usted se jubiló por ANSES"). Decir solo "Perfecto.", "Bien." o "Gracias." no cuenta.
