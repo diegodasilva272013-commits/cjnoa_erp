@@ -2328,6 +2328,7 @@ export async function dirigirTurno(a: EntradaDirector): Promise<SalidaDirector> 
   if (o0?.tipo === 'obtener_filtro') dp = { tipo: 'filtro', campo: String(o0.detalle) };
   else if (o0?.tipo === 'obtener_dato_agenda') dp = o0.detalle === 'nombre' ? { tipo: 'nombre' } : { tipo: 'filtro', campo: String(o0.detalle) };
   else if (o0?.tipo === 'responder_objecion') { const of = a.estado.oferta ? a.cfg.ofertas[a.estado.oferta] : null; const falta = (of?.datos_antes_de_horarios ?? []).find(f => !out.estado.filtros[f.campo]); if (falta) dp = { tipo: 'filtro', campo: falta.campo }; }
+  else if (o0?.tipo === 'reserva_pedir_forma') dp = { tipo: 'filtro', campo: 'forma_reserva' };
   else if (o0?.tipo === 'aclarar_dato') dp = { tipo: 'filtro', campo: String(o0.detalle) };
   else if (o0?.tipo === 'preguntar_dia_reprogramar') dp = { tipo: 'preferencia' };
   else if (o0?.tipo === 'ofrecer_consulta' && o0.detalle) dp = { tipo: 'filtro', campo: String(o0.detalle) };

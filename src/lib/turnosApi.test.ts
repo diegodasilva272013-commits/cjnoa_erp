@@ -4800,6 +4800,17 @@ describe('agente v2 · director + extractor + redactor (todo con modelo simulado
     expect(c.cuerpos[2].respuestas[0]).toContain('centrojuridiconoa680');
     expect(n).toBeGreaterThanOrEqual(2);
   });
+  it('corridas 3 · al preguntar cómo abonar la reserva, el dato pendiente es la forma de reserva: "prefiero transferencia" se registra aunque el extractor no la devuelva', async () => {
+    estudio();
+    const P1 = 'Hola, soy Ana, tengo 62 años y sigo trabajando como docente';
+    const c = await conversar([
+      { persona: P1, extractor: () => raw({ oferta_detectada: 'jubilacion', filtros: [fil('nombre', 'Ana', P1), fil('edad', '62', P1), fil('trabaja_docente', 'si', P1)] }) },
+      { persona: 'lo vi, gracias', extractor: () => raw() },
+      { persona: 'prefiero transferencia', extractor: () => raw() },
+    ], redactorEstudio);
+    expect(leerEstadoV2(c.lead().datos).filtros.forma_reserva?.valor).toBe('transferencia');
+    expect(c.tipos[2]).toEqual(['reserva_transferencia']);
+  });
   it('corridas 3 · los datos para transferir se pasan una vez; después el agente solo espera el comprobante (no los repite en cada mensaje)', async () => {
     estudio();
     const P1 = 'Hola, soy Ana, tengo 62 años y sigo trabajando como docente';
