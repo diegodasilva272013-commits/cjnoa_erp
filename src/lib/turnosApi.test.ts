@@ -1,9 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+const INTENCIONES_PARA_TEST = ['despedida'];
 import { createHmac } from 'node:crypto';
 import handler, {
   clasificarRecibo, TIPOS_CONSULTA, promesaSinCumplir, separarDatosPago, mensajeApurado,
   aMin, limpiarSecreto, camposDeLead, etapaAutomatica, fusionarLead, registrarMensaje, upsertLead, firmaMetaValida, firmaKapsoValida, extraerMensajesKapso, extraerMensajes, aMensajesLLM, procesarMensaje, filaDePersona, esConversacionDeNoa, clasificarMensajeCliente, categoriaMensajeAgente, personaMetrica, agregarMetricasAgente, calcularMetricasAgente, evaluarOptimizaciones, validarOptimizaciones, ejecutarOptimizacion, type MetricasAgente, motivoDeExclusion, resumenEnPalabras, ejecutarAnalista, revisarAnalisisAutomatico, codigosDeEstilo, etapaEmbudo, analizarConversacion, calcularMetricas, mascararDatos, textoParaEtiquetar, validarEtiquetas, promptDelAgente, limpiarCachePrompt, accionAgentes, problemasDeEstilo, textoNoLegible, firmaMercadoPagoValida, importeTexto, importeLindo, asignarImporteUnico, procesarPagoMP, montoMercadoPago, enmascarar, neutralizarMarcas, salidaInsegura, superaLimite, urlMediaSegura, resumenTurnosVigentes, HERRAMIENTAS_LLM, cuerpoNotaDeVoz, notaDeImagen, montoValidadoDe, quitarEtiquetas, aMensajesOpenAI, deOpenAI, ejecutarHerramienta, PROMPT_AGENTE, type Deps, telefonoClave, historialDe, inferirNombre, normalizarFecha, normalizarHora, bloquesDelDia, huecosLibres, localDe, resolverProfesional, diaSemanaISO, fechaValida,
-  registrarSinResponder, registrarUso, fijarDbUso, costoUsd, esDudaOObjecion, esRechazoFirme, horasEnTexto, quitarFrasesHechas, REGEX_CLICHE, condicionesArt9Confirmadas, campanaDelTexto, probarAgentePaso, chatAgentePaso, preguntasAfirmadas, evidenciaCompleta, REGEX_PROMESAS, validarExtraccion, aplicarExtraccion, elegirDosHorarios, horarioSenialado, pareceElNombreDeUnaPersona, primeraPalabraDeMensaje, ideasParaElTurno, ideasUsadasEn, aperturaProhibida, datoRepetidoEnLaPrimeraOracion, cumplePreferencia, datosDeIdentidad, armarSistemaRedactor, permiteDeObjetivos, mensajeSeguro, PROMPT_VERIFICADOR, esquemaVerificador, evaluarVerificacion, aperturaDeMensaje, muletillaRepetida, esquemaExtractor, PROMPT_REDACTOR, PROMPT_EXTRACTOR, CONFIG_CLIENTE, leerEstadoV2, estadoV2Vacio, extraccionVacia, funcionesV2, textoFaltaRegistrar, AVISO_DERIVACION, horariosOfrecidosEn, ofrecidosVigentes, textoOfrecidos, horasSinDia, ofertaConDia, condicionDeAgenda, registrarMensajeHumano, extraerHumanosKapso, responderDesdeErp, resumenCampana, analizarCampana, analisisSoloConCifrasReales, esRespuestaCortaSiNo, preguntaDelAgente, temaMalNombrado,
+  registrarSinResponder, registrarUso, fijarDbUso, costoUsd, esDudaOObjecion, esRechazoFirme, horasEnTexto, quitarFrasesHechas, REGEX_CLICHE, condicionesArt9Confirmadas, campanaDelTexto, probarAgentePaso, chatAgentePaso, preguntasAfirmadas, evidenciaCompleta, REGEX_PROMESAS, validarExtraccion, aplicarExtraccion, elegirDosHorarios, horarioSenialado, pareceElNombreDeUnaPersona, primeraPalabraDeMensaje, ideasParaElTurno, ideasUsadasEn, aperturaProhibida, datoRepetidoEnLaPrimeraOracion, cumplePreferencia, datosDeIdentidad, datoDeConexion, INTENCIONES, armarSistemaRedactor, permiteDeObjetivos, mensajeSeguro, PROMPT_VERIFICADOR, esquemaVerificador, evaluarVerificacion, aperturaDeMensaje, muletillaRepetida, esquemaExtractor, PROMPT_REDACTOR, PROMPT_EXTRACTOR, CONFIG_CLIENTE, leerEstadoV2, estadoV2Vacio, extraccionVacia, funcionesV2, textoFaltaRegistrar, AVISO_DERIVACION, horariosOfrecidosEn, ofrecidosVigentes, textoOfrecidos, horasSinDia, ofertaConDia, condicionDeAgenda, registrarMensajeHumano, extraerHumanosKapso, responderDesdeErp, resumenCampana, analizarCampana, analisisSoloConCifrasReales, esRespuestaCortaSiNo, preguntaDelAgente, temaMalNombrado,
   type Bloque,
 } from '../../api/turnos/[accion]';
 
@@ -4708,6 +4709,87 @@ describe('agente v2 · director + extractor + redactor (todo con modelo simulado
     expect(evaluarVerificacion({ violaciones: [{ regla: 'promete_lo_no_dado', frase: 'le enviaré un recordatorio' }] }, { borrador: 'Perfecto, le enviaré un recordatorio. ¿Cuál prefiere?', permite: horarios, anterior: '' }).ok).toBe(false);
     expect(evaluarVerificacion({ violaciones: [{ regla: 'promete_lo_no_dado', frase: 'alguien del equipo se comunicará' }] }, { borrador: 'Alguien del equipo se comunicará con usted.', permite: permiteDeObjetivos([{ tipo: 'derivar', texto: '' }]), anterior: '' }).ok).toBe(true);
     for (const k of ['pago_confirmado', 'promete_lo_no_dado', 'Es difícil que']) expect(PROMPT_VERIFICADOR).toContain(k);
+  });
+  // ------------------------------------------------------------------ RONDA 2 DE LAS CORRIDAS B
+  it('corridas 2 · el dato pendiente sale del objetivo principal aunque un "responder" vaya primero (se puede elegir el horario con una pregunta de paso)', async () => {
+    estudio();
+    const c = await conversar([
+      ...hastaAgendar().slice(0, 6),
+      { persona: 'el primero, y a qué hora arranca?', extractor: (u) => raw({ intencion: 'elige_horario', horario_elegido: u.horarios_ofrecidos[0], pregunta_de_la_persona: 'a qué hora arranca?' }) },
+    ], redactorEstudio);
+    expect(c.tipos[6]).toEqual(['responder:a qué hora arranca?', 'obtener_dato_agenda:nombre']);
+    expect(leerEstadoV2(c.lead().datos).dato_pendiente).toEqual({ tipo: 'nombre' });
+  });
+  it('corridas 2 · "lo contesta el ofrecimiento": con una preferencia ("tiene a la tarde?") no va un "responder" aparte', async () => {
+    estudio();
+    const c = await conversar([
+      ...hastaAgendar().slice(0, 6),
+      { persona: 'ninguno me sirve, tiene a la tarde?', extractor: () => raw({ intencion: 'rechaza_horarios', pregunta_de_la_persona: 'tiene a la tarde?', preferencia: { dia: null, franja: 'tarde', fecha: null, evidencia: 'tiene a la tarde' } }) },
+    ], redactorEstudio);
+    expect(c.tipos[6]).toEqual(['ofrecer_horarios']);
+    for (const n of c.cuerpos[6].v2.objetivos[0].detalle) expect(n.hora >= '13:00').toBe(true);
+  });
+  it('corridas 2 · después de responder una objeción, el dato pendiente es el que falta para los horarios (modalidad): "acepto, prefiero virtual" se registra', async () => {
+    estudio();
+    const obj = (persona: string) => ({ persona, extractor: () => raw({ intencion: 'objecion' }) });
+    const c = await conversar([
+      { persona: FRASE1, extractor: () => art9 },
+      obj('lo tengo que pensar'),
+      obj('no estoy segura de que sirva'),
+      { persona: 'acepto la consulta, prefiero virtual', extractor: () => raw({ intencion: 'acepta' }) },
+    ], redactorEstudio);
+    expect(c.tipos[2]).toEqual(['responder_objecion']);
+    expect(leerEstadoV2(c.lead().datos).filtros.modalidad_consulta?.valor).toBe('virtual'); // lo llena el dato pendiente aunque el extractor no lo devolvió
+    expect(c.tipos[3]).toEqual(['ofrecer_horarios']);
+  });
+  it('corridas 2 · si la consulta es virtual, el redactor siempre recibe que la conexión todavía no se conoce (no inventa enlaces, avisos ni plataformas)', async () => {
+    estudio();
+    const c = await conversar([...hastaAgendar().slice(0, 6)], redactorEstudio);
+    const datos = c.cuerpos[5].v2.datos.join('\n');
+    expect(datos).toContain('TODAVÍA NO LO TENÉS');
+    expect(datos).toMatch(/No prometas ni menciones enlaces/);
+    expect(datoDeConexion(CONFIG_CLIENTE.ofertas.art9_ganancias, { ...estadoV2Vacio(), filtros: { modalidad_consulta: { valor: 'presencial', evidencia: 'presencial' } } })).toBeNull();
+  });
+  it('corridas 2 · despedida: un "gracias, saludos" sin pedidos cierra con calidez, sin ofrecer nada; con un turno agendado sigue el seguimiento', async () => {
+    estudio();
+    const c = await conversar([
+      { persona: 'y por un divorcio me pueden ayudar?', extractor: () => raw({ intencion: 'fuera_de_alcance' }) },
+      { persona: 'gracias por la info, saludos', extractor: () => raw({ intencion: 'despedida' }) },
+    ], redactorEstudio);
+    expect(c.tipos[1]).toEqual(['cerrar_con_respeto']);
+    expect(leerEstadoV2(c.lead().datos).etapa).toBe('cerrado');
+    const d = await conversar([...hastaAgendar(), { persona: 'gracias, eso es todo', extractor: () => raw({ intencion: 'despedida' }) }], redactorEstudio);
+    expect(d.tipos[8]).toEqual(['turno_agendado_seguimiento']);
+    expect(INTENCIONES).toContain('despedida');
+  });
+  it('corridas 2 · B8: si no califica y pide turno, el "responder" le dice con tacto que no le corresponde (no le confirma consulta)', async () => {
+    estudio();
+    const c = await conversar([
+      { persona: 'era administrativa, me descuentan ganancias, puedo tener un turno?', extractor: () => raw({ oferta_detectada: 'art9_ganancias', filtros: [fil('es_docente', 'no', 'era administrativa')], intencion: 'pregunta', pregunta_de_la_persona: 'puedo tener un turno?' }) },
+    ], redactorEstudio);
+    expect(c.tipos[0]).toEqual(['responder:puedo tener un turno?', 'no_califica:es_docente']);
+    expect(c.cuerpos[0].v2.objetivos[0].texto).toMatch(/NO califica para ese reclamo: no le confirmes consulta, turno ni horarios/);
+  });
+  it('corridas 2 · el extractor: oferta solo por lo que dice la persona, datos aunque la oferta no esté clara, preguntas sobre quién escribe y despedida', () => {
+    for (const x of ['nunca por lo que dijo el agente', 'aunque todavía no esté clara la oferta', '¿esto es una estafa?', 'Dudar de que sea real NO es una emoción', '- despedida:']) expect(PROMPT_EXTRACTOR).toContain(x);
+  });
+  it('corridas 2 · los datos para transferir tienen que estar en el mensaje, tal cual: si faltan, se corrige', async () => {
+    estudio();
+    const P1 = 'Hola, soy Ana, tengo 62 años y sigo trabajando como docente';
+    let n = 0;
+    const c = await conversar([
+      { persona: P1, extractor: () => raw({ oferta_detectada: 'jubilacion', filtros: [fil('nombre', 'Ana', P1), fil('edad', '62', P1), fil('trabaja_docente', 'si', P1)] }) },
+      { persona: 'lo vi, gracias', extractor: () => raw() },
+      { persona: 'por transferencia', extractor: () => raw({ filtros: [fil('forma_reserva', 'transferencia', 'por transferencia')] }) },
+    ], (sis, mensajes) => {
+      if (!/Datos para transferir/.test(sis) && !/Pasale los datos para transferir/.test(sis)) return redactorFalso(sis);
+      n++;
+      return mensajes.some((m: any) => String(m.content).includes('Faltan en tu mensaje')) ? 'Estos son los datos:\nAlias: centrojuridiconoa680\nCVU: 0000003100050009854368\nTitular: Arturo Rodrigo Reyes\nEspero su comprobante.' : 'Los datos para transferir son los siguientes. Espero su comprobante.';
+    });
+    const transf = c.cuerpos[2].v2.objetivos.find((o: any) => o.tipo === 'reserva_transferencia');
+    expect(transf).toBeTruthy();
+    expect(c.cuerpos[2].respuestas[0]).toContain('centrojuridiconoa680');
+    expect(n).toBeGreaterThanOrEqual(2);
   });
   it('ronda 1 · config: cada filtro lleva su ayuda para el extractor ("maestra" es docente) y el extractor las recibe', () => {
     const f = CONFIG_CLIENTE.ofertas.art9_ganancias.filtros.find(x => x.campo === 'es_docente')!;
