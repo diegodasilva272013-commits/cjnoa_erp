@@ -3,7 +3,7 @@ import { createHmac } from 'node:crypto';
 import handler, {
   clasificarRecibo, TIPOS_CONSULTA, promesaSinCumplir, separarDatosPago, mensajeApurado,
   aMin, limpiarSecreto, camposDeLead, etapaAutomatica, fusionarLead, registrarMensaje, upsertLead, firmaMetaValida, firmaKapsoValida, extraerMensajesKapso, extraerMensajes, aMensajesLLM, procesarMensaje, filaDePersona, esConversacionDeNoa, clasificarMensajeCliente, categoriaMensajeAgente, personaMetrica, agregarMetricasAgente, calcularMetricasAgente, evaluarOptimizaciones, validarOptimizaciones, ejecutarOptimizacion, type MetricasAgente, motivoDeExclusion, resumenEnPalabras, ejecutarAnalista, revisarAnalisisAutomatico, codigosDeEstilo, etapaEmbudo, analizarConversacion, calcularMetricas, mascararDatos, textoParaEtiquetar, validarEtiquetas, promptDelAgente, limpiarCachePrompt, accionAgentes, problemasDeEstilo, textoNoLegible, firmaMercadoPagoValida, importeTexto, importeLindo, asignarImporteUnico, procesarPagoMP, montoMercadoPago, enmascarar, neutralizarMarcas, salidaInsegura, superaLimite, urlMediaSegura, resumenTurnosVigentes, HERRAMIENTAS_LLM, cuerpoNotaDeVoz, notaDeImagen, montoValidadoDe, quitarEtiquetas, aMensajesOpenAI, deOpenAI, ejecutarHerramienta, PROMPT_AGENTE, type Deps, telefonoClave, historialDe, inferirNombre, normalizarFecha, normalizarHora, bloquesDelDia, huecosLibres, localDe, resolverProfesional, diaSemanaISO, fechaValida,
-  registrarSinResponder, registrarUso, fijarDbUso, costoUsd, esDudaOObjecion, esRechazoFirme, horasEnTexto, quitarFrasesHechas, REGEX_CLICHE, condicionesArt9Confirmadas, campanaDelTexto, probarAgentePaso, chatAgentePaso, preguntasAfirmadas, evidenciaCompleta, REGEX_PROMESAS, validarExtraccion, aplicarExtraccion, elegirDosHorarios, horarioSenialado, pareceElNombreDeUnaPersona, primeraPalabraDeMensaje, ideasParaElTurno, ideasUsadasEn, aperturaProhibida, datoRepetidoEnLaPrimeraOracion, armarSistemaRedactor, permiteDeObjetivos, mensajeSeguro, PROMPT_VERIFICADOR, esquemaVerificador, evaluarVerificacion, aperturaDeMensaje, muletillaRepetida, esquemaExtractor, PROMPT_REDACTOR, PROMPT_EXTRACTOR, CONFIG_CLIENTE, leerEstadoV2, estadoV2Vacio, extraccionVacia, funcionesV2, textoFaltaRegistrar, AVISO_DERIVACION, horariosOfrecidosEn, ofrecidosVigentes, textoOfrecidos, horasSinDia, ofertaConDia, condicionDeAgenda, registrarMensajeHumano, extraerHumanosKapso, responderDesdeErp, resumenCampana, analizarCampana, analisisSoloConCifrasReales, esRespuestaCortaSiNo, preguntaDelAgente, temaMalNombrado,
+  registrarSinResponder, registrarUso, fijarDbUso, costoUsd, esDudaOObjecion, esRechazoFirme, horasEnTexto, quitarFrasesHechas, REGEX_CLICHE, condicionesArt9Confirmadas, campanaDelTexto, probarAgentePaso, chatAgentePaso, preguntasAfirmadas, evidenciaCompleta, REGEX_PROMESAS, validarExtraccion, aplicarExtraccion, elegirDosHorarios, horarioSenialado, pareceElNombreDeUnaPersona, primeraPalabraDeMensaje, ideasParaElTurno, ideasUsadasEn, aperturaProhibida, datoRepetidoEnLaPrimeraOracion, cumplePreferencia, datosDeIdentidad, armarSistemaRedactor, permiteDeObjetivos, mensajeSeguro, PROMPT_VERIFICADOR, esquemaVerificador, evaluarVerificacion, aperturaDeMensaje, muletillaRepetida, esquemaExtractor, PROMPT_REDACTOR, PROMPT_EXTRACTOR, CONFIG_CLIENTE, leerEstadoV2, estadoV2Vacio, extraccionVacia, funcionesV2, textoFaltaRegistrar, AVISO_DERIVACION, horariosOfrecidosEn, ofrecidosVigentes, textoOfrecidos, horasSinDia, ofertaConDia, condicionDeAgenda, registrarMensajeHumano, extraerHumanosKapso, responderDesdeErp, resumenCampana, analizarCampana, analisisSoloConCifrasReales, esRespuestaCortaSiNo, preguntaDelAgente, temaMalNombrado,
   type Bloque,
 } from '../../api/turnos/[accion]';
 
@@ -4398,6 +4398,216 @@ describe('agente v2 · director + extractor + redactor (todo con modelo simulado
     expect(c.cuerpos[0].v2.mensaje_seguro).toBe(false);
     expect(c.cuerpos[0].respuestas[0]).toContain('Cuénteme, ¿qué le gustaría lograr con esto?');
   });
+  // ------------------------------------------------------------------ GESTIÓN DEL TURNO: reprogramar, cancelar, nada inventado
+  const hastaAgendar = (): Turno[] => [
+    { persona: 'HOLA', extractor: () => raw() },
+    { persona: 'SOBRE EL ARTICULO 9', extractor: () => raw({ oferta_detectada: 'art9_ganancias' }) },
+    { persona: 'SI', extractor: () => raw({ filtros: [fil('es_docente', 'si', 'SI')] }) },
+    { persona: 'SI', extractor: () => raw({ filtros: [fil('jubilado_anses', 'si', 'SI')] }) },
+    { persona: 'SI', extractor: () => raw({ filtros: [fil('descuento_art9_ganancias', 'si', 'SI')] }) },
+    { persona: 'virtual', extractor: () => raw({ filtros: [fil('modalidad_consulta', 'virtual', 'virtual')] }) },
+    { persona: 'el primero', extractor: (u) => raw({ intencion: 'elige_horario', horario_elegido: u.horarios_ofrecidos[0] }) },
+    { persona: 'Diego Da Silva', extractor: () => raw({ filtros: [fil('nombre', 'Diego Da Silva', 'Diego Da Silva')] }) },
+  ];
+  /** El nombre (sin acento) de un día hábil dentro de la semana próxima, para pedirlo como preferencia. */
+  const diaHabilProximo = () => { const d = new Date(Date.now() + 3 * 86400000); while ([0, 6].includes(d.getUTCDay())) d.setUTCDate(d.getUTCDate() + 1); return { nombre: ['domingo', 'lunes', 'martes', 'miercoles', 'jueves', 'viernes', 'sabado'][d.getUTCDay()], dow: d.getUTCDay() }; };
+  const dowDe = (fecha: string) => new Date(`${fecha}T12:00:00Z`).getUTCDay();
+
+  it('gestión · extractor: intenciones reprogramar, cancelar y fuera_de_alcance, preferencia y dato en duda (esquema y prompt)', () => {
+    const esq = esquemaExtractor(CONFIG_CLIENTE) as any;
+    for (const i of ['reprogramar', 'cancelar', 'fuera_de_alcance']) expect(esq.properties.intencion.enum).toContain(i);
+    expect(esq.required).toEqual(expect.arrayContaining(['preferencia', 'dato_en_duda']));
+    for (const k of ['reprogramar', 'cancelar', 'fuera_de_alcance', 'preferencia', 'dato_en_duda']) expect(PROMPT_EXTRACTOR).toContain(k);
+    expect(PROMPT_EXTRACTOR).toContain('quiero cambiar la fecha');
+    expect(PROMPT_EXTRACTOR).toContain('borrá el turno');
+  });
+  it('gestión · validación: la preferencia y el dato en duda necesitan una frase del último mensaje', () => {
+    const v = (rawExt: any, persona: string) => validarExtraccion(raw(rawExt), { cfg: CONFIG_CLIENTE, personaTextos: [persona], ofrecidos: [] });
+    expect(v({ preferencia: { dia: 'jueves', franja: null, fecha: null, evidencia: 'el jueves' } }, 'el jueves').preferencia).toEqual({ dia: 'jueves', franja: null, fecha: null });
+    expect(v({ preferencia: { dia: null, franja: 'tarde', fecha: null, evidencia: 'a la tarde' } }, 'tiene a la noche?').preferencia).toBeNull(); // la frase no está en el mensaje
+    expect(v({ preferencia: { dia: 'sabadoo', franja: null, fecha: null, evidencia: 'el jueves' } }, 'el jueves').preferencia).toBeNull(); // sin día, franja ni fecha válidos
+    expect(v({ dato_en_duda: { campo: 'jubilado_anses', evidencia: 'no se si me jubile por anses' } }, 'no se si me jubile por anses o por la provincia').dato_en_duda).toEqual({ campo: 'jubilado_anses' });
+    expect(v({ dato_en_duda: { campo: 'campo_inventado', evidencia: 'no se' } }, 'no se').dato_en_duda).toBeNull();
+    expect(cumplePreferencia({ fecha: '2026-10-29', hora: '15:30' }, { dia: 'jueves', franja: 'tarde', fecha: null })).toBe(true);
+    expect(cumplePreferencia({ fecha: '2026-10-29', hora: '09:00' }, { dia: 'jueves', franja: 'tarde', fecha: null })).toBe(false);
+    expect(cumplePreferencia({ fecha: '2026-10-29', hora: '09:00' }, { dia: 'martes', franja: null, fecha: null })).toBe(false);
+  });
+  it('gestión · REPROGRAMAR: pregunta el día, ofrece dos horarios de ese día con el mismo abogado, y con el elegido llama reprogramar_turno y confirma solo con success', async () => {
+    estudio();
+    const dia = diaHabilProximo();
+    const c = await conversar([
+      ...hastaAgendar(),
+      { persona: 'quiero cambiar la fecha', extractor: () => raw({ intencion: 'reprogramar' }) },
+      { persona: `el ${dia.nombre}`, extractor: () => raw({ preferencia: { dia: dia.nombre, franja: null, fecha: null, evidencia: `el ${dia.nombre}` } }) },
+      { persona: 'el primero', extractor: (u) => raw({ intencion: 'elige_horario', horario_elegido: u.horarios_ofrecidos[0] }) },
+    ], redactorEstudio);
+    expect(c.tipos[7]).toEqual(['confirmar_turno']);
+    expect(c.tipos[8]).toEqual(['preguntar_dia_reprogramar']);
+    expect(c.cuerpos[8].herramientas).toEqual([]); // todavía no se toca nada
+    expect(c.tipos[9]).toEqual(['ofrecer_horarios']);
+    const ofrecidos = c.cuerpos[9].v2.objetivos[0].detalle;
+    expect(ofrecidos).toHaveLength(2);
+    for (const o of ofrecidos) expect(dowDe(o.fecha)).toBe(dia.dow); // del día pedido
+    expect(c.cuerpos[9].herramientas).toContain('consultar_disponibilidad');
+    expect(c.cuerpos[9].herramientas).not.toContain('reprogramar_turno');
+    expect(c.tipos[10]).toEqual(['confirmar_reprogramacion']);
+    const rp = c.cuerpos[10].trazas.find((h: any) => h.nombre === 'reprogramar_turno');
+    expect(rp.input).toMatchObject({ fecha: ofrecidos[0].fecha, hora: ofrecidos[0].hora });
+    expect(rp.resultado.status).toBe('success');
+    const turnos = c.estado.tablas.consultas_agendadas;
+    expect(turnos).toHaveLength(1); // se movió, no se duplicó
+    expect(turnos[0]).toMatchObject({ fecha_consulta: ofrecidos[0].fecha, hora_consulta: ofrecidos[0].hora, abogado_asignado: 'Alejandro' });
+    expect(leerEstadoV2(c.lead().datos).turno).toMatchObject({ fecha: ofrecidos[0].fecha, hora: ofrecidos[0].hora });
+  });
+  it('gestión · REPROGRAMAR: si ya dijo el día en el mismo mensaje, ofrece los dos horarios directamente; los horarios nuevos no incluyen el actual', async () => {
+    estudio();
+    const dia = diaHabilProximo();
+    const c = await conversar([
+      ...hastaAgendar(),
+      { persona: `pasalo para el ${dia.nombre}`, extractor: () => raw({ intencion: 'reprogramar', preferencia: { dia: dia.nombre, franja: null, fecha: null, evidencia: `el ${dia.nombre}` } }) },
+    ], redactorEstudio);
+    expect(c.tipos[8]).toEqual(['ofrecer_horarios']);
+    const actual = leerEstadoV2(c.lead().datos).turno!;
+    expect(c.cuerpos[8].v2.objetivos[0].detalle.some((o: any) => o.fecha === actual.fecha && o.hora === actual.hora)).toBe(false);
+  });
+  it('gestión · REPROGRAMAR: con el tope de reprogramaciones superado, recién ahí deriva a una persona', async () => {
+    estudio();
+    const dia = diaHabilProximo();
+    const ciclo = (): Turno[] => [
+      { persona: 'quiero cambiar la fecha', extractor: () => raw({ intencion: 'reprogramar', preferencia: { dia: dia.nombre, franja: null, fecha: null, evidencia: 'cambiar la fecha' } }) },
+      { persona: 'el primero', extractor: (u) => raw({ intencion: 'elige_horario', horario_elegido: u.horarios_ofrecidos[0] }) },
+    ];
+    // la evidencia de la preferencia ("cambiar la fecha") no nombra un día: se descarta; se usa "el" + día
+    const dosCiclos: Turno[] = [
+      { persona: `cambiala para el ${dia.nombre}`, extractor: () => raw({ intencion: 'reprogramar', preferencia: { dia: dia.nombre, franja: null, fecha: null, evidencia: `el ${dia.nombre}` } }) },
+      { persona: 'el primero', extractor: (u) => raw({ intencion: 'elige_horario', horario_elegido: u.horarios_ofrecidos[0] }) },
+      { persona: `cambiala de nuevo para el ${dia.nombre}`, extractor: () => raw({ intencion: 'reprogramar', preferencia: { dia: dia.nombre, franja: 'tarde', fecha: null, evidencia: `el ${dia.nombre}` } }) },
+      { persona: 'el primero', extractor: (u) => raw({ intencion: 'elige_horario', horario_elegido: u.horarios_ofrecidos[0] }) },
+    ];
+    void ciclo;
+    const c = await conversar([...hastaAgendar(), ...dosCiclos, { persona: 'una vez más, cambialo', extractor: () => raw({ intencion: 'reprogramar' }) }], redactorEstudio);
+    expect(c.tipos[9]).toEqual(['confirmar_reprogramacion']);
+    expect(c.tipos[11]).toEqual(['confirmar_reprogramacion']);
+    expect(c.tipos[12][0]).toMatch(/^derivar/); // la tercera ya no: se deriva
+    expect(c.cuerpos[12].herramientas).toContain('derivar_a_humano');
+    expect(c.cuerpos[12].herramientas).not.toContain('reprogramar_turno');
+  });
+  it('gestión · CANCELAR: primero ofrece UNA vez cambiar el día; si insiste, el código llama solicitar_cancelacion y no dice que está cancelado', async () => {
+    estudio();
+    const c = await conversar([
+      ...hastaAgendar(),
+      { persona: 'al final quiero cancelar', extractor: () => raw({ intencion: 'cancelar' }) },
+      { persona: 'no, cancelalo igual', extractor: () => raw({ intencion: 'cancelar' }) },
+      { persona: 'gracias', extractor: () => raw() },
+    ], redactorEstudio);
+    expect(c.tipos[8]).toEqual(['ofrecer_cambio_en_lugar_de_cancelar']);
+    expect(c.cuerpos[8].herramientas).toEqual([]); // la primera vez no se registra nada
+    expect(c.estado.tablas.consultas_agendadas[0].observaciones ?? '').not.toContain('Cancelación solicitada');
+    expect(c.tipos[9]).toEqual(['cancelacion_registrada']);
+    const sc = c.cuerpos[9].trazas.find((h: any) => h.nombre === 'solicitar_cancelacion');
+    expect(sc.resultado.status).toBe('solicitada');
+    expect(sc.input.motivo).toBe('no, cancelalo igual');
+    expect(c.cuerpos[9].v2.objetivos[0].texto).toMatch(/NUNCA digas que ya está cancelado/);
+    expect(c.estado.tablas.consultas_agendadas).toHaveLength(1); // no se borra nada
+    expect(c.tipos[10]).toEqual(['turno_agendado_seguimiento']);
+    expect(c.cuerpos[10].v2.datos.join(' ')).toMatch(/REGISTRADA/);
+    expect(leerEstadoV2(c.lead().datos).cancelacion_solicitada).toBe(true);
+  });
+  it('gestión · CANCELAR: si después de la oferta acepta cambiar el día, se reprograma en lugar de cancelar', async () => {
+    estudio();
+    const dia = diaHabilProximo();
+    const c = await conversar([
+      ...hastaAgendar(),
+      { persona: 'quiero cancelar', extractor: () => raw({ intencion: 'cancelar' }) },
+      { persona: `mejor cambialo para el ${dia.nombre}`, extractor: () => raw({ intencion: 'acepta', preferencia: { dia: dia.nombre, franja: null, fecha: null, evidencia: `el ${dia.nombre}` } }) },
+    ], redactorEstudio);
+    expect(c.tipos[8]).toEqual(['ofrecer_cambio_en_lugar_de_cancelar']);
+    expect(c.tipos[9]).toEqual(['ofrecer_horarios']);
+    expect(c.cuerpos.flatMap(b => b.herramientas ?? [])).not.toContain('solicitar_cancelacion');
+  });
+  it('gestión · nada inventado: con "como_se_conecta_virtual" pendiente, el agente solo dice que el estudio le confirma por el mismo chat', async () => {
+    estudio();
+    for (const o of Object.values(CONFIG_CLIENTE.ofertas)) expect(o.como_se_conecta_virtual).toBe('[PENDIENTE: lo completa el estudio]');
+    const c = await conversar([
+      ...hastaAgendar(),
+      { persona: 'por donde es?', extractor: () => raw({ intencion: 'pregunta', pregunta_de_la_persona: 'por donde es?' }) },
+    ], redactorEstudio);
+    expect(c.tipos[8]).toEqual(['turno_agendado_seguimiento']);
+    const datos = c.cuerpos[8].v2.datos.join('\n');
+    expect(datos).toContain('TODAVÍA NO LO TENÉS');
+    expect(datos).toContain('el estudio le confirma por este mismo chat cómo conectarse');
+    expect(c.cuerpos[8].v2.objetivos[0].texto).not.toMatch(/persona del equipo lo gestiona/);
+    expect(c.cuerpos[8].v2.objetivos[0].texto).toContain('lo gestionás vos');
+  });
+  it('gestión · con la forma de conectarse completa en la config, se la da como dato (sin la marca de pendiente)', async () => {
+    estudio();
+    const ofertas = CONFIG_CLIENTE.ofertas as any;
+    const antes = ofertas.art9_ganancias.como_se_conecta_virtual;
+    ofertas.art9_ganancias.como_se_conecta_virtual = 'Se conecta por Meet con el enlace que le llega por mail.';
+    try {
+      const c = await conversar([...hastaAgendar(), { persona: 'como me conecto?', extractor: () => raw({ intencion: 'pregunta', pregunta_de_la_persona: 'como me conecto?' }) }], redactorEstudio);
+      const datos = c.cuerpos[8].v2.datos.join('\n');
+      expect(datos).toContain('Cómo conectarse a la consulta virtual: Se conecta por Meet');
+      expect(datos).not.toContain('TODAVÍA NO LO TENÉS');
+    } finally { ofertas.art9_ganancias.como_se_conecta_virtual = antes; }
+  });
+  it('gestión · definir_tipo_consulta (v1) ya no habla de "virtual si vive en el interior"', async () => {
+    const { db } = dbConversaciones();
+    const r: any = await ejecutarHerramienta(db, 'definir_tipo_consulta', { tipo: 'articulo9_ganancias' }, { telefono: '5493884867965', conversationId: 'x', textosCliente: [] } as any);
+    const texto = JSON.stringify(r);
+    expect(texto).not.toMatch(/interior/i);
+  });
+  it('gestión · B7: ante "ninguno me sirve, tiene a la tarde?" ofrece dos horarios de tarde reales, con día y fecha', async () => {
+    estudio();
+    const c = await conversar([
+      ...hastaAgendar().slice(0, 6),
+      { persona: 'ninguno de esos me sirve, tiene a la tarde?', extractor: () => raw({ intencion: 'rechaza_horarios', preferencia: { dia: null, franja: 'tarde', fecha: null, evidencia: 'tiene a la tarde' } }) },
+    ], redactorEstudio);
+    expect(c.tipos[5]).toEqual(['ofrecer_horarios']);
+    expect(c.tipos[6]).toEqual(['ofrecer_horarios']);
+    const nuevos = c.cuerpos[6].v2.objetivos[0].detalle;
+    expect(nuevos).toHaveLength(2);
+    for (const n of nuevos) expect(n.hora >= '13:00').toBe(true);
+    expect(c.cuerpos[6].herramientas).toContain('consultar_disponibilidad');
+  });
+  it('gestión · B2: "no sé si me jubilé por ANSES o por la provincia" no se da por sí ni por no: se ayuda a aclarar con una pregunta', async () => {
+    estudio();
+    const P = 'no se si me jubile por anses o por la provincia';
+    const c = await conversar([
+      { persona: P, extractor: () => raw({ oferta_detectada: 'art9_ganancias', dato_en_duda: { campo: 'jubilado_anses', evidencia: P } }) },
+    ], redactorEstudio);
+    expect(c.tipos[0]).toEqual(['aclarar_dato:jubilado_anses']);
+    expect(leerEstadoV2(c.lead().datos).filtros.jubilado_anses).toBeUndefined();
+    expect(c.cuerpos[0].v2.objetivos[0].texto).toContain('NO lo des por sí ni por no');
+    expect(c.cuerpos[0].v2.objetivos[0].texto).toContain('con qué entidad cobra su jubilación'); // viene de la config
+    expect(leerEstadoV2(c.lead().datos).dato_pendiente).toEqual({ tipo: 'filtro', campo: 'jubilado_anses' });
+  });
+  it('gestión · B6: un tema que el estudio no atiende (divorcio) se explica con tacto, sin consulta ni horarios ni datos de la oferta', async () => {
+    estudio();
+    const c = await conversar([{ persona: 'y por un divorcio me pueden ayudar?', extractor: () => raw({ intencion: 'fuera_de_alcance' }) }], redactorEstudio);
+    expect(c.tipos[0]).toEqual(['fuera_de_alcance']);
+    const o = c.cuerpos[0].v2.objetivos[0];
+    expect(o.texto).toContain(CONFIG_CLIENTE.agente.alcance!);
+    expect(o.texto).toMatch(/sin ofrecerle la consulta ni horarios/);
+    expect(c.cuerpos[0].herramientas).toEqual([]);
+    expect(permiteDeObjetivos([{ tipo: 'fuera_de_alcance', texto: '' }])).toMatchObject({ consulta_y_abogado: false, horarios: false });
+  });
+  it('gestión · B4: al preguntar "quién sos" el redactor recibe la identidad con la dirección de la config', async () => {
+    estudio();
+    const sistemas: string[] = [];
+    await conversar([{ persona: 'esto es una estafa? quien sos vos', extractor: () => raw({ intencion: 'pregunta', pregunta_de_la_persona: 'quien sos vos' }) }], (sis) => { sistemas.push(sis); return redactorEstudio(sis); });
+    expect(sistemas[0]).toContain(datosDeIdentidad(CONFIG_CLIENTE));
+    expect(sistemas[0]).toContain(CONFIG_CLIENTE.agente.direccion);
+  });
+  it('gestión · verificador: "cancelacion_confirmada" existe y el objetivo cancelacion_registrada permite hablar del turno pero no darlo por cancelado', () => {
+    expect(PROMPT_VERIFICADOR).toContain('cancelacion_confirmada');
+    const permite = permiteDeObjetivos([{ tipo: 'cancelacion_registrada', texto: '' }]);
+    expect(permite).toMatchObject({ horarios: true, agendado: true });
+    const r = evaluarVerificacion({ violaciones: [{ regla: 'cancelacion_confirmada', frase: 'ya está cancelado' }] }, { borrador: 'Listo, su turno ya está cancelado.', permite, anterior: '' });
+    expect(r.ok).toBe(false);
+    expect(r.motivo).toContain('REGISTRADA');
+    expect(permiteDeObjetivos([{ tipo: 'confirmar_reprogramacion', texto: '' }])).toMatchObject({ agendado: true, horarios: true });
+  });
   it('ronda 1 · config: cada filtro lleva su ayuda para el extractor ("maestra" es docente) y el extractor las recibe', () => {
     const f = CONFIG_CLIENTE.ofertas.art9_ganancias.filtros.find(x => x.campo === 'es_docente')!;
     expect(f.ayuda).toMatch(/maestra/i);
@@ -4890,7 +5100,7 @@ describe('agente v2 · respuestas cortas, derivación y oferta (modelo simulado,
         { persona: 'art.98', extractor: () => raw({ oferta_detectada: A9 }) },
       ], redactorPregunta);
       expect(c.tipos[0]).toEqual(['obtener_filtro:es_docente']);
-      expect(c.cuerpos[0].v2.datos).toEqual([]);
+      expect(c.cuerpos[0].v2.datos).toEqual([expect.stringMatching(/^Identidad: Karina/)]); // solo la identidad
       expect(c.sistemas[0]).not.toMatch(/Alejandro|SIN CARGO|2 años/i);
     });
   });

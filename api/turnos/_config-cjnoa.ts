@@ -6,7 +6,8 @@ export const CONFIG_CJNOA = {
   "agente": {
     "nombre": "Karina",
     "estudio": "Centro Jurídico NOA",
-    "direccion": "Hipólito Yrigoyen 680, San Salvador de Jujuy"
+    "direccion": "Hipólito Yrigoyen 680, San Salvador de Jujuy",
+    "alcance": "derecho previsional: jubilaciones y el reclamo sin cargo por descuentos de Impuesto a las Ganancias (Artículo 9) para docentes jubilados de ANSES"
   },
   "casilleros": {
     "situacion": "qué le pasa hoy, en concreto",
@@ -35,7 +36,8 @@ export const CONFIG_CJNOA = {
           "tipo": "si_no",
           "descripcion": "si se jubiló por ANSES",
           "ayuda": "\"Me jubilé por ANSES\", \"jubilada de ANSES\", \"cobro de ANSES\" => si. \"Caja provincial\" u otra caja => no.",
-          "pregunta": "¿Se jubiló por ANSES?"
+          "pregunta": "¿Se jubiló por ANSES?",
+          "ayuda_al_dudar": "Preguntale con qué entidad cobra su jubilación (ANSES o una caja provincial) o si en el recibo de haberes figura ANSES."
         },
         {
           "campo": "descuento_art9_ganancias",
@@ -104,7 +106,8 @@ export const CONFIG_CJNOA = {
           "texto": "Revisar el recibo con alguien que conoce el tema suele aclarar mucho.",
           "estado": "pendiente de aprobación del estudio"
         }
-      ]
+      ],
+      "como_se_conecta_virtual": "[PENDIENTE: lo completa el estudio]"
     },
     "jubilacion": {
       "etiqueta": "Jubilación docente",
@@ -190,7 +193,8 @@ export const CONFIG_CJNOA = {
           "texto": "Muchas personas llegan al trámite sin saber qué les conviene, y ahí se pierden opciones.",
           "estado": "pendiente de aprobación del estudio"
         }
-      ]
+      ],
+      "como_se_conecta_virtual": "[PENDIENTE: lo completa el estudio]"
     }
   },
   "datos_agenda": [
