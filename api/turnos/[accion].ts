@@ -1939,6 +1939,8 @@ export type EstadoV2 = {
   cancel_ofrecio_cambio?: boolean;
   /** La solicitud de cancelación quedó registrada (el equipo la confirma). */
   cancelacion_solicitada?: boolean;
+  /** Los datos para transferir ya se le pasaron a la persona: no se repiten en cada mensaje. */
+  datos_pago_enviados?: boolean;
 };
 const CASILLEROS_V2 = ['situacion', 'objetivo', 'brecha', 'historial', 'compromiso'];
 export const estadoV2Vacio = (): EstadoV2 => ({ oferta: null, filtros: {}, casilleros: Object.fromEntries(CASILLEROS_V2.map(c => [c, null])), emociones_trabajadas: [], etapa: 'descubrir' });
@@ -2018,6 +2020,7 @@ Reglas:
 - Son preguntas de la persona (pregunta_de_la_persona, intención pregunta) también las que dudan de quién escribe: «¿quién sos?», «¿esto es una estafa?», «¿sos un robot?», «¿de dónde escriben?». Dudar de que sea real NO es una emoción para profundizar.
 - pregunta_de_la_persona: SOLO si el último mensaje de la persona contiene una pregunta suya, copiada tal cual; nunca una pregunta del agente. "No sé qué hacer" no es una pregunta: null.
 - intenciones nuevas: reprogramar (la persona YA tiene un turno agendado —mirá "etapa" y "turno_agendado"— y quiere cambiar su fecha u hora: "quiero cambiar la fecha", "no puedo ese día", "pasalo para otro día"), cancelar (quiere cancelar su turno: "quiero cancelar", "no voy a poder ir", "borrá el turno", "cancelalo igual"), fuera_de_alcance (consulta por un tema que NO está en "alcance_del_estudio", como un divorcio o un tema laboral; aunque lo escriba como pregunta —«¿me pueden ayudar con un divorcio?»— la intención es fuera_de_alcance, no pregunta). Si todavía se le estaban ofreciendo horarios y dice que no puede ninguno, es rechaza_horarios.
+- Si el mensaje de la persona ya trae el dato de un filtro (por ejemplo edad: «tengo 58», trabaja_docente: «sigo dando clases», es_docente: «soy maestra»), incluilo en "filtros" en ese mismo turno; no lo dejes solo como casillero.
 - despedida: el último mensaje es SOLO un agradecimiento o una despedida ("gracias", "saludos", "chau", "eso es todo"), sin ningún dato, pedido ni pregunta.
 - preferencia: SOLO si el último mensaje de la persona pide un día, una fecha o una franja ("el jueves", "a la tarde", "el 29", "a la mañana"): dia (sin acento: lunes…domingo), franja ("manana" o "tarde") o fecha (YYYY-MM-DD, usando "hoy"); "evidencia" = esa frase copiada tal cual. Si no pide nada de eso, null. Ejemplo: «ninguno de esos me sirve, tiene a la tarde?» => intencion rechaza_horarios y preferencia con franja "tarde" y evidencia "a la tarde".
 - dato_en_duda: SOLO si la persona dice que no sabe o no está segura de un dato de los campos ("no sé si me jubilé por ANSES o por la provincia"): "campo" y la frase copiada como evidencia. No lo incluyas también en filtros. Si no, null.
@@ -2580,6 +2583,9 @@ async function dirigirTurnoBase(a: EntradaDirector): Promise<SalidaDirector> {
           }
           out.datos.push(`Datos para transferir (cada uno en su línea, tal cual): ${datosPagoTxt}`);
           if (importeTxt) out.datos.push(importeTxt);
+          const yaEnviados = !!estado.datos_pago_enviados;
+          estado.datos_pago_enviados = true;
+          if (yaEnviados) return { tipo: 'reserva_transferencia', detalle: { incluir: [] }, texto: 'La persona ya tiene los datos para transferir. NO los repitas (salvo que los pida). Decile con una frase propia que quedás a la espera del comprobante por este chat; si pregunta algo, respondé usando DATOS QUE PODÉS USAR. Sin preguntas.' };
           return { tipo: 'reserva_transferencia', detalle: { incluir: datosPagoTxt.split('·').map(x => x.split(':').slice(1).join(':').trim()).filter(x => x.length >= 4) }, texto: `La persona eligió transferencia. Pasale los datos para transferir (DATOS QUE PODÉS USAR), cada uno en su línea con el formato "Alias: …", y ${importeTxt ? 'decile que transfiera exactamente ese importe' : 'pedile que te mande el comprobante por este chat'}. No ofrezcas horarios hasta que se acredite.` };
         }
         return { tipo: 'reserva', texto: cond.mensaje };

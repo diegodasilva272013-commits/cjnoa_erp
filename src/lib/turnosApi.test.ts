@@ -4800,6 +4800,22 @@ describe('agente v2 · director + extractor + redactor (todo con modelo simulado
     expect(c.cuerpos[2].respuestas[0]).toContain('centrojuridiconoa680');
     expect(n).toBeGreaterThanOrEqual(2);
   });
+  it('corridas 3 · los datos para transferir se pasan una vez; después el agente solo espera el comprobante (no los repite en cada mensaje)', async () => {
+    estudio();
+    const P1 = 'Hola, soy Ana, tengo 62 años y sigo trabajando como docente';
+    const datos = 'Estos son los datos:' + String.fromCharCode(10) + 'Alias: centrojuridiconoa680' + String.fromCharCode(10) + 'CVU: 0000003100050009854368' + String.fromCharCode(10) + 'Titular: Arturo Rodrigo Reyes';
+    const c = await conversar([
+      { persona: P1, extractor: () => raw({ oferta_detectada: 'jubilacion', filtros: [fil('nombre', 'Ana', P1), fil('edad', '62', P1), fil('trabaja_docente', 'si', P1)] }) },
+      { persona: 'lo vi, gracias', extractor: () => raw() },
+      { persona: 'por transferencia', extractor: () => raw({ filtros: [fil('forma_reserva', 'transferencia', 'por transferencia')] }) },
+      { persona: 'ok, lo hago y te aviso', extractor: () => raw() },
+    ], (sis) => (/Datos para transferir/.test(sis) && !/NO los repitas/.test(sis) ? datos : /NO los repitas/.test(sis) ? 'Quedo a la espera del comprobante por este chat.' : redactorFalso(sis)));
+    expect(c.cuerpos[2].respuestas[0]).toContain('centrojuridiconoa680');
+    expect(c.cuerpos[3].v2.objetivos[0].texto).toMatch(/NO los repitas/);
+    expect(c.cuerpos[3].respuestas[0]).not.toContain('centrojuridiconoa680');
+    expect(c.cuerpos[3].respuestas[0]).toContain('comprobante');
+    expect(PROMPT_EXTRACTOR).toContain('incluilo en "filtros" en ese mismo turno');
+  });
   it('ronda 1 · config: cada filtro lleva su ayuda para el extractor ("maestra" es docente) y el extractor las recibe', () => {
     const f = CONFIG_CLIENTE.ofertas.art9_ganancias.filtros.find(x => x.campo === 'es_docente')!;
     expect(f.ayuda).toMatch(/maestra/i);
