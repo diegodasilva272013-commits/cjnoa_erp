@@ -7,7 +7,7 @@ export const CONFIG_CJNOA = {
     "nombre": "Karina",
     "estudio": "Centro Jurídico NOA",
     "direccion": "Hipólito Yrigoyen 680, San Salvador de Jujuy",
-    "alcance": "derecho previsional: jubilaciones y el reclamo sin cargo por descuentos de Impuesto a las Ganancias (Artículo 9) para docentes jubilados de ANSES"
+    "alcance": "derecho previsional: jubilaciones y el reclamo por descuentos de Impuesto a las Ganancias (Artículo 9) para docentes jubilados de ANSES"
   },
   "casilleros": {
     "situacion": "qué le pasa hoy, en concreto",
@@ -19,7 +19,7 @@ export const CONFIG_CJNOA = {
   "ofertas": {
     "art9_ganancias": {
       "etiqueta": "Artículo 9 e Impuesto a las Ganancias",
-      "descripcion": "Docentes jubilados por ANSES a quienes les descuentan Artículo 9 y/o Impuesto a las Ganancias del haber.",
+      "descripcion": "Docentes jubilados por ANSES a quienes les descuentan Artículo 9 y/o Impuesto a las Ganancias del haber. La persona habla de descuentos o retenciones en su jubilación, de Ganancias, del Artículo 9 o de reclamar lo descontado.",
       "campana": "art9_ganancias",
       "profesional": "alejandro",
       "tipo_consulta": "articulo9_ganancias",
@@ -35,7 +35,7 @@ export const CONFIG_CJNOA = {
           "campo": "jubilado_anses",
           "tipo": "si_no",
           "descripcion": "si se jubiló por ANSES",
-          "ayuda": "\"Me jubilé por ANSES\", \"jubilada de ANSES\", \"cobro de ANSES\" => si. \"Caja provincial\" u otra caja => no.",
+          "ayuda": "\"Me jubilé por ANSES\", \"jubilada de ANSES\", \"cobro de ANSES\" => si. \"Caja provincial\" u otra caja => no. Decir solo \"jubilada\" o \"jubilado\", sin nombrar la entidad, NO alcanza: no incluyas este campo (la persona todavía no lo dijo).",
           "pregunta": "¿Se jubiló por ANSES?",
           "ayuda_al_dudar": "Preguntale con qué entidad cobra su jubilación (ANSES o una caja provincial) o si en el recibo de haberes figura ANSES."
         },
@@ -111,7 +111,7 @@ export const CONFIG_CJNOA = {
     },
     "jubilacion": {
       "etiqueta": "Jubilación docente",
-      "descripcion": "Personas que quieren jubilarse o consultan por el trámite jubilatorio docente.",
+      "descripcion": "Personas que quieren jubilarse o consultan por el trámite jubilatorio docente. La persona habla de jubilarse, de su edad, de sus años de servicio o de seguir trabajando.",
       "campana": "jubilacion_docente",
       "profesional": "fabricio",
       "tipo_consulta": "jubilacion_docente",

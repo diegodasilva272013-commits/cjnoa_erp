@@ -3906,7 +3906,7 @@ describe('agente v2 · director + extractor + redactor (todo con modelo simulado
     expect([...a9, ...jb].every(x => x.estado === 'pendiente de aprobación del estudio')).toBe(true);
   });
   it('ronda 4 · permitido por objetivo: descubrir no permite nada; ofrecer_horarios permite horarios; solo confirmar_turno permite "agendado"', () => {
-    expect(permiteDeObjetivos([{ tipo: 'descubrir', texto: '' }])).toEqual({ consulta_y_abogado: false, horarios: false, precios: false, agendado: false });
+    expect(permiteDeObjetivos([{ tipo: 'descubrir', texto: '' }])).toEqual({ consulta_y_abogado: false, horarios: false, precios: false, pago: false, promesas_de_contacto: false, agendado: false });
     expect(permiteDeObjetivos([{ tipo: 'reorganizar_y_ofrecer', texto: '' }])).toMatchObject({ consulta_y_abogado: true, horarios: false, agendado: false });
     expect(permiteDeObjetivos([{ tipo: 'ofrecer_horarios', texto: '' }])).toMatchObject({ horarios: true, agendado: false });
     expect(permiteDeObjetivos([{ tipo: 'confirmar_turno', texto: '' }])).toMatchObject({ horarios: true, agendado: true });
@@ -4607,6 +4607,107 @@ describe('agente v2 · director + extractor + redactor (todo con modelo simulado
     expect(r.ok).toBe(false);
     expect(r.motivo).toContain('REGISTRADA');
     expect(permiteDeObjetivos([{ tipo: 'confirmar_reprogramacion', texto: '' }])).toMatchObject({ agendado: true, horarios: true });
+  });
+  // ------------------------------------------------------------------ RONDA 1 DE LAS CORRIDAS B
+  it('corridas · horario señalado: las señales que distinguen tienen que coincidir ("el primero, martes 27 a las 9"); las que no distinguen se ignoran', () => {
+    const S = [{ fecha: '2026-10-27', hora: '09:00', profesional: 'Alejandro' }, { fecha: '2026-10-28', hora: '09:00', profesional: 'Alejandro' }];
+    expect(horarioSenialado('el primero, martes 27 de octubre a las 09:00.', S)).toEqual(S[0]);
+    expect(horarioSenialado('martes 27', S)).toEqual(S[0]);
+    expect(horarioSenialado('el miércoles a las 9', S)).toEqual(S[1]);
+    expect(horarioSenialado('a las 9', S)).toBeNull(); // las dos son a las 9: no distingue
+    expect(horarioSenialado('el primero, miércoles', S)).toBeNull(); // se contradice
+    expect(horarioSenialado('cualquiera de los dos', S)).toBeNull();
+  });
+  it('corridas · una respuesta corta llena el dato pendiente aunque el extractor no lo devuelva (nombre, opción, número, sí/no)', () => {
+    const v = (rawExt: any, persona: string, pend: any, ultimoAgente = '') => validarExtraccion(raw(rawExt), { cfg: CONFIG_CLIENTE, personaTextos: [persona], ofrecidos: [], ultimoAgente, datoPendiente: pend });
+    // el nombre que el extractor mandó como casillero
+    const n = v({ casilleros: [cas('compromiso', 'Diego Da Silva quiere resolverlo ahora.', 'Diego Da Silva')] }, 'Diego Da Silva', { tipo: 'nombre' });
+    expect(n.filtros).toEqual([expect.objectContaining({ campo: 'nombre', valor: 'Diego Da Silva' })]);
+    expect(n.casilleros).toEqual([]); // una respuesta corta a otro dato no es un casillero
+    expect(v({}, 'Norma Vega.', { tipo: 'nombre' }).filtros[0]).toMatchObject({ campo: 'nombre', valor: 'Norma Vega' });
+    expect(v({}, 'ana gomez', { tipo: 'nombre' }).filtros[0]).toMatchObject({ valor: 'Ana Gomez' });
+    expect(v({}, 'no quiero dar mi nombre', { tipo: 'nombre' }).filtros).toEqual([]);
+    expect(v({}, 'el primero', { tipo: 'nombre' }).filtros).toEqual([]);
+    expect(v({}, 'Ana Gomez', { tipo: 'horario' }).filtros).toEqual([]); // no se había pedido el nombre
+    // opción por sinónimo de la config
+    expect(v({}, 'presencial en san salvador de juju', { tipo: 'filtro', campo: 'modalidad_consulta' }).filtros[0]).toMatchObject({ campo: 'modalidad_consulta', valor: 'presencial' });
+    expect(v({}, 'por videollamada nomás', { tipo: 'filtro', campo: 'modalidad_consulta' }).filtros[0]).toMatchObject({ valor: 'virtual' });
+    expect(v({}, 'presencial o virtual, no sé', { tipo: 'filtro', campo: 'modalidad_consulta' }).filtros).toEqual([]); // dos opciones: no elige
+    // número
+    expect(v({}, '58 años', { tipo: 'filtro', campo: 'edad' }).filtros[0]).toMatchObject({ campo: 'edad', valor: '58' });
+    // sí/no con la pregunta del agente como evidencia
+    const q = '¿Es usted docente jubilada?';
+    expect(v({}, 'si', { tipo: 'filtro', campo: 'es_docente' }, `Gracias. ${q}`).filtros[0]).toMatchObject({ campo: 'es_docente', valor: 'si', evidencia: q });
+    expect(v({}, 'no', { tipo: 'filtro', campo: 'es_docente' }, q).filtros[0]).toMatchObject({ valor: 'no' });
+    expect(v({}, 'no entiendo', { tipo: 'filtro', campo: 'es_docente' }, q).filtros).toEqual([]);
+  });
+  it('corridas · una pregunta sin signos dentro de un mensaje largo ("… cuanto sale la consulta") se reconoce como pregunta de la persona', () => {
+    const P = 'hola soy maestra jubilada me sacan plata todos los meses del recibo cuanto sale la consulta';
+    const v = validarExtraccion(raw({ intencion: 'pregunta', pregunta_de_la_persona: 'cuanto sale la consulta' }), { cfg: CONFIG_CLIENTE, personaTextos: [P], ofrecidos: [] });
+    expect(v.pregunta_de_la_persona).toBe('cuanto sale la consulta');
+    expect(v.intencion).toBe('pregunta');
+    expect(validarExtraccion(raw({ intencion: 'pregunta', pregunta_de_la_persona: 'me sacan plata todos los meses' }), { cfg: CONFIG_CLIENTE, personaTextos: [P], ofrecidos: [] }).pregunta_de_la_persona).toBeNull();
+  });
+  it('corridas · config: "jubilada" sin decir ANSES no alcanza; las ofertas se describen por lo que dice la persona', () => {
+    const f = CONFIG_CLIENTE.ofertas.art9_ganancias.filtros.find(x => x.campo === 'jubilado_anses')!;
+    expect(f.ayuda).toContain('NO alcanza');
+    expect(CONFIG_CLIENTE.ofertas.art9_ganancias.descripcion).toMatch(/descuentos|Ganancias/);
+    expect(CONFIG_CLIENTE.ofertas.jubilacion.descripcion).toMatch(/jubilarse|edad/);
+    expect(PROMPT_EXTRACTOR).toContain('no la cambies salvo que la persona cambie claramente de tema');
+    expect(PROMPT_EXTRACTOR).toContain('la intención es fuera_de_alcance, no pregunta');
+    expect(PROMPT_EXTRACTOR).toContain('tiene a la tarde');
+  });
+  it('corridas · la objeción avanza: la primera vez se pregunta qué la hace dudar, la segunda se responde sin repetir, la tercera se deja la puerta abierta', async () => {
+    estudio();
+    const obj = (persona: string) => ({ persona, extractor: () => raw({ intencion: 'objecion' }) });
+    const c = await conversar([
+      { persona: FRASE1, extractor: () => art9 },
+      obj('lo tengo que pensar'),
+      obj('no estoy segura de que sirva para algo'),
+      obj('lo mismo, ya te dije'),
+    ], redactorEstudio);
+    expect(c.tipos[0]).toEqual(['ofrecer_consulta:modalidad_consulta']);
+    expect(c.tipos[1]).toEqual(['trabajar_objecion']);
+    expect(c.tipos[2]).toEqual(['responder_objecion']);
+    expect(c.cuerpos[2].v2.objetivos[0].texto).toMatch(/sin repetir la pregunta/);
+    expect(c.tipos[3]).toEqual(['dejar_puerta_abierta']);
+    expect(c.cuerpos[3].v2.objetivos[0].texto).toMatch(/Sin preguntas/);
+    expect(permiteDeObjetivos([{ tipo: 'responder_objecion', texto: '' }])).toMatchObject({ consulta_y_abogado: true, horarios: false });
+  });
+  it('corridas · si aceptó, la cuenta de objeciones vuelve a cero', async () => {
+    estudio();
+    const c = await conversar([
+      { persona: FRASE1, extractor: () => art9 },
+      { persona: 'lo tengo que pensar', extractor: () => raw({ intencion: 'objecion' }) },
+      { persona: 'bueno, dale', extractor: () => raw({ intencion: 'acepta' }) },
+    ], redactorEstudio);
+    expect(leerEstadoV2(c.lead().datos).objeciones).toBeUndefined();
+  });
+  it('corridas · B8: con un filtro en "no" se explica con tacto aunque haya una emoción, y la condición de la consulta no llega al redactor', async () => {
+    estudio();
+    const P = 'era administrativa y me da mucha bronca que me descuenten ganancias';
+    const c = await conversar([{ persona: P, extractor: () => raw({ oferta_detectada: 'art9_ganancias', filtros: [fil('es_docente', 'no', 'era administrativa')], emocion: { frase: P } }) }], redactorEstudio);
+    expect(c.tipos[0]).toEqual(['no_califica:es_docente']);
+    const datos = c.cuerpos[0].v2.datos.join('\n');
+    expect(datos).not.toMatch(/Condición de la consulta|Alejandro|SIN CARGO/i);
+    expect(JSON.stringify(c.cuerpos[0].herramientas)).not.toMatch(/consultar_disponibilidad/);
+  });
+  it('corridas · B4/B6: la identidad que recibe el redactor trae el alcance del estudio y cómo responder a quien duda', () => {
+    const id = datosDeIdentidad(CONFIG_CLIENTE);
+    expect(id).toContain(CONFIG_CLIENTE.agente.alcance!);
+    expect(id).toContain('es una estafa');
+    expect(id).toContain(CONFIG_CLIENTE.agente.direccion);
+    expect(id).not.toMatch(/Alejandro/);
+  });
+  it('corridas · verificador: no se da por recibido un pago que el sistema no validó, ni se prometen recordatorios; los objetivos con contacto del equipo sí pueden decirlo', () => {
+    const sinPago = permiteDeObjetivos([{ tipo: 'reserva_transferencia', texto: '' }]);
+    const r = evaluarVerificacion({ violaciones: [{ regla: 'pago_confirmado', frase: 'He verificado el comprobante' }] }, { borrador: 'He verificado el comprobante y todo está en orden.', permite: sinPago, anterior: '' });
+    expect(r.ok).toBe(false);
+    expect(evaluarVerificacion({ violaciones: [{ regla: 'pago_confirmado', frase: 'recibimos el pago' }] }, { borrador: 'Gracias, recibimos el pago.', permite: permiteDeObjetivos([{ tipo: 'ofrecer_horarios', texto: '' }], { pago: true }), anterior: '' }).ok).toBe(true);
+    const horarios = permiteDeObjetivos([{ tipo: 'preguntar_cual', texto: '' }]);
+    expect(evaluarVerificacion({ violaciones: [{ regla: 'promete_lo_no_dado', frase: 'le enviaré un recordatorio' }] }, { borrador: 'Perfecto, le enviaré un recordatorio. ¿Cuál prefiere?', permite: horarios, anterior: '' }).ok).toBe(false);
+    expect(evaluarVerificacion({ violaciones: [{ regla: 'promete_lo_no_dado', frase: 'alguien del equipo se comunicará' }] }, { borrador: 'Alguien del equipo se comunicará con usted.', permite: permiteDeObjetivos([{ tipo: 'derivar', texto: '' }]), anterior: '' }).ok).toBe(true);
+    for (const k of ['pago_confirmado', 'promete_lo_no_dado', 'Es difícil que']) expect(PROMPT_VERIFICADOR).toContain(k);
   });
   it('ronda 1 · config: cada filtro lleva su ayuda para el extractor ("maestra" es docente) y el extractor las recibe', () => {
     const f = CONFIG_CLIENTE.ofertas.art9_ganancias.filtros.find(x => x.campo === 'es_docente')!;
