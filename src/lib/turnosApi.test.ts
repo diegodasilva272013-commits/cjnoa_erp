@@ -4,7 +4,7 @@ import { createHmac } from 'node:crypto';
 import handler, {
   clasificarRecibo, TIPOS_CONSULTA, promesaSinCumplir, separarDatosPago, mensajeApurado,
   aMin, limpiarSecreto, camposDeLead, etapaAutomatica, fusionarLead, registrarMensaje, upsertLead, firmaMetaValida, firmaKapsoValida, extraerMensajesKapso, extraerMensajes, aMensajesLLM, procesarMensaje, filaDePersona, esConversacionDeNoa, clasificarMensajeCliente, categoriaMensajeAgente, personaMetrica, agregarMetricasAgente, calcularMetricasAgente, evaluarOptimizaciones, validarOptimizaciones, ejecutarOptimizacion, type MetricasAgente, motivoDeExclusion, resumenEnPalabras, ejecutarAnalista, revisarAnalisisAutomatico, codigosDeEstilo, etapaEmbudo, analizarConversacion, calcularMetricas, mascararDatos, textoParaEtiquetar, validarEtiquetas, promptDelAgente, limpiarCachePrompt, accionAgentes, problemasDeEstilo, textoNoLegible, firmaMercadoPagoValida, importeTexto, importeLindo, asignarImporteUnico, procesarPagoMP, montoMercadoPago, enmascarar, neutralizarMarcas, salidaInsegura, superaLimite, urlMediaSegura, resumenTurnosVigentes, HERRAMIENTAS_LLM, cuerpoNotaDeVoz, notaDeImagen, montoValidadoDe, quitarEtiquetas, aMensajesOpenAI, deOpenAI, ejecutarHerramienta, PROMPT_AGENTE, type Deps, telefonoClave, historialDe, inferirNombre, normalizarFecha, normalizarHora, bloquesDelDia, huecosLibres, localDe, resolverProfesional, diaSemanaISO, fechaValida,
-  registrarSinResponder, registrarUso, fijarDbUso, costoUsd, esDudaOObjecion, esRechazoFirme, horasEnTexto, quitarFrasesHechas, REGEX_CLICHE, condicionesArt9Confirmadas, campanaDelTexto, probarAgentePaso, chatAgentePaso, preguntasAfirmadas, evidenciaCompleta, REGEX_PROMESAS, validarExtraccion, aplicarExtraccion, elegirDosHorarios, horarioSenialado, pareceElNombreDeUnaPersona, primeraPalabraDeMensaje, ideasParaElTurno, ideasUsadasEn, aperturaProhibida, datoRepetidoEnLaPrimeraOracion, cumplePreferencia, datosDeIdentidad, datoDeConexion, INTENCIONES, armarSistemaRedactor, permiteDeObjetivos, mensajeSeguro, PROMPT_VERIFICADOR, esquemaVerificador, evaluarVerificacion, aperturaDeMensaje, muletillaRepetida, esquemaExtractor, PROMPT_REDACTOR, PROMPT_EXTRACTOR, CONFIG_CLIENTE, leerEstadoV2, estadoV2Vacio, extraccionVacia, funcionesV2, textoFaltaRegistrar, AVISO_DERIVACION, horariosOfrecidosEn, ofrecidosVigentes, textoOfrecidos, horasSinDia, ofertaConDia, condicionDeAgenda, registrarMensajeHumano, extraerHumanosKapso, responderDesdeErp, resumenCampana, analizarCampana, analisisSoloConCifrasReales, esRespuestaCortaSiNo, preguntaDelAgente, temaMalNombrado,
+  importesEnTexto, registrarSinResponder, registrarUso, fijarDbUso, costoUsd, esDudaOObjecion, esRechazoFirme, horasEnTexto, quitarFrasesHechas, REGEX_CLICHE, condicionesArt9Confirmadas, campanaDelTexto, probarAgentePaso, chatAgentePaso, preguntasAfirmadas, evidenciaCompleta, REGEX_PROMESAS, validarExtraccion, aplicarExtraccion, elegirDosHorarios, horarioSenialado, pareceElNombreDeUnaPersona, primeraPalabraDeMensaje, ideasParaElTurno, ideasUsadasEn, aperturaProhibida, datoRepetidoEnLaPrimeraOracion, cumplePreferencia, datosDeIdentidad, datoDeConexion, INTENCIONES, armarSistemaRedactor, permiteDeObjetivos, mensajeSeguro, PROMPT_VERIFICADOR, esquemaVerificador, evaluarVerificacion, aperturaDeMensaje, muletillaRepetida, esquemaExtractor, PROMPT_REDACTOR, PROMPT_EXTRACTOR, CONFIG_CLIENTE, leerEstadoV2, estadoV2Vacio, extraccionVacia, funcionesV2, textoFaltaRegistrar, AVISO_DERIVACION, horariosOfrecidosEn, ofrecidosVigentes, textoOfrecidos, horasSinDia, ofertaConDia, condicionDeAgenda, registrarMensajeHumano, extraerHumanosKapso, responderDesdeErp, resumenCampana, analizarCampana, analisisSoloConCifrasReales, esRespuestaCortaSiNo, preguntaDelAgente, temaMalNombrado, contieneTermino, completarOpcionesDichas,
   type Bloque,
 } from '../../api/turnos/[accion]';
 
@@ -16,7 +16,40 @@ const bloque = (o: Partial<Bloque>): Bloque => ({
 // casilleros (que otro cliente puede configurar) corren con los mínimos de antes; los tests del estudio llaman a estudio().
 const MINIMOS_VIEJOS = { obligatorios: ['objetivo'], al_menos_uno_de: ['brecha', 'historial', 'compromiso'] };
 const MINIMOS_ESTUDIO = { obligatorios: [] as string[], al_menos_uno_de: [] as string[] };
-function ponerMinimos(m: { obligatorios: string[]; al_menos_uno_de: string[] }) { for (const o of Object.values(CONFIG_CLIENTE.ofertas)) o.casilleros_minimos = { obligatorios: [...m.obligatorios], al_menos_uno_de: [...m.al_menos_uno_de] }; }
+// CJ NOA ya no tiene la oferta de jubilación con video y reserva (la reemplazó la de compra de aportes, que se abona en el estudio). La MECÁNICA
+// (activo de valor, reserva por transferencia o efectivo, comprobante) sigue en el código para otros clientes: los tests la prueban con esta oferta de prueba.
+const CONFIG_REAL_OFERTAS = Object.keys(CONFIG_CLIENTE.ofertas);
+(CONFIG_CLIENTE.ofertas as Record<string, any>).jubilacion = {
+  etiqueta: 'Jubilación docente',
+  descripcion: 'Personas que todavía NO se jubilaron y quieren jubilarse o consultan por el trámite jubilatorio docente. La persona habla de jubilarse, de su edad, de sus años de servicio o de seguir trabajando.',
+  campana: 'jubilacion_docente_prueba',
+  profesional: 'fabricio',
+  tipo_consulta: 'jubilacion_docente',
+  filtros: [
+    { campo: 'nombre', tipo: 'texto', descripcion: 'su nombre', ayuda: 'Solo si la persona dice su nombre.', pregunta: '¿Me indica su nombre y apellido?' },
+    { campo: 'edad', tipo: 'numero', descripcion: 'su edad', ayuda: 'Solo el número que dice como su edad.', pregunta: '¿Qué edad tiene?' },
+    { campo: 'trabaja_docente', tipo: 'si_no', descripcion: 'si actualmente trabaja como docente', ayuda: '"Sigo trabajando como docente", "todavía doy clases" => si.', pregunta: '¿Sigue trabajando como docente?' },
+  ],
+  filtros_de_cierre: [{
+    campo: 'forma_reserva', tipo: 'opcion', valores: ['efectivo', 'transferencia'], descripcion: 'cómo prefiere abonar la reserva (transferencia o efectivo)',
+    ayuda: '"Transferencia", "por banco", "por Mercado Pago" => transferencia; "efectivo", "en las oficinas" => efectivo.', pregunta: '¿Prefiere abonar la reserva por transferencia o en efectivo?',
+    sinonimos: { transferencia: ['transferencia', 'transferir', 'transfiero', 'banco', 'mercado pago', 'mercadopago', 'alias', 'cbu'], efectivo: ['efectivo', 'en mano', 'en la oficina', 'en las oficinas', 'en el estudio', 'cash'] },
+  }],
+  casilleros_minimos: { obligatorios: [], al_menos_uno_de: [] },
+  condicion: 'La consulta es con el Dr. Fabricio Reyes. El valor y la reserva (la mitad; el resto se abona el día de la consulta) los informa el sistema: nunca los inventes.',
+  urgencia: null,
+  activo_de_valor: { tipo: 'video', herramienta: 'enviar_video_jubilacion', descripcion: 'video grabado por el Dr. Fabricio Reyes' },
+  cierre: 'reserva_y_turno',
+  datos_antes_de_horarios: [],
+  ideas_de_valor: [{ texto: 'La edad y los años de servicio abren opciones distintas, por eso conviene revisarlo antes de iniciar el trámite.', estado: 'pendiente de aprobación del estudio' }],
+  como_se_conecta_virtual: '[PENDIENTE: lo completa el estudio]',
+};
+// Los datos opcionales de la config (por ejemplo el monto) agregan una pregunta al flujo: los tests anteriores corren sin ellos y los tests de las jugadas de Rodrigo los activan con conOpcionales().
+const FILTROS_ORIGINALES = Object.fromEntries(Object.entries(CONFIG_CLIENTE.ofertas).map(([k, o]) => [k, [...o.filtros]]));
+const sinOpcionales = () => { for (const [k, o] of Object.entries(CONFIG_CLIENTE.ofertas)) o.filtros = FILTROS_ORIGINALES[k].filter(f => !f.opcional); };
+const conOpcionales = () => { for (const [k, o] of Object.entries(CONFIG_CLIENTE.ofertas)) o.filtros = [...FILTROS_ORIGINALES[k]]; };
+sinOpcionales();
+function ponerMinimos(m: { obligatorios: string[]; al_menos_uno_de: string[] }) { sinOpcionales(); for (const o of Object.values(CONFIG_CLIENTE.ofertas)) o.casilleros_minimos = { obligatorios: [...m.obligatorios], al_menos_uno_de: [...m.al_menos_uno_de] }; }
 const estudio = () => ponerMinimos(MINIMOS_ESTUDIO);
 
 describe('api/turnos · disponibilidad', () => {
@@ -3504,7 +3537,7 @@ describe('agente v2 · director + extractor + redactor (todo con modelo simulado
     if (m) return `Tengo lugar ${m[1]}. ¿Cuál le queda mejor?`;
     m = /Preguntale cuál de ESTOS DOS MISMOS horarios le queda mejor: (.+?)\. No ofrezcas/.exec(sis);
     if (m) return `¿Cuál prefiere, ${m[1]}?`;
-    m = /Turno agendado con (.+?): (.+?)\. Dirección/.exec(sis);
+    m = /Turno agendado con (.+?): (.+?)\. (?:Dirección|La consulta es virtual)/.exec(sis);
     if (/El turno YA QUEDÓ AGENDADO/.test(sis) && m) return `Su consulta YA QUEDÓ AGENDADA el ${m[2]} con ${m[1]}.`;
     if (/AVISO|pasó a una persona del equipo/.test(sis)) return 'Alguien del estudio se va a comunicar con usted.';
     if (/dijo con claridad que no le interesa/.test(sis)) return 'Gracias por su tiempo. Si más adelante quiere retomarlo, escríbanos cuando guste.';
@@ -3894,17 +3927,18 @@ describe('agente v2 · director + extractor + redactor (todo con modelo simulado
     expect(o.texto).not.toMatch(/queda reservado|enseguida/i);
   });
   it('ronda 4 · config: ideas de valor por oferta, marcadas pendientes de aprobación', () => {
-    const a9 = CONFIG_CLIENTE.ofertas.art9_ganancias.ideas_de_valor!, jb = CONFIG_CLIENTE.ofertas.jubilacion.ideas_de_valor!;
+    const a9 = CONFIG_CLIENTE.ofertas.art9_ganancias.ideas_de_valor!, jb = CONFIG_CLIENTE.ofertas.jubilacion_aportes.ideas_de_valor!;
     expect(a9.map(x => x.texto)).toEqual([
       'Muchas veces ese descuento aparece en el recibo y nadie explica de dónde sale.',
       'Cada caso es distinto, porque depende del haber y de cómo se calculó el descuento. Por eso lo mira un abogado.',
       'Revisar el recibo con alguien que conoce el tema suele aclarar mucho.',
     ]);
     expect(jb.map(x => x.texto)).toEqual([
-      'La edad y los años de servicio abren opciones distintas, por eso conviene revisarlo antes de iniciar el trámite.',
-      'Muchas personas llegan al trámite sin saber qué les conviene, y ahí se pierden opciones.',
+      'Si sabe que al llegar a la edad le van a faltar años de aportes, puede empezar a regularizarlos desde ahora, de a poco.',
+      'Es mejor revisarlo antes que llegar a la edad y encontrarse con que no se puede jubilar por falta de aportes.',
     ]);
-    expect([...a9, ...jb].every(x => x.estado === 'pendiente de aprobación del estudio')).toBe(true);
+    expect(a9.every(x => x.estado === 'pendiente de aprobación del estudio')).toBe(true);
+    expect(jb.every(x => /Rodrigo Reyes/.test(x.estado))).toBe(true); // salen del texto de la campaña que mandó Rodrigo
   });
   it('ronda 4 · permitido por objetivo: descubrir no permite nada; ofrecer_horarios permite horarios; solo confirmar_turno permite "agendado"', () => {
     expect(permiteDeObjetivos([{ tipo: 'descubrir', texto: '' }])).toEqual({ consulta_y_abogado: false, horarios: false, precios: false, pago: false, promesas_de_contacto: false, agendado: false });
@@ -4281,7 +4315,7 @@ describe('agente v2 · director + extractor + redactor (todo con modelo simulado
     const { readFileSync } = await import('node:fs');
     const src = readFileSync(new URL('../../api/turnos/_config-cjnoa.ts', import.meta.url), 'utf8');
     const cfg = JSON.parse(src.slice(src.indexOf('= {') + 2, src.lastIndexOf('};') + 1));
-    for (const id of ['art9_ganancias', 'jubilacion']) expect(cfg.ofertas[id].casilleros_minimos).toEqual({ obligatorios: [], al_menos_uno_de: [] });
+    for (const id of ['art9_ganancias', 'jubilacion_aportes']) expect(cfg.ofertas[id].casilleros_minimos).toEqual({ obligatorios: [], al_menos_uno_de: [] });
   });
   it('estudio · art9: con los 3 filtros en "si" el siguiente objetivo es ofrecer la consulta y el mismo mensaje pregunta la modalidad', async () => {
     estudio();
@@ -4410,6 +4444,55 @@ describe('agente v2 · director + extractor + redactor (todo con modelo simulado
     { persona: 'el primero', extractor: (u) => raw({ intencion: 'elige_horario', horario_elegido: u.horarios_ofrecidos[0] }) },
     { persona: 'Diego Da Silva', extractor: () => raw({ filtros: [fil('nombre', 'Diego Da Silva', 'Diego Da Silva')] }) },
   ];
+  it('jubilación · compra de aportes: con la edad se ofrece la consulta con Fabricio, se agenda sin reserva y se abona en el estudio', async () => {
+    estudio();
+    const P = 'Hola, tengo 54 años y me van a faltar aportes para jubilarme';
+    const c = await conversar([
+      { persona: P, extractor: () => raw({ oferta_detectada: 'jubilacion_aportes', filtros: [fil('edad', '54', P)] }) },
+      { persona: 'sí, quiero la consulta', extractor: () => raw({ intencion: 'acepta' }) },
+      { persona: 'el primero', extractor: (u) => raw({ intencion: 'elige_horario', horario_elegido: u.horarios_ofrecidos[0] }) },
+      { persona: 'Ana López', extractor: () => raw({ filtros: [fil('nombre', 'Ana López', 'Ana López')] }) },
+    ], redactorEstudio);
+    expect(c.tipos[0]).toEqual(['ofrecer_consulta']);
+    expect(c.cuerpos[0].v2.datos.join('\n')).toContain('se abona en el estudio el día de la consulta: $50.000');
+    expect(c.tipos[1]).toEqual(['ofrecer_horarios']); // sin pedir forma de reserva ni comprobante
+    expect(c.tipos[2]).toEqual(['obtener_dato_agenda:nombre']);
+    expect(c.tipos[3]).toEqual(['confirmar_turno']);
+    expect(c.estado.tablas.consultas_agendadas[0]).toMatchObject({ abogado_asignado: 'Fabricio', cliente_nombre: 'Ana López' });
+    expect(c.lead().datos).toMatchObject({ tipo_consulta: 'jubilacion_aportes', valor_consulta: 50000, reserva_esperada: 0 });
+    for (const cuerpo of c.cuerpos) for (const o of cuerpo.v2.objetivos) expect(o.texto).not.toMatch(/\breserva\b|transfer|comprobante|sin cargo/i);
+  });
+  it('jubilación · fuera de las edades del plan (ya jubilada, 66 años) igual se le ofrece la consulta: nadie queda descalificado', async () => {
+    estudio();
+    const P = 'Ya estoy jubilada, tengo 66 años y quiero ver si puedo mejorar mi jubilación';
+    const c = await conversar([{ persona: P, extractor: () => raw({ oferta_detectada: 'jubilacion_aportes', filtros: [fil('edad', '66', P)] }) }], redactorEstudio);
+    expect(c.tipos[0]).toEqual(['ofrecer_consulta']);
+    expect(leerEstadoV2(c.lead().datos).etapa).not.toBe('no_califica');
+  });
+  it('importes · un precio que no está en los datos nunca sale (el modelo inventó "$3.000" sin saber el tema)', async () => {
+    expect(importesEnTexto('cuesta $50.000 o $ 3000, y $40.000,37')).toEqual(['50000', '3000', '40000']);
+    estudio();
+    const P = 'me faltan aportes, cuanto cuesta la consulta?';
+    const c = await conversar([{ persona: P, extractor: () => raw({ intencion: 'pregunta', pregunta_de_la_persona: 'cuanto cuesta la consulta?' }) }],
+      () => 'La consulta tiene un costo de $3.000. ¿En qué puedo ayudarla hoy?');
+    expect(c.cuerpos[0].respuestas[0]).not.toContain('3.000');
+    expect(c.cuerpos[0].v2.mensaje_seguro).toBe(true);
+  });
+  it('oferta por dato · "me faltan aportes" (un dato que solo pide la consulta de jubilación) define la oferta aunque el extractor no la nombre', async () => {
+    estudio(); conOpcionales(); // los aportes que faltan son un dato opcional de la config
+    const P = 'tengo 57 años y me faltan como 8 años de aportes';
+    const e = aplicarExtraccion(estadoV2Vacio(), raw({ filtros: [fil('aportes_faltantes', 'como 8 años', P)] }) as any, CONFIG_CLIENTE, null, P);
+    expect(e.oferta).toBe('jubilacion_aportes');
+    // un sí/no ("cobro de ANSES") es una condición, no el tema: no define nada
+    const e2 = aplicarExtraccion(estadoV2Vacio(), raw({ filtros: [fil('jubilado_anses', 'si', 'cobro de anses')] }) as any, CONFIG_CLIENTE, null, 'cobro de anses');
+    expect(e2.oferta).toBeNull();
+  });
+  it('descubrir · si el mensaje no deja claro el tema, el objetivo nombra los temas del estudio para preguntar por cuál consulta', async () => {
+    estudio();
+    const c = await conversar([{ persona: 'hola, vi el anuncio', extractor: () => raw() }], redactorEstudio);
+    expect(c.tipos[0]).toEqual(['descubrir_situacion']);
+    expect(c.cuerpos[0].v2.objetivos[0].texto).toContain('Artículo 9 e Impuesto a las Ganancias o por Jubilación y compra de aportes');
+  });
   /** El nombre (sin acento) de un día hábil dentro de la semana próxima, para pedirlo como preferencia. */
   const diaHabilProximo = () => { const d = new Date(Date.now() + 3 * 86400000); while ([0, 6].includes(d.getUTCDay())) d.setUTCDate(d.getUTCDate() + 1); return { nombre: ['domingo', 'lunes', 'martes', 'miercoles', 'jueves', 'viernes', 'sabado'][d.getUTCDay()], dow: d.getUTCDay() }; };
   const dowDe = (fecha: string) => new Date(`${fecha}T12:00:00Z`).getUTCDay();
@@ -4528,7 +4611,8 @@ describe('agente v2 · director + extractor + redactor (todo con modelo simulado
   });
   it('gestión · nada inventado: con "como_se_conecta_virtual" pendiente, el agente solo dice que el estudio le confirma por el mismo chat', async () => {
     estudio();
-    for (const o of Object.values(CONFIG_CLIENTE.ofertas)) expect(o.como_se_conecta_virtual).toBe('[PENDIENTE: lo completa el estudio]');
+    // solo las ofertas que pueden ser virtuales (la de jubilación es en el estudio)
+    for (const o of Object.values(CONFIG_CLIENTE.ofertas)) if ((o.datos_antes_de_horarios ?? []).some(d => (d.valores ?? []).includes('virtual'))) expect(o.como_se_conecta_virtual).toBe('[PENDIENTE: lo completa el estudio]');
     const c = await conversar([
       ...hastaAgendar(),
       { persona: 'por donde es?', extractor: () => raw({ intencion: 'pregunta', pregunta_de_la_persona: 'por donde es?' }) },
@@ -4688,10 +4772,15 @@ describe('agente v2 · director + extractor + redactor (todo con modelo simulado
     estudio();
     const P = 'era administrativa y me da mucha bronca que me descuenten ganancias';
     const c = await conversar([{ persona: P, extractor: () => raw({ oferta_detectada: 'art9_ganancias', filtros: [fil('es_docente', 'no', 'era administrativa')], emocion: { frase: P } }) }], redactorEstudio);
-    expect(c.tipos[0]).toEqual(['no_califica:es_docente']);
-    const datos = c.cuerpos[0].v2.datos.join('\n');
+    expect(c.tipos[0]).toEqual(['obtener_filtro:es_docente']); // un "no" deducido de otra frase se confirma una vez antes de descalificar
+    const c2 = await conversar([
+      { persona: P, extractor: () => raw({ oferta_detectada: 'art9_ganancias', filtros: [fil('es_docente', 'no', 'era administrativa')], emocion: { frase: P } }) },
+      { persona: 'no, soy administrativa', extractor: () => raw({ filtros: [fil('es_docente', 'no', 'no, soy administrativa')] }) },
+    ], redactorEstudio);
+    expect(c2.tipos[1]).toEqual(['no_califica:es_docente']);
+    const datos = c2.cuerpos[1].v2.datos.join('\n');
     expect(datos).not.toMatch(/Condición de la consulta|Alejandro|SIN CARGO/i);
-    expect(JSON.stringify(c.cuerpos[0].herramientas)).not.toMatch(/consultar_disponibilidad/);
+    expect(JSON.stringify(c2.cuerpos[1].herramientas)).not.toMatch(/consultar_disponibilidad/);
   });
   it('corridas · B4/B6: la identidad que recibe el redactor trae el alcance del estudio y cómo responder a quien duda', () => {
     const id = datosDeIdentidad(CONFIG_CLIENTE);
@@ -4766,9 +4855,10 @@ describe('agente v2 · director + extractor + redactor (todo con modelo simulado
     estudio();
     const c = await conversar([
       { persona: 'era administrativa, me descuentan ganancias, puedo tener un turno?', extractor: () => raw({ oferta_detectada: 'art9_ganancias', filtros: [fil('es_docente', 'no', 'era administrativa')], intencion: 'pregunta', pregunta_de_la_persona: 'puedo tener un turno?' }) },
+      { persona: 'no, no soy docente. puedo tener un turno?', extractor: () => raw({ filtros: [fil('es_docente', 'no', 'no, no soy docente')], intencion: 'pregunta', pregunta_de_la_persona: 'puedo tener un turno?' }) },
     ], redactorEstudio);
-    expect(c.tipos[0]).toEqual(['responder:puedo tener un turno?', 'no_califica:es_docente']);
-    expect(c.cuerpos[0].v2.objetivos[0].texto).toMatch(/NO califica para ese reclamo: no le confirmes consulta, turno ni horarios ni afirmes si existen otras vías/);
+    expect(c.tipos[1]).toEqual(['responder:puedo tener un turno?', 'no_califica:es_docente']);
+    expect(c.cuerpos[1].v2.objetivos[0].texto).toMatch(/NO califica para ese reclamo: no le confirmes consulta, turno ni horarios ni afirmes si existen otras vías/);
   });
   it('corridas 3 · una pregunta que abarca varias oraciones ("esto es una estafa? quien sos vos") se reconoce entera', async () => {
     estudio();
@@ -4827,6 +4917,243 @@ describe('agente v2 · director + extractor + redactor (todo con modelo simulado
     expect(c.cuerpos[3].respuestas[0]).toContain('comprobante');
     expect(PROMPT_EXTRACTOR).toContain('incluilo en "filtros" en ese mismo turno');
   });
+  // ------------------------------------------------------------------ JUGADAS DE RODRIGO (las de las agendas que cerró, sin la demora de contestar)
+  const P_MONTO = 'Más o menos 350 mil por mes';
+  const conMonto = (): Turno[] => [
+    { persona: FRASE1, extractor: () => art9 },
+    { persona: P_MONTO, extractor: () => raw({ filtros: [fil('monto_descuento', '350 mil por mes', P_MONTO)] }) },
+  ];
+  const ART9 = () => CONFIG_CLIENTE.ofertas.art9_ganancias;
+  it('rodrigo 1 · con los tres filtros dichos, se pregunta el monto que le descuentan (una sola pregunta)', async () => {
+    estudio(); conOpcionales();
+    const c = await conversar([{ persona: FRASE1, extractor: () => art9 }], redactorEstudio);
+    expect(c.tipos[0]).toEqual(['obtener_filtro:monto_descuento']);
+    expect(c.cuerpos[0].v2.objetivos[0].texto).toContain('UNA sola pregunta');
+    expect(leerEstadoV2(c.lead().datos).dato_pendiente).toEqual({ tipo: 'filtro', campo: 'monto_descuento' });
+  });
+  it('rodrigo 2 · el monto que dijo vuelve en la oferta con sus palabras, con el encuadre del caso y la pista de modalidad', async () => {
+    estudio(); conOpcionales();
+    const c = await conversar(conMonto(), redactorEstudio);
+    expect(c.tipos[1]).toEqual(['ofrecer_consulta:modalidad_consulta']);
+    const texto = c.cuerpos[1].v2.objetivos[0].texto;
+    expect(texto).toContain('350 mil por mes');
+    expect(texto).toContain('tomaste nota');
+    expect(texto).toContain(ART9().encuadre_del_caso!.texto);
+    expect(texto).toContain('sin prometer ningún resultado');
+    expect(texto).toMatch(/no puede viajar/);
+    expect(leerEstadoV2(c.lead().datos).filtros.monto_descuento?.valor).toBe('350 mil por mes');
+  });
+  it('rodrigo 3 · si no da el monto, no se lo vuelve a pedir ni se deriva: se sigue con la oferta', async () => {
+    estudio(); conOpcionales();
+    const c = await conversar([{ persona: FRASE1, extractor: () => art9 }, { persona: 'no sé cuánto', extractor: () => raw() }, { persona: 'no sé', extractor: () => raw() }], redactorEstudio);
+    expect(c.tipos[1]).toEqual(['ofrecer_consulta:modalidad_consulta']);
+    expect(c.cuerpos[1].v2.objetivos[0].texto).not.toContain('tomaste nota');
+    expect(leerEstadoV2(c.lead().datos).opcionales_preguntados).toEqual(['monto_descuento']);
+    expect(c.cuerpos.every(x => !x.v2?.derivado)).toBe(true);
+  });
+  it('rodrigo 4 · la condición sin cargo solo lleva fecha si el estudio la dio: pendiente no se menciona, con fecha sí', async () => {
+    estudio(); conOpcionales();
+    const orig = ART9().vigencia_sin_cargo;
+    try {
+      expect(orig).toMatch(/^\[PENDIENTE/);
+      const a = await conversar(conMonto(), redactorEstudio);
+      expect(a.cuerpos[1].v2.datos.join('\n')).not.toContain('Vigencia de la consulta sin cargo');
+      ART9().vigencia_sin_cargo = 'hasta el viernes 6 de noviembre';
+      const b = await conversar(conMonto(), redactorEstudio);
+      expect(b.cuerpos[1].v2.datos.join('\n')).toContain('Vigencia de la consulta sin cargo: hasta el viernes 6 de noviembre');
+    } finally { ART9().vigencia_sin_cargo = orig; }
+  });
+  it('rodrigo 5 · "quedan pocos lugares" solo aparece si la agenda real tiene pocos huecos (umbral de la config)', async () => {
+    estudio();
+    const orig = ART9().escasez_umbral;
+    try {
+      const sin = await conversar(hastaAgendar().slice(0, 6), redactorEstudio);
+      expect(sin.tipos[5]).toEqual(['ofrecer_horarios']);
+      expect(sin.cuerpos[5].v2.datos.join('\n')).not.toContain('AGENDA CON POCOS LUGARES');
+      ART9().escasez_umbral = 99999;
+      const con = await conversar(hastaAgendar().slice(0, 6), redactorEstudio);
+      expect(con.cuerpos[5].v2.datos.join('\n')).toMatch(/AGENDA CON POCOS LUGARES: en toda la agenda quedan \d+ horarios libres/);
+      ART9().escasez_umbral = 0;
+      const cero = await conversar(hastaAgendar().slice(0, 6), redactorEstudio);
+      expect(cero.cuerpos[5].v2.datos.join('\n')).not.toContain('AGENDA CON POCOS LUGARES');
+    } finally { ART9().escasez_umbral = orig; }
+  });
+  it('rodrigo 6 · modalidad: "no puedo viajar" vale como virtual (sinónimo de la config); "soy del interior" solo no elige nada', () => {
+    const v = (persona: string, evidencia: string) => validarExtraccion(raw({ filtros: [fil('modalidad_consulta', 'virtual', evidencia)] }), { cfg: CONFIG_CLIENTE, personaTextos: [persona], ofrecidos: [], datoPendiente: { tipo: 'filtro', campo: 'modalidad_consulta' } });
+    expect(v('no puedo viajar, soy del interior', 'no puedo viajar').filtros).toEqual([expect.objectContaining({ campo: 'modalidad_consulta', valor: 'virtual' })]);
+    expect(v('soy del interior de la provincia', 'soy del interior de la provincia').filtros).toEqual([]);
+  });
+  it('rodrigo 7 · el costo del trámite completo: se ofrece una llamada con el abogado solo si el estudio la aprobó, sin inventar monto', async () => {
+    estudio();
+    const orig = ART9().llamada_con_el_dr;
+    const P = 'Cuánto cuesta el trámite completo?';
+    const preguntaCosto: Turno = { persona: P, extractor: () => raw({ oferta_detectada: 'art9_ganancias', pregunta_de_la_persona: P, costo_del_tramite: true }) };
+    try {
+      expect(orig!.estado).toMatch(/pendiente/);
+      const sin = await conversar([preguntaCosto], redactorEstudio);
+      expect(sin.tipos[0].some((x: string) => x.startsWith('ofrecer_llamada'))).toBe(false); // pendiente de aprobación: no se usa
+      ART9().llamada_con_el_dr = { ...orig!, estado: 'aprobado por el estudio' };
+      const c = await conversar([preguntaCosto, { persona: 'sí, puedo', extractor: () => raw({ intencion: 'acepta' }) }], redactorEstudio);
+      expect(c.tipos[0]).toEqual(['ofrecer_llamada']); // sin un "responder" aparte
+      expect(c.cuerpos[0].v2.objetivos[0].texto).toContain('NO inventes ningún monto');
+      expect(c.cuerpos[0].v2.objetivos[0].texto).toContain('sin compromiso');
+      expect(c.tipos[1][0].startsWith('derivar')).toBe(true); // aceptó: el equipo coordina día y hora
+      expect(leerEstadoV2(c.lead().datos).etapa).toBe('derivado');
+    } finally { ART9().llamada_con_el_dr = orig; }
+  });
+  it('rodrigo 7b · la llamada se ofrece una sola vez y solo un "sí" justo después la acepta', async () => {
+    estudio();
+    const orig = ART9().llamada_con_el_dr;
+    const P = 'Cuánto cobran por el juicio?';
+    const preguntaCosto: Turno = { persona: P, extractor: () => raw({ oferta_detectada: 'art9_ganancias', pregunta_de_la_persona: P, costo_del_tramite: true }) };
+    try {
+      ART9().llamada_con_el_dr = { ...orig!, estado: 'aprobado por el estudio' };
+      const c = await conversar([preguntaCosto, preguntaCosto, { persona: 'bueno', extractor: () => raw({ intencion: 'acepta' }) }], redactorEstudio);
+      expect(c.tipos[0]).toEqual(['ofrecer_llamada']);
+      expect(c.tipos[1].some((x: string) => x.startsWith('ofrecer_llamada'))).toBe(false); // no se repite
+      expect(c.tipos[2].some((x: string) => x.startsWith('derivar'))).toBe(false); // el sí no es del turno siguiente a la oferta
+    } finally { ART9().llamada_con_el_dr = orig; }
+  });
+  it('rodrigo 8 · extractor: costo_del_tramite está en el esquema y el prompt, y solo vale con una pregunta real de la persona', () => {
+    const esq = esquemaExtractor(CONFIG_CLIENTE) as any;
+    expect(esq.required).toContain('costo_del_tramite');
+    expect(esq.properties.costo_del_tramite).toEqual({ type: 'boolean' });
+    expect(PROMPT_EXTRACTOR).toContain('costo_del_tramite');
+    const v = (rawExt: any, persona: string) => validarExtraccion(raw(rawExt), { cfg: CONFIG_CLIENTE, personaTextos: [persona], ofrecidos: [] });
+    expect(v({ costo_del_tramite: true, intencion: 'pregunta', pregunta_de_la_persona: 'cuanto cobran por el juicio?' }, 'cuanto cobran por el juicio?').costo_del_tramite).toBe(true);
+    expect(v({ costo_del_tramite: true }, 'cuanto cobran por el juicio').costo_del_tramite).toBe(false);
+    expect(v({}, 'hola').costo_del_tramite).toBe(false);
+    expect(extraccionVacia().costo_del_tramite).toBe(false);
+  });
+  it('rodrigo 9 · reprogramar sin culpar a quien faltó', async () => {
+    estudio();
+    const c = await conversar([...hastaAgendar(), { persona: 'no pude ir, lo puedo cambiar?', extractor: () => raw({ intencion: 'reprogramar' }) }], redactorEstudio);
+    expect(c.tipos[8]).toEqual(['preguntar_dia_reprogramar']);
+    expect(c.cuerpos[8].v2.objetivos[0].texto).toMatch(/no se lo reproches/);
+  });
+  it('rodrigo 10 · reservar primero y pedir datos después: el nombre se pide recién al elegir horario y nunca se pide recibo ni clave', async () => {
+    estudio();
+    const c = await conversar(hastaAgendar().slice(0, 7), redactorEstudio);
+    expect(c.tipos.slice(0, 6).flat().some((x: string) => x.includes(':nombre'))).toBe(false);
+    expect(c.tipos[6]).toEqual(['obtener_dato_agenda:nombre']);
+    for (const cuerpo of c.cuerpos) for (const o of cuerpo.v2.objetivos) expect(o.texto).not.toMatch(/(?:envi|mand|pas|sub|adjunt|sac)w*[^.?]*recibo|foto del recibo|clave de/i);
+    expect(PROMPT_REDACTOR).toContain('Pedir claves, ni recibos, ni documentos por este chat');
+  });
+  it('rodrigo 11 · si pregunta el costo de la consulta, el redactor tiene la condición sin cargo desde ese mismo turno', async () => {
+    estudio();
+    const P = 'Hola, soy docente jubilada por ANSES, me descuentan ganancias. Cuánto cuesta la consulta?';
+    const c = await conversar([{ persona: P, extractor: () => raw({ ...art9, intencion: 'pregunta', pregunta_de_la_persona: 'Cuánto cuesta la consulta?', filtros: [fil('es_docente', 'si', 'soy docente jubilada por ANSES'), fil('jubilado_anses', 'si', 'soy docente jubilada por ANSES'), fil('descuento_art9_ganancias', 'si', 'me descuentan ganancias')], casilleros: [] }) }], redactorEstudio);
+    expect(c.tipos[0].some((x: string) => x.startsWith('responder'))).toBe(true);
+    expect(c.cuerpos[0].v2.datos.join('\n')).toContain('SIN CARGO');
+  });
+
+  // ------------------------------------------------------------------ ERRORES DEL CHAT DE PRUEBA (presencial / mañana / horarios inventados)
+  const hastaModalidad = (): Turno[] => [{ persona: FRASE1, extractor: () => art9 }];
+  const PREGUNTA_MODALIDAD = '¿Prefiere que la consulta sea presencial o virtual?';
+  it('chat · tipeo: "precencial" contesta la modalidad que se había preguntado (aunque el extractor no la haya devuelto)', async () => {
+    estudio();
+    const c = await conversar([...hastaModalidad(), { persona: 'precencial', extractor: () => raw() }], redactorEstudio);
+    expect(leerEstadoV2(c.lead().datos).filtros.modalidad_consulta?.valor).toBe('presencial');
+    expect(c.tipos[1]).toEqual(['ofrecer_horarios']);
+  });
+  it('chat · tipeo: contieneTermino tolera una letra mal y nada más', () => {
+    expect(contieneTermino('precencial', 'presencial')).toBe(true);
+    expect(contieneTermino('quiero la virtul', 'virtual')).toBe(true);
+    expect(contieneTermino('mañana', 'presencial')).toBe(false);
+    expect(contieneTermino('presionar', 'presencial')).toBe(false);
+    expect(contieneTermino('zoon', 'zoom')).toBe(false); // palabras cortas: exactas
+  });
+  it('chat · tipeo: la evidencia con la letra mal también se acepta', () => {
+    const v = validarExtraccion(raw({ filtros: [fil('modalidad_consulta', 'presencial', 'precencial')] }), { cfg: CONFIG_CLIENTE, personaTextos: ['precencial'], ofrecidos: [], datoPendiente: { tipo: 'filtro', campo: 'modalidad_consulta' } });
+    expect(v.filtros).toEqual([expect.objectContaining({ campo: 'modalidad_consulta', valor: 'presencial' })]);
+  });
+  it('chat · preferencia: el nombre del día sale de la fecha (no del modelo) y "mañana" a secas no es la franja de la mañana', () => {
+    const v = (pf: any, persona: string) => validarExtraccion(raw({ preferencia: { dia_relativo: null, ...pf } }), { cfg: CONFIG_CLIENTE, personaTextos: [persona], ofrecidos: [], hoy: '2026-11-03' }).preferencia;
+    // "mañana": la fecha la calcula el código desde hoy (martes 3), aunque el modelo diga otro día
+    expect(v({ dia_relativo: 'manana', dia: 'martes', franja: 'manana', fecha: null, evidencia: 'mañana' }, 'mañana')).toEqual({ dia: 'miercoles', franja: null, fecha: '2026-11-04' });
+    expect(v({ dia_relativo: 'pasado_manana', dia: null, franja: null, fecha: null, evidencia: 'pasado mañana' }, 'pasado mañana')).toEqual({ dia: 'jueves', franja: null, fecha: '2026-11-05' });
+    // "en la mañana": la franja se mira en el mensaje entero (la evidencia suele venir recortada) y no es el día de mañana
+    expect(v({ dia_relativo: 'manana', dia: 'martes', franja: 'manana', fecha: '2026-11-03', evidencia: 'mañana' }, 'en la mañana')).toEqual({ dia: null, franja: 'manana', fecha: null });
+    expect(v({ dia_relativo: 'manana', dia: null, franja: 'manana', fecha: null, evidencia: 'mañana a la mañana' }, 'mañana a la mañana')).toEqual({ dia: 'miercoles', franja: 'manana', fecha: '2026-11-04' });
+    // una fecha del modelo vale solo si el número del día está en el mensaje
+    expect(v({ dia: null, franja: null, fecha: '2026-11-06', evidencia: 'el 6' }, 'el 6')).toEqual({ dia: 'viernes', franja: null, fecha: '2026-11-06' });
+    expect(v({ dia: null, franja: 'tarde', fecha: '2026-11-06', evidencia: 'a la tarde' }, 'a la tarde')).toEqual({ dia: null, franja: 'tarde', fecha: null });
+    expect(v({ dia: 'jueves', franja: 'tarde', fecha: null, evidencia: 'el jueves a la tarde' }, 'el jueves a la tarde')).toEqual({ dia: 'jueves', franja: 'tarde', fecha: null });
+    expect(v({ dia: 'jueves', franja: null, fecha: null, evidencia: 'a la tarde' }, 'a la tarde')).toBeNull(); // el día no está en lo que dijo
+  });
+  it('chat · el mensaje que pregunta una opción tiene que nombrarlas: si pregunta por la hora, se corrige', async () => {
+    estudio();
+    const c = await conversar([...hastaModalidad(), { persona: 'mañana', extractor: () => raw({ preferencia: { dia_relativo: 'manana', dia: null, franja: null, fecha: null, evidencia: 'mañana' } }) }],
+      (sis, mensajes) => {
+        if (/Ofrecele la consulta con tus palabras/.test(sis)) return '¿Cómo la prefiere, presencial o virtual?';
+        return mensajes.some((m: any) => String(m.content).startsWith('[SISTEMA ERP: Corregí')) ? 'Perfecto, mañana. ¿Prefiere la consulta presencial o virtual?' : '¿A qué hora le gustaría venir mañana?';
+      });
+    expect(c.tipos[1]).toEqual(['obtener_dato_agenda:modalidad_consulta']);
+    expect(c.cuerpos[1].v2.redactor).toHaveLength(2);
+    expect(c.cuerpos[1].respuestas[0]).toMatch(/presencial/);
+    expect(c.cuerpos[1].v2.objetivos[0].texto).toContain('no nombres ninguna hora');
+  });
+  it('chat · si pregunta por horarios sin haber elegido la modalidad, nunca sale una hora inventada: sale la pregunta de la modalidad', async () => {
+    estudio();
+    const P = 'que horarios tenes?';
+    const c = await conversar([...hastaModalidad(), { persona: P, extractor: () => raw({ intencion: 'pregunta', pregunta_de_la_persona: P }) }],
+      (sis) => /Ofrecele la consulta con tus palabras/.test(sis) ? '¿Cómo la prefiere, presencial o virtual?' : 'Mañana tenemos lugar a las 9:00 o a las 10:30. ¿Cuál le conviene?');
+    expect(c.tipos[1].some((t: string) => t.startsWith('obtener_dato_agenda'))).toBe(true);
+    expect(c.cuerpos[1].respuestas[0]).toBe(PREGUNTA_MODALIDAD);
+    expect(c.cuerpos[1].respuestas[0]).not.toMatch(/\d:\d\d|agenda/);
+    expect(c.cuerpos[1].v2.mensaje_seguro).toBe(true);
+  });
+  it('chat · una fecha con número que no está en la agenda ("miércoles 28") se rechaza y no sale', async () => {
+    estudio();
+    const c = await conversar([...hastaModalidad(), { persona: 'en la mañana', extractor: () => raw({ preferencia: { dia: null, franja: 'manana', fecha: null, evidencia: 'en la mañana' } }) }],
+      (sis) => /Ofrecele la consulta con tus palabras/.test(sis) ? '¿Cómo la prefiere, presencial o virtual?' : '¿Le gustaría programar la consulta para el miércoles 28?');
+    expect(c.cuerpos[1].respuestas[0]).not.toMatch(/miércoles 28/);
+    expect(c.cuerpos[1].respuestas[0]).toBe(PREGUNTA_MODALIDAD);
+  });
+  it('chat · el día o la franja que pidió antes de elegir la modalidad se recuerda y se usa al ofrecer los horarios', async () => {
+    estudio();
+    const c = await conversar([...hastaModalidad(),
+      { persona: 'a la tarde', extractor: () => raw({ preferencia: { dia: null, franja: 'tarde', fecha: null, evidencia: 'a la tarde' } }) },
+      { persona: 'virtual', extractor: () => raw({ filtros: [fil('modalidad_consulta', 'virtual', 'virtual')] }) }], redactorEstudio);
+    expect(c.tipos[1]).toEqual(['obtener_dato_agenda:modalidad_consulta']);
+    expect(c.cuerpos[1].v2.objetivos[0].texto).toContain('a la tarde');
+    expect(leerEstadoV2(c.lead().datos).preferencia_pedida).toBeUndefined(); // ya se usó
+    expect(c.tipos[2]).toEqual(['ofrecer_horarios']);
+    const det = c.cuerpos[2].v2.objetivos[0].detalle as { hora: string }[];
+    if (!c.cuerpos[2].v2.datos.join('\n').includes('AVISO PREFERENCIA')) for (const s of det) expect(s.hora >= '13:00').toBe(true);
+  });
+  it('chat · pedir cuatro veces seguidas lo mismo sin respuesta pasa a una persona (las preguntas de por medio no reinician la cuenta)', async () => {
+    estudio();
+    const q = (P: string): Turno => ({ persona: P, extractor: () => raw({ intencion: 'pregunta', pregunta_de_la_persona: P }) });
+    const c = await conversar([...hastaModalidad(), q('que horarios tenes?'), q('y a la mañana tenes?'), q('hay lugar mañana?'), q('cuando es el primero libre?')],
+      (sis) => /pasó a una persona del equipo/.test(sis) ? 'Alguien del estudio se va a comunicar con usted.' : /Ofrecele la consulta con tus palabras/.test(sis) ? '¿Cómo la prefiere, presencial o virtual?' : '¿Prefiere la consulta presencial o virtual?');
+    const derivo = c.tipos.findIndex(t => t.some((x: string) => x.startsWith('derivar')));
+    expect(derivo).toBeGreaterThan(1);
+    expect(derivo).toBeLessThanOrEqual(4);
+    expect(c.tipos.slice(1, derivo).every(t => t.some((x: string) => x.startsWith('obtener_dato_agenda')))).toBe(true);
+  });
+
+  it('chat · "quiero una llamada virtual": la modalidad se registra por código aunque el extractor no la devuelva, y no se vuelve a preguntar', async () => {
+    estudio();
+    const c = await conversar([...hastaModalidad(),
+      { persona: 'quiero una llamada virtual', extractor: () => raw() },
+      { persona: 'por la mañana', extractor: () => raw({ intencion: 'rechaza_horarios', preferencia: { dia: null, franja: 'manana', fecha: null, evidencia: 'por la mañana' } }) }], redactorEstudio);
+    expect(leerEstadoV2(c.lead().datos).filtros.modalidad_consulta?.valor).toBe('virtual');
+    expect(c.tipos[1]).toEqual(['ofrecer_horarios']);
+    expect(c.tipos.flat().filter((t: string) => t === 'obtener_dato_agenda:modalidad_consulta')).toEqual([]);
+  });
+  it('chat · la opción dicha en cualquier momento se registra, pero con negación, pregunta, dos opciones o ya sabida no', () => {
+    const e = extraccionVacia();
+    const f = (t: string, sabidos: any = {}) => completarOpcionesDichas(e, CONFIG_CLIENTE, 'art9_ganancias', sabidos, t).filtros;
+    expect(f('quiero una llamada virtual')).toEqual([expect.objectContaining({ campo: 'modalidad_consulta', valor: 'virtual' })]);
+    expect(f('prefiero ir en persona')).toEqual([expect.objectContaining({ valor: 'presencial' })]);
+    expect(f('no quiero virtual')).toEqual([]);
+    expect(f('donde seria si fuera presencial?')).toEqual([]);
+    expect(f('virtual o presencial, me da igual')).toEqual([]);
+    expect(f('virtual', { modalidad_consulta: { valor: 'presencial', evidencia: 'x' } })).toEqual([]);
+    expect(f('que horarios tienen')).toEqual([]);
+  });
+
   it('ronda 1 · config: cada filtro lleva su ayuda para el extractor ("maestra" es docente) y el extractor las recibe', () => {
     const f = CONFIG_CLIENTE.ofertas.art9_ganancias.filtros.find(x => x.campo === 'es_docente')!;
     expect(f.ayuda).toMatch(/maestra/i);
@@ -4885,7 +5212,7 @@ describe('agente v2 · director + extractor + redactor (todo con modelo simulado
     };
     revisar(esq, 'raiz');
     expect(esq.properties.filtros.items.properties.campo.enum.sort()).toEqual(['descuento_art9_ganancias', 'edad', 'es_docente', 'forma_reserva', 'jubilado_anses', 'modalidad_consulta', 'nombre', 'trabaja_docente']);
-    expect(esq.properties.oferta_detectada.enum).toEqual(['art9_ganancias', 'jubilacion', null]);
+    expect(esq.properties.oferta_detectada.enum).toEqual([...Object.keys(CONFIG_CLIENTE.ofertas), null]);
   });
   it('extractor y redactor llaman al modelo como dice la orden: extractor con json_schema estricto y temperatura 0; redactor sin herramientas', async () => {
     const pedidos: any[] = [];
@@ -4950,7 +5277,14 @@ describe('agente v2 · director + extractor + redactor (todo con modelo simulado
     expect(r.body.v2).toBeNull();
   });
   it('la config de ofertas es un archivo de datos: las ofertas de CJ NOA salen de ahí', () => {
-    expect(Object.keys(CONFIG_CLIENTE.ofertas)).toEqual(['art9_ganancias', 'jubilacion']);
+    expect(CONFIG_REAL_OFERTAS).toEqual(['art9_ganancias', 'jubilacion_aportes']);
+    // la consulta de jubilación: Fabricio, se abona en el estudio el día de la consulta, sin reserva ni video
+    const jb = CONFIG_CLIENTE.ofertas.jubilacion_aportes;
+    expect(jb.profesional).toBe('fabricio');
+    expect(jb.activo_de_valor).toBeNull();
+    expect(jb.cierre).toBe('turno_directo');
+    expect(jb.filtros.some(f => f.tipo === 'si_no')).toBe(false); // nadie queda descalificado: lo analiza el abogado
+    expect(TIPOS_CONSULTA.jubilacion_aportes).toMatchObject({ valor: 50000, reserva: 0, abogado: 'Fabricio' });
     expect(CONFIG_CLIENTE.ofertas.art9_ganancias.profesional).toBe('alejandro');
     expect(CONFIG_CLIENTE.ofertas.art9_ganancias.filtros.map(f => f.campo)).toEqual(['es_docente', 'jubilado_anses', 'descuento_art9_ganancias']);
     expect(CONFIG_CLIENTE.ofertas.art9_ganancias.casilleros_minimos).toEqual({ obligatorios: ['objetivo'], al_menos_uno_de: ['brecha', 'historial', 'compromiso'] });
@@ -4975,7 +5309,7 @@ describe('agente v2 · ajustes: fotos y documentos, rechazo firme y nombre (mode
   const redactorFalso = (sis: string): string => {
     let m = /Ofrecele exactamente DOS horarios, cada uno con su día y fecha: (.+?)\. Preguntale/.exec(sis);
     if (m) return `Tengo lugar ${m[1]}. ¿Cuál le queda mejor?`;
-    m = /Turno agendado con (.+?): (.+?)\. Dirección/.exec(sis);
+    m = /Turno agendado con (.+?): (.+?)\. (?:Dirección|La consulta es virtual)/.exec(sis);
     if (/El turno YA QUEDÓ AGENDADO/.test(sis) && m) return `Su consulta YA QUEDÓ AGENDADA el ${m[2]} con ${m[1]}.`;
     if (/dijo con claridad que no le interesa/.test(sis)) return 'Gracias por su tiempo. Si más adelante quiere retomarlo, escríbanos cuando guste.';
     if (/nombre y apellido para el turno/.test(sis)) return 'Para dejar el turno a su nombre, ¿me indica su nombre y apellido?';

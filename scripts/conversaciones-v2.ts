@@ -4,7 +4,7 @@
 // Imprime todo como lo vería la persona, con la traza de cada turno. Nunca imprime claves ni variables de entorno.
 // Variables opcionales: V2_CONVERSACIONES=C1,A,B1,... · V2_MAX_USD=0.30 · V2_ETIQUETA=nombre-del-uso · V2_MENSAJES=a|b|c (conversación X)
 import { createClient } from '@supabase/supabase-js';
-import { chatAgentePaso, fijarDbUso, fijarOrigenUso, funcionesV2, usoOpenAI, horasEnTexto, horasSinDia, REGEX_PROMESAS, leerEstadoV2, costoUsd } from '../api/turnos/[accion]';
+import { chatAgentePaso, fijarDbUso, fijarOrigenUso, funcionesV2, usoOpenAI, horasEnTexto, horasSinDia, REGEX_PROMESAS, leerEstadoV2, costoUsd, registrarUso } from '../api/turnos/[accion]';
 
 const log = (...a: unknown[]) => console.log('[V2]', ...a);
 const silencio = console.error;
@@ -22,6 +22,18 @@ const CONVERSACIONES: Record<string, { titulo: string; mensajes: string[] }> = {
     titulo: 'A · agenda, pregunta por la conexión, reprograma y cancela',
     mensajes: ['HOLA', 'SOBRE EL ARTICULO 9', 'SI', 'SI', 'SI', 'virtual', 'martes 27', 'Diego Da Silva', 'por donde es?', 'quiero cambiar la fecha', 'el jueves', 'el primero', 'al final quiero cancelar', 'no, cancelalo igual'],
   },
+  D1: {
+    titulo: 'D1 · el chat que falló: presencial con tipeo, mañana, qué horarios tenés, en la mañana',
+    mensajes: ['hola', 'art 9', 'si', 'si', 'si', 'donde seria si fuera presencial?', 'precencial', 'mañana', 'que horarios tenes?', 'en la mañana', 'el primero', 'Diego Da Silva'],
+  },
+  D3: {
+    titulo: 'D3 · presencial, "mañana" elige el horario del día siguiente, da el nombre',
+    mensajes: ['hola', 'art 9', 'si', 'si', 'si', 'precencial', 'mañana', 'Diego Da Silva'],
+  },
+  D2: {
+    titulo: 'D2 · el chat que falló: quiero una llamada virtual, qué horarios tienen, por la mañana',
+    mensajes: ['hola soy docente jubilada de ANSES y me descuentan ganancias', 'quiero una llamada virtual', 'que horarios tienen?', 'por la mañana', 'el primero', 'Marta Pérez'],
+  },
   X: { titulo: 'Conversación a medida (V2_MENSAJES, separada por |)', mensajes: (process.env.V2_MENSAJES ?? '').split('|').map(x => x.trim()).filter(Boolean) },
 };
 
@@ -37,6 +49,11 @@ const PERSONAS: Record<string, Persona> = {
   B7: { titulo: 'ningún horario sirve, tiene a la tarde', semilla: 'hola soy docente jubilada de ANSES y me descuentan ganancias quiero la consulta', nombre: 'Silvia Torres', perfil: 'Sos docente jubilada por ANSES y te descuentan ganancias.', guia: 'Elegí consulta virtual. Cuando te ofrezcan dos horarios decí exactamente: ninguno de esos me sirve, tiene a la tarde? Después elegí uno de los dos horarios de tarde y seguí hasta agendar.' },
   B8: { titulo: 'administrativa, no docente', semilla: 'era administrativa en la escuela, no docente', nombre: 'Rita Luna', perfil: 'Fuiste administrativa en una escuela, te jubilaste por ANSES y te descuentan ganancias.', guia: 'Después de que te expliquen, preguntá si hay otra forma de reclamar, y despedite cuando te respondan.' },
   B9: { titulo: 'quiere jubilarse (video)', semilla: 'quiero jubilarme, tengo 58 y sigo dando clases', nombre: 'Rosa Díaz', perfil: 'Sos docente en actividad, tenés 58 años y sigo trabajando como docente.', guia: 'Contestá lo que te pregunten. Cuando te manden el video, decí que lo viste y despedite.' },
+  // Segunda campaña: jubilación y compra de aportes (Ley 27.705), con el Dr. Fabricio Reyes; se abona en el estudio.
+  J1: { titulo: 'jubilación · mujer de 54 a la que le faltan aportes', semilla: 'hola vi lo de la compra de aportes, me van a faltar años para jubilarme', nombre: 'Graciela Pérez', perfil: 'Sos mujer, tenés 54 años, trabajaste en comercio y te faltan unos 8 años de aportes. No sos docente.', guia: 'Contestá lo que te pregunten. Preguntá cuánto sale la consulta. Aceptá la consulta, elegí el primer horario y dá tu nombre.' },
+  J2: { titulo: 'jubilación · mensaje cambiado, no dice el tema', semilla: 'hola quiero info', nombre: 'Jorge Ruiz', perfil: 'Sos varón, tenés 60 años, te faltan aportes para jubilarte y viste un anuncio sobre jubilación.', guia: 'Si te preguntan por qué tema consultás, decí que es por la jubilación porque te faltan aportes. Contestá lo que te pregunten, aceptá la consulta y elegí el segundo horario.' },
+  J3: { titulo: 'jubilación · ya jubilada, quiere mejorar el haber (fuera del plan)', semilla: 'ya estoy jubilada y quiero saber si puedo mejorar mi jubilacion', nombre: 'Elena Ruiz', perfil: 'Sos mujer, tenés 66 años, ya estás jubilada y cobrás poco. No te descuentan ganancias.', guia: 'Contestá lo que te pregunten. Preguntá si se paga algo. Aceptá la consulta y elegí uno de los horarios.' },
+  J4: { titulo: 'jubilación · duda por el precio', semilla: 'me faltan aportes, cuanto cuesta la consulta?', nombre: 'Marta Sosa', perfil: 'Sos mujer, tenés 57 años y te faltan aportes. Te parece caro pagar una consulta.', guia: 'Cuando te digan el precio, decí que lo tenés que pensar porque es mucha plata. Si te responden bien, aceptá la consulta y elegí el primer horario.' },
   B10: { titulo: 'no me interesa', semilla: 'no me interesa', nombre: 'Ana Gómez', perfil: 'No querés que te escriban.', guia: 'Si te contestan con respeto, agradecé y despedite.' },
 };
 
@@ -62,6 +79,7 @@ async function personaSiguiente(p: Persona, historial: { de: 'persona' | 'agente
   if (!r.ok) throw new Error(`persona ${r.status}`);
   const j: any = await r.json();
   usdPersonas += costoUsd('gpt-4o-mini', j?.usage?.prompt_tokens ?? 0, j?.usage?.completion_tokens ?? 0);
+  await registrarUso('gpt-4o-mini', j?.usage, `${process.env.V2_ETIQUETA ?? 'verificacion_v2'}_persona`); // la persona simulada también gasta: queda anotada en el ERP
   return String(j?.choices?.[0]?.message?.content ?? '[FIN]').trim().replace(/^"|"$/g, '');
 }
 
@@ -86,7 +104,7 @@ async function main() {
     const maxTurnos = fija ? fija.mensajes.length : 16;
     let extra = 0;
     for (let i = 0; i < maxTurnos; i++) {
-      if (usoOpenAI.usd + usdPersonas >= tope) { log('CORTADO por tope de gasto'); return; }
+      if (usoOpenAI.usd >= tope) { log('CORTADO por tope de gasto'); return; }
       let persona: string;
       if (fija) persona = fija.mensajes[i];
       else if (i === 0) persona = pers.semilla;
@@ -121,6 +139,28 @@ async function main() {
     const agendas = (estado?.tablas?.consultas_agendadas ?? []).filter((x: any) => x.origen === 'agente');
     log(`${id} FIN · turnos en la base simulada: ${JSON.stringify(agendas.map((x: any) => ({ fecha: x.fecha_consulta, hora: x.hora_consulta, abogado: x.abogado_asignado, nombre: x.cliente_nombre, obs: String(x.observaciones ?? '').slice(0, 200) })))}`);
   }
+  // Conciliación: lo que el ERP tiene anotado en uso_openai con esta etiqueta (la del agente y la de las personas) contra lo medido en esta corrida.
+  const etiqueta = process.env.V2_ETIQUETA ?? 'verificacion_v2';
+  // Gasto de corridas anteriores que no quedó anotado (V2_AJUSTES = JSON [{origen, entrada, salida, usd}]). Solo inserta filas nuevas.
+  if (process.env.V2_AJUSTES && real) {
+    try {
+      const filas = (JSON.parse(process.env.V2_AJUSTES) as any[]).map(f => ({ origen: String(f.origen), modelo: 'gpt-4o-mini', entrada: Number(f.entrada) || 0, salida: Number(f.salida) || 0, usd: Number(f.usd) })).filter(f => f.origen && Number.isFinite(f.usd) && f.usd > 0 && f.usd < 1);
+      const { error } = await real.from('uso_openai').insert(filas);
+      log(`AJUSTE anotado en uso_openai: ${JSON.stringify(filas)} ${error ? 'ERROR: ' + error.message : 'ok'}`);
+    } catch (e) { log(`AJUSTE inválido: ${e instanceof Error ? e.message : e}`); }
+  }
+  if (real) {
+    const { data, error } = await real.from('uso_openai').select('origen, usd').in('origen', [etiqueta, `${etiqueta}_persona`]);
+    if (error) log(`CONCILIACIÓN: no se pudo leer uso_openai: ${error.message}`);
+    else { const por: Record<string, { filas: number; usd: number }> = {}; for (const f of data ?? []) { const o = por[(f as any).origen] ??= { filas: 0, usd: 0 }; o.filas++; o.usd += Number((f as any).usd); } log(`CONCILIACIÓN uso_openai (todo lo anotado con la etiqueta ${etiqueta}): ${JSON.stringify(Object.fromEntries(Object.entries(por).map(([k, v]) => [k, { filas: v.filas, usd: Number(v.usd.toFixed(4)) }])))}`); }
+  } else log('CONCILIACIÓN: sin acceso a la base en esta corrida');
+  if (real) {
+    const desde = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
+    const { data, error } = await real.from('uso_openai').select('origen, entrada, salida, usd, at').gte('at', desde).order('at', { ascending: true }).limit(5000);
+    if (error) log(`ÚLTIMAS 24 H: no se pudo leer uso_openai: ${error.message}`);
+    else { const por: Record<string, { filas: number; entrada: number; salida: number; usd: number; desde: string; hasta: string }> = {}; for (const f of (data ?? []) as any[]) { const o = por[f.origen] ??= { filas: 0, entrada: 0, salida: 0, usd: 0, desde: f.at, hasta: f.at }; o.filas++; o.entrada += f.entrada; o.salida += f.salida; o.usd += Number(f.usd); o.hasta = f.at; } log(`ÚLTIMAS 24 H por origen en uso_openai: ${JSON.stringify(Object.fromEntries(Object.entries(por).map(([k, v]) => [k, { ...v, usd: Number(v.usd.toFixed(4)) }])))}`); }
+  }
+  log(`FALLOS al anotar en uso_openai en esta corrida: ${usoOpenAI.fallos_de_registro}`);
   log(`GASTO medido: agente ${usoOpenAI.llamadas} llamadas, ${usoOpenAI.entrada} tokens de entrada, ${usoOpenAI.salida} de salida = ${usoOpenAI.usd.toFixed(4)} USD · personas simuladas ${usdPersonas.toFixed(4)} USD · TOTAL ${(usoOpenAI.usd + usdPersonas).toFixed(4)} USD`);
 }
 main().catch(e => { console.log('[V2] error general', e instanceof Error ? e.message : e); }).finally(() => { console.error = silencio; });

@@ -758,7 +758,11 @@ export const TIPOS_CONSULTA = {
   otras_situaciones_anses: { valor: 150000, reserva: 75000, abogado: 'Alejandro', nombre: 'otras situaciones previsionales (ANSES)' },
   jubilacion_docente: { valor: 80000, reserva: 40000, abogado: 'Fabricio', nombre: 'jubilación docente' },
   articulo9_ganancias: { valor: 0, reserva: 0, abogado: 'Alejandro', nombre: 'Artículo 9 e Impuesto a las Ganancias (sin cargo)' },
+  // Campaña de jubilación (compra de aportes, Ley 27.705, y cualquier consulta de jubilación): el turno se reserva sin costo por chat y se abona en el estudio el día de la consulta.
+  jubilacion_aportes: { valor: 50000, reserva: 0, abogado: 'Fabricio', nombre: 'jubilación (Dr. Fabricio Reyes)', pago_en_estudio: true },
 } as const;
+/** La consulta se abona en el estudio el día de la consulta: no hay reserva ni pago por chat. */
+export const pagaEnEstudio = (t: unknown): boolean => { const c = (TIPOS_CONSULTA as Record<string, any>)[String(t ?? '')]; return !!c?.pago_en_estudio; };
 /** Jubilación: quien agenda el mismo día que ve el video paga esto (50% de reserva). Al día siguiente vale el valor normal. */
 export const PROMO_JUBILACION_HOY = { valor: 50000, reserva: 25000 } as const;
 export const URL_VIDEO_JUBILACION = 'video-jubilacion-docente.mp4';
@@ -1139,6 +1143,25 @@ const CAMPOS_ART9 = ['es_docente', 'jubilado_anses', 'descuento_art9_ganancias']
 
 const limpiarParaComparar = (t: unknown) => String(t ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9ñ]+/g, ' ').trim();
 
+function distanciaEdicion(a: string, b: string): number {
+  let prev = Array.from({ length: b.length + 1 }, (_, j) => j);
+  for (let i = 1; i <= a.length; i++) {
+    const cur = [i];
+    for (let j = 1; j <= b.length; j++) cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    prev = cur;
+  }
+  return prev[b.length];
+}
+
+/** El texto (ya limpio) dice el término: igual, o —en una palabra suelta de 6 letras o más— con un error de tipeo ("precencial" por "presencial"). */
+export function contieneTermino(textoLimpio: string, termino: string): boolean {
+  if (!termino) return false;
+  if (` ${textoLimpio} `.includes(` ${termino} `)) return true;
+  if (termino.includes(' ') || termino.length < 6) return false;
+  const tol = termino.length >= 9 ? 2 : 1;
+  return textoLimpio.split(' ').some(p => Math.abs(p.length - termino.length) <= tol && distanciaEdicion(p, termino) <= tol);
+}
+
 const trozosDe = (t: unknown) => (String(t ?? '').match(/[^.?!\n]+[.?!]*/g) ?? []).map(x => x.trim()).filter(Boolean);
 
 /**
@@ -1211,6 +1234,8 @@ export async function condicionDeAgenda(db: Db, ctx: CtxHerramienta): Promise<{ 
     if (await contarBloqueoPorRegistro(db, ctx, datos, c.falta)) return { ok: false, mensaje: AVISO_DERIVACION };
     return { ok: false, mensaje: `TODAVÍA NO se puede agendar. ${textoFaltaRegistrar(c.falta)} No ofrezcas horarios hasta entonces.` };
   }
+  // Se abona en el estudio el día de la consulta: el turno se agenda sin reserva.
+  if (pagaEnEstudio(datos.tipo_consulta)) return { ok: true };
   const reserva = Number(datos.reserva_esperada);
   if (Number.isFinite(reserva) && reserva > 0) {
     if (datos.forma_reserva === 'efectivo') return { ok: true };
@@ -1511,7 +1536,7 @@ export async function ejecutarHerramienta(db: Db, nombre: string, input: any, ct
   if (nombre === 'definir_tipo_consulta') {
     const t = String(input?.tipo ?? '') as TipoConsulta;
     const c = TIPOS_CONSULTA[t];
-    if (!c) return { error: 'tipo debe ser articulo9_ganancias, otras_situaciones_anses o jubilacion_docente' };
+    if (!c) return { error: `tipo debe ser ${Object.keys(TIPOS_CONSULTA).join(', ')}` };
     if (t === 'articulo9_ganancias') {
       // Sin cargo solo para la campaña de Artículo 9 / Ganancias: el modelo no puede usarlo para saltear el pago de otra consulta.
       let campana = '';
@@ -1526,6 +1551,10 @@ export async function ejecutarHerramienta(db: Db, nombre: string, input: any, ct
       }
       await upsertLeadSeguro(db, ctx.telefono, camposDeLead({ datos: { tipo_consulta: t, valor_consulta: 0, reserva_esperada: 0 } }));
       return { sin_cargo: true, valor_consulta: 0, abogado: c.abogado, nota: 'Consulta SIN CARGO con el Dr. Alejandro Reyes, presencial en San Salvador de Jujuy o virtual. No hables de pagos ni de reserva. Ahora preguntá cuándo le queda cómodo.' };
+    }
+    if (pagaEnEstudio(t)) {
+      await upsertLeadSeguro(db, ctx.telefono, camposDeLead({ datos: { tipo_consulta: t, valor_consulta: c.valor, reserva_esperada: 0 } }));
+      return { valor_consulta: c.valor, reserva: 0, se_abona_en_el_estudio: true, abogado: c.abogado, nota: `El turno se reserva sin costo por este chat; la consulta se abona en el estudio el día de la consulta (${pesosV2(c.valor)}). No hay reserva, ni datos bancarios, ni comprobante.` };
     }
     let valor: number = c.valor, reserva: number = c.reserva, hoy = false;
     if (t === 'jubilacion_docente') {
@@ -1848,6 +1877,11 @@ export function textoOfrecidos(lista: (SlotOfrecido & { at?: string })[]): strin
   return `Horarios que ya le ofreciste: ${items}${cuando}. Si la persona responde sin identificar uno ("sí", "dale", "cualquiera", "el que sea"), preguntale cuál de ESOS MISMOS horarios prefiere: no consultes de nuevo ni ofrezcas otros. Si elige uno ("el primero", "el martes"), agendá exactamente ese. Solo si rechaza esos horarios o pide otro día o franja, consultá de nuevo; lo ofrecido se reemplaza.`;
 }
 
+/** Importes en pesos de un texto, solo los dígitos ("$50.000" y "$ 50000" → "50000"). */
+export function importesEnTexto(txt: string): string[] {
+  return [...new Set([...String(txt ?? '').matchAll(/\$\s?(\d{1,3}(?:[.,]\d{3})+|\d+)/g)].map(m => m[1].replace(/[.,]/g, '')))];
+}
+
 export function horasEnTexto(txt: string): string[] {
   const out = new Set<string>();
   for (const m of txt.matchAll(/\b(\d{1,2})[:.](\d{2})\b/g)) out.add(`${m[1].padStart(2, '0')}:${m[2]}`);
@@ -1885,7 +1919,7 @@ export function promesaSinCumplir(txt: string): boolean {
 // Las ofertas (filtros, casilleros mínimos, condición, activo de valor, cierre) salen de _config-cjnoa.ts (un archivo de datos aparte), no del código.
 // =====================================================================================
 
-export type ConfigFiltro = { campo: string; tipo: 'si_no' | 'texto' | 'numero' | 'opcion'; descripcion: string; valores?: string[]; ayuda?: string; /** Para las opciones: palabras que valen como cada valor (la evidencia tiene que mencionar el valor o uno de estos). */ sinonimos?: Record<string, string[]>; /** Cómo ayudar a aclarar este dato cuando la persona dice que no sabe o no está segura. */ ayuda_al_dudar?: string; /** Cómo se lo preguntaría una persona (lo usa el mensaje seguro). */ pregunta?: string };
+export type ConfigFiltro = { campo: string; tipo: 'si_no' | 'texto' | 'numero' | 'opcion'; descripcion: string; valores?: string[]; ayuda?: string; /** Para las opciones: palabras que valen como cada valor (la evidencia tiene que mencionar el valor o uno de estos). */ sinonimos?: Record<string, string[]>; /** Cómo ayudar a aclarar este dato cuando la persona dice que no sabe o no está segura. */ ayuda_al_dudar?: string; /** Cómo se lo preguntaría una persona (lo usa el mensaje seguro). */ pregunta?: string; /** Se pregunta UNA sola vez y no frena la conversación si la persona no lo da (por ejemplo, el monto aproximado). */ opcional?: boolean };
 export type ConfigOferta = {
   etiqueta: string; descripcion: string; campana: string; profesional: 'alejandro' | 'fabricio'; tipo_consulta: string;
   filtros: ConfigFiltro[]; filtros_de_cierre: ConfigFiltro[];
@@ -1897,6 +1931,14 @@ export type ConfigOferta = {
   /** Cómo se conecta la persona a la consulta virtual. Si empieza con [PENDIENTE, el agente no inventa nada: dice que el estudio se lo confirma por el mismo chat. */
   como_se_conecta_virtual?: string;
   condicion: string; urgencia: string | null;
+  /** Idea para tranquilizar a la persona antes de ofrecer la consulta (sin prometer ningún resultado). */
+  encuadre_del_caso?: { texto: string; estado: string };
+  /** Hasta cuándo rige la condición sin cargo. Si empieza con [PENDIENTE no se menciona ningún plazo. */
+  vigencia_sin_cargo?: string;
+  /** Si en la agenda real quedan este número de horarios libres o menos, el redactor puede decir que quedan pocos lugares. */
+  escasez_umbral?: number;
+  /** Qué ofrece el estudio cuando la persona quiere saber el costo del trámite completo (por ejemplo, una llamada con el abogado). Solo se usa si el estudio lo aprobó (estado sin "pendiente"). */
+  llamada_con_el_dr?: { texto: string; estado: string };
   activo_de_valor: { tipo: string; herramienta: string; descripcion: string } | null;
   cierre: 'turno_directo' | 'reserva_y_turno';
 };
@@ -1918,7 +1960,12 @@ export type EstadoV2 = {
   turno?: { fecha: string; hora: string; profesional: string };
   /** Reserva abonada: el comprobante lo validó el sistema (aviso de la foto). */
   pago?: { monto: number; at: string };
-  bloqueo?: { clave: string; firma: string; turno: number; n: number };
+  /** n: respuestas seguidas sin el dato (una pregunta de la persona no suma). t: turnos seguidos pidiendo lo mismo, con o sin preguntas de por medio. */
+  bloqueo?: { clave: string; firma: string; turno: number; n: number; t?: number };
+  /** Turno en el que se profundizó una emoción (no se profundiza dos turnos seguidos). */
+  profundizo_en?: number;
+  /** El día o la franja que la persona pidió antes de que se pudieran ofrecer horarios: se usa al ofrecerlos. */
+  preferencia_pedida?: { dia: string | null; franja: string | null; fecha: string | null };
   /** El filtro que el agente preguntó en su último mensaje: un "sí" o un "no" corto de la persona responde a ESA pregunta. */
   pregunta_pendiente?: { campo: string };
   /** El casillero que el agente quiso descubrir en su último mensaje: una respuesta corta de la persona ("no hice nada") contesta ESA pregunta. */
@@ -1941,6 +1988,12 @@ export type EstadoV2 = {
   cancelacion_solicitada?: boolean;
   /** Los datos para transferir ya se le pasaron a la persona: no se repiten en cada mensaje. */
   datos_pago_enviados?: boolean;
+  /** Los datos opcionales que ya se le preguntaron una vez (no se repiten aunque no los haya dado). */
+  opcionales_preguntados?: string[];
+  /** Condiciones cuyo "no" ya se confirmó con la persona (un "no" deducido de una frase suelta se pregunta una vez antes de decirle que no le corresponde). */
+  nos_confirmados?: string[];
+  /** Turno en que se le ofreció la llamada con el abogado (un "sí" al turno siguiente la acepta). */
+  llamada_ofrecida?: number;
 };
 const CASILLEROS_V2 = ['situacion', 'objetivo', 'brecha', 'historial', 'compromiso'];
 export const estadoV2Vacio = (): EstadoV2 => ({ oferta: null, filtros: {}, casilleros: Object.fromEntries(CASILLEROS_V2.map(c => [c, null])), emociones_trabajadas: [], etapa: 'descubrir' });
@@ -1975,9 +2028,11 @@ export type Extraccion = {
   preferencia: { dia: string | null; franja: string | null; fecha: string | null } | null;
   /** Un dato por el que se le preguntó (o del que habló) y que dice no saber o no estar segura. */
   dato_en_duda: { campo: string } | null;
+  /** Pregunta cuánto cuesta el trámite o el juicio completo (no el precio de la consulta). */
+  costo_del_tramite: boolean;
   fallo?: boolean;
 };
-export const extraccionVacia = (fallo = false): Extraccion => ({ oferta_detectada: null, filtros: [], casilleros: [], emocion: null, intencion: 'otro', pregunta_de_la_persona: null, horario_elegido: null, preferencia: null, dato_en_duda: null, ...(fallo ? { fallo: true } : {}) });
+export const extraccionVacia = (fallo = false): Extraccion => ({ oferta_detectada: null, filtros: [], casilleros: [], emocion: null, intencion: 'otro', pregunta_de_la_persona: null, horario_elegido: null, preferencia: null, dato_en_duda: null, costo_del_tramite: false, ...(fallo ? { fallo: true } : {}) });
 
 const todosLosFiltros = (cfg: ConfigCliente): ConfigFiltro[] => [...Object.values(cfg.ofertas).flatMap(o => [...o.filtros, ...o.filtros_de_cierre, ...(o.datos_antes_de_horarios ?? [])]), ...(cfg.datos_agenda ?? [])];
 const camposDeFiltros = (cfg: ConfigCliente) => [...new Set(todosLosFiltros(cfg).map(f => f.campo))];
@@ -1985,11 +2040,13 @@ const definicionDeFiltro = (cfg: ConfigCliente, campo: string) => todosLosFiltro
 
 /** Esquema JSON estricto (OpenAI structured outputs) de lo que devuelve el extractor. */
 export const DIAS_PREFERENCIA = ['lunes', 'martes', 'miercoles', 'jueves', 'viernes', 'sabado', 'domingo'];
+/** Días dichos en relación con hoy: el modelo dice cuál es y la fecha la calcula el código. */
+export const DIAS_RELATIVOS = ['hoy', 'manana', 'pasado_manana'];
 export function esquemaExtractor(cfg: ConfigCliente) {
   const str = { type: 'string' };
   return {
     type: 'object', additionalProperties: false,
-    required: ['oferta_detectada', 'filtros', 'casilleros', 'emocion', 'intencion', 'pregunta_de_la_persona', 'horario_elegido', 'preferencia', 'dato_en_duda'],
+    required: ['oferta_detectada', 'filtros', 'casilleros', 'emocion', 'intencion', 'pregunta_de_la_persona', 'horario_elegido', 'preferencia', 'dato_en_duda', 'costo_del_tramite'],
     properties: {
       oferta_detectada: { type: ['string', 'null'], enum: [...Object.keys(cfg.ofertas), null] },
       filtros: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['campo', 'valor', 'evidencia'], properties: { campo: { type: 'string', enum: camposDeFiltros(cfg) }, valor: str, evidencia: str } } },
@@ -1998,8 +2055,9 @@ export function esquemaExtractor(cfg: ConfigCliente) {
       intencion: { type: 'string', enum: [...INTENCIONES] },
       pregunta_de_la_persona: { type: ['string', 'null'] },
       horario_elegido: { anyOf: [{ type: 'null' }, { type: 'object', additionalProperties: false, required: ['fecha', 'hora'], properties: { fecha: str, hora: str } }] },
-      preferencia: { anyOf: [{ type: 'null' }, { type: 'object', additionalProperties: false, required: ['dia', 'franja', 'fecha', 'evidencia'], properties: { dia: { type: ['string', 'null'], enum: [...DIAS_PREFERENCIA, null] }, franja: { type: ['string', 'null'], enum: ['manana', 'tarde', null] }, fecha: { type: ['string', 'null'] }, evidencia: str } }] },
+      preferencia: { anyOf: [{ type: 'null' }, { type: 'object', additionalProperties: false, required: ['dia_relativo', 'dia', 'franja', 'fecha', 'evidencia'], properties: { dia_relativo: { type: ['string', 'null'], enum: [...DIAS_RELATIVOS, null] }, dia: { type: ['string', 'null'], enum: [...DIAS_PREFERENCIA, null] }, franja: { type: ['string', 'null'], enum: ['manana', 'tarde', null] }, fecha: { type: ['string', 'null'] }, evidencia: str } }] },
       dato_en_duda: { anyOf: [{ type: 'null' }, { type: 'object', additionalProperties: false, required: ['campo', 'evidencia'], properties: { campo: { type: 'string', enum: camposDeFiltros(cfg) }, evidencia: str } }] },
+      costo_del_tramite: { type: 'boolean' },
     },
   };
 }
@@ -2008,7 +2066,7 @@ export const PROMPT_EXTRACTOR = `Sos un extractor de datos para el agente de Wha
 Los mensajes vienen marcados "persona" o "agente". Extraés SOLO lo que dijo la PERSONA; lo que dijo el agente es contexto, nunca un dato ni una pregunta de la persona.
 Informá lo que la persona dijo en su ÚLTIMO mensaje. Los datos de los filtros se extraen aunque todavía no esté clara la oferta (por ejemplo "era administrativa, no docente" ya es es_docente = no). Lo que ya figura en "estado" no lo repitas. No inferís ni adivinás: si no lo dijo, no lo incluyas.
 Reglas:
-- oferta_detectada: la oferta (de la lista "ofertas") por la que consulta, según de qué habla la PERSONA —nunca por lo que dijo el agente— (cada oferta trae su descripción), o null si todavía no está claro. Si "estado" ya tiene una oferta, no la cambies salvo que la persona cambie claramente de tema.
+- oferta_detectada: la oferta (de la lista "ofertas") por la que consulta, según de qué habla la PERSONA —nunca por lo que dijo el agente— (cada oferta trae su descripción), o null si todavía no está claro. Decir solo que está jubilada o con qué entidad cobra (ANSES, la provincia) no define ninguna oferta: null hasta que diga qué necesita. Si "estado" ya tiene una oferta, no la cambies salvo que la persona cambie claramente de tema.
 - filtros: datos de los campos (de la oferta, de datos_para_agendar y los que pide el estado). Cada campo trae una "ayuda": seguila. "si_no" => valor "si" o "no"; "no" SOLO si lo niega o dice algo incompatible, nunca por duda. "numero" => solo el número. "opcion" => uno de los valores permitidos.
 - RESPUESTAS CORTAS: "ultimo_mensaje_del_agente" es lo último que dijo el agente y "pregunta_pendiente" es el campo que esa pregunta quería saber (o null). Si el ÚLTIMO mensaje de la persona es una respuesta corta ("sí", "si", "no", "correcto", "sí soy", "no, por la caja"), responde a ESA pregunta del agente: registrá el filtro de "pregunta_pendiente" con el valor que la respuesta indica y, como evidencia, la respuesta de la persona copiada tal cual (por ejemplo "si"). Un sí o un no a una pregunta que no pide ninguno de los campos no es un dato: no incluyas nada. "No hice nada", "no sé" o "no entiendo" NO son un "no" al dato: no incluyas ese filtro.
 - DATO PENDIENTE: "dato_pendiente" es el dato que el agente pidió en su último mensaje (o null): su tipo (filtro, casillero, horario o nombre) y su campo. Una respuesta corta de la persona ("si", "no", "el primero", "Ana Gomez", "virtual") llena SOLO ese dato. Cualquier otro campo lo incluís únicamente si la persona lo dice de forma explícita en su último mensaje, con una evidencia que lo nombre. "horario_elegido" solo si dato_pendiente es horario y la persona señala uno de los dos horarios con un ordinal, un día, una hora o una fecha: un "si" nunca elige. "nombre" solo si dato_pendiente es nombre (o la persona dice "me llamo…"): una elección como "el primero" o "martes" no es un nombre.
@@ -2022,8 +2080,9 @@ Reglas:
 - intenciones nuevas: reprogramar (la persona YA tiene un turno agendado —mirá "etapa" y "turno_agendado"— y quiere cambiar su fecha u hora: "quiero cambiar la fecha", "no puedo ese día", "pasalo para otro día"), cancelar (quiere cancelar su turno: "quiero cancelar", "no voy a poder ir", "borrá el turno", "cancelalo igual"), fuera_de_alcance (consulta por un tema que NO está en "alcance_del_estudio", como un divorcio o un tema laboral; aunque lo escriba como pregunta —«¿me pueden ayudar con un divorcio?»— la intención es fuera_de_alcance, no pregunta). Si todavía se le estaban ofreciendo horarios y dice que no puede ninguno, es rechaza_horarios.
 - Si el mensaje de la persona ya trae el dato de un filtro (por ejemplo edad: «tengo 58», trabaja_docente: «sigo dando clases», es_docente: «soy maestra»), incluilo en "filtros" en ese mismo turno; no lo dejes solo como casillero.
 - despedida: el último mensaje es SOLO un agradecimiento o una despedida ("gracias", "saludos", "chau", "eso es todo"), sin ningún dato, pedido ni pregunta.
-- preferencia: SOLO si el último mensaje de la persona pide un día, una fecha o una franja ("el jueves", "a la tarde", "el 29", "a la mañana"): dia (sin acento: lunes…domingo), franja ("manana" o "tarde") o fecha (YYYY-MM-DD, usando "hoy"); "evidencia" = esa frase copiada tal cual. Si no pide nada de eso, null. Ejemplo: «ninguno de esos me sirve, tiene a la tarde?» => intencion rechaza_horarios y preferencia con franja "tarde" y evidencia "a la tarde".
-- dato_en_duda: SOLO si la persona dice que no sabe o no está segura de un dato de los campos ("no sé si me jubilé por ANSES o por la provincia"): "campo" y la frase copiada como evidencia. No lo incluyas también en filtros. Si no, null.
+- costo_del_tramite: true SOLO si la persona pregunta cuánto cuesta o cuánto cobran por el trámite o el juicio completo, o por los honorarios del abogado (no el precio de la consulta). En ese caso su pregunta también va en pregunta_de_la_persona. En cualquier otro caso, false.
+- preferencia: SOLO si el último mensaje de la persona pide un día, una fecha o una franja ("el jueves", "a la tarde", "el 29", "a la mañana"): dia_relativo ("hoy", "manana" o "pasado_manana" cuando nombra el día en relación con hoy), dia (sin acento: lunes…domingo, solo si nombra el día de la semana), franja ("manana" o "tarde") o fecha (YYYY-MM-DD, solo si dice el número del día, como "el 29"). Nunca calcules una fecha a partir de "mañana" o de un día de la semana: para eso están dia_relativo y dia. "mañana" a secas es el día siguiente (dia_relativo "manana", franja null); "a la mañana", "en la mañana" o "por la mañana" es la franja (franja "manana", dia_relativo null). Si hay horarios ofrecidos y la persona nombra un día ("mañana", "el miércoles"), es una preferencia; "evidencia" = esa frase copiada tal cual. Si no pide nada de eso, null. Ejemplo: «ninguno de esos me sirve, tiene a la tarde?» => intencion rechaza_horarios y preferencia con franja "tarde" y evidencia "a la tarde".
+- dato_en_duda: SOLO si la persona dice que no sabe o no está segura de un dato de los campos ("no sé si me jubilé por ANSES o por la provincia"): "campo" y la frase copiada como evidencia. No lo incluyas también en filtros. Dudar de si el descuento está bien, si es correcto o cómo se llama NO es dudar del dato: "me descuentan ganancias pero no sé si está bien" => el filtro vale "si" y dato_en_duda null. Si no, null.
 - horario_elegido: solo si eligió uno de "horarios_ofrecidos" ("el primero", "el segundo", "el martes", "a las 10"): copiá su fecha y hora exactas de esa lista; si no, null.
 Devolvé solo el JSON.`;
 
@@ -2083,9 +2142,9 @@ export function horarioSenialado(texto: string, slots: SlotOfrecido[]): SlotOfre
 }
 
 /** "no sé", "no entiendo", "no hice nada": empiezan con "no" pero no niegan el dato por el que se preguntó. */
-const REGEX_NO_NIEGA = /^no (?:se|entiendo|entendi|hice|hicimos|recuerdo|me acuerdo|tengo idea|comprendo|puedo|quiero)\b/;
+const REGEX_NO_NIEGA = /^no (?:se|entiendo|entendi|hice|hicimos|recuerdo|me acuerdo|tengo idea|comprendo|puedo|quiero|estoy segur[oa]|creo)\b/;
 
-export function validarExtraccion(raw: any, a: { cfg: ConfigCliente; personaTextos: string[]; ofrecidos: SlotOfrecido[]; /** Último mensaje del agente. */ ultimoAgente?: string; /** Campo que el agente preguntó en ese mensaje. */ preguntaPendiente?: string | null; /** El dato que el agente pidió en su último mensaje. Si no se pasa, no se aplica el principio del dato pendiente. */ datoPendiente?: DatoPendiente | null }): Extraccion {
+export function validarExtraccion(raw: any, a: { cfg: ConfigCliente; personaTextos: string[]; ofrecidos: SlotOfrecido[]; /** Último mensaje del agente. */ ultimoAgente?: string; /** Campo que el agente preguntó en ese mensaje. */ preguntaPendiente?: string | null; /** El dato que el agente pidió en su último mensaje. Si no se pasa, no se aplica el principio del dato pendiente. */ datoPendiente?: DatoPendiente | null; /** Fecha de hoy (YYYY-MM-DD), para pasar "mañana" a una fecha. */ hoy?: string }): Extraccion {
   if (!raw || typeof raw !== 'object' || !Array.isArray(raw.filtros) || !Array.isArray(raw.casilleros)) return extraccionVacia(true);
   const out = extraccionVacia();
   const aplicaPendiente = a.datoPendiente !== undefined;
@@ -2118,8 +2177,10 @@ export function validarExtraccion(raw: any, a: { cfg: ConfigCliente; personaText
     // Opciones (modalidad, forma de reserva): la evidencia tiene que mencionar el valor o un sinónimo de la config.
     if (valor && def.tipo === 'opcion') {
       const buscadas = [valor, ...(def.sinonimos?.[valor] ?? [])].map(limpiarParaComparar).filter(Boolean);
-      const dicho = ` ${limpiarParaComparar(f?.evidencia ?? '')} `;
-      if (!buscadas.some(b => dicho.includes(` ${b} `) || dicho.includes(` ${b}`))) continue;
+      const dichoL = limpiarParaComparar(f?.evidencia ?? '');
+      if (!buscadas.some(b => contieneTermino(dichoL, b) || ` ${dichoL}`.includes(` ${b}`))) continue;
+      // Una opción nombrada dentro de una pregunta ("¿dónde sería si fuera presencial?") es una duda, no una elección.
+      if (evidencia && evidencia.includes('?') && dichoL.split(' ').length > 2) continue;
     }
     if (valor && aplicaPendiente) {
       const esElPendiente = (pend?.tipo === 'filtro' && pend.campo === def.campo) || (def.campo === 'nombre' && pend?.tipo === 'nombre');
@@ -2151,7 +2212,7 @@ export function validarExtraccion(raw: any, a: { cfg: ConfigCliente; personaText
         const pregunta = preguntaDelAgente(a.ultimoAgente ?? '');
         if (pregunta && esRespuestaCortaSiNo(ultimoMsg)) { valor = /^no\b/.test(n) ? 'no' : 'si'; evidencia = pregunta; }
       } else if (def.tipo === 'opcion') {
-        const aciertos = (def.valores ?? []).filter(v => [v, ...(def.sinonimos?.[v] ?? [])].map(limpiarParaComparar).some(sn => sn && ` ${n} `.includes(` ${sn} `)));
+        const aciertos = (def.valores ?? []).filter(v => [v, ...(def.sinonimos?.[v] ?? [])].map(limpiarParaComparar).some(sn => sn && contieneTermino(n, sn)));
         if (aciertos.length === 1 && n.split(' ').filter(Boolean).length <= 12) valor = aciertos[0];
       } else if (def.tipo === 'numero') {
         const m = /\b(\d{1,3})\b/.exec(ultimoMsg);
@@ -2202,30 +2263,75 @@ export function validarExtraccion(raw: any, a: { cfg: ConfigCliente; personaText
   }
   if (aplicaPendiente) {
     // El horario elegido vale solo si se había pedido un horario y la persona señala uno de los DOS ofrecidos (ordinal, día, hora o fecha). Un "si" nunca elige.
-    const senialado = pend?.tipo === 'horario' ? horarioSenialado(ultimoMsg, a.ofrecidos) : null;
+    // También mientras se pide el nombre: con los dos horarios a la vista, puede cambiar de idea ("el primero").
+    const senialado = pend?.tipo === 'horario' || (pend?.tipo === 'nombre' && a.ofrecidos.length) ? horarioSenialado(ultimoMsg, a.ofrecidos) : null;
     out.horario_elegido = senialado ? { fecha: senialado.fecha, hora: senialado.hora } : null;
     if (!senialado && out.intencion === 'elige_horario') out.intencion = 'ambiguo';
   }
   // Preferencia de día o franja: tiene que estar respaldada por una frase del último mensaje.
   const pf = raw.preferencia;
   if (pf && typeof pf === 'object') {
-    const dia = DIAS_PREFERENCIA.includes(String(pf.dia ?? '')) ? String(pf.dia) : null;
-    const franja = ['manana', 'tarde'].includes(String(pf.franja ?? '')) ? String(pf.franja) : null;
-    const fecha = /^\d{4}-\d{2}-\d{2}$/.test(String(pf.fecha ?? '')) ? String(pf.fecha) : null;
+    const msg =` ${limpiarParaComparar(ultimo)} `;
+    // "mañana" solo es la franja si dice "la mañana"; "mañana" a secas es el día de mañana. Se mira el mensaje entero: la evidencia suele venir recortada.
+    let franja = ['manana', 'tarde'].includes(String(pf.franja ?? '')) ? String(pf.franja) : null;
+    if (franja === 'manana' && !/\bla manana\b|\btemprano\b/.test(msg)) franja = null;
+    // La fecha la calcula el código: de un día relativo ("mañana"), o la del modelo solo si el número del día está en el mensaje ("el 29").
+    let relativo = DIAS_RELATIVOS.includes(String(pf.dia_relativo ?? '')) ? String(pf.dia_relativo) : null;
+    if (relativo === 'manana' && franja === 'manana' && (msg.match(/ manana /g) ?? []).length < 2) relativo = null; // "en la mañana": una sola palabra, es la franja
+    let fecha: string | null = null;
+    if (relativo && a.hoy) fecha = sumarDias(a.hoy, DIAS_RELATIVOS.indexOf(relativo));
+    else if (/^\d{4}-\d{2}-\d{2}$/.test(String(pf.fecha ?? '')) && fechaValida(String(pf.fecha)) && new RegExp(` 0?${Number(String(pf.fecha).slice(8))} `).test(msg)) fecha = String(pf.fecha);
+    let dia = DIAS_PREFERENCIA.includes(String(pf.dia ?? '')) ? String(pf.dia) : null;
+    // El nombre del día sale de la fecha (el modelo se equivoca con él); sin fecha, el día tiene que estar dicho en el mensaje.
+    if (fecha) { const [y, m, d] = fecha.split('-').map(Number); dia = limpiarParaComparar(DIAS_NOMBRE[new Date(Date.UTC(y, m - 1, d)).getUTCDay()]); }
+    else if (dia && !msg.includes(` ${dia} `)) dia = null;
     if ((dia || franja || fecha) && evidenciaCompleta(String(pf.evidencia ?? '').trim(), [ultimo], [])) out.preferencia = { dia, franja, fecha };
+    // Si lo único que dijo es la preferencia ("por la mañana"), no rechazó nada: se mira si uno de los ofrecidos ya la cumple.
+    if (out.preferencia && out.intencion === 'rechaza_horarios' && limpiarParaComparar(String(pf.evidencia ?? '')) === limpiarParaComparar(ultimo)) out.intencion = 'otro';
   }
   // Un dato en duda: el campo tiene que existir y la frase estar en el último mensaje.
   const dd = raw.dato_en_duda;
-  if (dd && typeof dd === 'object' && definicionDeFiltro(a.cfg, String(dd.campo ?? '')) && evidenciaCompleta(String(dd.evidencia ?? '').trim(), [ultimo], [])) out.dato_en_duda = { campo: String(dd.campo) };
+  // Si el mismo mensaje ya da el valor del campo ("solo veo que me descuentan ganancias"), la duda es sobre otra cosa (si está bien): vale el dato.
+  if (dd && typeof dd === 'object' && !out.filtros.some(f => f.campo === String(dd.campo ?? '')) && definicionDeFiltro(a.cfg, String(dd.campo ?? '')) && evidenciaCompleta(String(dd.evidencia ?? '').trim(), [ultimo], [])) out.dato_en_duda = { campo: String(dd.campo) };
+  // El costo del trámite completo solo vale si además hay una pregunta real de la persona.
+  out.costo_del_tramite = raw.costo_del_tramite === true && !!out.pregunta_de_la_persona;
   // Un horario que existe entre los ofrecidos y que la persona eligió vale como elección aunque el extractor la haya rotulado "acepta" (un "el primero" es aceptar Y elegir).
   if (out.horario_elegido && ['acepta', 'otro', 'ambiguo'].includes(out.intencion)) out.intencion = 'elige_horario';
   return out;
 }
 
+/**
+ * Si la persona NOMBRA una opción de un dato que falta ("quiero una llamada virtual", "mejor presencial"), se registra por código,
+ * lo haya devuelto el extractor o no y sin importar si ese dato era el que se estaba preguntando: "virtual" o "presencial" no son ambiguos como un "sí".
+ * Solo si dice una única opción y no hay una negación en el mensaje (si duda, se vuelve a preguntar).
+ */
+export function completarOpcionesDichas(ext: Extraccion, cfg: ConfigCliente, ofertaId: string | null, filtrosSabidos: EstadoV2['filtros'], texto: string): Extraccion {
+  if (ext.fallo) return ext;
+  const n = limpiarParaComparar(texto);
+  // Una pregunta sobre una opción ("¿dónde sería si fuera presencial?") o una negación no es elegirla.
+  if (!n || /\bno\b/.test(n) || /[?¿]/.test(texto)) return ext;
+  const ofertas = ofertaId && cfg.ofertas[ofertaId] ? [cfg.ofertas[ofertaId]] : Object.values(cfg.ofertas);
+  const nuevos: Extraccion['filtros'] = [];
+  for (const def of ofertas.flatMap(o => o.datos_antes_de_horarios ?? [])) {
+    if (def.tipo !== 'opcion' || filtrosSabidos[def.campo] || ext.filtros.some(x => x.campo === def.campo) || nuevos.some(x => x.campo === def.campo)) continue;
+    const aciertos = (def.valores ?? []).filter(v => [v, ...(def.sinonimos?.[v] ?? [])].map(limpiarParaComparar).some(sn => sn && contieneTermino(n, sn)));
+    if (aciertos.length !== 1) continue;
+    const oracion = trozosDe(texto).find(t => (def.valores ?? []).concat(Object.values(def.sinonimos ?? {}).flat()).some(sn => contieneTermino(limpiarParaComparar(t), limpiarParaComparar(sn)))) ?? texto.trim();
+    nuevos.push({ campo: def.campo, valor: aciertos[0], evidencia: oracion.slice(0, 300) });
+  }
+  return nuevos.length ? { ...ext, filtros: [...ext.filtros, ...nuevos] } : ext;
+}
+
 /** Aplica lo extraído al estado (devuelve una copia). Si cambia la oferta, vuelve a descubrir. */
 export function aplicarExtraccion(estado: EstadoV2, ext: Extraccion, cfg: ConfigCliente, ofertaDeCampana: string | null, ultimoMensaje = ''): EstadoV2 {
   const e = copiarEstado(estado);
-  const nueva = ext.oferta_detectada ?? (e.oferta ? null : ofertaDeCampana);
+  // Con una oferta ya en marcha, una respuesta corta ("el primero", "mañana", "si") no cambia de tema: el modelo a veces detecta otra oferta en una frase sin contenido.
+  const respuestaCorta = limpiarParaComparar(ultimoMensaje).split(' ').filter(Boolean).length <= 4;
+  // Sin oferta todavía: si la persona dio un dato que solo pide UNA de las ofertas de la config ("me faltan aportes"), es esa.
+  // Un sí/no (por ejemplo "cobro de ANSES") es una condición, no el tema: no define la oferta.
+  const camposDe = (o: ConfigOferta) => [...o.filtros, ...o.filtros_de_cierre, ...(o.datos_antes_de_horarios ?? [])].filter(f => f.tipo !== 'si_no').map(f => f.campo);
+  const porDato = e.oferta || ext.oferta_detectada ? [] : Object.entries(cfg.ofertas).filter(([id, o]) => ext.filtros.some(f => camposDe(o).includes(f.campo) && !Object.entries(cfg.ofertas).some(([id2, o2]) => id2 !== id && camposDe(o2).includes(f.campo)))).map(([id]) => id);
+  const nueva = (e.oferta && respuestaCorta ? null : ext.oferta_detectada) ?? (porDato.length === 1 ? porDato[0] : null) ?? (e.oferta ? null : ofertaDeCampana);
   if (nueva && nueva !== e.oferta) {
     e.oferta = nueva;
     if (['ofrecer', 'activo_valor', 'reserva', 'horarios', 'agendado', 'no_califica'].includes(e.etapa)) e.etapa = 'descubrir';
@@ -2234,6 +2340,8 @@ export function aplicarExtraccion(estado: EstadoV2, ext: Extraccion, cfg: Config
   const delUltimo = (evidencia: string) => !!ultimoMensaje && limpiarParaComparar(ultimoMensaje).includes(limpiarParaComparar(evidencia));
   for (const f of ext.filtros) if (!e.filtros[f.campo] || delUltimo(f.evidencia)) e.filtros[f.campo] = { valor: f.valor, evidencia: f.evidencia };
   for (const c of ext.casilleros) if (!e.casilleros[c.casillero] || delUltimo(c.evidencia)) e.casilleros[c.casillero] = { texto: c.texto, evidencia: c.evidencia };
+  // Pidió un día o una franja y todavía no hay horarios para ofrecer: se recuerda (lo de mensajes seguidos se completa: "mañana" y después "a la mañana").
+  if (ext.preferencia && !e.turno && e.etapa !== 'horarios') { const p = e.preferencia_pedida; e.preferencia_pedida = { dia: ext.preferencia.dia ?? p?.dia ?? null, franja: ext.preferencia.franja ?? p?.franja ?? null, fecha: ext.preferencia.fecha ?? p?.fecha ?? null }; }
   return e;
 }
 
@@ -2351,7 +2459,7 @@ async function dirigirTurnoBase(a: EntradaDirector): Promise<SalidaDirector> {
   const conexionDato = datoDeConexion(oferta, estado);
   if (conexionDato) out.datos.push(conexionDato);
   const noCorresponde = !!oferta && oferta.filtros.some(f => f.tipo === 'si_no' && estado.filtros[f.campo]?.valor === 'no');
-  if (oferta && !noCorresponde) { out.datos.push(`Condición de la consulta: ${oferta.condicion}`); if (oferta.urgencia) out.datos.push(`Urgencia real (solo si viene al caso): ${oferta.urgencia}`); }
+  if (oferta && !noCorresponde) { out.datos.push(`Condición de la consulta: ${oferta.condicion}`); if (oferta.urgencia) out.datos.push(`Urgencia real (solo si viene al caso): ${oferta.urgencia}`); if (oferta.vigencia_sin_cargo && !/^\s*\[PENDIENTE/i.test(oferta.vigencia_sin_cargo)) out.datos.push(`Vigencia de la consulta sin cargo: ${oferta.vigencia_sin_cargo}. Es un dato real: podés mencionarlo si viene al caso, sin apurar.`); }
 
   if (a.comprobante?.estado === 'validado') estado.pago = { monto: a.comprobante.monto, at: new Date().toISOString() };
   if (estado.etapa === 'cerrado' && ext.intencion !== 'rechazo_firme' && ext.intencion !== 'despedida') estado.etapa = 'descubrir'; // volvió a escribir: se retoma normal
@@ -2458,7 +2566,7 @@ async function dirigirTurnoBase(a: EntradaDirector): Promise<SalidaDirector> {
       }
       if (ext.preferencia || estado.reprogramar_pregunto) return fin(await ofrecerParaCambiar(ext.preferencia, []));
       estado.reprogramar_pregunto = true;
-      return fin({ tipo: 'preguntar_dia_reprogramar', texto: 'La persona quiere cambiar la fecha de su turno (mirá DATOS QUE PODÉS USAR). Preguntale, con UNA sola pregunta, qué día o qué franja del día le queda mejor. No ofrezcas horarios todavía y no digas que ya se cambió.' });
+      return fin({ tipo: 'preguntar_dia_reprogramar', texto: 'La persona quiere cambiar la fecha de su turno (mirá DATOS QUE PODÉS USAR). Preguntale, con UNA sola pregunta, qué día o qué franja del día le queda mejor. No ofrezcas horarios todavía y no digas que ya se cambió. Si la persona faltó o el turno ya pasó, no se lo reproches: agradecele que avise y decile que lo cambian sin problema.' });
     }
 
     // Seguimiento: el turno ya está agendado.
@@ -2476,17 +2584,30 @@ async function dirigirTurnoBase(a: EntradaDirector): Promise<SalidaDirector> {
     if (a.sinBloqueo) return obj;
     // Un "qué?" o un "cómo?" suelto es no haber entendido, no participar: no frena el conteo.
     const hizoPregunta = !!ext.pregunta_de_la_persona && limpiarParaComparar(ext.pregunta_de_la_persona).split(' ').filter(Boolean).length > 2;
-    if (hizoPregunta) { delete estado.bloqueo; return obj; }
-    const firma = JSON.stringify([Object.entries(estado.filtros).map(([k, v]) => [k, v.valor]), Object.entries(estado.casilleros).map(([k, v]) => [k, !!v])]);
+    const firma = JSON.stringify([Object.entries(estado.filtros).map(([k, v]) => [k, v.valor]), Object.entries(estado.casilleros).map(([k, v]) => [k, !!v]), estado.horario_pendiente ?? null]);
     const prev = estado.bloqueo;
     const mismo = !!prev && prev.clave === clave && prev.firma === firma;
+    const seguido = mismo && (prev!.turno === a.turno || prev!.turno === a.turno - 1);
+    // Cuántos turnos seguidos se pide lo mismo: una pregunta de la persona no suma al contador n, pero sí a este (si no, "¿qué horarios tenés?" lo reinicia y se repite la misma pregunta indefinidamente).
+    const t = seguido ? (prev!.turno === a.turno ? (prev!.t ?? 1) : (prev!.t ?? 1) + 1) : 1;
+    // Elegir (o volver a elegir) uno de los horarios es participar: la cuenta vuelve a empezar.
+    if (ext.intencion === 'elige_horario' && ext.horario_elegido) { estado.bloqueo = { clave, firma, turno: a.turno, n: 0, t: 1 }; return obj; }
+    if (hizoPregunta) {
+      // n = -1: el turno de una pregunta de la persona no cuenta, y el siguiente vuelve a empezar desde 0.
+      estado.bloqueo = { clave, firma, turno: a.turno, n: -1, t };
+      if (t >= 4) return derivar(`Cuatro turnos seguidos pidiendo lo mismo (${clave}) sin que la persona lo aportara. Revisar la conversación.`);
+      return obj;
+    }
     // El turno en que el agente HACE la pregunta no cuenta (n = 0). Cada respuesta seguida de la persona que no trajo el dato suma 1.
     const n = mismo ? (prev!.turno === a.turno ? prev!.n : prev!.turno === a.turno - 1 ? prev!.n + 1 : 0) : 0;
-    estado.bloqueo = { clave, firma, turno: a.turno, n };
+    estado.bloqueo = { clave, firma, turno: a.turno, n, t };
     if (n >= 2) return derivar(`Dos respuestas seguidas sin que la persona aportara el dato que faltaba (${clave}). Revisar la conversación.`);
+    if (t >= 4) return derivar(`Cuatro turnos seguidos pidiendo lo mismo (${clave}) sin que la persona lo aportara. Revisar la conversación.`);
     return obj;
   };
 
+  // Lo que va delante de los primeros horarios cuando la consulta se ofrece en ese mismo mensaje.
+  let prefijoOferta = '';
   const principal = async (): Promise<Objetivo> => {
     // 1b. un tema que el estudio no atiende: se explica con tacto, sin ofrecer nada
     if (ext.intencion === 'fuera_de_alcance') return { tipo: 'fuera_de_alcance', texto: `La persona consulta por un tema que el estudio no atiende. Decíselo con amabilidad y tacto${cfg.agente.alcance ? ` (el estudio se ocupa de ${cfg.agente.alcance})` : ''}, sin ofrecerle la consulta ni horarios, y preguntale si hay algo de lo que sí atendemos en lo que puedas ayudarla.` };
@@ -2499,6 +2620,15 @@ async function dirigirTurnoBase(a: EntradaDirector): Promise<SalidaDirector> {
       if (n === 1) return { tipo: 'responder_objecion', texto: 'La persona ya te contó qué la hace dudar (mirá lo que escribió). Reconocéselo con tus palabras, sin repetir la pregunta que ya le hiciste ni el argumento anterior, y respondé con UNA sola idea tomada de IDEAS DE VALOR o de DATOS QUE PODÉS USAR. Dejale la decisión a ella, sin presionar, y preguntale con UNA pregunta si quiere que le muestres horarios ahora o prefiere pensarlo.' };
       return { tipo: 'dejar_puerta_abierta', texto: 'La persona sigue dudando. No insistas ni repitas argumentos: agradecele, decile que la consulta sigue disponible, sin compromiso, para cuando quiera, y que puede escribir cuando decida. Sin preguntas.' };
     }
+    // 2a. quiere saber cuánto cuesta el trámite completo: si el estudio aprobó ofrecer una llamada con el abogado, se la ofrece (sin inventar ningún monto)
+    const llamada = oferta?.llamada_con_el_dr && !/pendiente/i.test(oferta.llamada_con_el_dr.estado) ? oferta.llamada_con_el_dr : null;
+    if (llamada && estado.llamada_ofrecida !== undefined && estado.llamada_ofrecida === a.turno - 1 && ext.intencion === 'acepta') {
+      return derivar('La persona aceptó una llamada con el abogado para que le explique el costo del trámite: coordinar día y hora.');
+    }
+    if (llamada && ext.costo_del_tramite && estado.llamada_ofrecida === undefined) {
+      estado.llamada_ofrecida = a.turno;
+      return { tipo: 'ofrecer_llamada', texto: `La persona quiere saber cuánto cuesta el trámite completo (más allá de la consulta). NO inventes ningún monto. ${llamada.texto} Ofrecéselo con tus palabras, aclarale que es sin compromiso y preguntale con UNA sola pregunta si puede atender esa llamada.` };
+    }
     // 2b. un dato del que no está segura: no se da por sí ni por no, se la ayuda a aclararlo
     if (ext.dato_en_duda) {
       const def = definicionDeFiltro(cfg, ext.dato_en_duda.campo);
@@ -2508,25 +2638,41 @@ async function dirigirTurnoBase(a: EntradaDirector): Promise<SalidaDirector> {
     if (oferta) {
       const filtroNo = oferta.filtros.find(f => f.tipo === 'si_no' && estado.filtros[f.campo]?.valor === 'no');
       if (filtroNo) {
+        // Un "no" que la persona no dijo ni contestó a esa pregunta (el modelo lo dedujo de otra frase) no alcanza para decirle que no le corresponde: se le pregunta directo, una vez.
+        const ev = limpiarParaComparar(estado.filtros[filtroNo.campo].evidencia);
+        const firme = /\b(?:no|nunca|ni|sin|tampoco)\b/.test(ev) || estado.pregunta_pendiente?.campo === filtroNo.campo || (estado.nos_confirmados ?? []).includes(filtroNo.campo);
+        if (!firme) {
+          estado.nos_confirmados = [...(estado.nos_confirmados ?? []), filtroNo.campo];
+          delete estado.filtros[filtroNo.campo];
+          estado.pregunta_pendiente = { campo: filtroNo.campo };
+          return conBloqueo({ tipo: 'obtener_filtro', detalle: filtroNo.campo, texto: `Necesitás saber ${filtroNo.descripcion}: la persona no lo dijo con claridad. Preguntalo de forma natural y humana, con UNA sola pregunta.${filtroNo.pregunta ? ` Una forma natural de preguntarlo: «${filtroNo.pregunta}»` : ''}` }, `obtener_filtro:${filtroNo.campo}`);
+        }
         estado.etapa = 'no_califica';
-        return { tipo: 'no_califica', detalle: filtroNo.campo, texto: `La persona dijo que NO cumple una condición (${filtroNo.descripcion}). Explicale con tacto que este reclamo en particular no le corresponde y preguntale qué otra consulta necesita. No le ofrezcas nada más sobre este reclamo.` };
+        return conBloqueo({ tipo: 'no_califica', detalle: filtroNo.campo, texto: `La persona dijo que NO cumple una condición (${filtroNo.descripcion}). Explicale con tacto que este reclamo en particular no le corresponde y preguntale qué otra consulta necesita. No le ofrezcas nada más sobre este reclamo.` }, `no_califica:${filtroNo.campo}`);
       }
     }
     // 3. emoción nueva
-    if (ext.emocion) {
+    // Se profundiza una vez: si el mensaje anterior ya profundizó, se sigue con el flujo (no se encadenan "¿me cuenta más?").
+    if (ext.emocion && estado.profundizo_en !== a.turno - 1) {
       const clave = limpiarParaComparar(ext.emocion.frase);
       if (!estado.emociones_trabajadas.some(x => limpiarParaComparar(x) === clave)) {
         estado.emociones_trabajadas = [...estado.emociones_trabajadas, ext.emocion.frase];
-        return { tipo: 'profundizar', detalle: ext.emocion.frase, texto: `La persona expresó algo importante: «${ext.emocion.frase}». Mostrá que lo entendiste con tus palabras (sin frases hechas) y profundizá en eso con UNA sola pregunta, sobre UNA sola idea (qué exactamente, o desde cuándo, o qué intentó): no las juntes en la misma pregunta.` };
+        estado.profundizo_en = a.turno;
+        return { tipo: 'profundizar', detalle: ext.emocion.frase, texto: `La persona expresó algo importante: «${ext.emocion.frase}». Mostrá que lo entendiste con tus palabras, hablándole de usted y sin copiar su frase (sin frases hechas), y profundizá en eso con UNA sola pregunta, sobre UNA sola idea (qué exactamente, o desde cuándo, o qué intentó): no las juntes en la misma pregunta.` };
       }
     }
     // 4. oferta
-    if (!oferta) return conBloqueo({ tipo: 'descubrir_situacion', texto: 'Todavía no sabés por qué consulta. Recibila con calidez y preguntale, con UNA pregunta abierta, qué le pasa o en qué puede ayudarla el estudio.' }, 'descubrir_situacion');
-    // 5. falta un filtro
-    const falta = oferta.filtros.find(f => !estado.filtros[f.campo]);
+    // Si su mensaje no deja claro el tema (la persona suele cambiar el mensaje del anuncio), se le pregunta por cuál de los temas del estudio consulta.
+    const temas = Object.values(cfg.ofertas).map(o => o.etiqueta);
+    if (!oferta) return conBloqueo({ tipo: 'descubrir_situacion', texto: `Todavía no sabés por qué consulta. Recibila con calidez y preguntale, con UNA pregunta, en qué puede ayudarla el estudio.${temas.length > 1 ? ` Si lo que escribió ya habla de algo pero no queda claro cuál es el tema, preguntale si consulta por ${temas.join(' o por ')}.` : ''}` }, 'descubrir_situacion');
+    // 5. falta un filtro (los opcionales se preguntan una sola vez: si la persona no lo da, se sigue)
+    const falta = oferta.filtros.find(f => !estado.filtros[f.campo] && !(f.opcional && (estado.opcionales_preguntados ?? []).includes(f.campo)));
     if (falta) {
-      const obj = await conBloqueo({ tipo: 'obtener_filtro', detalle: falta.campo, texto: `Necesitás saber ${falta.descripcion}. Preguntalo de forma natural y humana, con UNA sola pregunta, sin enumerar otros datos ni decir que necesitás confirmar nada.` }, `obtener_filtro:${falta.campo}`);
-      if (obj.tipo === 'obtener_filtro') estado.pregunta_pendiente = { campo: falta.campo };
+      const obj = await conBloqueo({ tipo: 'obtener_filtro', detalle: falta.campo, texto: `Necesitás saber ${falta.descripcion}. Preguntalo de forma natural y humana, con UNA sola pregunta, sin enumerar otros datos ni decir que necesitás confirmar nada.${falta.pregunta ? ` Una forma natural de preguntarlo: «${falta.pregunta}»` : ''}` }, `obtener_filtro:${falta.campo}`);
+      if (obj.tipo === 'obtener_filtro') {
+        estado.pregunta_pendiente = { campo: falta.campo };
+        if (falta.opcional) estado.opcionales_preguntados = [...(estado.opcionales_preguntados ?? []), falta.campo];
+      }
       return obj;
     }
     // 7. faltan casilleros mínimos
@@ -2543,13 +2689,19 @@ async function dirigirTurnoBase(a: EntradaDirector): Promise<SalidaDirector> {
       if (sinCasilleros && !activo) {
         // Sin preguntas de diagnóstico: con los filtros completos se ofrece la consulta y, en el mismo mensaje, se pregunta lo que falta para los horarios (la modalidad).
         const falta = (oferta.datos_antes_de_horarios ?? []).find(f => !estado.filtros[f.campo]);
-        return {
+        const encuadre = oferta.encuadre_del_caso ? `Empezá tranquilizándola en UNA frase con esta idea, con tus palabras y sin prometer ningún resultado: «${oferta.encuadre_del_caso.texto}». ` : '';
+        const loQueDijo = oferta.filtros.filter(f => f.opcional && estado.filtros[f.campo]).map(f => `Hacele saber que tomaste nota de ${f.descripcion}: ${estado.filtros[f.campo].valor}. Escribilo de usted, en tercera persona y con lo que ella dijo, nunca copies su frase en primera persona. `).join('');
+        const pistaDeModalidad = falta ? 'Si por lo que contó vive lejos del estudio o no puede viajar, ofrecé primero la opción que le ahorra el viaje; si no, presentá las opciones con naturalidad. ' : '';
+        // Ya dijo todo lo que va antes de los horarios (por ejemplo, "quiero una llamada virtual"): pidió la consulta; no se le pregunta si quiere avanzar, se le ofrecen los horarios.
+        const yaLaPidio = (oferta.datos_antes_de_horarios ?? []).length > 0 && !falta;
+        if (yaLaPidio) prefijoOferta = `${encuadre}${loQueDijo}Contale en UNA frase la condición de la consulta (DATOS QUE PODÉS USAR: con quién es, dónde es y lo que dice sobre el costo). `;
+        else return {
           tipo: 'ofrecer_consulta', detalle: falta?.campo,
-          texto: `Ofrecele la consulta con tus palabras: contale su condición (mirá DATOS QUE PODÉS USAR: con quién es y que es sin cargo) y terminá con UNA sola pregunta ${falta ? `sobre ${falta.descripcion}` : 'de si le gustaría avanzar'}. No ofrezcas horarios todavía.`,
+          texto: `${encuadre}${loQueDijo}Ofrecele la consulta con tus palabras: contale su condición (mirá DATOS QUE PODÉS USAR: con quién es, dónde es y lo que dice sobre el costo) y terminá con UNA sola pregunta ${falta ? `sobre ${falta.descripcion}` : 'de si le gustaría avanzar'}. ${pistaDeModalidad}No ofrezcas horarios todavía.`,
         };
       }
       // Sin casilleros y con activo de valor (el video): no se ofrece, lo manda el código en el paso siguiente.
-      if (!(sinCasilleros && activo)) return {
+      if (!sinCasilleros) return {
         tipo: 'reorganizar_y_ofrecer',
         texto: `Arrancá devolviéndole su situación ordenada en UNA frase que empiece con «Entonces, si le entendí bien:» y use SUS palabras (${Object.entries(estado.casilleros).filter(([, v]) => v).map(([c, v]) => `${cfg.casilleros[c] ?? c}: «${(v as any).evidencia}»`).join('; ')}). Después ofrecele el siguiente paso como lo lógico. ${activo ? `Decile que le vas a mandar un ${activo.descripcion} que le explica cómo sigue, y preguntale si le gustaría verlo. No hables de valores.` : `Contale la condición de la consulta (DATOS QUE PODÉS USAR) y preguntale si le gustaría avanzar. No ofrezcas horarios todavía.`}`,
       };
@@ -2592,7 +2744,7 @@ async function dirigirTurnoBase(a: EntradaDirector): Promise<SalidaDirector> {
         return { tipo: 'reserva', texto: cond.mensaje };
       }
     }
-    // 10 (turno directo). La consulta queda definida en la ficha (sin cargo): lo hace el código.
+    // 10 (turno directo). La consulta queda definida en la ficha (sin cargo, o paga en el estudio el día de la consulta): lo hace el código.
     if (oferta.cierre === 'turno_directo') {
       const def: any = await a.ejecutar('definir_tipo_consulta', { tipo: oferta.tipo_consulta }, a.ctx);
       if (def?.error) return derivar(`definir_tipo_consulta: ${String(def.error).slice(0, 200)}`);
@@ -2603,6 +2755,8 @@ async function dirigirTurnoBase(a: EntradaDirector): Promise<SalidaDirector> {
       const r: any = await a.ejecutar('consultar_disponibilidad', { profesional }, a.ctx);
       if (r?.status === 'requiere_reserva') return { tipo: 'reserva', texto: String(r.mensaje ?? '') };
       const libres0 = aplanarDisponibilidad(r).filter(s => !excluir.some(e => e.fecha === s.fecha && e.hora === s.hora));
+      out.datos = out.datos.filter(x => !x.startsWith('AGENDA CON POCOS LUGARES'));
+      if ((oferta.escasez_umbral ?? 0) > 0 && libres0.length <= (oferta.escasez_umbral as number)) out.datos.push(`AGENDA CON POCOS LUGARES: en toda la agenda quedan ${libres0.length} horarios libres. Si viene al caso podés decir que quedan pocos lugares, sin exagerar ni apurar.`);
       let libres = pref ? libres0.filter(s => cumplePreferencia(s, pref)) : libres0;
       const faltaPref = !!pref && libres.length < 2;
       out.datos = out.datos.filter(x => !x.startsWith('AVISO PREFERENCIA'));
@@ -2613,28 +2767,43 @@ async function dirigirTurnoBase(a: EntradaDirector): Promise<SalidaDirector> {
       estado.etapa = 'horarios';
       out.slotsOfrecidos = dos;
       out.horasPermitidas = dos.map(x => x.hora);
-      return { tipo: 'ofrecer_horarios', detalle: dos, texto: `${a.comprobante?.estado === 'validado' ? 'Primero agradecé con calidez que recibimos el pago de la reserva. ' : ''}Ofrecele exactamente DOS horarios, cada uno con su día y fecha: ${dos.map(x => `${nombreDeDia(x.fecha)} a las ${x.hora}`).join(' o ')}. Preguntale cuál le queda mejor.${faltaPref ? ' Aclarale con naturalidad que para lo que pidió no hay dos lugares y que estos son los más cercanos.' : ''}` };
+      return { tipo: 'ofrecer_horarios', detalle: dos, texto: `${a.comprobante?.estado === 'validado' ? 'Primero agradecé con calidez que recibimos el pago de la reserva. ' : ''}${prefijoOferta}Ofrecele exactamente DOS horarios, cada uno con su día y fecha: ${dos.map(x => `${nombreDeDia(x.fecha)} a las ${x.hora}`).join(' o ')}. Preguntale cuál le queda mejor.${faltaPref ? ' Aclarale con naturalidad que para lo que pidió no hay dos lugares y que estos son los más cercanos.' : ''}` };
     };
     if (!a.ofrecidos.length) {
       // Los datos que van antes de los horarios (por ejemplo, presencial o virtual) se piden de a uno.
       const falta = (oferta.datos_antes_de_horarios ?? []).find(f => !estado.filtros[f.campo]);
-      if (falta) return conBloqueo({ tipo: 'obtener_dato_agenda', detalle: falta.campo, texto: `Antes de ofrecer horarios preguntale ${falta.descripcion}, con UNA sola pregunta. No ofrezcas horarios todavía.` }, `obtener_dato_agenda:${falta.campo}`);
-      return ofrecerNuevos([]);
+      if (falta) {
+        const op = (falta.valores ?? []).length ? ` Nombrá las opciones (${(falta.valores ?? []).join(' o ')}) en la pregunta.` : '';
+        const p = estado.preferencia_pedida;
+        const pedido = p && (p.dia || p.franja || p.fecha) ? ` La persona ya pidió ${[p.fecha ? nombreDeDia(p.fecha) : p.dia, p.franja === 'manana' ? 'a la mañana' : p.franja === 'tarde' ? 'a la tarde' : ''].filter(Boolean).join(' ')}: decile en media frase que lo tenés en cuenta.` : '';
+        return conBloqueo({ tipo: 'obtener_dato_agenda', detalle: falta.campo, texto: `Antes de ofrecer horarios preguntale ${falta.descripcion}, con UNA sola pregunta.${op} Todavía no tenés horarios para mostrar: no nombres ninguna hora ni ninguna fecha, y si pregunta por horarios decile que apenas lo defina le ofrecés dos.${pedido}` }, `obtener_dato_agenda:${falta.campo}`);
+      }
+      const pedida = estado.preferencia_pedida ?? ext.preferencia ?? null;
+      delete estado.preferencia_pedida;
+      return ofrecerNuevos([], pedida);
     }
-    if (ext.intencion === 'rechaza_horarios') { delete estado.horario_pendiente; return ofrecerNuevos(a.ofrecidos, ext.preferencia); }
+    // Pidió un día o una franja ("mañana", "en la mañana"): primero se mira si alguno de los ofrecidos ya lo cumple, aunque el extractor lo haya leído como rechazo.
+    const encajan = ext.preferencia ? a.ofrecidos.filter(s => cumplePreferencia(s, ext.preferencia!)) : [];
+    // Un rechazo vale salvo que los dos ofrecidos ya cumplan lo que pidió ("en la mañana" con dos horarios de mañana): ahí se le pregunta cuál.
+    const rechaza = ext.intencion === 'rechaza_horarios' && !(encajan.length && encajan.length === a.ofrecidos.length);
+    if (rechaza || (ext.preferencia && !encajan.length)) { delete estado.horario_pendiente; return ofrecerNuevos(a.ofrecidos, ext.preferencia); }
     const pendiente = estado.horario_pendiente && a.ofrecidos.some(o => o.fecha === estado.horario_pendiente!.fecha && o.hora === estado.horario_pendiente!.hora) ? estado.horario_pendiente : null;
     let el = ext.intencion === 'elige_horario' ? ext.horario_elegido : null;
     if (!el && pendiente && a.nombre) el = pendiente; // eligió antes y recién ahora dio el nombre: se agenda ese mismo horario
+    // Si encaja con UNO de los dos ofrecidos, ese es; si con los dos, se le pregunta cuál (los dos cumplen lo que pidió).
+    if (!el && encajan.length === 1) el = { fecha: encajan[0].fecha, hora: encajan[0].hora };
     if ((el || pendiente) && !a.nombre) {
       const elegido = el ?? pendiente!;
       estado.horario_pendiente = { fecha: elegido.fecha, hora: elegido.hora };
-      out.horasPermitidas = a.ofrecidos.map(x => x.hora);
-      return conBloqueo({ tipo: 'obtener_dato_agenda', detalle: 'nombre', texto: `La persona eligió ${nombreDeDia(elegido.fecha)} a las ${elegido.hora}. Pedile nombre y apellido para el turno del ${nombreDeDia(elegido.fecha)} a las ${elegido.hora}, con UNA sola pregunta. No digas que quedó reservado ni agendado.` }, 'obtener_dato_agenda:nombre');
+      // Solo la hora elegida, salvo que pregunte por los horarios: el mensaje nunca puede nombrar como elegido otro horario que el que se va a agendar.
+      out.horasPermitidas = ext.pregunta_de_la_persona ? a.ofrecidos.map(x => x.hora) : [elegido.hora];
+      return conBloqueo({ tipo: 'obtener_dato_agenda', detalle: 'nombre', texto: `La persona eligió ${nombreDeDia(elegido.fecha)} a las ${elegido.hora}. Pedile nombre y apellido para el turno del ${nombreDeDia(elegido.fecha)} a las ${elegido.hora}, con UNA sola pregunta. No digas que quedó reservado ni agendado.${a.ofrecidos.length > 1 ? ` Si pregunta qué horarios hay o duda, recordale que le ofreciste ${a.ofrecidos.map(x => `${nombreDeDia(x.fecha)} a las ${x.hora}`).join(' o ')}, que tomaste el ${nombreDeDia(elegido.fecha)} a las ${elegido.hora} y que si prefiere el otro se lo cambiás.` : ''}` }, 'obtener_dato_agenda:nombre');
     }
     if (!el) {
       out.slotsOfrecidos = null;
       out.horasPermitidas = a.ofrecidos.map(x => x.hora);
-      return { tipo: 'preguntar_cual', detalle: a.ofrecidos, texto: `La persona no dijo cuál prefiere. Preguntale cuál de ESTOS DOS MISMOS horarios le queda mejor: ${a.ofrecidos.map(x => `${nombreDeDia(x.fecha)} a las ${x.hora}`).join(' o ')}. No ofrezcas otros ni vuelvas a consultar.` };
+      const ambos = encajan.length >= 2 ? ' Los dos cumplen lo que pidió: decíselo en media frase.' : '';
+      return { tipo: 'preguntar_cual', detalle: a.ofrecidos, texto: `La persona no dijo cuál prefiere.${ambos} Preguntale cuál de ESTOS DOS MISMOS horarios le queda mejor: ${a.ofrecidos.map(x => `${nombreDeDia(x.fecha)} a las ${x.hora}`).join(' o ')}. No ofrezcas otros ni vuelvas a consultar.` };
     }
     const ag: any = await a.ejecutar('agendar_turno', { profesional, nombre: a.nombre ?? 'Consulta por WhatsApp', fecha: el.fecha, hora: el.hora, tema: oferta.etiqueta, ...(estado.filtros.modalidad_consulta ? { modalidad: estado.filtros.modalidad_consulta.valor } : {}), pago: !!a.ctx.montoValidado }, a.ctx);
     if (ag?.status === 'success') {
@@ -2643,8 +2812,10 @@ async function dirigirTurnoBase(a: EntradaDirector): Promise<SalidaDirector> {
       estado.turno = { fecha: el.fecha, hora: el.hora, profesional: ag.turno?.profesional ?? profesional };
       out.agendoOk = true;
       out.horasPermitidas = [el.hora];
-      out.datos.push(`Turno agendado con ${ag.turno?.profesional ?? profesional}: ${nombreDeDia(el.fecha)} a las ${el.hora}. Dirección del estudio (si es presencial): ${cfg.agente.direccion}.`);
-      return { tipo: 'confirmar_turno', detalle: { fecha: el.fecha, hora: el.hora, profesional: ag.turno?.profesional ?? profesional }, texto: `El turno YA QUEDÓ AGENDADO. Confirmalo con claridad repitiendo día, fecha, hora y abogado (DATOS QUE PODÉS USAR), y la dirección si es presencial. No agregues comentarios sobre el resultado ni sobre la importancia del paso, y no ofrezcas nada más.` };
+      // La dirección solo va si la consulta es presencial (o no se definió): en una virtual confunde.
+      const virtual = estado.filtros.modalidad_consulta?.valor === 'virtual';
+      out.datos.push(`Turno agendado con ${ag.turno?.profesional ?? profesional}: ${nombreDeDia(el.fecha)} a las ${el.hora}.${virtual ? ' La consulta es virtual: cómo se conecta se lo confirman por este mismo chat.' : ` Dirección del estudio: ${cfg.agente.direccion}.`}`);
+      return { tipo: 'confirmar_turno', detalle: { fecha: el.fecha, hora: el.hora, profesional: ag.turno?.profesional ?? profesional }, texto: `El turno YA QUEDÓ AGENDADO. Confirmalo con claridad repitiendo día, fecha, hora y abogado (DATOS QUE PODÉS USAR)${virtual ? ', y que es virtual. No des la dirección del estudio' : ', y la dirección del estudio'}. No agregues comentarios sobre el resultado ni sobre la importancia del paso, y no ofrezcas nada más.` };
     }
     if (ag?.status === 'conflict') {
       const libres = (Array.isArray(ag.horarios_disponibles) ? ag.horarios_disponibles : []).map((h: any) => ({ fecha: el.fecha, hora: String(h), profesional })).filter((s: SlotOfrecido) => s.hora !== el.hora).slice(0, 2);
@@ -2661,11 +2832,13 @@ async function dirigirTurnoBase(a: EntradaDirector): Promise<SalidaDirector> {
   };
 
   const loContestaElOfrecimiento = !!ext.preferencia && (ext.intencion === 'rechaza_horarios' || ext.intencion === 'reprogramar');
-  const pre: Objetivo | null = ext.pregunta_de_la_persona && !loContestaElOfrecimiento
-    ? { tipo: 'responder', detalle: ext.pregunta_de_la_persona, texto: `Respondé primero, breve y con verdad, esta pregunta de la persona: «${ext.pregunta_de_la_persona}». Usá solo DATOS QUE PODÉS USAR; si no está ahí, decile con naturalidad que lo explica el abogado en la consulta. Si pregunta por un tema o un servicio que no figura en "Se ocupa de", no digas que lo atienden.${noCorresponde ? ' Esta persona NO califica para ese reclamo: no le confirmes consulta, turno ni horarios ni afirmes si existen otras vías (no lo sabés); explicale con tacto que este reclamo en particular no le corresponde.' : ''} Después seguí con el objetivo siguiente, con una sola pregunta en total.` }
-    : null;
   const obj = await principal();
-  out.objetivos = pre ? [pre, obj] : [obj];
+  const noCorrespondeFinal = !!oferta && oferta.filtros.some(f => f.tipo === 'si_no' && estado.filtros[f.campo]?.valor === 'no');
+  if (oferta && !noCorrespondeFinal && !out.datos.some(x => x.startsWith('Condición de la consulta'))) out.datos.push(`Condición de la consulta: ${oferta.condicion}`);
+  const pre: Objetivo | null = ext.pregunta_de_la_persona && !loContestaElOfrecimiento
+    ? { tipo: 'responder', detalle: ext.pregunta_de_la_persona, texto: `Respondé primero, breve y con verdad, esta pregunta de la persona: «${ext.pregunta_de_la_persona}». Usá solo DATOS QUE PODÉS USAR; solo si la respuesta NO está ahí, no la inventes ni digas quién la explica (decí que depende de su caso). Si la respuesta está en los datos, contestala directo, sin agregar nada sobre de qué depende. Si pregunta por un tema o un servicio que no figura en "Se ocupa de", no digas que lo atienden.${noCorrespondeFinal ? ' Esta persona NO califica para ese reclamo: no le confirmes consulta, turno ni horarios ni afirmes si existen otras vías (no lo sabés); explicale con tacto que este reclamo en particular no le corresponde.' : ''} Después seguí con el objetivo siguiente, con una sola pregunta en total.` }
+    : null;
+  out.objetivos = pre && obj.tipo !== 'ofrecer_llamada' ? [pre, obj] : [obj];
   return out;
 }
 
@@ -2713,7 +2886,7 @@ Cada mensaje tiene tres partes, en este orden:
 /** Mientras el objetivo es una de estas, el redactor NO recibe la oferta, el abogado, los horarios ni los precios: no puede mencionar lo que no tiene. */
 export const OBJETIVOS_SIN_OFERTA = ['descubrir', 'descubrir_situacion', 'profundizar', 'obtener_filtro', 'trabajar_objecion', 'no_califica', 'fuera_de_alcance', 'aclarar_dato'];
 /** Objetivos cuyo mensaje tiene que traer una pregunta con signos (a ella responde un "sí" o un "no" corto de la persona). */
-export const OBJETIVOS_CON_PREGUNTA = ['obtener_filtro', 'descubrir', 'descubrir_situacion', 'profundizar', 'obtener_dato_agenda', 'ofrecer_horarios', 'preguntar_cual', 'reorganizar_y_ofrecer', 'ofrecer_consulta', 'preguntar_dia_reprogramar', 'ofrecer_cambio_en_lugar_de_cancelar', 'aclarar_dato', 'responder_objecion'];
+export const OBJETIVOS_CON_PREGUNTA = ['obtener_filtro', 'descubrir', 'descubrir_situacion', 'profundizar', 'obtener_dato_agenda', 'ofrecer_horarios', 'preguntar_cual', 'reorganizar_y_ofrecer', 'ofrecer_consulta', 'preguntar_dia_reprogramar', 'ofrecer_cambio_en_lugar_de_cancelar', 'aclarar_dato', 'responder_objecion', 'ofrecer_llamada'];
 export const PROMPT_REDACTOR_HORARIOS = `## Horarios
 - Ofrecé exactamente DOS, cada uno con su día y fecha, tal cual figuran en el objetivo.
 - Usá solo los horarios que figuran en el objetivo. Nunca otros.`;
@@ -2870,7 +3043,7 @@ export function datoRepetidoEnLaPrimeraOracion(borrador: string, ultimoPersona: 
   return hit ? hit.slice(0, 120) : null;
 }
 
-export function evaluarVerificacion(crudo: any, a: { borrador: string; permite: ReturnType<typeof permiteDeObjetivos>; anterior: string; personaTextos?: string[]; anteriores?: string[]; /** Último mensaje de la persona (activa el control de "no repetir el dato que acaba de dar"). */ ultimoPersona?: string; /** La persona expresó una emoción en ese mensaje: reflejar lo que siente está permitido. */ conEmocion?: boolean }): { ok: boolean; motivo: string; violaciones: { regla: string; frase: string }[] } {
+export function evaluarVerificacion(crudo: any, a: { borrador: string; permite: ReturnType<typeof permiteDeObjetivos>; anterior: string; personaTextos?: string[]; anteriores?: string[]; /** Último mensaje de la persona (activa el control de "no repetir el dato que acaba de dar"). */ ultimoPersona?: string; /** La persona expresó una emoción en ese mensaje: reflejar lo que siente está permitido. */ conEmocion?: boolean; /** La persona hizo una pregunta: contestarla no es repetir su dato. */ conPregunta?: boolean }): { ok: boolean; motivo: string; violaciones: { regla: string; frase: string }[] } {
   if (!Array.isArray(crudo?.violaciones)) throw new Error('respuesta del verificador inválida');
   const en = (texto: string, frase: string) => { const f = limpiarParaComparar(frase); return f.length >= 4 && limpiarParaComparar(texto).includes(f); };
   const validas: { regla: string; frase: string }[] = [];
@@ -2898,7 +3071,8 @@ export function evaluarVerificacion(crudo: any, a: { borrador: string; permite: 
   // Si la persona solo dio un dato corto, el mensaje no lo repite. Lo que diga el modelo sobre esto se ignora: lo decide el código.
   if (a.ultimoPersona !== undefined) {
     for (let k = validas.length - 1; k >= 0; k--) if (validas[k].regla === 'repite_dato_recien_dado') validas.splice(k, 1);
-    const corto = !a.conEmocion && limpiarParaComparar(a.ultimoPersona).split(' ').filter(Boolean).length <= 4;
+    // Contestar una pregunta ("¿cuánto sale la consulta?") no es repetir un dato que dio.
+    const corto = !a.conEmocion && !a.conPregunta && limpiarParaComparar(a.ultimoPersona).split(' ').filter(Boolean).length <= 4;
     const previa = a.anteriores?.length ? preguntaDelAgente(a.anteriores[a.anteriores.length - 1]) : null;
     const repetido = corto ? datoRepetidoEnLaPrimeraOracion(a.borrador, a.ultimoPersona, previa) : null;
     if (repetido) validas.push({ regla: 'repite_dato_recien_dado', frase: repetido });
@@ -2954,13 +3128,19 @@ export function mensajeSeguro(a: { objetivos: Objetivo[]; estado: EstadoV2; cfg:
         : `Entonces, si le entendí bien: ${frase || 'lo que me contó'}. Le propongo una consulta con un abogado del estudio para analizarlo. ¿Le gustaría avanzar?`;
       break;
     }
-    case 'ofrecer_consulta': { const q = o.detalle ? pregunta(o.detalle) : '¿Le gustaría avanzar?'; cuerpo = q ? `${reflejo} Le propongo una consulta con un abogado del estudio, sin cargo. ${q}` : null; break; }
+    case 'ofrecer_consulta': {
+      // "sin cargo" solo si la consulta de esa oferta vale 0 (lo dice el tipo de consulta, no el texto).
+      const tc = oferta ? (TIPOS_CONSULTA as Record<string, any>)[oferta.tipo_consulta] : null;
+      const costo = tc && tc.valor === 0 ? ', sin cargo' : '';
+      const q = o.detalle ? pregunta(o.detalle) : '¿Le gustaría avanzar?'; cuerpo = q ? `${reflejo} Le propongo una consulta con un abogado del estudio${costo}. ${q}` : null; break;
+    }
     case 'obtener_dato_agenda': {
       if (o.detalle === 'nombre') { const e = a.estado.horario_pendiente; cuerpo = e ? `¿Me indica su nombre y apellido para el turno del ${dia(e)}?` : '¿Me indica su nombre y apellido?'; }
       else { const q = pregunta(o.detalle); cuerpo = q; }
       break;
     }
     case 'ofrecer_horarios': { const d = (o.detalle as SlotOfrecido[]) ?? []; cuerpo = d.length === 2 ? `Le ofrezco dos horarios: ${dia(d[0])} o ${dia(d[1])}. ¿Cuál le queda mejor?` : null; break; }
+    case 'ofrecer_llamada': cuerpo = 'Eso se lo puede explicar un abogado del estudio por teléfono, sin compromiso. ¿Podría atender una llamada?'; break;
     case 'responder_objecion': cuerpo = `${reflejo} ¿Prefiere que le muestre horarios ahora o prefiere pensarlo?`; break;
     case 'dejar_puerta_abierta': cuerpo = 'La consulta sigue disponible, sin compromiso, para cuando quiera. Puede escribirnos cuando lo decida.'; break;
     case 'preguntar_dia_reprogramar': cuerpo = '¿Qué día o qué franja del día le queda mejor para su turno?'; break;
@@ -3028,6 +3208,8 @@ async function turnoV2(a: {
   const recientes = [...previos, { from: 'cliente' as const, texto: a.textoCliente }].slice(-8).map(x => ({ de: x.from === 'cliente' ? 'persona' : 'agente', texto: String(x.texto).slice(0, 600) }));
   const usuario = JSON.stringify({
     hoy: localDe(a.ahora).fecha,
+    // Las fechas las calcula el código (el modelo se equivoca con ellas): para "mañana" o un día de la semana se usa SOLO esta tabla.
+    calendario: (() => { const h = localDe(a.ahora).fecha; return { hoy: h, manana: sumarDias(h, 1), pasado_manana: sumarDias(h, 2), proximo_dia: Object.fromEntries(Array.from({ length: 7 }, (_, i) => { const f = sumarDias(h, i + 1); const [y, m, d] = f.split('-').map(Number); return [limpiarParaComparar(DIAS_NOMBRE[new Date(Date.UTC(y, m - 1, d)).getUTCDay()]), f]; })) }; })(),
     ofertas: Object.fromEntries(Object.entries(cfg.ofertas).map(([id, o]) => [id, { descripcion: o.descripcion, campos: [...o.filtros, ...o.filtros_de_cierre, ...(o.datos_antes_de_horarios ?? [])].map(f => ({ campo: f.campo, tipo: f.tipo, valores: f.valores, descripcion: f.descripcion, ayuda: f.ayuda })) }])),
     datos_para_agendar: (cfg.datos_agenda ?? []).map(f => ({ campo: f.campo, tipo: f.tipo, descripcion: f.descripcion, ayuda: f.ayuda })),
     estado: { oferta: estadoAntes.oferta, filtros: Object.fromEntries(Object.entries(estadoAntes.filtros).map(([k, v]) => [k, v.valor])), casilleros: Object.fromEntries(Object.entries(estadoAntes.casilleros).filter(([, v]) => v).map(([k, v]) => [k, (v as any).texto])) },
@@ -3049,7 +3231,7 @@ async function turnoV2(a: {
   for (let intento = 1; intento <= (a.esArchivo ? 0 : 2); intento++) {
     try {
       crudo = await deps.extraer!(PROMPT_EXTRACTOR, usuario, esquema);
-      const v = validarExtraccion(crudo, { cfg, personaTextos, ofrecidos, ultimoAgente: ultimoAgenteTexto, preguntaPendiente: estadoAntes.pregunta_pendiente?.campo ?? null, datoPendiente: estadoAntes.dato_pendiente ?? null });
+      const v = validarExtraccion(crudo, { cfg, personaTextos, ofrecidos, ultimoAgente: ultimoAgenteTexto, preguntaPendiente: estadoAntes.pregunta_pendiente?.campo ?? null, datoPendiente: estadoAntes.dato_pendiente ?? null, hoy: localDe(a.ahora).fecha });
       if (!v.fallo) {
         // con la oferta ya definida, solo valen los campos de ESA oferta (un "el primero" no puede ser una forma de pago de otra)
         const ofertaActiva = estadoAntes.oferta ?? v.oferta_detectada;
@@ -3059,6 +3241,7 @@ async function turnoV2(a: {
       }
     } catch (e) { console.error('[agente v2] extractor', e instanceof Error ? e.message : e); }
   }
+  if (!a.esArchivo) ext = completarOpcionesDichas(ext, cfg, estadoAntes.oferta ?? ext.oferta_detectada, estadoAntes.filtros, a.textoCliente);
   traza.extractor_crudo = crudo;
   traza.extractor = ext;
 
@@ -3104,6 +3287,16 @@ async function turnoV2(a: {
   const permite = permiteDeObjetivos(salida.objetivos, { pago: !!estado.pago });
   const anterioresAgente = previos.filter(x => x.from === 'agente').map(x => String(x.texto)).slice(-4);
   const ultimoAgente = anterioresAgente[anterioresAgente.length - 1] ?? '';
+  // Lo que se pide con opciones (presencial o virtual…): el mensaje tiene que nombrarlas, y nunca puede preguntar otra cosa en su lugar.
+  const objDato = salida.objetivos.find(o => ['obtener_dato_agenda', 'ofrecer_consulta', 'obtener_filtro'].includes(o.tipo) && o.detalle);
+  const defDato = objDato ? definicionDeFiltro(cfg, String(objDato.detalle)) : undefined;
+  // Un día con número ("miércoles 28") solo puede salir de la agenda, de los datos del turno o de lo que escribió la persona.
+  const fechasConocidas = limpiarParaComparar([...personaTextos, ...salida.datos, ...salida.objetivos.map(o => o.texto), ...ofrecidos.map(x => nombreDeDia(x.fecha)), estado.turno ? nombreDeDia(estado.turno.fecha) : ''].join(' '));
+  const fechasInventadas = (t: string) => (limpiarParaComparar(t).match(/\b(?:lunes|martes|miercoles|jueves|viernes|sabado|domingo) \d{1,2}\b/g) ?? []).filter(f => !fechasConocidas.includes(f));
+  // Un importe ("$3.000") solo puede salir de los datos del director o de lo que escribió la persona: nunca uno inventado.
+  const importesConocidos = new Set(importesEnTexto([...salida.datos, ...salida.objetivos.map(o => o.texto), ...personaTextos].join(' ')));
+  const importesInventados = (t: string) => importesEnTexto(t).filter(x => !importesConocidos.has(x));
+  const objetivosSeguros = salida.objetivos.filter(o => o.tipo !== 'responder');
   for (let i = 0; i < 8; i++) {
     const r = await deps.redactar!(sistemaTxt, mensajes);
     texto = r.content.filter(b => b.type === 'text').map(b => String(b.text)).join('\n').trim();
@@ -3111,13 +3304,28 @@ async function turnoV2(a: {
     const problemas: string[] = texto ? [...problemasDeEstilo(texto)] : [];
     const malas = horasEnTexto(texto).filter(h => !permitidas.has(h));
     if (malas.length) problemas.push(`Mencionaste horarios que no están permitidos (${malas.join(', ')}). Usá solo: ${[...permitidas].join(', ') || 'ninguno'}.`);
+    const inventadas = texto ? fechasInventadas(texto) : [];
+    if (inventadas.length) problemas.push(`Mencionaste ${inventadas.join(', ')}, que no está en la agenda: no nombres ninguna fecha que no te di.`);
+    const montosMal = texto ? importesInventados(texto) : [];
+    if (montosMal.length) problemas.push(`Mencionaste un importe que no está en DATOS QUE PODÉS USAR ($${montosMal.join(', $')}): nunca inventes un precio. Si el dato no está, decí que depende de su caso.`);
+    if (texto && defDato?.tipo === 'opcion') {
+      const dicho = limpiarParaComparar(texto);
+      const faltan = (defDato.valores ?? []).filter(v => !contieneTermino(dicho, limpiarParaComparar(v)));
+      if (faltan.length) problemas.push(`La pregunta de este mensaje es ${defDato.descripcion}: nombrá las opciones (${(defDato.valores ?? []).join(' o ')}) y no preguntes por días ni horas. Falta: ${faltan.join(', ')}.`);
+    }
     if (horasExigidas.length && !horasExigidas.every(h => horasEnTexto(texto).includes(h))) problemas.push(`Nombrá exactamente estos dos horarios, cada uno con su día y fecha: ${(exigeHorarios!.detalle as SlotOfrecido[]).map(x => `${nombreDeDia(x.fecha)} a las ${x.hora}`).join(' o ')}.`);
     if (/\bobjetivo\b|\bcasilleros?\b|situaci[oó]n actual/i.test(texto)) problemas.push('No nombres el método: nada de "objetivo", "casillero" ni "situación actual"; preguntalo como lo haría una persona (por ejemplo "¿Qué le gustaría lograr con esto?").');
     if (salida.objetivos.some(o => o.tipo === 'reorganizar_y_ofrecer') && !/entonces,?\s+si le entend[ií] bien/i.test(texto)) problemas.push('Arrancá (después del saludo, si corresponde) con «Entonces, si le entendí bien: …» devolviendo su situación ordenada en una frase, y recién después ofrecé la consulta.');
     const transferencia = salida.objetivos.find(o => o.tipo === 'reserva_transferencia');
     const faltanDatos = transferencia ? ((transferencia.detalle as { incluir?: string[] })?.incluir ?? []).filter(d => !texto.includes(d)) : [];
     if (faltanDatos.length) problemas.push(`Pasale los datos para transferir tal cual, cada uno en su línea. Faltan en tu mensaje: ${faltanDatos.join(' · ')}.`);
-    if (texto && !salida.agendoOk && afirmaTurnoAgendado(texto)) problemas.push('Todavía NO se agendó ningún turno: no digas que quedó agendado ni que se ven.');
+    // Al pedir el nombre, el mensaje dice qué horario se va a agendar (si cambió de idea, que lo sepa).
+    const hp = estado.horario_pendiente;
+    if (texto && hp && salida.objetivos.some(o => o.tipo === 'obtener_dato_agenda' && o.detalle === 'nombre') && !horasEnTexto(texto).includes(hp.hora)) problemas.push(`Nombrá el horario que se va a agendar: ${nombreDeDia(hp.fecha)} a las ${hp.hora}.`);
+    // Ya presentada, no se vuelve a saludar ni a presentar en medio de la charla.
+    if (texto && !primerMensaje && /^\s*hola\b[^.?!]*[.,!]?\s*soy\b/i.test(texto)) problemas.push('Ya te presentaste antes: no vuelvas a saludar ni a decir quién sos; seguí directo con lo que dijo la persona.');
+    // Con un turno ya agendado de antes ("gracias, nos vemos"), hablar del turno o despedirse con un "nos vemos" está bien.
+    if (texto && !salida.agendoOk && !estado.turno && afirmaTurnoAgendado(texto)) problemas.push('Todavía NO se agendó ningún turno: no digas que quedó agendado ni que se ven.');
     if (salida.objetivos.some(o => o.tipo === 'cerrar_con_respeto') && texto.includes('?')) problemas.push('Cerrá sin ninguna pregunta: agradecé y dejá la puerta abierta.');
     const temaMal = texto && estado.oferta ? temaMalNombrado(texto, cfg.ofertas[estado.oferta]?.etiqueta ?? '') : null;
     if (temaMal) problemas.push(`Escribiste «${temaMal}»: nombrá el tema solo como «${cfg.ofertas[estado.oferta!].etiqueta}», nunca como lo escribió la persona.`);
@@ -3130,7 +3338,7 @@ async function turnoV2(a: {
     if (!problemas.length || correcciones >= 3) {
       // Se agotaron las correcciones y el borrador todavía tiene un defecto de estilo: sale el mensaje seguro del director, nunca el borrador con el defecto.
       if (problemas.length) {
-        const msj = mensajeSeguro({ objetivos: salida.objetivos, estado, cfg, intencion: ext.intencion, textoCliente: a.textoCliente, primerMensaje, dicho: ext.casilleros.map(c => c.texto) });
+        const msj = mensajeSeguro({ objetivos: objetivosSeguros.length ? objetivosSeguros : salida.objetivos, estado, cfg, intencion: ext.intencion, textoCliente: a.textoCliente, primerMensaje, dicho: ext.casilleros.map(c => c.texto) });
         if (msj) { texto = msj; seguro = true; }
         break;
       }
@@ -3139,7 +3347,7 @@ async function turnoV2(a: {
       let v: { ok: boolean; motivo: string; violaciones?: { regla: string; frase: string }[] };
       try {
         const crudoV: any = await deps.verificar(PROMPT_VERIFICADOR, JSON.stringify({ borrador: texto, mensaje_anterior_del_agente: ultimoAgente || null, mensajes_anteriores_del_agente: anterioresAgente, ultimo_mensaje_de_la_persona: a.textoCliente }), esquemaVerificador);
-        v = evaluarVerificacion(crudoV, { borrador: texto, permite, anterior: anterioresAgente.join('\n'), personaTextos, anteriores: anterioresAgente, ultimoPersona: a.textoCliente, conEmocion: !!ext.emocion });
+        v = evaluarVerificacion(crudoV, { borrador: texto, permite, anterior: anterioresAgente.join('\n'), personaTextos, anteriores: anterioresAgente, ultimoPersona: a.textoCliente, conEmocion: !!ext.emocion, conPregunta: !!ext.pregunta_de_la_persona });
       } catch (e) {
         console.error('[agente v2] verificador', e instanceof Error ? e.message : e);
         verificaciones.push({ intento: i + 1, ok: true, motivo: '(el verificador no respondió: se acepta el borrador)' });
@@ -3149,7 +3357,7 @@ async function turnoV2(a: {
       if (v.ok) break;
       rechazosV++;
       if (rechazosV > 2) {
-        const msj = mensajeSeguro({ objetivos: salida.objetivos, estado, cfg, intencion: ext.intencion, textoCliente: a.textoCliente, primerMensaje, dicho: ext.casilleros.map(c => c.texto) });
+        const msj = mensajeSeguro({ objetivos: objetivosSeguros.length ? objetivosSeguros : salida.objetivos, estado, cfg, intencion: ext.intencion, textoCliente: a.textoCliente, primerMensaje, dicho: ext.casilleros.map(c => c.texto) });
         if (msj) { texto = msj; seguro = true; }
         break;
       }
@@ -3157,6 +3365,11 @@ async function turnoV2(a: {
     } else correcciones++;
     mensajes.push({ role: 'assistant', content: texto });
     mensajes.push({ role: 'user', content: `[SISTEMA ERP: Corregí tu mensaje antes de enviarlo. ${corregir.join(' ')} Mantené el objetivo, un tono cálido y siempre de usted.]` });
+  }
+  // Nunca sale un horario ni una fecha que la agenda no dio, aunque se hayan agotado las correcciones.
+  if (!seguro && texto && (horasEnTexto(texto).some(h => !permitidas.has(h)) || fechasInventadas(texto).length || importesInventados(texto).length)) {
+    const msj = mensajeSeguro({ objetivos: objetivosSeguros.length ? objetivosSeguros : salida.objetivos, estado, cfg, intencion: ext.intencion, textoCliente: a.textoCliente, primerMensaje, dicho: ext.casilleros.map(c => c.texto) });
+    if (msj) { texto = msj; seguro = true; }
   }
   // ideas de valor: las que ese mensaje usó no se vuelven a pasar
   const ideasOfrecidas = ideasParaElTurno({ cfg, estado, objetivos: salida.objetivos });
@@ -3378,7 +3591,7 @@ export async function procesarMensaje(deps: Deps, m: MsgEntrante) {
   if (!respuesta && ultimoTexto) respuesta = ultimoTexto; // si se agotaron las vueltas, mejor el último mensaje que el aviso genérico
   if (respuesta) respuesta = quitarFrasesHechas(respuesta).replace(/\*\*/g, '').replace(/^[ \t]*[-•*][ \t]+/gm, '');
   // Último recurso: si igual menciona un horario que la agenda no devolvió, se reemplaza por lo que sí hay.
-  if (respuesta && horasEnTexto(respuesta).some(h => !horasPermitidas.has(h))) respuesta = horasAgenda.size ? (slotsTurno.length ? `Tengo lugar ${ofertaConDia(slotsTurno.slice(0, 2))}. ¿Cuál le viene mejor?` : `Tengo lugar a las ${[...horasAgenda].slice(0, 2).join(' o a las ')}. ¿Cuál le viene mejor?`) : 'Para ofrecerle un horario necesito revisar la agenda. ¿Qué día y qué franja le queda más cómoda?';
+  if (!v2Hecho && respuesta && horasEnTexto(respuesta).some(h => !horasPermitidas.has(h))) respuesta = horasAgenda.size ? (slotsTurno.length ? `Tengo lugar ${ofertaConDia(slotsTurno.slice(0, 2))}. ¿Cuál le viene mejor?` : `Tengo lugar a las ${[...horasAgenda].slice(0, 2).join(' o a las ')}. ¿Cuál le viene mejor?`) : 'Para ofrecerle un horario necesito revisar la agenda. ¿Qué día y qué franja le queda más cómoda?';
   // Último recurso: nunca sale un mensaje que da por agendado un turno que no existe.
   if (respuesta && !agendoOk && vigentes.length === 0 && afirmaTurnoAgendado(respuesta)) respuesta = 'Para dejar reservado su turno todavía necesito confirmar con usted el día y la hora. ¿Qué día y qué franja horaria le queda más cómoda?';
   // Si la persona recién eligió transferencia y el modelo habló de transferir sin pasar los datos, se los agrega el sistema.
@@ -3480,7 +3693,7 @@ export function deOpenAI(msg: any): { stop_reason: string; content: BloqueLLM[] 
 
 /** Precio de lista en dólares por millón de tokens (entrada, salida). */
 const PRECIOS_USD: Record<string, [number, number]> = { 'gpt-4o-mini': [0.15, 0.6], 'gpt-4.1-mini': [0.4, 1.6], 'gpt-4o': [2.5, 10] };
-export const usoOpenAI = { llamadas: 0, entrada: 0, salida: 0, usd: 0 };
+export const usoOpenAI = { llamadas: 0, entrada: 0, salida: 0, usd: 0, fallos_de_registro: 0 };
 export const costoUsd = (modelo: string, entrada: number, salida: number) => { const [e, o] = PRECIOS_USD[modelo] ?? PRECIOS_USD['gpt-4o']; return (entrada * e + salida * o) / 1_000_000; };
 let dbUso: Db | null = null;
 let origenUso = 'agente';
@@ -3495,8 +3708,11 @@ export async function registrarUso(modelo: string, uso: any, origen: string = or
   const usd = costoUsd(modelo, entrada, salida);
   usoOpenAI.llamadas++; usoOpenAI.entrada += entrada; usoOpenAI.salida += salida; usoOpenAI.usd += usd;
   if (!dbUso) return;
-  try { await dbUso.from('uso_openai').insert({ origen, modelo, entrada, salida, usd: Number(usd.toFixed(6)) }); }
-  catch (e) { console.error('[uso] no se pudo anotar', e instanceof Error ? e.message : e); }
+  try {
+    // supabase-js no lanza cuando la base rechaza el insert: devuelve { error }; si no se mira, el gasto quedaría sin anotar en silencio.
+    const { error } = await dbUso.from('uso_openai').insert({ origen, modelo, entrada, salida, usd: Number(usd.toFixed(6)) });
+    if (error) { usoOpenAI.fallos_de_registro++; console.error('[uso] no se pudo anotar', error.message); }
+  } catch (e) { usoOpenAI.fallos_de_registro++; console.error('[uso] no se pudo anotar', e instanceof Error ? e.message : e); }
 }
 
 /** Modelo de respaldo para cuando el principal está saturado (tiene su propio cupo de uso en OpenAI). */
