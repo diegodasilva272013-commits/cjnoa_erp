@@ -34,6 +34,9 @@ const CONVERSACIONES: Record<string, { titulo: string; mensajes: string[] }> = {
     titulo: 'D2 · el chat que falló: quiero una llamada virtual, qué horarios tienen, por la mañana',
     mensajes: ['hola soy docente jubilada de ANSES y me descuentan ganancias', 'quiero una llamada virtual', 'que horarios tienen?', 'por la mañana', 'el primero', 'Marta Pérez'],
   },
+  NA: { titulo: 'NA · "no" suelto, no repregunta el descuento ni pregunta fuera del objetivo', mensajes: ['Hola por impuesto a las ganancias', 'no', 'si', 'fue por eso que te consulte', 'no me acuerdo', 'si', 'virtual', 'el primero', 'Carlos Ruiz'] },
+  NB: { titulo: 'NB · info, si, si: la consulta en 3 mensajes como máximo', mensajes: ['Hola info', 'si', 'si', 'si, quiero avanzar', 'virtual', 'el primero', 'Ana Gómez'] },
+  NC: { titulo: 'NC · todo en el primer mensaje: ofrece la consulta sin repreguntar', mensajes: ['Hola, soy maestra jubilada por ANSES y me descuentan ganancias hace años, no sé si se puede hacer algo', 'si', 'virtual', 'el primero', 'Marta Pérez'] },
   X: { titulo: 'Conversación a medida (V2_MENSAJES, separada por |)', mensajes: (process.env.V2_MENSAJES ?? '').split('|').map(x => x.trim()).filter(Boolean) },
 };
 

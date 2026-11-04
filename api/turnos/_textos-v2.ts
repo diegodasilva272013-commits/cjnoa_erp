@@ -3,6 +3,29 @@
 // Las claves salen de la función donde se usaban (<función>_<n>). Los argumentos son lo que el código calcula en cada turno.
 /* eslint-disable */
 export const TEXTOS = {
+  verificador_preguntas_prompt: `Sos un clasificador de preguntas para el agente de WhatsApp de un {{tipo_de_organizacion}}. Recibís las preguntas de un borrador de mensaje (con su índice, desde 0) y los asuntos que el mensaje DEBE preguntar. Para cada pregunta decí si "corresponde": true si pregunta por alguno de esos asuntos —aunque esté reformulada, resumida o junte varios asuntos en una sola frase—; false si pide algo distinto (otro dato, otro documento, otra información que no figura entre los asuntos). Ante la duda, true.`,
+  asunto_aclarar: (descripciones: any) => `a cuál de estos datos se refería: ${descripciones}`,
+  asuntos_por_objetivo: {
+    ofrecer_consulta: 'si quiere avanzar con la consulta, y la opción que se le ofrece elegir',
+    ofrecer_horarios: 'cuál de los horarios ofrecidos prefiere',
+    preguntar_cual: 'cuál de los horarios ofrecidos prefiere',
+    obtener_dato_agenda: 'el dato que se pide para el turno',
+    descubrir: 'lo que el objetivo quiere descubrir de su situación',
+    descubrir_situacion: 'en qué puede ayudarla el estudio',
+    profundizar: 'profundizar en lo que contó',
+    trabajar_objecion: 'qué es lo que le genera dudas',
+    responder_objecion: 'si quiere ver horarios ahora o prefiere pensarlo',
+    aclarar_dato: 'aclarar el dato del que no está segura',
+    ofrecer_llamada: 'si puede atender la llamada',
+    ofrecer_cambio_en_lugar_de_cancelar: 'si prefiere cambiar el día en lugar de cancelar',
+    preguntar_dia_reprogramar: 'qué día o franja le queda mejor',
+    reorganizar_y_ofrecer: 'si quiere avanzar',
+    no_califica: 'si tiene otra consulta',
+    fuera_de_alcance: 'si hay algo de lo que el estudio atiende en lo que se la pueda ayudar',
+    preguntar_que_le_parecio: 'qué le pareció y si quiere agendar',
+    reserva_pedir_forma: 'cómo prefiere abonar la reserva',
+  },
+  aclarar_negacion_uno: (descripcion: any, pista: any) => `No quedó claro ${descripcion}: la persona contestó que no, pero no es seguro. NO lo des por negado. Volvé a preguntárselo, con UNA sola pregunta, de forma directa y distinta a como se lo preguntaste antes, sin repetir lo que ya sabés.${pista ? ` Una forma natural de preguntarlo: «${pista}»` : ''}`,
   reflejo_corto: 'Perfecto.',
   sin_cargo: ', sin cargo',
   seguro_aclarar_negacion: (descripciones: any) => `Perdone, no me quedó claro: ¿a cuál de estos datos se refería? ${descripciones}.`,
@@ -71,29 +94,33 @@ Cada mensaje tiene tres partes, en este orden:
   redactor_primer_mensaje: (saludo: any) => `Este es tu PRIMER mensaje de la conversación. Empezalo con este SALUDO INICIAL, tal cual: «${saludo}»`,
   // ---- verificador
   verificador_prompt: `Sos un detector de problemas en borradores de mensajes de WhatsApp de un {{tipo_de_organizacion}}. Recibís un BORRADOR, el OBJETIVO del mensaje y datos del contexto. NO juzgás si el mensaje es bueno: solo listás violaciones y, para cada una, copiás TAL CUAL la frase exacta del BORRADOR donde ocurre. Si no hay ninguna, devolvés la lista vacía. Además informás qué ideas aprobadas usó el borrador.
-Categorías:
-- promesa: promete o insinúa un resultado, un recupero, un reclamo exitoso, un monto o una solución.
+Solo evaluá las reglas que figuran en "reglas_activas". Si dudás, NO la listes: es peor rechazar un mensaje bueno que dejar pasar uno dudoso.
+Contexto: "datos_permitidos" son hechos que el mensaje PUEDE decir (condiciones, importes, quién atiende, dirección): decirlos no es promesa ni invento. "preguntas_que_el_objetivo_pide" son las preguntas que el mensaje DEBE hacer, aunque las reformule, las junte en una sola frase o use otras palabras.
+Reglas:
+- promesa: promete o insinúa un resultado, un recupero, que el reclamo va a prosperar, un monto a cobrar o una solución. NO es promesa decir lo que dicen los datos_permitidos (cómo es la consulta, cuánto cuesta, que es sin compromiso).
 - consulta_o_abogado: ofrece o describe una consulta con el estudio, o nombra a un abogado o doctor. (Preguntar si tiene otra consulta no cuenta; el nombre del estudio tampoco.)
 - horarios: nombra un día de la semana, una fecha o una hora concreta para un encuentro. NO cuenta nombrar «el día de la consulta» en general ni preguntar si quiere ver horarios.
 - precios: menciona un precio, un costo, «sin cargo» o un importe.
-- agendado: afirma que un turno YA quedó agendado, reservado, reprogramado, cambiado o confirmado. Proponer coordinar un turno o preguntar si quiere uno NO cuenta.
+- agendado: afirma que un turno YA quedó agendado, reservado, reprogramado, cambiado o confirmado. Proponer coordinar un turno, preguntar si quiere uno, o nombrar el horario que se está por agendar para pedir el nombre («Para el turno del miércoles, ¿me indica su nombre?») NO cuenta.
 - pago_confirmado: dice o da a entender que recibió, verificó o validó un pago o un comprobante.
 - promete_lo_no_dado: ofrece o promete algo del estudio que no figura en el objetivo ni en los datos: recordatorios, llamados, mails, avisos, plazos, envío de documentos.
 - cancelacion_confirmada: dice o da a entender que el turno YA está cancelado o anulado, o promete devolución o descuento de lo abonado.
-- formula_empatia: usa una fórmula de empatía o una valoración propia en vez de las palabras de la persona (por ejemplo «Es natural que», «Es comprensible que», «Me preocupa que», «Es muy frustrante», «Lamento que», «Es importante que», «Se nota que», «Entiendo que», «Comprendo que», «puede generar confusión»), una frase hecha de cierre («quedo a su disposición», «no dude en…», «estoy aquí para ayudarle»), o el agente habla de sus propias emociones.
+- formula_empatia: usa una fórmula de empatía o una valoración propia en vez de las palabras de la persona (por ejemplo «Es natural que», «Es comprensible que», «Me preocupa que», «Es muy frustrante», «Lamento que», «Es importante que», «Se nota que», «Entiendo que», «Comprendo que», «puede generar confusión»), una frase hecha de cierre («quedo a su disposición», «no dude en…», «estoy aquí para ayudarle»), o el agente habla de sus propias emociones. Una palabra suelta de transición («Perfecto.», «Gracias.») NO cuenta.
 - repite_mensaje_anterior: repite una frase o una idea que ya figura en el MENSAJE ANTERIOR del agente (copiá la frase del borrador). Repetir un horario o el nombre de un turno no cuenta.
 - estructura_repetida: empieza una oración, o el mensaje entero, con la misma palabra o estructura con que ya empezaron mensajes anteriores del agente («Usted me cuenta que», «Veo que», «Entonces, si le entendí bien»). Copiá esa estructura inicial tal cual figura en el borrador. El saludo inicial no cuenta.
-- repite_dato_recien_dado: la persona acaba de responder solo un dato corto (sí, no, una opción, un nombre, un horario) y el borrador lo repite o lo confirma en vez de seguir. Decir solo una palabra natural de transición no cuenta. Contestar una pregunta de la persona tampoco.
-- apertura_prohibida: el borrador empieza contando lo que la persona dice («Usted me cuenta», «Usted me dice», «Usted me confirma», «Usted menciona», «Dado que», «Siendo usted», «Como usted»).
-- pregunta_fuera_del_objetivo: el borrador hace una pregunta (copiá esa pregunta) que pide algo que el OBJETIVO no pide. Las preguntas que el objetivo pide, aunque estén reformuladas, no cuentan.
-- opciones_inclinadas: el objetivo ofrece opciones y el borrador inclina hacia alguna: dice cuál es mejor, más cómoda, más rápida o recomendada, adelanta cuál elegiría la persona, o justifica una más que otra.
-- jerga_interna: nombra el método interno del sistema («objetivo», «casillero», «situación actual») o dice que va a hacer preguntas.
+- repite_dato_recien_dado: la persona acaba de responder solo un dato corto (sí, no, una opción, un nombre) y el borrador se lo repite o se lo confirma («Usted es docente», «La consulta será virtual») en vez de seguir. Repetir es AFIRMAR el dato como un hecho; una pregunta (con ¿?) NUNCA es repetir. Hacer la pregunta siguiente del objetivo NO es repetir. Decir solo una palabra natural de transición no cuenta. Contestar una pregunta de la persona tampoco.
+- explica_el_servicio: describe qué hace el estudio o cómo funciona el servicio (a qué se dedica, a quiénes atiende, qué reclamos hace) cuando el objetivo no lo pide. Saludar y hacer la pregunta del objetivo NO cuenta.
+- no_refleja_lo_contado: la persona se explayó (cuenta su situación, da contexto o expresa dudas) y el borrador va directo a la pregunta sin reflejar con calidez, con sus palabras, lo que contó. Una palabra suelta de transición no es reflejar.
+- pregunta_fuera_del_objetivo: el borrador hace una pregunta (copiá esa pregunta) que NO está entre las preguntas_que_el_objetivo_pide ni en el objetivo. Preguntar lo mismo que el objetivo pide, aunque cambie las palabras o junte varias preguntas del objetivo en una frase, NO cuenta.
+- opciones_inclinadas: el objetivo ofrece opciones y el borrador AFIRMA o sugiere que una es mejor, más cómoda, más rápida o recomendada, adelanta cuál elegiría la persona, o justifica una más que otra. Preguntarle a la persona cuál prefiere, o cuál le resulta más cómoda o conveniente, NO inclina; nombrar todas las opciones por igual tampoco.
+- jerga_interna: nombra el método interno del sistema («objetivo», «casillero», «situación actual») o anuncia que va a hacer preguntas.
 - tratamiento_informal: no trata de «usted» (usa «vos», «tú», «podés», «tenés», «contame»…).
 - reproche_o_apuro: reprocha o apura a la persona («ya le pregunté», «le repito», «necesito que me confirme»).
-- saludo_repetido: saluda o se presenta de nuevo cuando NO es el primer mensaje (el contexto dice si lo es).
+- saludo_repetido: saluda o se presenta de nuevo cuando NO es el primer mensaje.
 - tema_mal_nombrado: nombra el tema de la consulta con una forma distinta de la oficial (otro número, una abreviatura o un error). El contexto trae el tema oficial.
 En "ideas_usadas" listá los índices (desde 0) de las IDEAS APROBADAS del contexto que el borrador usa, aunque estén dichas con otras palabras; si no usa ninguna, la lista vacía.
-No inventes violaciones: si no estás seguro, no la listes.`,
+Ejemplos que NO son violaciones: «¿Usted es docente y se jubiló por ANSES?» cuando el objetivo pide esos dos datos; «¿Prefiere que la consulta sea presencial o virtual?»; «La consulta no tiene costo y es sin compromiso» cuando figura en datos_permitidos; «Perfecto.» al empezar.
+No inventes violaciones.`,
   instruccion_regla: {
     promesa: 'promete o insinúa un resultado',
     consulta_o_abogado: 'menciona la consulta o al abogado y todavía no corresponde',
@@ -105,7 +132,8 @@ No inventes violaciones: si no estás seguro, no la listes.`,
     pago_confirmado: 'dice que recibió o verificó un pago o comprobante que el sistema no validó: no lo afirmes',
     promete_lo_no_dado: 'ofrece o promete algo que no figura en el objetivo ni en los datos (recordatorios, llamados, avisos, plazos): no lo prometas',
     cancelacion_confirmada: 'da la cancelación por hecha o promete devolución: la cancelación solo queda REGISTRADA y el equipo la confirma',
-    apertura_prohibida: 'abre contando lo que la persona dice («Usted me cuenta…», «Dado que…», «Como usted…»): variá cómo empezás e integrá lo que dijo la persona dentro de la frase',
+    no_refleja_lo_contado: 'va directo a la pregunta aunque la persona se explayó: primero reflejá con calidez, con sus palabras, lo que contó',
+    explica_el_servicio: 'explica qué hace el estudio o cómo funciona el servicio sin que el objetivo lo pida: en el primer mensaje solo saludá y seguí con el objetivo',
     repite_mensaje_anterior: 'repite lo que ya dijo en su mensaje anterior',
     estructura_repetida: 'empieza con la misma estructura que mensajes anteriores: variá el reflejo o integralo en la frase',
     pregunta_fuera_del_objetivo: 'pregunta algo que el objetivo de este mensaje no pide: hacé solo la pregunta del objetivo',
@@ -132,25 +160,25 @@ Informá lo que la persona dijo en su ÚLTIMO mensaje. Los datos de los filtros 
 Reglas:
 - oferta_detectada: la oferta (de la lista "ofertas") por la que consulta, según de qué habla la PERSONA —nunca por lo que dijo el agente— (cada oferta trae su descripción), o null si todavía no está claro. Contar un dato general de su situación, sin decir qué necesita, no define ninguna oferta: null hasta que diga qué necesita. Si "estado" ya tiene una oferta, no la cambies salvo que la persona cambie claramente de tema.
 - filtros: datos de los campos (de la oferta, de datos_para_agendar y los que pide el estado). Cada campo trae una "ayuda": seguila. "si_no" => valor "si" o "no"; "no" SOLO si lo niega o dice algo incompatible, nunca por duda. "numero" => solo el número. "opcion" => uno de los valores permitidos. Si la persona consulta por un tema que ya implica una condición de un campo (por ejemplo, dice que quiere consultar por «los descuentos» y el campo es si le descuentan algo), incluí ese campo con la evidencia copiada.
-- Cada filtro lleva, además: "origen" ("respuesta_al_pedido" si la persona contesta el dato que el agente pidió —mirá "preguntas_pendientes" y "dato_pendiente"—; "espontaneo" si lo cuenta por su cuenta), "negacion" (solo si el valor es "no": "explicita" cuando niega la condición con contenido propio, por ejemplo dice qué es en cambio o da un dato incompatible, o cuando contesta "no" a una pregunta de UN solo dato; "ambigua" cuando es un "no" suelto a una pregunta que pedía VARIOS datos a la vez y no se sabe a cuál niega, o cuando contradice algo que ya había dicho; en cualquier otro caso "no_aplica"), "implicita" (true si contesta el dato pendiente refiriéndose a lo que ya contó antes en la conversación, sin decirlo literal) y "subtipo" (si el campo define un subtipo en "campos" y la persona lo dijo, ese valor; si no, null).
+- Cada filtro lleva, además: "origen" ("respuesta_al_pedido" si la persona contesta el dato que el agente pidió —mirá "preguntas_pendientes" y "dato_pendiente"—; "espontaneo" si lo cuenta por su cuenta), "negacion" (solo si el valor es "no": "duda" cuando dice que no sabe, no recuerda o no está segura —eso NO es un no—; "explicita" cuando niega la condición con contenido propio, por ejemplo dice qué es en cambio o da un dato incompatible, o cuando contesta "no" a una pregunta de UN solo dato; "ambigua" cuando es un "no" suelto a una pregunta que pedía VARIOS datos a la vez y no se sabe a cuál niega, o cuando contradice algo que ya había dicho; en cualquier otro caso "no_aplica"), "implicita" (true si contesta el dato pendiente refiriéndose a lo que ya contó antes en la conversación, sin decirlo literal) y "subtipo" (si el campo define un subtipo en "campos" y la persona lo dijo, ese valor; si no, null).
 - respuesta_corta: "si" o "no" SOLO si el ÚLTIMO mensaje de la persona es únicamente una afirmación o una negación, sin ningún otro contenido; si trae cualquier otra cosa, null. Una afirmación corta a una pregunta que pidió varios datos (mirá "preguntas_pendientes") contesta TODOS esos datos con "si". Una negación corta a una pregunta que pedía varios datos no dice a cuál niega: cada uno va con negacion "ambigua". Una respuesta corta nunca elige un horario ni llena un casillero.
 - RESPUESTAS CORTAS: "ultimo_mensaje_del_agente" es lo último que dijo el agente y "preguntas_pendientes" son los campos que esa pregunta quería saber (o una lista vacía). Un sí o un no a una pregunta que no pide ninguno de los campos no es un dato: no incluyas nada. "No sé", «no entiendo» o «no hice nada» NO son un "no" al dato: no incluyas ese filtro.
 - DATO PENDIENTE: "dato_pendiente" es el dato que el agente pidió en su último mensaje (o null): su tipo (filtro, casillero, horario, nombre o preferencia) y su campo. Una respuesta corta de la persona llena SOLO ese dato. Cualquier otro campo lo incluís únicamente si la persona lo dice de forma explícita en su último mensaje, con una evidencia que lo nombre y origen "espontaneo". "horario_elegido" solo si dato_pendiente es horario y la persona señala uno de los horarios ofrecidos con un ordinal, un día, una hora o una fecha: un "si" nunca elige. "nombre" es el nombre de una persona: solo si dato_pendiente es nombre o la persona se presenta («me llamo…», «soy…»); una elección («el primero», un día, «virtual») no es un nombre.
 - RESPUESTA A UN CASILLERO: "casillero_pendiente" es el casillero que el agente quiso descubrir en su último mensaje (o null). Si el ÚLTIMO mensaje de la persona contesta esa pregunta, aunque sea con pocas palabras, registralo en ESE casillero, con origen "respuesta_al_pedido", texto en tercera persona y la respuesta copiada como evidencia («no hice nada» contesta qué intentó o por qué no lo resolvió: texto «no hizo nada»).
 - casilleros (cada uno con su descripción en "casilleros_definidos"): con "texto" = lo que dijo, resumido en pocas palabras, sin agregar nada y en tercera persona de cortesía, nunca en primera persona. "expresado_por_la_persona" es true solo si la persona lo dijo con esas ideas; si lo dedujiste de otro dato, no lo incluyas. Un casillero que describe lo que la persona QUIERE lograr es su deseo propio dicho como tal: contar su situación no es un deseo. Un mismo fragmento no sirve de evidencia para dos casilleros.
 - evidencia (en filtros y casilleros): una frase COPIADA TAL CUAL de un mensaje de la persona que respalde el dato. Si no podés copiarla, no incluyas el dato.
-- estilo: "breve" si la persona escribe poco y directo, "expresivo" si se explaya y cuenta su historia o sus sentimientos. Se clasifica en cada turno por cómo escribe en su ÚLTIMO mensaje.
+- estilo: "expresivo" si el ÚLTIMO mensaje cuenta su situación con detalle, da contexto, explica o expresa dudas, preocupación o sentimientos (aunque sea un solo mensaje largo); "breve" solo si es una respuesta mínima o una frase corta y directa. Se clasifica en cada turno por cómo escribe en ese mensaje.
 - emocion: SOLO si el último mensaje de la persona expresa preocupación, frustración, cansancio o necesidad; "frase" = esa oración copiada tal cual. Aceptar, decir sí, elegir o saludar NO es una emoción: null.
 - intencion del ÚLTIMO mensaje: pregunta (la persona hace una pregunta), objecion (duda o resistencia a una propuesta del agente; una queja sobre su situación NO es una objeción), acepta (quiere avanzar; pedir ver los horarios o un turno es acepta aunque antes haya dudado), elige_horario (elige uno de los horarios ofrecidos), rechaza_horarios (no puede esos días u horarios o pide otro), rechazo_firme (dice con claridad que no le interesa o que dejen de escribirle), ambiguo (responde que sí, o «dale», o «cualquiera» sin precisar a algo que ofrecía varias opciones), otro.
 - Son preguntas de la persona (pregunta_de_la_persona, intención pregunta) también las que dudan de quién escribe o de si es real. Dudar de que sea real NO es una emoción para profundizar.
-- pregunta_de_la_persona: SOLO si el último mensaje de la persona contiene una pregunta suya, copiada tal cual; nunca una pregunta del agente. Una frase que dice que no sabe qué hacer no es una pregunta: null.
+- pregunta_de_la_persona: SOLO si el último mensaje de la persona contiene una pregunta real suya (aunque le falten los signos), copiada tal cual como la escribió; nunca una pregunta del agente. Un saludo con un tema («hola por X»), una afirmación o una frase que dice que no sabe qué hacer NO es una pregunta aunque la puedas escribir entre signos: null.
 - intenciones nuevas: reprogramar (la persona YA tiene un turno agendado —mirá "etapa" y "turno_agendado"— y quiere cambiar su fecha u hora), cancelar (quiere cancelar su turno), fuera_de_alcance (consulta por un tema que NO está en "alcance_del_estudio"; aunque lo escriba como pregunta la intención es fuera_de_alcance, no pregunta). Si todavía se le estaban ofreciendo horarios y dice que no puede ninguno, es rechaza_horarios.
 - Si el mensaje de la persona ya trae el dato de un filtro, incluilo en "filtros" en ese mismo turno; no lo dejes solo como casillero.
 - despedida: el último mensaje es SOLO un agradecimiento o una despedida, sin ningún dato, pedido ni pregunta.
 - costo_del_tramite: true SOLO si la persona pregunta cuánto cuesta o cuánto cobran por el trámite o el juicio completo, o por los honorarios del abogado (no el precio de la consulta). En ese caso su pregunta también va en pregunta_de_la_persona. En cualquier otro caso, false.
 - preferencia: SOLO si el último mensaje de la persona pide un día, una fecha o una franja: dia_relativo ("hoy", "manana" o "pasado_manana" cuando nombra el día en relación con hoy), dia (sin acento, solo si nombra el día de la semana), franja ("manana" o "tarde") o fecha (YYYY-MM-DD, solo si dice el número del día). Nunca calcules una fecha a partir de «mañana» o de un día de la semana: para eso están dia_relativo y dia. «Mañana» a secas es el día siguiente (dia_relativo "manana", franja null); «a la mañana», «en la mañana» o «por la mañana» es la franja (franja "manana", dia_relativo null). Si hay horarios ofrecidos y la persona nombra un día, es una preferencia; "evidencia" = esa frase copiada tal cual. Si no pide nada de eso, null.
 - dato_en_duda: SOLO si la persona dice que no sabe o no está segura de un dato de los campos: "campo" y la frase copiada como evidencia. No lo incluyas también en filtros. Dudar de si algo está bien o cómo se llama NO es dudar del dato. Si no, null.
-- horario_elegido: solo si eligió uno de "horarios_ofrecidos" (por ordinal, día u hora): copiá su fecha y hora exactas de esa lista; si no, null.
+- horario_elegido: solo si eligió uno de "horarios_ofrecidos" por un ordinal, un día, una hora o una fecha: copiá su fecha y hora exactas de esa lista y, en "evidencia", la frase de la persona que lo señala copiada tal cual; un «sí» o un «dale» pelado nunca elige; si no, null.
 Devolvé solo el JSON.`,
   loQueYaSabe_1: (a0: any) => `La reserva ya está abonada (${a0}, validada por el sistema).`,
   datoDeConexion_1: 'Cómo conectarse a la consulta virtual: TODAVÍA NO LO TENÉS. No prometas ni menciones enlaces, plataformas, avisos previos ni plazos. Si la persona pregunta cómo conectarse, por dónde es o pide el link, decile SOLO que el estudio le confirma por este mismo chat cómo conectarse.',

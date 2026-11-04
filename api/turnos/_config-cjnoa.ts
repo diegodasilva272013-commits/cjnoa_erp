@@ -12,6 +12,8 @@ export const CONFIG_CJNOA = {
     "tipo_de_organizacion": "estudio jurídico",
     "especialidad": "derecho previsional"
   },
+  "oferta_por_defecto": "art9_ganancias",
+  "saludo_explica_el_servicio": false,
   "saludo_inicial": "Hola, mucho gusto. Lo saluda Karina, del Centro Jurídico NOA.",
   "ideas_de_valor_en": ["ofrecer_consulta"],
   "max_ideas_por_conversacion": 1,
@@ -82,7 +84,7 @@ export const CONFIG_CJNOA = {
             "pregunta": "¿cuál de los descuentos: Ganancias, Artículo 9 o ambos?"
           },
           "descripcion": "si le descuentan Artículo 9 y/o Ganancias",
-          "ayuda": "Cualquier descuento, retención o 'me sacan plata' del haber cuenta como SI. La persona no tiene por qué saber el nombre del descuento; lo revisa el abogado.",
+          "ayuda": "Cualquier descuento, retención o 'me sacan plata' del haber cuenta como SI. La persona no tiene por qué saber el nombre del descuento; lo revisa el abogado. Si dice que consulta por el impuesto a las ganancias, por el Artículo 9 o por los descuentos del haber, ya está diciendo que los tiene: es SI, con el subtipo que nombre. 'No sé' o 'no me acuerdo' NO es NO: es una duda.",
           "pregunta": "¿Le están descontando ganancias en el recibo de su haber?"
         },
         {

@@ -3527,8 +3527,8 @@ describe('agente v2 · director + extractor + redactor (todo con modelo simulado
   beforeEach(() => ponerMinimos(MINIMOS_VIEJOS));
   afterEach(() => ponerMinimos(MINIMOS_ESTUDIO));
   const sinV1 = async () => { throw new Error('la v1 no debe llamarse en la v2'); };
-  const raw = (p: Record<string, unknown> = {}) => ({ oferta_detectada: null, filtros: [], casilleros: [], emocion: null, intencion: 'otro', respuesta_corta: null, estilo: 'breve', pregunta_de_la_persona: null, horario_elegido: null, ...p });
-  const fil = (campo: string, valor: string, evidencia: string, extra: Record<string, unknown> = {}) => ({ campo, valor, evidencia, origen: 'espontaneo', negacion: valor === 'no' ? 'explicita' : 'no_aplica', implicita: false, subtipo: null, ...extra });
+  const raw = (p: Record<string, unknown> = {}) => { const corta = ((p.filtros ?? []) as any[]).find(f => /^(si|sí|no)$/i.test(String(f.evidencia).trim())); return { oferta_detectada: null, filtros: [], casilleros: [], emocion: null, intencion: 'otro', respuesta_corta: corta ? (/^no$/i.test(String(corta.evidencia).trim()) ? 'no' : 'si') : null, estilo: 'breve', pregunta_de_la_persona: null, horario_elegido: null, ...p }; };
+  const fil = (campo: string, valor: string, evidencia: string, extra: Record<string, unknown> = {}) => ({ campo, valor, evidencia, origen: /^(si|sí|no)$/i.test(evidencia.trim()) ? 'respuesta_al_pedido' : 'espontaneo', negacion: valor === 'no' ? 'explicita' : 'no_aplica', implicita: false, subtipo: null, ...extra });
   const cas = (casillero: string, texto: string, evidencia: string, extra: Record<string, unknown> = {}) => ({ casillero, texto, evidencia, origen: 'espontaneo', expresado_por_la_persona: true, ...extra });
 
   const FRASE1 = 'Hola, soy docente jubilada por ANSES y me descuentan ganancias';
@@ -5293,8 +5293,8 @@ describe('agente v2 · ajustes: fotos y documentos, rechazo firme y nombre (mode
   beforeEach(() => ponerMinimos(MINIMOS_VIEJOS));
   afterEach(() => ponerMinimos(MINIMOS_ESTUDIO));
   const sinV1 = async () => { throw new Error('la v1 no debe llamarse en la v2'); };
-  const raw = (p: Record<string, unknown> = {}) => ({ oferta_detectada: null, filtros: [], casilleros: [], emocion: null, intencion: 'otro', respuesta_corta: null, estilo: 'breve', pregunta_de_la_persona: null, horario_elegido: null, ...p });
-  const fil = (campo: string, valor: string, evidencia: string, extra: Record<string, unknown> = {}) => ({ campo, valor, evidencia, origen: 'espontaneo', negacion: valor === 'no' ? 'explicita' : 'no_aplica', implicita: false, subtipo: null, ...extra });
+  const raw = (p: Record<string, unknown> = {}) => { const corta = ((p.filtros ?? []) as any[]).find(f => /^(si|sí|no)$/i.test(String(f.evidencia).trim())); return { oferta_detectada: null, filtros: [], casilleros: [], emocion: null, intencion: 'otro', respuesta_corta: corta ? (/^no$/i.test(String(corta.evidencia).trim()) ? 'no' : 'si') : null, estilo: 'breve', pregunta_de_la_persona: null, horario_elegido: null, ...p }; };
+  const fil = (campo: string, valor: string, evidencia: string, extra: Record<string, unknown> = {}) => ({ campo, valor, evidencia, origen: /^(si|sí|no)$/i.test(evidencia.trim()) ? 'respuesta_al_pedido' : 'espontaneo', negacion: valor === 'no' ? 'explicita' : 'no_aplica', implicita: false, subtipo: null, ...extra });
   const cas = (casillero: string, texto: string, evidencia: string, extra: Record<string, unknown> = {}) => ({ casillero, texto, evidencia, origen: 'espontaneo', expresado_por_la_persona: true, ...extra });
   const FRASE1 = 'Hola, soy docente jubilada por ANSES y me descuentan ganancias';
   const art9 = raw({ oferta_detectada: 'art9_ganancias', filtros: [fil('es_docente', 'si', FRASE1), fil('jubilado_anses', 'si', FRASE1), fil('descuento_art9_ganancias', 'si', FRASE1)], casilleros: [cas('situacion', 'le descuentan ganancias', FRASE1)] });
@@ -5461,8 +5461,8 @@ describe('agente v2 · respuestas cortas, derivación y oferta (modelo simulado,
   beforeEach(() => ponerMinimos(MINIMOS_VIEJOS));
   afterEach(() => ponerMinimos(MINIMOS_ESTUDIO));
   const sinV1 = async () => { throw new Error('la v1 no debe llamarse en la v2'); };
-  const raw = (p: Record<string, unknown> = {}) => ({ oferta_detectada: null, filtros: [], casilleros: [], emocion: null, intencion: 'otro', respuesta_corta: null, estilo: 'breve', pregunta_de_la_persona: null, horario_elegido: null, ...p });
-  const fil = (campo: string, valor: string, evidencia: string, extra: Record<string, unknown> = {}) => ({ campo, valor, evidencia, origen: 'espontaneo', negacion: valor === 'no' ? 'explicita' : 'no_aplica', implicita: false, subtipo: null, ...extra });
+  const raw = (p: Record<string, unknown> = {}) => { const corta = ((p.filtros ?? []) as any[]).find(f => /^(si|sí|no)$/i.test(String(f.evidencia).trim())); return { oferta_detectada: null, filtros: [], casilleros: [], emocion: null, intencion: 'otro', respuesta_corta: corta ? (/^no$/i.test(String(corta.evidencia).trim()) ? 'no' : 'si') : null, estilo: 'breve', pregunta_de_la_persona: null, horario_elegido: null, ...p }; };
+  const fil = (campo: string, valor: string, evidencia: string, extra: Record<string, unknown> = {}) => ({ campo, valor, evidencia, origen: /^(si|sí|no)$/i.test(evidencia.trim()) ? 'respuesta_al_pedido' : 'espontaneo', negacion: valor === 'no' ? 'explicita' : 'no_aplica', implicita: false, subtipo: null, ...extra });
   const A9 = 'art9_ganancias';
   const PREGUNTA_DOCENTE = '¿Es usted docente jubilada?';
 
