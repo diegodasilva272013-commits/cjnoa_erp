@@ -2878,10 +2878,10 @@ export function armarSistemaRedactor(a: { cfg: ConfigCliente; objetivos: Objetiv
     T.redactor_objetivo(a.objetivos.map((o, i) => `${a.objetivos.length > 1 ? `${i + 1}. ` : ''}${o.texto}`).join('\n')),
     oferta ? T.redactor_tema(oferta.etiqueta) : '',
     T.redactor_sabe(sabe.length ? sabe.map(x => `- ${x}`).join('\n') : T.redactor_nada_todavia),
-    estilo ? T.redactor_estilo(a.estado.estilo_persona, estilo) : '',
     ideas.length ? T.redactor_ideas(ideas.map(x => `- ${x.texto}`).join('\n')) : '',
     T.redactor_datos(datos.length ? datos.map(x => `- ${x}`).join('\n') : T.redactor_ninguno),
     a.primerMensaje ? T.redactor_primer_mensaje(a.cfg.saludo_inicial) : '',
+    estilo ? T.redactor_estilo(a.estado.estilo_persona, estilo) : '',
   ].filter(Boolean).join('\n');
 }
 
@@ -2901,6 +2901,8 @@ const INSTRUCCION_REGLA = T.instruccion_regla as Record<string, string>;
 const REGLAS_QUE_AFIRMAN = ['promesa', 'agendado', 'pago_confirmado', 'cancelacion_confirmada', 'repite_dato_recien_dado'];
 /** Segunda llamada, angosta: cada pregunta del borrador, ¿corresponde a lo que el objetivo pide? */
 export const esquemaPreguntas = { type: 'object', additionalProperties: false, required: ['preguntas'], properties: { preguntas: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['indice', 'corresponde'], properties: { indice: { type: 'integer' }, corresponde: { type: 'boolean' } } } } } };
+export const esquemaReflejo = { type: 'object', additionalProperties: false, required: ['oracion_que_retoma', 'es_formula_de_empatia', 'refleja'], properties: { oracion_que_retoma: { type: 'string' }, es_formula_de_empatia: { type: 'boolean' }, refleja: { type: 'boolean' } } };
+export const promptReflejo = (cfg: ConfigCliente) => rellenar(T.verificador_reflejo_prompt, datosDelAgente(cfg));
 export const promptPreguntas = (cfg: ConfigCliente) => rellenar(T.verificador_preguntas_prompt, datosDelAgente(cfg));
 
 /**
@@ -3252,6 +3254,13 @@ async function turnoV2(a: {
           const fuera = (Array.isArray(crudoQ?.preguntas) ? crudoQ.preguntas : []).filter((x: any) => x?.corresponde === false && Number.isInteger(x?.indice) && preguntasDelBorrador[x.indice]);
           if (fuera.length) v = { ok: false, motivo: fuera.map((x: any) => T.motivo_de_violacion(preguntasDelBorrador[x.indice], T.instruccion_regla.pregunta_fuera_del_objetivo)).join(' ').slice(0, u.largo_maximo_del_motivo), ideas_usadas: v.ideas_usadas };
         }
+        // Tercera revisión, angosta: si la persona se explayó, entre el saludo y la pregunta tiene que haber una oración que retome lo que contó.
+        if (v.ok && ext.estilo === 'expresivo' && !respondioUnPedido && a.textoCliente.trim()) {
+          const crudoR: any = await deps.verificar(promptReflejo(cfg), JSON.stringify({ lo_que_conto_la_persona: a.textoCliente, borrador: texto }), esquemaReflejo);
+          const oracionR = String(crudoR?.oracion_que_retoma ?? '').trim();
+          if (crudoR?.es_formula_de_empatia === true) v = { ok: false, motivo: T.motivo_de_violacion(oracionR || texto, T.instruccion_regla.formula_empatia).slice(0, u.largo_maximo_del_motivo), ideas_usadas: v.ideas_usadas };
+          else if (crudoR?.refleja === false || !oracionR || oracionR.includes('?') || limpiarParaComparar(cfg.saludo_inicial).includes(limpiarParaComparar(oracionR)) || !limpiarParaComparar(texto).includes(limpiarParaComparar(oracionR))) v = { ok: false, motivo: T.motivo_de_violacion(texto, T.instruccion_regla.no_refleja_lo_contado).slice(0, u.largo_maximo_del_motivo), ideas_usadas: v.ideas_usadas };
+        }
       } catch (e) {
         console.error('[agente v2] verificador', e instanceof Error ? e.message : e);
         verificaciones.push({ intento: i + 1, ok: true, motivo: T.turnoV2_17 });
@@ -3493,11 +3502,11 @@ export async function procesarMensaje(deps: Deps, m: MsgEntrante) {
     console.error('[agente] modelo', e);
   }
   if (!respuesta && ultimoTexto) respuesta = ultimoTexto; // si se agotaron las vueltas, mejor el último mensaje que el aviso genérico
-  if (respuesta) respuesta = quitarFrasesHechas(respuesta).replace(/\*\*/g, '').replace(/^[ \t]*[-•*][ \t]+/gm, '');
+  if (respuesta) respuesta = (v2Hecho ? respuesta : quitarFrasesHechas(respuesta)).replace(/\*\*/g, '').replace(/^[ \t]*[-•*][ \t]+/gm, '');
   // Último recurso: si igual menciona un horario que la agenda no devolvió, se reemplaza por lo que sí hay.
   if (!v2Hecho && respuesta && horasEnTexto(respuesta).some(h => !horasPermitidas.has(h))) respuesta = horasAgenda.size ? (slotsTurno.length ? `Tengo lugar ${ofertaConDia(slotsTurno.slice(0, 2))}. ¿Cuál le viene mejor?` : `Tengo lugar a las ${[...horasAgenda].slice(0, 2).join(' o a las ')}. ¿Cuál le viene mejor?`) : 'Para ofrecerle un horario necesito revisar la agenda. ¿Qué día y qué franja le queda más cómoda?';
   // Último recurso: nunca sale un mensaje que da por agendado un turno que no existe.
-  if (respuesta && !agendoOk && vigentes.length === 0 && afirmaTurnoAgendado(respuesta)) respuesta = 'Para dejar reservado su turno todavía necesito confirmar con usted el día y la hora. ¿Qué día y qué franja horaria le queda más cómoda?';
+  if (!v2Hecho && respuesta && !agendoOk && vigentes.length === 0 && afirmaTurnoAgendado(respuesta)) respuesta = 'Para dejar reservado su turno todavía necesito confirmar con usted el día y la hora. ¿Qué día y qué franja horaria le queda más cómoda?';
   // Si la persona recién eligió transferencia y el modelo habló de transferir sin pasar los datos, se los agrega el sistema.
   if (pasarDatos && transferenciaRegistradaAhora && /transfer/i.test(respuesta) && !LINEA_DATOS_PAGO.test(respuesta) && !/centrojuridiconoa680|\bCVU\b/i.test(respuesta)) {
     respuesta = `${respuesta.trim()}\n\n${(datosPago || DATOS_PAGO_DEFAULT).split(/\s*·\s*/).join('\n')}`;
@@ -3508,7 +3517,7 @@ export async function procesarMensaje(deps: Deps, m: MsgEntrante) {
   if (salidaInsegura(respuesta, secretosDelEntorno())) { console.error('[agente] salida bloqueada por contener datos internos'); respuesta = MSG_SALIDA_BLOQUEADA; }
   if (!respuesta) respuesta = MSG_SIN_RESPUESTA; // nunca dejamos al cliente sin respuesta
   // La primera respuesta de la conversación siempre se presenta (aunque la persona haya empezado con otra pregunta).
-  if (deps.presentarse && !previos.some(x => x.from === 'agente') && respuesta !== MSG_SIN_RESPUESTA && respuesta !== MSG_SALIDA_BLOQUEADA && !/karina/i.test(respuesta)) {
+  if (!v2Hecho && deps.presentarse && !previos.some(x => x.from === 'agente') && respuesta !== MSG_SIN_RESPUESTA && respuesta !== MSG_SALIDA_BLOQUEADA && !/karina/i.test(respuesta)) {
     const saludo = /^\s*(?:hola|buen[oa]s?(?:\s+(?:d[ií]as|tardes|noches))?)(?:,?\s+[\p{L}]+)?\s*[.!]\s*/iu;
     const sinSaludo = saludo.test(respuesta) ? respuesta.replace(saludo, '') : respuesta.replace(/^\s*(?:hola|buen[oa]s?(?:\s+(?:d[ií]as|tardes|noches))?)[,\s]+/i, '');
     respuesta = `Hola, soy Karina, del Centro Jurídico NOA. ${sinSaludo}`;
