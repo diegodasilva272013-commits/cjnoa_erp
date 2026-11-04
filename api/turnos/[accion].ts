@@ -2901,6 +2901,8 @@ const INSTRUCCION_REGLA = T.instruccion_regla as Record<string, string>;
 const REGLAS_QUE_AFIRMAN = ['promesa', 'agendado', 'pago_confirmado', 'cancelacion_confirmada', 'repite_dato_recien_dado'];
 /** Segunda llamada, angosta: cada pregunta del borrador, ¿corresponde a lo que el objetivo pide? */
 export const esquemaPreguntas = { type: 'object', additionalProperties: false, required: ['preguntas'], properties: { preguntas: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['indice', 'corresponde'], properties: { indice: { type: 'integer' }, corresponde: { type: 'boolean' } } } } } };
+export const esquemaFormulas = { type: 'object', additionalProperties: false, required: ['oraciones_con_formula'], properties: { oraciones_con_formula: { type: 'array', items: { type: 'string' } } } };
+export const promptFormulas = (cfg: ConfigCliente) => rellenar(T.verificador_formulas_prompt, datosDelAgente(cfg));
 export const esquemaReflejo = { type: 'object', additionalProperties: false, required: ['oracion_que_retoma', 'es_formula_de_empatia', 'refleja'], properties: { oracion_que_retoma: { type: 'string' }, es_formula_de_empatia: { type: 'boolean' }, refleja: { type: 'boolean' } } };
 export const promptReflejo = (cfg: ConfigCliente) => rellenar(T.verificador_reflejo_prompt, datosDelAgente(cfg));
 export const promptPreguntas = (cfg: ConfigCliente) => rellenar(T.verificador_preguntas_prompt, datosDelAgente(cfg));
@@ -3209,6 +3211,7 @@ async function turnoV2(a: {
     // El objetivo puede exigir una frase literal (por ejemplo, el arranque de un resumen) y el primer mensaje lleva el saludo de la config.
     for (const o of salida.objetivos) if (o.exige_frase && texto && !limpiarParaComparar(texto).includes(limpiarParaComparar(o.exige_frase))) problemas.push(T.problema_exige_frase(o.exige_frase));
     if (texto && primerMensaje && !limpiarParaComparar(texto).includes(limpiarParaComparar(cfg.saludo_inicial))) problemas.push(T.problema_saludo_inicial(cfg.saludo_inicial));
+    if (texto && !primerMensaje && limpiarParaComparar(texto).includes(limpiarParaComparar(cfg.saludo_inicial))) problemas.push(T.problema_saludo_repetido);
     const transferencia = salida.objetivos.find(o => o.tipo === 'reserva_transferencia');
     const faltanDatos = transferencia ? ((transferencia.detalle as { incluir?: string[] })?.incluir ?? []).filter(d => !texto.includes(d)) : [];
     if (faltanDatos.length) problemas.push(T.turnoV2_8(faltanDatos.join(' · ')));
@@ -3253,6 +3256,12 @@ async function turnoV2(a: {
           const crudoQ: any = await deps.verificar(promptPreguntas(cfg), JSON.stringify({ asuntos_que_el_mensaje_debe_preguntar: preguntasDelObjetivo, preguntas_del_borrador: preguntasDelBorrador }), esquemaPreguntas);
           const fuera = (Array.isArray(crudoQ?.preguntas) ? crudoQ.preguntas : []).filter((x: any) => x?.corresponde === false && Number.isInteger(x?.indice) && preguntasDelBorrador[x.indice]);
           if (fuera.length) v = { ok: false, motivo: fuera.map((x: any) => T.motivo_de_violacion(preguntasDelBorrador[x.indice], T.instruccion_regla.pregunta_fuera_del_objetivo)).join(' ').slice(0, u.largo_maximo_del_motivo), ideas_usadas: v.ideas_usadas };
+        }
+        // Revisión angosta de fórmulas: cada oración del borrador que valora o usa una fórmula de empatía en vez de las palabras de la persona.
+        if (v.ok) {
+          const crudoF: any = await deps.verificar(promptFormulas(cfg), JSON.stringify({ borrador: texto }), esquemaFormulas);
+          const conFormula = (Array.isArray(crudoF?.oraciones_con_formula) ? crudoF.oraciones_con_formula : []).map((x: unknown) => String(x ?? '').trim()).filter((x: string) => x && limpiarParaComparar(texto).includes(limpiarParaComparar(x)) && !limpiarParaComparar(cfg.saludo_inicial).includes(limpiarParaComparar(x)));
+          if (conFormula.length) v = { ok: false, motivo: conFormula.map((x: string) => T.motivo_de_violacion(x, T.instruccion_regla.formula_empatia)).join(' ').slice(0, u.largo_maximo_del_motivo), ideas_usadas: v.ideas_usadas };
         }
         // Tercera revisión, angosta: si la persona se explayó, entre el saludo y la pregunta tiene que haber una oración que retome lo que contó.
         if (v.ok && ext.estilo === 'expresivo' && !respondioUnPedido && a.textoCliente.trim()) {
