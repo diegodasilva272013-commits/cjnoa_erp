@@ -16,3 +16,6 @@ graphify-out/
 public/jubilación docente Dr Fabricio Reyes.mp4
 
 .env.pruebas
+
+# chats exportados de WhatsApp y backups de la importacion manual (datos de clientes)
+scripts/data/
