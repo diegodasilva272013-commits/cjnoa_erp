@@ -1010,6 +1010,19 @@ export function quitarFrasesHechas(txt: string): string {
   return reescrito.length >= 10 ? reescrito : txt;
 }
 
+/**
+ * Saca del borrador las oraciones que son una fórmula ("Entiendo que…", "Es comprensible que…", "Estaré aquí…").
+ * Si lo que queda sigue teniendo contenido (y la pregunta, si había una), sale eso; si no, el borrador queda igual y lo corrigen los controles.
+ */
+export function quitarOracionesConFormula(txt: string): string {
+  const oraciones = String(txt ?? '').split(/(?<=[.!?])\s+/).filter(o => o.trim());
+  const quedan = oraciones.filter(o => !REGEX_FORMULA.test(o) && !REGEX_CLICHE.test(o));
+  if (quedan.length === oraciones.length || !quedan.length) return txt;
+  if (txt.includes('?') && !quedan.some(o => o.includes('?'))) return txt;
+  if (quedan.every(o => o.includes('?')) && quedan.length === 1 && oraciones.length > 2) return txt; // solo quedaría la pregunta de un mensaje largo
+  return quedan.join(' ').trim();
+}
+
 export function problemasDeEstilo(txt: string): string[] {
   const out: string[] = [];
   if (REGEX_PROMESAS.test(txt)) out.push('No prometas ni insinúes resultados ni recuperos. Decí que el abogado analiza su caso en la consulta.');
@@ -1980,6 +1993,10 @@ export type EstadoV2 = {
   gestion?: 'reprogramando' | 'cancelando';
   /** Cuántas veces ya se trabajó una objeción (la primera se pregunta, la segunda se responde, la tercera se deja la puerta abierta). */
   objeciones?: number;
+  /** El agente ya le dijo un importe (el valor de la consulta): una duda sobre eso es una objeción aunque todavía no se le haya ofrecido nada. */
+  precio_informado?: boolean;
+  /** Turno en que, al responder una objeción, se le preguntó si quería ver los horarios: un "sí" al siguiente es pedir los horarios. */
+  horarios_propuestos?: number;
   /** Ya se le preguntó qué día o franja le queda mejor para cambiar el turno. */
   reprogramar_pregunto?: boolean;
   /** Antes de cancelar se le ofreció UNA vez cambiar el día. */
@@ -2074,7 +2091,7 @@ Reglas:
 - casilleros (cada uno con su descripción en "casilleros_definidos"): situacion, objetivo, brecha, historial, compromiso, con "texto" = lo que dijo, resumido en pocas palabras, sin agregar nada y en tercera persona de cortesía ("le descuentan ganancias", "no sabía que se podía reclamar"), nunca en primera persona. "objetivo" es lo que la persona dice que QUIERE lograr ("quiero…", "necesito…", "busco…"): contar su situación o que le descuentan no es un objetivo; si no lo dijo, no lo incluyas. "brecha" es por qué no lo resolvió hasta ahora (no sabía, no se animó, no tuvo tiempo, no pudo). "historial" es qué intentó antes. Un mismo fragmento no sirve de evidencia para dos casilleros.
 - evidencia (en filtros y casilleros): una frase COPIADA TAL CUAL de un mensaje de la persona que respalde el dato. Si no podés copiarla, no incluyas el dato.
 - emocion: SOLO si el último mensaje de la persona expresa preocupación, frustración, cansancio o necesidad (me preocupa, no puedo, intenté, necesito, quiero que…, me cuesta, estoy cansada, me frustra, es injusto…); "frase" = esa oración copiada tal cual. Aceptar, decir sí, elegir o saludar NO es una emoción: null.
-- intencion del ÚLTIMO mensaje: pregunta (la persona hace una pregunta), objecion (duda o resistencia a una propuesta del agente: "lo voy a pensar", "es caro", "no tengo tiempo"; una queja sobre su situación, como "es injusto", NO es una objeción), acepta (quiere avanzar), elige_horario (elige uno de los horarios ofrecidos), rechaza_horarios (no puede esos días u horarios o pide otro), rechazo_firme (dice con claridad que no le interesa: "no me interesa", "no quiero", "dejá de escribirme"), ambiguo (responde "sí", "dale", "cualquiera" sin precisar a algo que ofrecía varias opciones), otro.
+- intencion del ÚLTIMO mensaje: pregunta (la persona hace una pregunta), objecion (duda o resistencia a una propuesta del agente: "lo voy a pensar", "es caro", "no tengo tiempo"; una queja sobre su situación, como "es injusto", NO es una objeción), acepta (quiere avanzar; pedir ver los horarios o un turno, como "puedo ver los horarios" o "¿qué días hay?", es acepta aunque antes haya dudado), elige_horario (elige uno de los horarios ofrecidos), rechaza_horarios (no puede esos días u horarios o pide otro), rechazo_firme (dice con claridad que no le interesa: "no me interesa", "no quiero", "dejá de escribirme"), ambiguo (responde "sí", "dale", "cualquiera" sin precisar a algo que ofrecía varias opciones), otro.
 - Son preguntas de la persona (pregunta_de_la_persona, intención pregunta) también las que dudan de quién escribe: «¿quién sos?», «¿esto es una estafa?», «¿sos un robot?», «¿de dónde escriben?». Dudar de que sea real NO es una emoción para profundizar.
 - pregunta_de_la_persona: SOLO si el último mensaje de la persona contiene una pregunta suya, copiada tal cual; nunca una pregunta del agente. "No sé qué hacer" no es una pregunta: null.
 - intenciones nuevas: reprogramar (la persona YA tiene un turno agendado —mirá "etapa" y "turno_agendado"— y quiere cambiar su fecha u hora: "quiero cambiar la fecha", "no puedo ese día", "pasalo para otro día"), cancelar (quiere cancelar su turno: "quiero cancelar", "no voy a poder ir", "borrá el turno", "cancelalo igual"), fuera_de_alcance (consulta por un tema que NO está en "alcance_del_estudio", como un divorcio o un tema laboral; aunque lo escriba como pregunta —«¿me pueden ayudar con un divorcio?»— la intención es fuera_de_alcance, no pregunta). Si todavía se le estaban ofreciendo horarios y dice que no puede ninguno, es rechaza_horarios.
@@ -2160,7 +2177,8 @@ export function validarExtraccion(raw: any, a: { cfg: ConfigCliente; personaText
     if (def.tipo === 'si_no') { const n = normalizar(v); valor = n === 'si' || n === 'no' ? n : ''; }
     else if (def.tipo === 'numero') valor = /^\d{1,3}$/.test(v) ? v : '';
     else if (def.tipo === 'opcion') { const n = normalizar(v); valor = (def.valores ?? []).includes(n) ? n : ''; }
-    else valor = v.length > 0 && v.length <= 120 && !(def.campo === 'nombre' && (NO_ES_NOMBRE.has(normalizar(v)) || !pareceElNombreDeUnaPersona(v))) ? v : '';
+    // "null", "undefined" o "n/a" escritos como texto no son un dato: el modelo no sabía el valor.
+    else valor = v.length > 0 && v.length <= 120 && !/^(?:null|undefined|none|n\/?a|-)$/i.test(v) && !(def.campo === 'nombre' && (NO_ES_NOMBRE.has(normalizar(v)) || !pareceElNombreDeUnaPersona(v))) ? v : '';
     let evidencia = valor ? evidenciaCompleta(String(f?.evidencia ?? '').trim(), a.personaTextos, []) : null;
     // Un sí o un no corto no tiene palabras propias: vale solo si responde la pregunta que el agente hizo sobre ESTE campo,
     // y la evidencia es esa pregunta. Con otra pregunta (o sin pregunta) no se registra nada.
@@ -2199,7 +2217,10 @@ export function validarExtraccion(raw: any, a: { cfg: ConfigCliente; personaText
     if (valor && evidencia) out.filtros.push({ campo: def.campo, valor, evidencia: evidencia.slice(0, 300) });
   }
   // La respuesta corta de la persona llena SOLO el dato que se le pidió. Si el extractor no lo devolvió, se completa acá con lo que ella dijo.
-  if (aplicaPendiente && pend && !['pregunta', 'objecion', 'rechazo_firme'].includes(String(raw.intencion ?? ''))) {
+  // Un mensaje que es solo el número que se le pidió ("65") contesta el dato, aunque el extractor lo haya rotulado objeción o pregunta.
+  const defPend = pend?.tipo === 'filtro' && pend.campo ? definicionDeFiltro(a.cfg, pend.campo) : undefined;
+  const soloElNumero = defPend?.tipo === 'numero' && /^\s*\d{1,3}(?:\s*a[nñ]os)?[.!\s]*$/i.test(ultimoMsg);
+  if (aplicaPendiente && pend && (soloElNumero || !['pregunta', 'objecion', 'rechazo_firme'].includes(String(raw.intencion ?? '')))) {
     const campoPend = pend.tipo === 'nombre' ? 'nombre' : pend.tipo === 'filtro' ? pend.campo : undefined;
     const def = campoPend ? definicionDeFiltro(a.cfg, campoPend) : undefined;
     const dicho = ultimoMsg.trim().replace(/[.!\s]+$/, '');
@@ -2239,6 +2260,7 @@ export function validarExtraccion(raw: any, a: { cfg: ConfigCliente; personaText
     if (evidencia) out.casilleros.push({ casillero, texto: texto.slice(0, 300), evidencia: evidencia.slice(0, 300) });
   }
   out.intencion = (INTENCIONES as readonly string[]).includes(raw.intencion) ? raw.intencion : 'otro';
+  if (soloElNumero) out.intencion = 'otro';
   const ultimo = a.personaTextos[a.personaTextos.length - 1] ?? '';
   // La emoción tiene que estar en el ÚLTIMO mensaje (no en uno viejo) y no puede ser una aceptación o una elección.
   if (raw.emocion && typeof raw.emocion === 'object' && !['acepta', 'ambiguo', 'elige_horario', 'rechaza_horarios', 'rechazo_firme'].includes(out.intencion)) {
@@ -2253,6 +2275,12 @@ export function validarExtraccion(raw: any, a: { cfg: ConfigCliente; personaText
     // la pregunta puede ir dentro de un mensaje más largo ("hola soy maestra … cuanto sale la consulta"): se mira ella, no la oración que la contiene
     const hay = oracion !== null && (oracion.includes('?') || pregunta.includes('?') || /^\s*¿?\s*(?:qu[eé]|c[oó]mo|cu[aá]nt[oa]s?|cu[aá]nd[oa]|d[oó]nde|por qu[eé]|qui[eé]n(?:es)?|cu[aá]l(?:es)?|me pueden|se puede|puedo|tienen|tiene|hay)\b/i.test(pregunta));
     if (hay) out.pregunta_de_la_persona = pregunta.slice(0, 300);
+  }
+  // El modelo a veces copia una pregunta de un mensaje viejo: si el último mensaje trae su propia pregunta, es esa.
+  if (out.intencion === 'pregunta' && !out.pregunta_de_la_persona) {
+    // un "qué?" suelto es no haber entendido, no una pregunta para contestar
+    const propia = trozosDe(ultimo).map(t => t.trim()).filter(t => limpiarParaComparar(t).split(' ').filter(Boolean).length >= 2).find(t => t.includes('?') || /^\s*¿?\s*(?:qu[eé]|c[oó]mo|cu[aá]nt[oa]s?|cu[aá]nd[oa]|d[oó]nde|por qu[eé]|qui[eé]n(?:es)?|cu[aá]l(?:es)?|me pueden|pueden|se puede|puedo|tienen|tiene|hay)\b/i.test(t));
+    if (propia) out.pregunta_de_la_persona = propia.slice(0, 300);
   }
   if (out.intencion === 'pregunta' && !out.pregunta_de_la_persona) out.intencion = 'otro';
   const h = raw.horario_elegido;
@@ -2613,11 +2641,13 @@ async function dirigirTurnoBase(a: EntradaDirector): Promise<SalidaDirector> {
     if (ext.intencion === 'fuera_de_alcance') return { tipo: 'fuera_de_alcance', texto: `La persona consulta por un tema que el estudio no atiende. Decíselo con amabilidad y tacto${cfg.agente.alcance ? ` (el estudio se ocupa de ${cfg.agente.alcance})` : ''}, sin ofrecerle la consulta ni horarios, y preguntale si hay algo de lo que sí atendemos en lo que puedas ayudarla.` };
     // 2. objeción
     if (ext.intencion === 'acepta' || ext.intencion === 'elige_horario') delete estado.objeciones;
-    if (ext.intencion === 'objecion' && estado.etapa !== 'descubrir') { // antes de proponer algo, una queja no es una objeción: se atiende como emoción
+    // antes de proponer algo, una queja no es una objeción: se atiende como emoción. Si ya se le dijo el precio, dudar de eso sí lo es.
+    if (ext.intencion === 'objecion' && (estado.etapa !== 'descubrir' || estado.precio_informado)) {
       const n = estado.objeciones ?? 0;
       estado.objeciones = n + 1;
-      if (n === 0) return { tipo: 'trabajar_objecion', texto: 'La persona puso una duda u objeción. Primero entendé qué hay detrás con UNA pregunta abierta y cálida. No discutas, no insistas y no la respondas todavía con argumentos.' };
-      if (n === 1) return { tipo: 'responder_objecion', texto: 'La persona ya te contó qué la hace dudar (mirá lo que escribió). Reconocéselo con tus palabras, sin repetir la pregunta que ya le hiciste ni el argumento anterior, y respondé con UNA sola idea tomada de IDEAS DE VALOR o de DATOS QUE PODÉS USAR. Dejale la decisión a ella, sin presionar, y preguntale con UNA pregunta si quiere que le muestres horarios ahora o prefiere pensarlo.' };
+      if (n === 0) return { tipo: 'trabajar_objecion', texto: 'La persona puso una duda u objeción. No la califiques ni la valores (nada de «entiendo», «claro», «es comprensible», «es natural»): recibila con calma, en una frase corta que le deje claro que no tiene que decidir nada ahora, y preguntale con UNA pregunta abierta y cálida qué es lo que la hace dudar. No discutas, no insistas y no la respondas todavía con argumentos.' };
+      if (n === 1) estado.horarios_propuestos = a.turno;
+      if (n === 1) return { tipo: 'responder_objecion', texto: `La persona ya te contó qué la hace dudar: «${String(ext.emocion?.frase ?? a.textoCliente ?? '').trim().slice(0, 200)}». Arrancá nombrando de qué se trata esa duda (el precio, el tiempo, si le sirve…) como tema de la frase («Sobre el precio, …»), sin copiar su frase ni ponerla entre comillas, sin calificarla ni valorarla (nada de «entiendo», «es comprensible», «es natural», «es importante»), y contestala con UN hecho concreto de DATOS QUE PODÉS USAR que responda justo esa duda (si duda del precio o de poder pagarlo: lo que dicen los datos sobre cuánto es, cuándo y dónde se paga y qué recibe en la consulta). Nada de frases generales como «le permitirá entender mejor» o «puede ser clave». Solo si ningún dato la responde, usá UNA idea de IDEAS DE VALOR. Nunca digas lo que hacen, piensan o eligen otras personas. No repitas la pregunta que ya le hiciste ni el argumento anterior. Dejale la decisión a ella, sin presionar, y preguntale con UNA pregunta si quiere que le muestres horarios ahora o prefiere pensarlo.` };
       return { tipo: 'dejar_puerta_abierta', texto: 'La persona sigue dudando. No insistas ni repitas argumentos: agradecele, decile que la consulta sigue disponible, sin compromiso, para cuando quiera, y que puede escribir cuando decida. Sin preguntas.' };
     }
     // 2a. quiere saber cuánto cuesta el trámite completo: si el estudio aprobó ofrecer una llamada con el abogado, se la ofrece (sin inventar ningún monto)
@@ -2693,7 +2723,10 @@ async function dirigirTurnoBase(a: EntradaDirector): Promise<SalidaDirector> {
         const loQueDijo = oferta.filtros.filter(f => f.opcional && estado.filtros[f.campo]).map(f => `Hacele saber que tomaste nota de ${f.descripcion}: ${estado.filtros[f.campo].valor}. Escribilo de usted, en tercera persona y con lo que ella dijo, nunca copies su frase en primera persona. `).join('');
         const pistaDeModalidad = falta ? 'Si por lo que contó vive lejos del estudio o no puede viajar, ofrecé primero la opción que le ahorra el viaje; si no, presentá las opciones con naturalidad. ' : '';
         // Ya dijo todo lo que va antes de los horarios (por ejemplo, "quiero una llamada virtual"): pidió la consulta; no se le pregunta si quiere avanzar, se le ofrecen los horarios.
-        const yaLaPidio = (oferta.datos_antes_de_horarios ?? []).length > 0 && !falta;
+        // También la pidió si se le preguntó "¿le muestro horarios ahora?" al responder su objeción y dijo que sí.
+        // ("pueden mostrarme los horarios" a veces llega como pregunta: se le contesta y se le muestran)
+        const pidioHorarios = ['acepta', 'pregunta'].includes(ext.intencion) && estado.horarios_propuestos === a.turno - 1;
+        const yaLaPidio = !falta && ((oferta.datos_antes_de_horarios ?? []).length > 0 || pidioHorarios);
         if (yaLaPidio) prefijoOferta = `${encuadre}${loQueDijo}Contale en UNA frase la condición de la consulta (DATOS QUE PODÉS USAR: con quién es, dónde es y lo que dice sobre el costo). `;
         else return {
           tipo: 'ofrecer_consulta', detalle: falta?.campo,
@@ -2860,7 +2893,7 @@ El sistema ya decidió qué corresponde, qué datos tiene la persona y qué hora
 ## Cómo escribís cada mensaje
 Cada mensaje tiene tres partes, en este orden:
 1. Si la persona solo respondió un dato ("si", "no", "virtual", un nombre, un horario), NO lo repitas ni lo reflejes: seguí directo, como mucho con una palabra natural ("Perfecto.", "Bien.", "Gracias."), variándola. Si la persona cuenta algo con significado o emoción (una preocupación, una historia, una queja), reflejá lo que siente, no lo que dijo, con SUS palabras y sin fórmulas. No expreses emociones ni valoraciones tuyas ("me preocupa", "debe ser difícil", "es frustrante").
-2. Aportás valor en UNA frase: algo que le ordene la situación o le haga ver algo que no estaba viendo, sin vender ni prometer. Si el sistema te da IDEAS DE VALOR APROBADAS, elegí UNA que tenga que ver con lo que dijo la persona y decila con sus palabras: no inventes otra. Si no te da ninguna en este turno, omití esta parte. Por ejemplo (no se copia literal): "muchas personas en su situación descubren el descuento recién cuando miran el recibo con detalle."
+2. Aportás valor en UNA frase: algo que le ordene la situación o le haga ver algo que no estaba viendo, sin vender ni prometer. Si el sistema te da IDEAS DE VALOR APROBADAS, elegí UNA que tenga que ver con lo que dijo la persona y decila con sus palabras: no inventes otra. Si no te da ninguna en este turno, omití esta parte.
 3. La pregunta del objetivo, si corresponde (UNA sola). Si el objetivo no pide pregunta, no inventes una.
 - Mensajes cortos: de dos a cuatro frases, texto plano de WhatsApp, sin listas, viñetas, negritas ni emojis.
 - Una idea por mensaje. Sin anunciar preguntas ("le voy a hacer unas preguntas"), sin numerar, sin menús de opciones.
@@ -2875,6 +2908,7 @@ Cada mensaje tiene tres partes, en este orden:
 - Preguntar algo que figure en LO QUE YA SABÉS DE ESTA PERSONA, aunque lo haya dicho con otras palabras.
 - Inventar datos, horarios, precios, plazos, enlaces o cómo funciona la consulta virtual (si preguntan, el equipo coordina los detalles antes de la consulta).
 - Usar un dato que no esté en DATOS QUE PODÉS USAR: si no está ahí, decís con naturalidad que eso se ve más adelante.
+- Decir lo que hacen, piensan, eligen o descubren otras personas ("muchas personas en su situación…"): no lo sabés.
 - Decir que un turno quedó agendado, salvo que el objetivo sea confirmar el turno.
 - Pedir claves, ni recibos, ni documentos por este chat.
 
@@ -3052,6 +3086,12 @@ export function evaluarVerificacion(crudo: any, a: { borrador: string; permite: 
     if (!(REGLAS_VERIFICADOR as readonly string[]).includes(regla) || !en(a.borrador, frase)) continue;
     if (regla === 'consulta_o_abogado' && a.permite.consulta_y_abogado) continue;
     if (regla === 'horarios' && a.permite.horarios) continue;
+    // un horario es un día, una fecha o una hora: "se abona el día de la consulta" o "¿le muestro horarios?" no nombran ninguno
+    if (regla === 'horarios' && !/\b(?:lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bado|domingo|hoy|ma[nñ]ana)\b|\d{1,2}[:.]\d{2}|\b\d{1,2}\s+de\s+[a-záéíóú]+|\b\d{1,2}\s*(?:hs|h)\b/i.test(frase)) continue;
+    // proponer un turno con una pregunta ("¿le gustaría coordinar un turno?") no dice que ya esté agendado
+    if (regla === 'agendado' && frase.includes('?')) continue;
+    // "podemos coordinar un turno" propone; dar por agendado necesita decir que quedó, está o ya se hizo
+    if (regla === 'agendado' && !/\b(?:qued[oóa]|est[aá]|ya|agendad[oa]s?|reservad[oa]s?|confirmad[oa]s?|reprogramad[oa]s?|cambi[eé]|listo)\b/i.test(frase)) continue;
     if (regla === 'precios' && a.permite.precios) continue;
     if (regla === 'agendado' && a.permite.agendado) continue;
     if (regla === 'pago_confirmado' && a.permite.pago) continue;
@@ -3072,7 +3112,7 @@ export function evaluarVerificacion(crudo: any, a: { borrador: string; permite: 
   if (a.ultimoPersona !== undefined) {
     for (let k = validas.length - 1; k >= 0; k--) if (validas[k].regla === 'repite_dato_recien_dado') validas.splice(k, 1);
     // Contestar una pregunta ("¿cuánto sale la consulta?") no es repetir un dato que dio.
-    const corto = !a.conEmocion && !a.conPregunta && limpiarParaComparar(a.ultimoPersona).split(' ').filter(Boolean).length <= 4;
+    const corto = !a.conEmocion && !a.conPregunta && !a.ultimoPersona.includes('?') && limpiarParaComparar(a.ultimoPersona).split(' ').filter(Boolean).length <= 4;
     const previa = a.anteriores?.length ? preguntaDelAgente(a.anteriores[a.anteriores.length - 1]) : null;
     const repetido = corto ? datoRepetidoEnLaPrimeraOracion(a.borrador, a.ultimoPersona, previa) : null;
     if (repetido) validas.push({ regla: 'repite_dato_recien_dado', frase: repetido });
@@ -3108,8 +3148,12 @@ export function mensajeSeguro(a: { objetivos: Objetivo[]; estado: EstadoV2; cfg:
   // El reflejo integra lo que dijo la persona (ya resumido en tercera persona por el extractor), sin comillas: «Le descuentan ganancias del haber.»
   const dicho = (a.dicho ?? []).map(x => String(x).trim().replace(/[.\s]+$/, '')).filter(Boolean)[0] ?? '';
   const personaCorta = limpiarParaComparar(a.textoCliente).split(' ').filter(Boolean).length <= 4;
-  const reflejo = dicho && !personaCorta && !['acepta', 'ambiguo', 'elige_horario', 'rechaza_horarios'].includes(a.intencion)
+  // Ante una duda u objeción no se festeja ("Perfecto.") ni se agradece: se la recibe.
+  const conObjecion = ['trabajar_objecion', 'responder_objecion'].includes(o.tipo);
+  const reflejo = conObjecion ? '' : dicho && !personaCorta && !['acepta', 'ambiguo', 'elige_horario', 'rechaza_horarios'].includes(a.intencion)
     ? `${dicho.charAt(0).toUpperCase()}${dicho.slice(1)}.` : (personaCorta ? 'Perfecto.' : 'Gracias por contármelo.');
+  // La idea de valor aprobada que todavía no se usó (de la config): es lo que responde la objeción en el mensaje seguro.
+  const idea = o.tipo === 'responder_objecion' ? (ideasParaElTurno({ cfg: a.cfg, estado: a.estado, objetivos: a.objetivos })[0]?.texto ?? '') : '';
   const saludo = a.primerMensaje ? `Hola, soy ${a.cfg.agente.nombre}, del ${a.cfg.agente.estudio}. ` : '';
   const pregunta = (campo: unknown) => { const d = definicionDeFiltro(a.cfg, String(campo)); return d?.pregunta ?? (d ? `¿Me cuenta ${d.descripcion}?` : null); };
   const dia = (x: { fecha: string; hora: string }) => `${nombreDeDia(x.fecha)} a las ${x.hora}`;
@@ -3118,7 +3162,7 @@ export function mensajeSeguro(a: { objetivos: Objetivo[]; estado: EstadoV2; cfg:
     case 'descubrir': cuerpo = `${reflejo} ${a.cfg.ejemplos_pregunta?.[String(o.detalle)]?.[0] ?? `¿Me cuenta ${a.cfg.casilleros[String(o.detalle)] ?? 'un poco más'}?`}`; break;
     case 'descubrir_situacion': cuerpo = `${reflejo} ${a.cfg.ejemplos_pregunta?.situacion?.[0] ?? '¿Me cuenta qué le está pasando?'}`; break;
     case 'profundizar': cuerpo = `${reflejo} ¿Me cuenta un poco más sobre eso?`; break;
-    case 'trabajar_objecion': cuerpo = `${reflejo} ¿Qué es lo que le genera dudas?`; break;
+    case 'trabajar_objecion': cuerpo = 'No tiene que decidir nada ahora. ¿Qué es lo que le genera dudas?'; break;
     case 'obtener_filtro': { const q = pregunta(o.detalle); cuerpo = q ? `${reflejo} ${q}` : null; break; }
     case 'no_califica': cuerpo = `${reflejo} Este reclamo en particular no le corresponde. ¿Tiene alguna otra consulta?`; break;
     case 'reorganizar_y_ofrecer': {
@@ -3141,7 +3185,7 @@ export function mensajeSeguro(a: { objetivos: Objetivo[]; estado: EstadoV2; cfg:
     }
     case 'ofrecer_horarios': { const d = (o.detalle as SlotOfrecido[]) ?? []; cuerpo = d.length === 2 ? `Le ofrezco dos horarios: ${dia(d[0])} o ${dia(d[1])}. ¿Cuál le queda mejor?` : null; break; }
     case 'ofrecer_llamada': cuerpo = 'Eso se lo puede explicar un abogado del estudio por teléfono, sin compromiso. ¿Podría atender una llamada?'; break;
-    case 'responder_objecion': cuerpo = `${reflejo} ¿Prefiere que le muestre horarios ahora o prefiere pensarlo?`; break;
+    case 'responder_objecion': cuerpo = `${idea} ¿Prefiere que le muestre horarios ahora o prefiere pensarlo?`.trim(); break;
     case 'dejar_puerta_abierta': cuerpo = 'La consulta sigue disponible, sin compromiso, para cuando quiera. Puede escribirnos cuando lo decida.'; break;
     case 'preguntar_dia_reprogramar': cuerpo = '¿Qué día o qué franja del día le queda mejor para su turno?'; break;
     case 'ofrecer_cambio_en_lugar_de_cancelar': cuerpo = '¿Prefiere que busquemos otro día para su turno en lugar de cancelarlo?'; break;
@@ -3301,6 +3345,8 @@ async function turnoV2(a: {
     const r = await deps.redactar!(sistemaTxt, mensajes);
     texto = r.content.filter(b => b.type === 'text').map(b => String(b.text)).join('\n').trim();
     intentos.push(texto);
+    // una oración que solo es una fórmula se saca (sin gastar una corrección); el resto del borrador pasa por los mismos controles
+    texto = quitarOracionesConFormula(texto);
     const problemas: string[] = texto ? [...problemasDeEstilo(texto)] : [];
     const malas = horasEnTexto(texto).filter(h => !permitidas.has(h));
     if (malas.length) problemas.push(`Mencionaste horarios que no están permitidos (${malas.join(', ')}). Usá solo: ${[...permitidas].join(', ') || 'ninguno'}.`);
@@ -3371,6 +3417,7 @@ async function turnoV2(a: {
     const msj = mensajeSeguro({ objetivos: objetivosSeguros.length ? objetivosSeguros : salida.objetivos, estado, cfg, intencion: ext.intencion, textoCliente: a.textoCliente, primerMensaje, dicho: ext.casilleros.map(c => c.texto) });
     if (msj) { texto = msj; seguro = true; }
   }
+  if (texto && importesEnTexto(texto).length) estado.precio_informado = true;
   // ideas de valor: las que ese mensaje usó no se vuelven a pasar
   const ideasOfrecidas = ideasParaElTurno({ cfg, estado, objetivos: salida.objetivos });
   if (ideasOfrecidas.length && !seguro) {

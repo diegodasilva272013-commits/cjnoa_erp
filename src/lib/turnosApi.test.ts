@@ -4,7 +4,7 @@ import { createHmac } from 'node:crypto';
 import handler, {
   clasificarRecibo, TIPOS_CONSULTA, promesaSinCumplir, separarDatosPago, mensajeApurado,
   aMin, limpiarSecreto, camposDeLead, etapaAutomatica, fusionarLead, registrarMensaje, upsertLead, firmaMetaValida, firmaKapsoValida, extraerMensajesKapso, extraerMensajes, aMensajesLLM, procesarMensaje, filaDePersona, esConversacionDeNoa, clasificarMensajeCliente, categoriaMensajeAgente, personaMetrica, agregarMetricasAgente, calcularMetricasAgente, evaluarOptimizaciones, validarOptimizaciones, ejecutarOptimizacion, type MetricasAgente, motivoDeExclusion, resumenEnPalabras, ejecutarAnalista, revisarAnalisisAutomatico, codigosDeEstilo, etapaEmbudo, analizarConversacion, calcularMetricas, mascararDatos, textoParaEtiquetar, validarEtiquetas, promptDelAgente, limpiarCachePrompt, accionAgentes, problemasDeEstilo, textoNoLegible, firmaMercadoPagoValida, importeTexto, importeLindo, asignarImporteUnico, procesarPagoMP, montoMercadoPago, enmascarar, neutralizarMarcas, salidaInsegura, superaLimite, urlMediaSegura, resumenTurnosVigentes, HERRAMIENTAS_LLM, cuerpoNotaDeVoz, notaDeImagen, montoValidadoDe, quitarEtiquetas, aMensajesOpenAI, deOpenAI, ejecutarHerramienta, PROMPT_AGENTE, type Deps, telefonoClave, historialDe, inferirNombre, normalizarFecha, normalizarHora, bloquesDelDia, huecosLibres, localDe, resolverProfesional, diaSemanaISO, fechaValida,
-  importesEnTexto, registrarSinResponder, registrarUso, fijarDbUso, costoUsd, esDudaOObjecion, esRechazoFirme, horasEnTexto, quitarFrasesHechas, REGEX_CLICHE, condicionesArt9Confirmadas, campanaDelTexto, probarAgentePaso, chatAgentePaso, preguntasAfirmadas, evidenciaCompleta, REGEX_PROMESAS, validarExtraccion, aplicarExtraccion, elegirDosHorarios, horarioSenialado, pareceElNombreDeUnaPersona, primeraPalabraDeMensaje, ideasParaElTurno, ideasUsadasEn, aperturaProhibida, datoRepetidoEnLaPrimeraOracion, cumplePreferencia, datosDeIdentidad, datoDeConexion, INTENCIONES, armarSistemaRedactor, permiteDeObjetivos, mensajeSeguro, PROMPT_VERIFICADOR, esquemaVerificador, evaluarVerificacion, aperturaDeMensaje, muletillaRepetida, esquemaExtractor, PROMPT_REDACTOR, PROMPT_EXTRACTOR, CONFIG_CLIENTE, leerEstadoV2, estadoV2Vacio, extraccionVacia, funcionesV2, textoFaltaRegistrar, AVISO_DERIVACION, horariosOfrecidosEn, ofrecidosVigentes, textoOfrecidos, horasSinDia, ofertaConDia, condicionDeAgenda, registrarMensajeHumano, extraerHumanosKapso, responderDesdeErp, resumenCampana, analizarCampana, analisisSoloConCifrasReales, esRespuestaCortaSiNo, preguntaDelAgente, temaMalNombrado, contieneTermino, completarOpcionesDichas,
+  importesEnTexto, quitarOracionesConFormula, registrarSinResponder, registrarUso, fijarDbUso, costoUsd, esDudaOObjecion, esRechazoFirme, horasEnTexto, quitarFrasesHechas, REGEX_CLICHE, condicionesArt9Confirmadas, campanaDelTexto, probarAgentePaso, chatAgentePaso, preguntasAfirmadas, evidenciaCompleta, REGEX_PROMESAS, validarExtraccion, aplicarExtraccion, elegirDosHorarios, horarioSenialado, pareceElNombreDeUnaPersona, primeraPalabraDeMensaje, ideasParaElTurno, ideasUsadasEn, aperturaProhibida, datoRepetidoEnLaPrimeraOracion, cumplePreferencia, datosDeIdentidad, datoDeConexion, INTENCIONES, armarSistemaRedactor, permiteDeObjetivos, mensajeSeguro, PROMPT_VERIFICADOR, esquemaVerificador, evaluarVerificacion, aperturaDeMensaje, muletillaRepetida, esquemaExtractor, PROMPT_REDACTOR, PROMPT_EXTRACTOR, CONFIG_CLIENTE, leerEstadoV2, estadoV2Vacio, extraccionVacia, funcionesV2, textoFaltaRegistrar, AVISO_DERIVACION, horariosOfrecidosEn, ofrecidosVigentes, textoOfrecidos, horasSinDia, ofertaConDia, condicionDeAgenda, registrarMensajeHumano, extraerHumanosKapso, responderDesdeErp, resumenCampana, analizarCampana, analisisSoloConCifrasReales, esRespuestaCortaSiNo, preguntaDelAgente, temaMalNombrado, contieneTermino, completarOpcionesDichas,
   type Bloque,
 } from '../../api/turnos/[accion]';
 
@@ -3854,7 +3854,9 @@ describe('agente v2 · director + extractor + redactor (todo con modelo simulado
   it('ronda 3 · prompt del redactor: las tres partes (entender con sus palabras, valor en una frase, pregunta) y no nombrar el método', () => {
     expect(PROMPT_REDACTOR).toContain('Cada mensaje tiene tres partes, en este orden');
     expect(PROMPT_REDACTOR).toContain('Aportás valor en UNA frase');
-    expect(PROMPT_REDACTOR).toContain('descubren el descuento recién cuando miran el recibo con detalle');
+    // nada de prueba social inventada: el agente no sabe lo que hacen otras personas
+    expect(PROMPT_REDACTOR).not.toContain('muchas personas en su situación descubren');
+    expect(PROMPT_REDACTOR).toContain('Decir lo que hacen, piensan, eligen o descubren otras personas');
     expect(PROMPT_REDACTOR).toMatch(/nunca escribas "objetivo", "casillero" ni "situación actual"/);
   });
   it('ronda 3 · control de salida: fórmulas de empatía y promesas se corrigen', () => {
@@ -4014,6 +4016,67 @@ describe('agente v2 · director + extractor + redactor (todo con modelo simulado
     expect(c.cuerpos[0].respuestas[0]).toContain(BUENO);
     expect(c.cuerpos[0].v2.mensaje_seguro).toBe(false);
   });
+  it('fórmulas: la oración que solo es una fórmula se saca y queda el resto del mensaje', () => {
+    expect(quitarOracionesConFormula('Entiendo que es una decisión importante. No tiene que decidir nada ahora. ¿Qué la hace dudar?')).toBe('No tiene que decidir nada ahora. ¿Qué la hace dudar?');
+    expect(quitarOracionesConFormula('Sobre el costo, es comprensible que lo considere. La consulta vale $50.000 y se abona en el estudio. ¿Prefiere ver horarios?')).toBe('La consulta vale $50.000 y se abona en el estudio. ¿Prefiere ver horarios?');
+    // sin fórmula, o si no quedaría nada útil, el borrador no se toca
+    expect(quitarOracionesConFormula('Perfecto. ¿Qué edad tiene?')).toBe('Perfecto. ¿Qué edad tiene?');
+    expect(quitarOracionesConFormula('Entiendo que le preocupa.')).toBe('Entiendo que le preocupa.');
+  });
+
+  it('extractor: "65" cuando se le preguntó la edad es la edad, aunque el modelo lo rotule objeción', () => {
+    const v = validarExtraccion(raw({ oferta_detectada: 'jubilacion_aportes', filtros: [fil('edad', '65', '65')], intencion: 'objecion' }), { cfg: CONFIG_CLIENTE, personaTextos: ['compra de aportes', '65'], ofrecidos: [], datoPendiente: { tipo: 'filtro', campo: 'edad' }, ultimoAgente: '¿Qué edad tiene?' } as any);
+    expect(v.filtros.find(f => f.campo === 'edad')?.valor).toBe('65');
+    expect(v.intencion).toBe('otro');
+  });
+
+  it('extractor: si el modelo copia una pregunta de un mensaje viejo, vale la pregunta del último mensaje', () => {
+    const v = validarExtraccion(raw({ intencion: 'pregunta', pregunta_de_la_persona: 'donde seria si fuera presencial?' }), { cfg: CONFIG_CLIENTE, personaTextos: ['donde seria si fuera presencial?', 'precencial', 'que horarios tenes?'], ofrecidos: [] });
+    expect(v.pregunta_de_la_persona).toBe('que horarios tenes?');
+    expect(v.intencion).toBe('pregunta');
+  });
+
+  it('extractor: pedir ver los horarios es aceptar, aunque antes haya dudado', () => {
+    expect(PROMPT_EXTRACTOR).toContain('pedir ver los horarios o un turno');
+  });
+
+  it('verificador: "el día de la consulta" o "¿le muestro horarios?" no son un horario, y proponer un turno con una pregunta no es darlo por agendado', () => {
+    const borrador = 'Sobre el costo, la consulta vale $50.000 y se abona en el estudio el día de la consulta. ¿Prefiere que le muestre horarios ahora o prefiere pensarlo? ¿Le gustaría coordinar un turno?';
+    const ctx = { borrador, permite: permiteDeObjetivos([{ tipo: 'responder_objecion', texto: '' }]), anterior: '' };
+    const sinVarias = (r: ReturnType<typeof evaluarVerificacion>) => r.violaciones.filter(v => v.regla !== 'varias_preguntas');
+    expect(sinVarias(evaluarVerificacion({ violaciones: [{ regla: 'horarios', frase: 'se abona en el estudio el día de la consulta.' }] }, ctx))).toEqual([]);
+    expect(sinVarias(evaluarVerificacion({ violaciones: [{ regla: 'horarios', frase: '¿Prefiere que le muestre horarios ahora o prefiere pensarlo?' }] }, ctx))).toEqual([]);
+    expect(sinVarias(evaluarVerificacion({ violaciones: [{ regla: 'agendado', frase: '¿Le gustaría coordinar un turno?' }] }, ctx))).toEqual([]);
+    const b2 = 'Podemos coordinar un turno para que analice su caso. Su turno quedó agendado.';
+    const ctx2 = { borrador: b2, permite: permiteDeObjetivos([{ tipo: 'ofrecer_consulta', texto: '' }]), anterior: '' };
+    expect(evaluarVerificacion({ violaciones: [{ regla: 'agendado', frase: 'Podemos coordinar un turno para que analice su caso.' }] }, ctx2).ok).toBe(true);
+    expect(evaluarVerificacion({ violaciones: [{ regla: 'agendado', frase: 'Su turno quedó agendado.' }] }, ctx2).ok).toBe(false);
+  });
+
+  it('verificador: contestar "¿qué horarios tenés?" con los horarios no es repetir el dato que dio', () => {
+    const borrador = 'Le ofrezco dos horarios: miércoles 4 de noviembre a las 09:00 o jueves 5 de noviembre a las 09:00. ¿Cuál le queda mejor?';
+    const r = evaluarVerificacion({ violaciones: [] }, { borrador, permite: permiteDeObjetivos([{ tipo: 'ofrecer_horarios', texto: '' }]), anterior: '', ultimoPersona: 'que horarios tenes?', anteriores: ['¿Me indica su nombre y apellido para el turno del jueves 5 de noviembre a las 09:00?'] });
+    expect(r.ok).toBe(true);
+  });
+
+  it('objeción: si el agente ya dijo el precio, "es caro" es una objeción aunque todavía no se ofreció la consulta', async () => {
+    estudio();
+    const jub = (extra: any = {}) => raw({ oferta_detectada: 'jubilacion_aportes', ...extra });
+    const c = await conversar([
+      { persona: 'me faltan aportes, cuanto cuesta la consulta?', extractor: () => jub({ intencion: 'pregunta', pregunta_de_la_persona: 'cuanto cuesta la consulta?' }) },
+      { persona: 'tengo 57 años. es caro, lo tengo que pensar', extractor: () => jub({ filtros: [fil('edad', '57', 'tengo 57 años')], intencion: 'objecion', emocion: { frase: 'es caro, lo tengo que pensar' } }) },
+      { persona: 'es mucha plata, no sé si vale la pena', extractor: () => jub({ intencion: 'objecion', emocion: { frase: 'es mucha plata, no sé si vale la pena' } }) },
+      // dice que sí a "¿le muestro horarios ahora?": van los horarios, no se le vuelve a ofrecer la consulta
+      { persona: 'me gustaría ver los horarios disponibles', extractor: () => jub({ intencion: 'acepta' }) },
+    ], (sis: string, msgs: any[]) => /cuanto cuesta/.test(String(msgs[msgs.length - 1]?.content)) ? 'La consulta vale $50.000 y se abona en el estudio. ¿Qué edad tiene?'
+      : /exactamente DOS/.test(sis) ? redactorFalso(sis)
+      : /La persona ya te contó qué la hace dudar/.test(sis) ? 'Sobre la plata, reservar el turno no cuesta nada y la consulta se abona en el estudio. ¿Prefiere que le muestre horarios ahora o prefiere pensarlo?'
+      : 'No tiene que decidir nada ahora. ¿Qué la hace dudar?');
+    expect(c.tipos[1]).toEqual(['trabajar_objecion']);
+    expect(c.tipos[2]).toEqual(['responder_objecion']);
+    expect(c.tipos[3]).toEqual(['ofrecer_horarios']);
+  });
+
   it('ronda 4 · evaluarVerificacion: el código descarta citas que no están en el borrador y categorías que el objetivo permite', () => {
     const borrador = 'Le ofrezco lunes 26 a las 09:00. ¿Cuál le queda mejor?';
     const ctx = (tipo: string, anterior = '') => ({ borrador, permite: permiteDeObjetivos([{ tipo, texto: '' }]), anterior });
@@ -4023,8 +4086,9 @@ describe('agente v2 · director + extractor + redactor (todo con modelo simulado
     expect(evaluarVerificacion({ violaciones: [{ regla: 'horarios', frase: 'lunes 26 a las 09:00' }] }, ctx('descubrir')).ok).toBe(false);
     expect(evaluarVerificacion({ violaciones: [{ regla: 'horarios', frase: 'lunes 26 a las 09:00' }] }, ctx('ofrecer_horarios')).ok).toBe(true);
     // agendado solo se permite con confirmar_turno
-    expect(evaluarVerificacion({ violaciones: [{ regla: 'agendado', frase: 'Le ofrezco lunes 26' }] }, ctx('ofrecer_horarios')).ok).toBe(false);
-    expect(evaluarVerificacion({ violaciones: [{ regla: 'agendado', frase: 'Le ofrezco lunes 26' }] }, ctx('confirmar_turno')).ok).toBe(true);
+    const dado = (tipo: string) => ({ borrador: 'Su turno quedó agendado para el lunes 26 a las 09:00.', permite: permiteDeObjetivos([{ tipo, texto: '' }]), anterior: '' });
+    expect(evaluarVerificacion({ violaciones: [{ regla: 'agendado', frase: 'Su turno quedó agendado' }] }, dado('ofrecer_horarios')).ok).toBe(false);
+    expect(evaluarVerificacion({ violaciones: [{ regla: 'agendado', frase: 'Su turno quedó agendado' }] }, dado('confirmar_turno')).ok).toBe(true);
     // repetir: solo cuenta si la frase está también en el mensaje anterior
     expect(evaluarVerificacion({ violaciones: [{ regla: 'repite_mensaje_anterior', frase: '¿Cuál le queda mejor?' }] }, ctx('ofrecer_horarios', 'Hola. Otra cosa distinta.')).ok).toBe(true);
     const larga = 'Nada cambia hasta que alguien revise el recibo con detalle';
@@ -4104,6 +4168,23 @@ describe('agente v2 · director + extractor + redactor (todo con modelo simulado
     expect(c.cuerpos[1].v2.redactor).toHaveLength(2);
     expect(c.cuerpos[1].respuestas[0]).toBe('Quiere frenar el descuento, entonces. ¿Desde cuándo lo notó?');
   });
+  it('objeción · el mensaje seguro no festeja la duda ("Perfecto.") y responde con la idea de valor de la config', () => {
+    const e = { ...estadoV2Vacio(), oferta: 'jubilacion_aportes' };
+    const b = { estado: e, cfg: CONFIG_CLIENTE, intencion: 'objecion', primerMensaje: false };
+    const t1 = mensajeSeguro({ ...b, textoCliente: 'lo voy a pensar', objetivos: [{ tipo: 'trabajar_objecion', texto: '' }] })!;
+    expect(t1).not.toMatch(/perfecto|gracias/i);
+    expect(t1).toContain('?');
+    const t2 = mensajeSeguro({ ...b, textoCliente: 'el costo', objetivos: [{ tipo: 'responder_objecion', texto: '' }] })!;
+    expect(t2).not.toMatch(/^perfecto/i);
+    expect(t2).toContain(CONFIG_CLIENTE.ofertas.jubilacion_aportes.ideas_de_valor![0].texto);
+    expect(t2).toMatch(/horarios ahora o prefiere pensarlo\?$/);
+  });
+
+  it('extractor: "null" escrito como valor de un dato de texto no es un dato', () => {
+    const v = validarExtraccion(raw({ oferta_detectada: 'jubilacion_aportes', filtros: [fil('aportes_faltantes', 'null', 'compra de aportes')] }), { cfg: CONFIG_CLIENTE, personaTextos: ['compra de aportes'], ofrecidos: [] });
+    expect(v.filtros.find(f => f.campo === 'aportes_faltantes')).toBeUndefined();
+  });
+
   it('ronda 4 · mensajeSeguro: una versión por objetivo, y null si no hay', () => {
     const e = { ...estadoV2Vacio(), oferta: 'art9_ganancias', casilleros: { ...estadoV2Vacio().casilleros, objetivo: { texto: 'quiere que dejen de descontarle', evidencia: 'Quiero que dejen de descontarme' } as any } };
     const b = { estado: e, cfg: CONFIG_CLIENTE, intencion: 'otro', textoCliente: 'Me descuentan ganancias del haber', primerMensaje: false };
@@ -4454,7 +4535,8 @@ describe('agente v2 · director + extractor + redactor (todo con modelo simulado
       { persona: 'Ana López', extractor: () => raw({ filtros: [fil('nombre', 'Ana López', 'Ana López')] }) },
     ], redactorEstudio);
     expect(c.tipos[0]).toEqual(['ofrecer_consulta']);
-    expect(c.cuerpos[0].v2.datos.join('\n')).toContain('se abona en el estudio el día de la consulta: $50.000');
+    expect(c.cuerpos[0].v2.datos.join('\n')).toContain('$50.000, que se abonan en el estudio el día de la consulta');
+    expect(c.cuerpos[0].v2.datos.join('\n')).toContain('Nunca digas que la consulta es sin costo');
     expect(c.tipos[1]).toEqual(['ofrecer_horarios']); // sin pedir forma de reserva ni comprobante
     expect(c.tipos[2]).toEqual(['obtener_dato_agenda:nombre']);
     expect(c.tipos[3]).toEqual(['confirmar_turno']);
@@ -4754,7 +4836,8 @@ describe('agente v2 · director + extractor + redactor (todo con modelo simulado
     expect(c.tipos[0]).toEqual(['ofrecer_consulta:modalidad_consulta']);
     expect(c.tipos[1]).toEqual(['trabajar_objecion']);
     expect(c.tipos[2]).toEqual(['responder_objecion']);
-    expect(c.cuerpos[2].v2.objetivos[0].texto).toMatch(/sin repetir la pregunta/);
+    expect(c.cuerpos[2].v2.objetivos[0].texto).toMatch(/No repitas la pregunta/);
+    expect(c.cuerpos[2].v2.objetivos[0].texto).toMatch(/Nunca digas lo que hacen, piensan o eligen otras personas/);
     expect(c.tipos[3]).toEqual(['dejar_puerta_abierta']);
     expect(c.cuerpos[3].v2.objetivos[0].texto).toMatch(/Sin preguntas/);
     expect(permiteDeObjetivos([{ tipo: 'responder_objecion', texto: '' }])).toMatchObject({ consulta_y_abogado: true, horarios: false });

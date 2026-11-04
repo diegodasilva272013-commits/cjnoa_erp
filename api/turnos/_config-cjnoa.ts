@@ -158,7 +158,7 @@ export const CONFIG_CJNOA = {
         "obligatorios": [],
         "al_menos_uno_de": []
       },
-      "condicion": "La consulta es con el Dr. Fabricio Reyes, en el estudio (Hipólito Yrigoyen 680, San Salvador de Jujuy). El turno se reserva SIN COSTO por este chat y la consulta se abona en el estudio el día de la consulta: $50.000. No hay reserva, ni transferencia, ni comprobante. En la consulta el Dr. Fabricio Reyes analiza su caso y le explica qué se puede hacer y cuáles son los pasos a seguir.",
+      "condicion": "La consulta es con el Dr. Fabricio Reyes, en el estudio (Hipólito Yrigoyen 680, San Salvador de Jujuy). Reservar el turno por este chat no tiene costo; la consulta SÍ se paga: $50.000, que se abonan en el estudio el día de la consulta. Nunca digas que la consulta es sin costo o sin cargo. No hay reserva, ni transferencia, ni comprobante. En la consulta el Dr. Fabricio Reyes analiza su caso y le explica qué se puede hacer y cuáles son los pasos a seguir.",
       "urgencia": "El plan de pago de aportes de la Ley 27.705 es para quienes les faltan hasta 10 años para la edad jubilatoria (mujeres de 50 a 59 años, varones de 55 a 64) y permite ir pagando los aportes que faltan eligiendo qué períodos cancelar. Hay que terminar de pagarlo antes de cumplir la edad jubilatoria (60 las mujeres, 65 los varones): si se llega a esa edad sin cancelarlo, el plan se da de baja. La cuota se actualiza todos los meses: nunca digas un monto de cuota, y nunca prometas que se va a poder jubilar. Si la persona está fuera de esas edades o consulta por otra situación de su jubilación, igual se le ofrece la consulta: el Dr. Fabricio Reyes lo analiza en detalle.",
       "activo_de_valor": null,
       "cierre": "turno_directo",
