@@ -7,7 +7,34 @@ export const CONFIG_CJNOA = {
     "nombre": "Karina",
     "estudio": "Centro Jurídico NOA",
     "direccion": "Hipólito Yrigoyen 680, San Salvador de Jujuy",
-    "alcance": "derecho previsional: jubilaciones y el reclamo por descuentos de Impuesto a las Ganancias (Artículo 9) para docentes jubilados de ANSES"
+    "alcance": "derecho previsional: jubilaciones y el reclamo por descuentos de Impuesto a las Ganancias (Artículo 9) para docentes jubilados de ANSES",
+    "ciudad": "San Salvador de Jujuy",
+    "tipo_de_organizacion": "estudio jurídico",
+    "especialidad": "derecho previsional"
+  },
+  "saludo_inicial": "Hola, mucho gusto. Lo saluda Karina, del Centro Jurídico NOA.",
+  "ideas_de_valor_en": ["ofrecer_consulta"],
+  "max_ideas_por_conversacion": 1,
+  "umbrales": {
+    "horarios_a_ofrecer": 2,
+    "mensajes_recientes_para_el_extractor": 8,
+    "mensajes_anteriores_del_agente": 4,
+    "max_intentos_del_redactor": 8,
+    "max_correcciones_de_estilo": 3,
+    "max_rechazos_del_verificador": 2,
+    "reintentos_del_extractor": 2,
+    "bloqueo_respuestas_sin_el_dato": 2,
+    "bloqueo_turnos_pidiendo_lo_mismo": 4,
+    "hora_de_corte_manana_tarde": "13:00",
+    "aclaraciones_por_dato": 1,
+    "largo_maximo_de_frase_guardada": 300,
+    "largo_maximo_de_dato_de_texto": 120,
+    "largo_minimo_de_cita": 4,
+    "palabras_de_apertura": 3,
+    "palabras_minimas_de_apertura": 2,
+    "palabras_minimas_de_frase_repetida": 5,
+    "largo_maximo_del_motivo": 500,
+    "mensajes_para_el_redactor": 10
   },
   "casilleros": {
     "situacion": "qué le pasa hoy, en concreto",
@@ -23,6 +50,12 @@ export const CONFIG_CJNOA = {
       "campana": "art9_ganancias",
       "profesional": "alejandro",
       "tipo_consulta": "articulo9_ganancias",
+      "grupos_de_filtros": [["es_docente", "jubilado_anses", "descuento_art9_ganancias"]],
+      "max_preguntas_por_mensaje": 2,
+      "estilos": {
+        "breve": "La persona escribe corto: mensaje corto y directo, sin reflejar lo que contó y agrupando en una sola pregunta los datos que faltan del grupo.",
+        "expresivo": "La persona se explaya: primero reflejá con calidez, con sus palabras, lo que contó; después preguntá lo que falte."
+      },
       "filtros": [
         {
           "campo": "es_docente",
@@ -42,6 +75,12 @@ export const CONFIG_CJNOA = {
         {
           "campo": "descuento_art9_ganancias",
           "tipo": "si_no",
+          "subtipo": {
+            "campo": "tipo_de_descuento",
+            "opciones": ["ganancias", "art9", "ambos"],
+            "descripcion": "cuál es el descuento: Ganancias, Artículo 9 o ambos",
+            "pregunta": "¿cuál de los descuentos: Ganancias, Artículo 9 o ambos?"
+          },
           "descripcion": "si le descuentan Artículo 9 y/o Ganancias",
           "ayuda": "Cualquier descuento, retención o 'me sacan plata' del haber cuenta como SI. La persona no tiene por qué saber el nombre del descuento; lo revisa el abogado.",
           "pregunta": "¿Le están descontando ganancias en el recibo de su haber?"
@@ -68,11 +107,12 @@ export const CONFIG_CJNOA = {
         "texto": "Su situación es de las que el estudio atiende, y esos descuentos son justamente lo que el Dr. Alejandro Reyes revisa en la consulta.",
         "estado": "pendiente de aprobación del estudio"
       },
-      "vigencia_sin_cargo": "[PENDIENTE: hasta cuándo rige que la consulta es sin cargo; lo completa el estudio]",
+      "vigencia_sin_cargo": { "texto": "hasta cuándo rige que la consulta es sin cargo (lo completa el estudio)", "aprobado": false },
       "escasez_umbral": 6,
       "llamada_con_el_dr": {
         "texto": "Si necesita saber cuánto cuesta el trámite completo antes de decidir, el Dr. Alejandro Reyes puede explicárselo por una llamada telefónica, sin compromiso: usted escucha, aclara sus dudas y después decide con tranquilidad.",
-        "estado": "pendiente de aprobación del estudio"
+        "estado": "pendiente de aprobación del estudio",
+        "aprobado": false
       },
       "datos_antes_de_horarios": [
         {
@@ -128,7 +168,7 @@ export const CONFIG_CJNOA = {
           "estado": "pendiente de aprobación del estudio"
         }
       ],
-      "como_se_conecta_virtual": "[PENDIENTE: lo completa el estudio]"
+      "como_se_conecta_virtual": { "texto": "cómo se conecta la persona a la consulta virtual (lo completa el estudio)", "aprobado": false }
     },
     "jubilacion_aportes": {
       "etiqueta": "Jubilación y compra de aportes",
@@ -136,6 +176,12 @@ export const CONFIG_CJNOA = {
       "campana": "jubilacion_docente",
       "profesional": "fabricio",
       "tipo_consulta": "jubilacion_aportes",
+      "grupos_de_filtros": [["edad"], ["aportes_faltantes"]],
+      "max_preguntas_por_mensaje": 1,
+      "estilos": {
+        "breve": "La persona escribe corto: mensaje corto y directo, sin reflejar lo que contó.",
+        "expresivo": "La persona se explaya: primero reflejá con calidez, con sus palabras, lo que contó; después preguntá lo que falte."
+      },
       "filtros": [
         {
           "campo": "edad",

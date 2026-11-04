@@ -4,7 +4,7 @@ import { createHmac } from 'node:crypto';
 import handler, {
   clasificarRecibo, TIPOS_CONSULTA, promesaSinCumplir, separarDatosPago, mensajeApurado,
   aMin, limpiarSecreto, camposDeLead, etapaAutomatica, fusionarLead, registrarMensaje, upsertLead, firmaMetaValida, firmaKapsoValida, extraerMensajesKapso, extraerMensajes, aMensajesLLM, procesarMensaje, filaDePersona, esConversacionDeNoa, clasificarMensajeCliente, categoriaMensajeAgente, personaMetrica, agregarMetricasAgente, calcularMetricasAgente, evaluarOptimizaciones, validarOptimizaciones, ejecutarOptimizacion, type MetricasAgente, motivoDeExclusion, resumenEnPalabras, ejecutarAnalista, revisarAnalisisAutomatico, codigosDeEstilo, etapaEmbudo, analizarConversacion, calcularMetricas, mascararDatos, textoParaEtiquetar, validarEtiquetas, promptDelAgente, limpiarCachePrompt, accionAgentes, problemasDeEstilo, textoNoLegible, firmaMercadoPagoValida, importeTexto, importeLindo, asignarImporteUnico, procesarPagoMP, montoMercadoPago, enmascarar, neutralizarMarcas, salidaInsegura, superaLimite, urlMediaSegura, resumenTurnosVigentes, HERRAMIENTAS_LLM, cuerpoNotaDeVoz, notaDeImagen, montoValidadoDe, quitarEtiquetas, aMensajesOpenAI, deOpenAI, ejecutarHerramienta, PROMPT_AGENTE, type Deps, telefonoClave, historialDe, inferirNombre, normalizarFecha, normalizarHora, bloquesDelDia, huecosLibres, localDe, resolverProfesional, diaSemanaISO, fechaValida,
-  importesEnTexto, quitarOracionesConFormula, registrarSinResponder, registrarUso, fijarDbUso, costoUsd, esDudaOObjecion, esRechazoFirme, horasEnTexto, quitarFrasesHechas, REGEX_CLICHE, condicionesArt9Confirmadas, campanaDelTexto, probarAgentePaso, chatAgentePaso, preguntasAfirmadas, evidenciaCompleta, REGEX_PROMESAS, validarExtraccion, aplicarExtraccion, elegirDosHorarios, horarioSenialado, pareceElNombreDeUnaPersona, primeraPalabraDeMensaje, ideasParaElTurno, ideasUsadasEn, aperturaProhibida, datoRepetidoEnLaPrimeraOracion, cumplePreferencia, datosDeIdentidad, datoDeConexion, INTENCIONES, armarSistemaRedactor, permiteDeObjetivos, mensajeSeguro, PROMPT_VERIFICADOR, esquemaVerificador, evaluarVerificacion, aperturaDeMensaje, muletillaRepetida, esquemaExtractor, PROMPT_REDACTOR, PROMPT_EXTRACTOR, CONFIG_CLIENTE, leerEstadoV2, estadoV2Vacio, extraccionVacia, funcionesV2, textoFaltaRegistrar, AVISO_DERIVACION, horariosOfrecidosEn, ofrecidosVigentes, textoOfrecidos, horasSinDia, ofertaConDia, condicionDeAgenda, registrarMensajeHumano, extraerHumanosKapso, responderDesdeErp, resumenCampana, analizarCampana, analisisSoloConCifrasReales, esRespuestaCortaSiNo, preguntaDelAgente, temaMalNombrado, contieneTermino, completarOpcionesDichas,
+  importesEnTexto, quitarOracionesConFormula, registrarSinResponder, registrarUso, fijarDbUso, costoUsd, esDudaOObjecion, esRechazoFirme, horasEnTexto, quitarFrasesHechas, REGEX_CLICHE, condicionesArt9Confirmadas, campanaDelTexto, probarAgentePaso, chatAgentePaso, preguntasAfirmadas, evidenciaCompleta, REGEX_PROMESAS, validarExtraccion, aplicarExtraccion, elegirHorarios, ideasParaElTurno, cumplePreferencia, datosDeIdentidad, datoDeConexion, INTENCIONES, armarSistemaRedactor, permiteDeObjetivos, mensajeSeguro, PROMPT_VERIFICADOR, esquemaVerificador, evaluarVerificacion, esquemaExtractor, PROMPT_REDACTOR, PROMPT_EXTRACTOR, CONFIG_CLIENTE, leerEstadoV2, estadoV2Vacio, extraccionVacia, funcionesV2, textoFaltaRegistrar, AVISO_DERIVACION, horariosOfrecidosEn, ofrecidosVigentes, textoOfrecidos, horasSinDia, ofertaConDia, condicionDeAgenda, registrarMensajeHumano, extraerHumanosKapso, responderDesdeErp, resumenCampana, analizarCampana, analisisSoloConCifrasReales, preguntaDelAgente, contieneTermino, 
   type Bloque,
 } from '../../api/turnos/[accion]';
 
@@ -14,6 +14,10 @@ const bloque = (o: Partial<Bloque>): Bloque => ({
 
 // La config del estudio ya no pide casilleros mínimos (sin preguntas de diagnóstico). Los tests que prueban el MECANISMO del director con
 // casilleros (que otro cliente puede configurar) corren con los mínimos de antes; los tests del estudio llaman a estudio().
+const evaluarV = (crudo: any, a: any) => evaluarVerificacion(crudo, { cfg: CONFIG_CLIENTE, maxPreguntas: 1, ...a });
+const cumpleP = (s: any, p: any) => cumplePreferencia(s, p, CONFIG_CLIENTE.umbrales.hora_de_corte_manana_tarde);
+const elegirH = (l: any) => elegirHorarios(l, CONFIG_CLIENTE.umbrales.horarios_a_ofrecer, CONFIG_CLIENTE.umbrales.hora_de_corte_manana_tarde);
+const conSaludo = (sis: string, txt: string) => (/PRIMER mensaje de la conversaci/.test(sis) && !txt.includes(CONFIG_CLIENTE.saludo_inicial) ? `${CONFIG_CLIENTE.saludo_inicial} ${txt}` : txt);
 const MINIMOS_VIEJOS = { obligatorios: ['objetivo'], al_menos_uno_de: ['brecha', 'historial', 'compromiso'] };
 const MINIMOS_ESTUDIO = { obligatorios: [] as string[], al_menos_uno_de: [] as string[] };
 // CJ NOA ya no tiene la oferta de jubilación con video y reserva (la reemplazó la de compra de aportes, que se abona en el estudio). La MECÁNICA
@@ -35,6 +39,8 @@ const CONFIG_REAL_OFERTAS = Object.keys(CONFIG_CLIENTE.ofertas);
     ayuda: '"Transferencia", "por banco", "por Mercado Pago" => transferencia; "efectivo", "en las oficinas" => efectivo.', pregunta: '¿Prefiere abonar la reserva por transferencia o en efectivo?',
     sinonimos: { transferencia: ['transferencia', 'transferir', 'transfiero', 'banco', 'mercado pago', 'mercadopago', 'alias', 'cbu'], efectivo: ['efectivo', 'en mano', 'en la oficina', 'en las oficinas', 'en el estudio', 'cash'] },
   }],
+  grupos_de_filtros: [], max_preguntas_por_mensaje: 1,
+  estilos: { breve: 'Corto y directo.', expresivo: 'Reflejá con calidez y después preguntá.' },
   casilleros_minimos: { obligatorios: [], al_menos_uno_de: [] },
   condicion: 'La consulta es con el Dr. Fabricio Reyes. El valor y la reserva (la mitad; el resto se abona el día de la consulta) los informa el sistema: nunca los inventes.',
   urgencia: null,
@@ -42,7 +48,7 @@ const CONFIG_REAL_OFERTAS = Object.keys(CONFIG_CLIENTE.ofertas);
   cierre: 'reserva_y_turno',
   datos_antes_de_horarios: [],
   ideas_de_valor: [{ texto: 'La edad y los años de servicio abren opciones distintas, por eso conviene revisarlo antes de iniciar el trámite.', estado: 'pendiente de aprobación del estudio' }],
-  como_se_conecta_virtual: '[PENDIENTE: lo completa el estudio]',
+  como_se_conecta_virtual: { texto: 'cómo se conecta (lo completa el estudio)', aprobado: false },
 };
 // Los datos opcionales de la config (por ejemplo el monto) agregan una pregunta al flujo: los tests anteriores corren sin ellos y los tests de las jugadas de Rodrigo los activan con conOpcionales().
 const FILTROS_ORIGINALES = Object.fromEntries(Object.entries(CONFIG_CLIENTE.ofertas).map(([k, o]) => [k, [...o.filtros]]));
@@ -3521,9 +3527,9 @@ describe('agente v2 · director + extractor + redactor (todo con modelo simulado
   beforeEach(() => ponerMinimos(MINIMOS_VIEJOS));
   afterEach(() => ponerMinimos(MINIMOS_ESTUDIO));
   const sinV1 = async () => { throw new Error('la v1 no debe llamarse en la v2'); };
-  const raw = (p: Record<string, unknown> = {}) => ({ oferta_detectada: null, filtros: [], casilleros: [], emocion: null, intencion: 'otro', pregunta_de_la_persona: null, horario_elegido: null, ...p });
-  const fil = (campo: string, valor: string, evidencia: string) => ({ campo, valor, evidencia });
-  const cas = (casillero: string, texto: string, evidencia: string) => ({ casillero, texto, evidencia });
+  const raw = (p: Record<string, unknown> = {}) => ({ oferta_detectada: null, filtros: [], casilleros: [], emocion: null, intencion: 'otro', respuesta_corta: null, estilo: 'breve', pregunta_de_la_persona: null, horario_elegido: null, ...p });
+  const fil = (campo: string, valor: string, evidencia: string, extra: Record<string, unknown> = {}) => ({ campo, valor, evidencia, origen: 'espontaneo', negacion: valor === 'no' ? 'explicita' : 'no_aplica', implicita: false, subtipo: null, ...extra });
+  const cas = (casillero: string, texto: string, evidencia: string, extra: Record<string, unknown> = {}) => ({ casillero, texto, evidencia, origen: 'espontaneo', expresado_por_la_persona: true, ...extra });
 
   const FRASE1 = 'Hola, soy docente jubilada por ANSES y me descuentan ganancias';
   const art9 = raw({ oferta_detectada: 'art9_ganancias', filtros: [fil('es_docente', 'si', FRASE1), fil('jubilado_anses', 'si', FRASE1), fil('descuento_art9_ganancias', 'si', FRASE1)], casilleros: [cas('situacion', 'le descuentan ganancias siendo docente jubilada', FRASE1)] });
@@ -3532,7 +3538,7 @@ describe('agente v2 · director + extractor + redactor (todo con modelo simulado
   const DIAS = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
 
   // El redactor simulado escribe lo que el objetivo pide (lee el bloque que armó el director).
-  const redactorFalso = (sis: string): string => {
+  const redactorFalsoBase = (sis: string): string => {
     let m = /Ofrecele exactamente DOS horarios, cada uno con su día y fecha: (.+?)\. Preguntale/.exec(sis);
     if (m) return `Tengo lugar ${m[1]}. ¿Cuál le queda mejor?`;
     m = /Preguntale cuál de ESTOS DOS MISMOS horarios le queda mejor: (.+?)\. No ofrezcas/.exec(sis);
@@ -3545,6 +3551,7 @@ describe('agente v2 · director + extractor + redactor (todo con modelo simulado
     if (/el equipo del estudio lo va a verificar/.test(sis)) return 'Gracias por enviarlo. El equipo del estudio lo va a verificar y se comunica con usted.';
     return 'Cuénteme un poco más de su situación. ¿Qué le gustaría lograr?';
   };
+  const redactorFalso = (sis: string): string => conSaludo(sis, redactorFalsoBase(sis));
   type Turno = { persona: string; extractor: (u: any) => any; antes?: (estado: any) => void };
   async function conversar(turnos: Turno[], redactor: (sis: string, mensajes: any[], n: number) => string = (sis) => redactorFalso(sis), nombrePerfil?: string, verificar?: (sis: string, usuario: string, esquema: unknown) => Promise<unknown>) {
     let estado: any;
@@ -3891,11 +3898,11 @@ describe('agente v2 · director + extractor + redactor (todo con modelo simulado
   });
   it('ronda 3 · dos horarios: días distintos; si hay un solo día, mañana y tarde; si hay una sola franja, los más separados', () => {
     const s = (fecha: string, hora: string) => ({ fecha, hora, profesional: 'Alejandro' });
-    expect(elegirDosHorarios([s('2026-10-26', '09:00'), s('2026-10-26', '09:30'), s('2026-10-27', '10:00'), s('2026-10-28', '09:00')]).map(x => `${x.fecha} ${x.hora}`)).toEqual(['2026-10-26 09:00', '2026-10-27 10:00']);
-    expect(elegirDosHorarios([s('2026-10-26', '09:00'), s('2026-10-26', '09:30'), s('2026-10-26', '16:00'), s('2026-10-26', '17:00')]).map(x => x.hora)).toEqual(['09:00', '16:00']);
-    expect(elegirDosHorarios([s('2026-10-26', '09:00'), s('2026-10-26', '09:30'), s('2026-10-26', '10:00'), s('2026-10-26', '11:30')]).map(x => x.hora)).toEqual(['09:00', '11:30']);
-    expect(elegirDosHorarios([s('2026-10-27', '15:00'), s('2026-10-26', '16:00')]).map(x => x.fecha)).toEqual(['2026-10-26', '2026-10-27']);
-    expect(elegirDosHorarios([s('2026-10-26', '09:00')])).toHaveLength(1);
+    expect(elegirH([s('2026-10-26', '09:00'), s('2026-10-26', '09:30'), s('2026-10-27', '10:00'), s('2026-10-28', '09:00')]).map(x => `${x.fecha} ${x.hora}`)).toEqual(['2026-10-26 09:00', '2026-10-27 10:00']);
+    expect(elegirH([s('2026-10-26', '09:00'), s('2026-10-26', '09:30'), s('2026-10-26', '16:00'), s('2026-10-26', '17:00')]).map(x => x.hora)).toEqual(['09:00', '16:00']);
+    expect(elegirH([s('2026-10-26', '09:00'), s('2026-10-26', '09:30'), s('2026-10-26', '10:00'), s('2026-10-26', '11:30')]).map(x => x.hora)).toEqual(['09:00', '11:30']);
+    expect(elegirH([s('2026-10-27', '15:00'), s('2026-10-26', '16:00')]).map(x => x.fecha)).toEqual(['2026-10-26', '2026-10-27']);
+    expect(elegirH([s('2026-10-26', '09:00')])).toHaveLength(1);
   });
   // ------------------------------------------------------------------ RONDA 4
   it('ronda 4 · datos por objetivo: con descubrir el prompt armado NO trae al abogado, la consulta sin cargo ni horarios; sí las ideas de valor', async () => {
@@ -4044,18 +4051,18 @@ describe('agente v2 · director + extractor + redactor (todo con modelo simulado
     const borrador = 'Sobre el costo, la consulta vale $50.000 y se abona en el estudio el día de la consulta. ¿Prefiere que le muestre horarios ahora o prefiere pensarlo? ¿Le gustaría coordinar un turno?';
     const ctx = { borrador, permite: permiteDeObjetivos([{ tipo: 'responder_objecion', texto: '' }]), anterior: '' };
     const sinVarias = (r: ReturnType<typeof evaluarVerificacion>) => r.violaciones.filter(v => v.regla !== 'varias_preguntas');
-    expect(sinVarias(evaluarVerificacion({ violaciones: [{ regla: 'horarios', frase: 'se abona en el estudio el día de la consulta.' }] }, ctx))).toEqual([]);
-    expect(sinVarias(evaluarVerificacion({ violaciones: [{ regla: 'horarios', frase: '¿Prefiere que le muestre horarios ahora o prefiere pensarlo?' }] }, ctx))).toEqual([]);
-    expect(sinVarias(evaluarVerificacion({ violaciones: [{ regla: 'agendado', frase: '¿Le gustaría coordinar un turno?' }] }, ctx))).toEqual([]);
+    expect(sinVarias(evaluarV({ violaciones: [{ regla: 'horarios', frase: 'se abona en el estudio el día de la consulta.' }] }, ctx))).toEqual([]);
+    expect(sinVarias(evaluarV({ violaciones: [{ regla: 'horarios', frase: '¿Prefiere que le muestre horarios ahora o prefiere pensarlo?' }] }, ctx))).toEqual([]);
+    expect(sinVarias(evaluarV({ violaciones: [{ regla: 'agendado', frase: '¿Le gustaría coordinar un turno?' }] }, ctx))).toEqual([]);
     const b2 = 'Podemos coordinar un turno para que analice su caso. Su turno quedó agendado.';
     const ctx2 = { borrador: b2, permite: permiteDeObjetivos([{ tipo: 'ofrecer_consulta', texto: '' }]), anterior: '' };
-    expect(evaluarVerificacion({ violaciones: [{ regla: 'agendado', frase: 'Podemos coordinar un turno para que analice su caso.' }] }, ctx2).ok).toBe(true);
-    expect(evaluarVerificacion({ violaciones: [{ regla: 'agendado', frase: 'Su turno quedó agendado.' }] }, ctx2).ok).toBe(false);
+    expect(evaluarV({ violaciones: [{ regla: 'agendado', frase: 'Podemos coordinar un turno para que analice su caso.' }] }, ctx2).ok).toBe(true);
+    expect(evaluarV({ violaciones: [{ regla: 'agendado', frase: 'Su turno quedó agendado.' }] }, ctx2).ok).toBe(false);
   });
 
   it('verificador: contestar "¿qué horarios tenés?" con los horarios no es repetir el dato que dio', () => {
     const borrador = 'Le ofrezco dos horarios: miércoles 4 de noviembre a las 09:00 o jueves 5 de noviembre a las 09:00. ¿Cuál le queda mejor?';
-    const r = evaluarVerificacion({ violaciones: [] }, { borrador, permite: permiteDeObjetivos([{ tipo: 'ofrecer_horarios', texto: '' }]), anterior: '', ultimoPersona: 'que horarios tenes?', anteriores: ['¿Me indica su nombre y apellido para el turno del jueves 5 de noviembre a las 09:00?'] });
+    const r = evaluarV({ violaciones: [] }, { borrador, permite: permiteDeObjetivos([{ tipo: 'ofrecer_horarios', texto: '' }]), anterior: '', ultimoPersona: 'que horarios tenes?', anteriores: ['¿Me indica su nombre y apellido para el turno del jueves 5 de noviembre a las 09:00?'] });
     expect(r.ok).toBe(true);
   });
 
@@ -4081,27 +4088,27 @@ describe('agente v2 · director + extractor + redactor (todo con modelo simulado
     const borrador = 'Le ofrezco lunes 26 a las 09:00. ¿Cuál le queda mejor?';
     const ctx = (tipo: string, anterior = '') => ({ borrador, permite: permiteDeObjetivos([{ tipo, texto: '' }]), anterior });
     // la cita inventada se ignora
-    expect(evaluarVerificacion({ violaciones: [{ regla: 'agendado', frase: 'ya quedó agendado' }] }, ctx('descubrir')).ok).toBe(true);
+    expect(evaluarV({ violaciones: [{ regla: 'agendado', frase: 'ya quedó agendado' }] }, ctx('descubrir')).ok).toBe(true);
     // horarios con el objetivo descubrir: rechaza; con ofrecer_horarios: lo permite
-    expect(evaluarVerificacion({ violaciones: [{ regla: 'horarios', frase: 'lunes 26 a las 09:00' }] }, ctx('descubrir')).ok).toBe(false);
-    expect(evaluarVerificacion({ violaciones: [{ regla: 'horarios', frase: 'lunes 26 a las 09:00' }] }, ctx('ofrecer_horarios')).ok).toBe(true);
+    expect(evaluarV({ violaciones: [{ regla: 'horarios', frase: 'lunes 26 a las 09:00' }] }, ctx('descubrir')).ok).toBe(false);
+    expect(evaluarV({ violaciones: [{ regla: 'horarios', frase: 'lunes 26 a las 09:00' }] }, ctx('ofrecer_horarios')).ok).toBe(true);
     // agendado solo se permite con confirmar_turno
     const dado = (tipo: string) => ({ borrador: 'Su turno quedó agendado para el lunes 26 a las 09:00.', permite: permiteDeObjetivos([{ tipo, texto: '' }]), anterior: '' });
-    expect(evaluarVerificacion({ violaciones: [{ regla: 'agendado', frase: 'Su turno quedó agendado' }] }, dado('ofrecer_horarios')).ok).toBe(false);
-    expect(evaluarVerificacion({ violaciones: [{ regla: 'agendado', frase: 'Su turno quedó agendado' }] }, dado('confirmar_turno')).ok).toBe(true);
+    expect(evaluarV({ violaciones: [{ regla: 'agendado', frase: 'Su turno quedó agendado' }] }, dado('ofrecer_horarios')).ok).toBe(false);
+    expect(evaluarV({ violaciones: [{ regla: 'agendado', frase: 'Su turno quedó agendado' }] }, dado('confirmar_turno')).ok).toBe(true);
     // repetir: solo cuenta si la frase está también en el mensaje anterior
-    expect(evaluarVerificacion({ violaciones: [{ regla: 'repite_mensaje_anterior', frase: '¿Cuál le queda mejor?' }] }, ctx('ofrecer_horarios', 'Hola. Otra cosa distinta.')).ok).toBe(true);
+    expect(evaluarV({ violaciones: [{ regla: 'repite_mensaje_anterior', frase: '¿Cuál le queda mejor?' }] }, ctx('ofrecer_horarios', 'Hola. Otra cosa distinta.')).ok).toBe(true);
     const larga = 'Nada cambia hasta que alguien revise el recibo con detalle';
-    expect(evaluarVerificacion({ violaciones: [{ regla: 'repite_mensaje_anterior', frase: larga }] }, { borrador: `${larga}. ¿Cuál prefiere?`, permite: permiteDeObjetivos([{ tipo: 'ofrecer_horarios', texto: '' }]), anterior: `Le cuento que ${larga}.` }).ok).toBe(false);
+    expect(evaluarV({ violaciones: [{ regla: 'repite_mensaje_anterior', frase: larga }] }, { cfg: CONFIG_CLIENTE, maxPreguntas: 1, borrador: `${larga}. ¿Cuál prefiere?`, permite: permiteDeObjetivos([{ tipo: 'ofrecer_horarios', texto: '' }]), anterior: `Le cuento que ${larga}.` }).ok).toBe(false);
     // respuesta mal formada → error (el flujo acepta el borrador)
-    expect(() => evaluarVerificacion({ ok: true }, ctx('descubrir'))).toThrow();
-    expect(evaluarVerificacion({ violaciones: [] }, ctx('descubrir'))).toMatchObject({ ok: true, motivo: '' });
+    expect(() => evaluarV({ ok: true }, ctx('descubrir'))).toThrow();
+    expect(evaluarV({ violaciones: [] }, ctx('descubrir'))).toMatchObject({ ok: true, motivo: '' });
   });
   it('ronda 4 · evaluarVerificacion: las preguntas las cuenta el código; repetir horarios no es repetirse; no_califica no recibe ideas de valor', () => {
     const ctx = (borrador: string, anterior = '') => ({ borrador, permite: permiteDeObjetivos([{ tipo: 'preguntar_cual', texto: '' }]), anterior });
-    expect(evaluarVerificacion({ violaciones: [] }, ctx('¿Cuál prefiere? ¿Y desde cuándo?')).violaciones.map(v => v.regla)).toEqual(['varias_preguntas']);
-    expect(evaluarVerificacion({ violaciones: [{ regla: 'repite_mensaje_anterior', frase: 'Cuál le queda mejor' }] }, ctx('¿Cuál le queda mejor?', 'Antes: ¿Cuál le queda mejor?')).ok).toBe(true); // frase corta
-    expect(evaluarVerificacion({ violaciones: [{ regla: 'repite_mensaje_anterior', frase: 'lunes 26 de octubre a las 10:00' }] }, ctx('Es el lunes 26 de octubre a las 10:00. ¿Me confirma?', 'Le ofrezco lunes 26 de octubre a las 10:00')).ok).toBe(true); // horario
+    expect(evaluarV({ violaciones: [] }, ctx('¿Cuál prefiere? ¿Y desde cuándo?')).violaciones.map(v => v.regla)).toEqual(['varias_preguntas']);
+    expect(evaluarV({ violaciones: [{ regla: 'repite_mensaje_anterior', frase: 'Cuál le queda mejor' }] }, ctx('¿Cuál le queda mejor?', 'Antes: ¿Cuál le queda mejor?')).ok).toBe(true); // frase corta
+    expect(evaluarV({ violaciones: [{ regla: 'repite_mensaje_anterior', frase: 'lunes 26 de octubre a las 10:00' }] }, ctx('Es el lunes 26 de octubre a las 10:00. ¿Me confirma?', 'Le ofrezco lunes 26 de octubre a las 10:00')).ok).toBe(true); // horario
     const sis = armarSistemaRedactor({ cfg: CONFIG_CLIENTE, estado: { ...estadoV2Vacio(), oferta: 'art9_ganancias' }, datos: [], primerMensaje: false, objetivos: [{ tipo: 'no_califica', texto: 'x' }] });
     expect(sis).not.toContain('IDEAS DE VALOR APROBADAS (elegí');
     expect(PROMPT_REDACTOR).toContain('Si la persona solo respondió un dato');
@@ -4121,18 +4128,18 @@ describe('agente v2 · director + extractor + redactor (todo con modelo simulado
     const permite = permiteDeObjetivos([{ tipo: 'profundizar', texto: '' }]);
     const borrador = 'Sobre lo suyo: me preocupa que me sigan sacando plata. ¿Desde cuándo?';
     const crudo = { violaciones: [{ regla: 'formula_empatia', frase: 'me preocupa que me sigan sacando plata' }] };
-    expect(evaluarVerificacion(crudo, { borrador, permite, anterior: '', personaTextos: ['Me preocupa que me sigan sacando plata todos los meses'] }).ok).toBe(true);
-    expect(evaluarVerificacion(crudo, { borrador, permite, anterior: '', personaTextos: ['Hola'] }).ok).toBe(false);
+    expect(evaluarV(crudo, { borrador, permite, anterior: '', personaTextos: ['Me preocupa que me sigan sacando plata todos los meses'] }).ok).toBe(true);
+    expect(evaluarV(crudo, { borrador, permite, anterior: '', personaTextos: ['Hola'] }).ok).toBe(false);
   });
   it('final · muletilla: empezar con la misma estructura que un mensaje anterior ("Veo que") se rechaza; una estructura nueva no', () => {
     const permite = permiteDeObjetivos([{ tipo: 'descubrir', texto: '' }]);
     const anteriores = ['Hola, soy Karina. Veo que es docente jubilada. ¿Qué le gustaría lograr?'];
     const borrador = 'Veo que nunca reclamó. ¿Desde cuándo le descuentan?';
-    const r = evaluarVerificacion({ violaciones: [{ regla: 'estructura_repetida', frase: 'Veo que' }] }, { borrador, permite, anterior: anteriores.join('\n'), anteriores });
+    const r = evaluarV({ violaciones: [{ regla: 'estructura_repetida', frase: 'Veo que' }] }, { borrador, permite, anterior: anteriores.join('\n'), anteriores });
     expect(r.ok).toBe(false);
     expect(r.motivo).toContain('misma estructura');
     // sin mensajes anteriores con esa estructura, la cita se descarta
-    expect(evaluarVerificacion({ violaciones: [{ regla: 'estructura_repetida', frase: 'Veo que' }] }, { borrador, permite, anterior: '', anteriores: ['Hola, soy Karina. ¿Qué le pasa?'] }).ok).toBe(true);
+    expect(evaluarV({ violaciones: [{ regla: 'estructura_repetida', frase: 'Veo que' }] }, { borrador, permite, anterior: '', anteriores: ['Hola, soy Karina. ¿Qué le pasa?'] }).ok).toBe(true);
     expect(PROMPT_VERIFICADOR).toContain('estructura_repetida');
   });
   it('final · muletilla en el flujo: el verificador recibe los mensajes anteriores del agente y el rechazo reescribe', async () => {
@@ -4145,15 +4152,6 @@ describe('agente v2 · director + extractor + redactor (todo con modelo simulado
     async (_s, u) => { const o = JSON.parse(u); recibidos.push(o); return o.borrador.startsWith('Veo que') && o.mensajes_anteriores_del_agente.length ? { violaciones: [{ regla: 'estructura_repetida', frase: 'Veo que' }] } : { violaciones: [] }; });
     expect(recibidos[recibidos.length - 1].mensajes_anteriores_del_agente[0]).toContain('Veo que es docente jubilada');
     expect(c.cuerpos[1].respuestas[0]).toBe('Quiere frenar el descuento, entonces. ¿Desde cuándo lo notó?');
-  });
-  it('cierre · muletilla: "Usted me cuenta" / "Usted me dice" abren igual (sin saludo ni "Entonces"); estructuras distintas no', () => {
-    expect(aperturaDeMensaje('Hola, soy Karina, del Centro Jurídico NOA. Usted me cuenta que es docente.')).toBe('usted me');
-    expect(aperturaDeMensaje('Usted me dice que quiere frenar el descuento.')).toBe('usted me');
-    expect(aperturaDeMensaje('Entonces, si le entendí bien: usted nunca reclamó.')).toBe('usted nunca');
-    expect(muletillaRepetida('Usted me dice que quiere frenar el descuento.', ['Hola, soy Karina. Usted me cuenta que es docente jubilada.'])).toBe('usted me');
-    expect(muletillaRepetida('Quiere frenar el descuento, entonces. ¿Desde cuándo?', ['Hola, soy Karina. Usted me cuenta que es docente jubilada.'])).toBeNull();
-    // solo cuentan los últimos 2 mensajes del agente
-    expect(muletillaRepetida('Usted me dice que sí.', ['Usted me cuenta que a.', 'Perfecto, sigamos.', 'Muy bien, vamos.'])).toBeNull();
   });
   it('cierre · muletilla en el flujo: el segundo mensaje que abre con "Usted me dice" se rechaza y se reescribe (sin modelo verificador)', async () => {
     let n = 0;
@@ -4265,36 +4263,6 @@ describe('agente v2 · director + extractor + redactor (todo con modelo simulado
     expect(valida({ filtros: [fil('forma_reserva', 'transferencia', 'lo hago por banco')] }, 'lo hago por banco', { tipo: 'filtro', campo: 'forma_reserva' }).filtros).toHaveLength(1);
     expect(CONFIG_CLIENTE.ofertas.art9_ganancias.datos_antes_de_horarios![0].sinonimos!.virtual).toContain('videollamada');
   });
-  it('pendiente · horario elegido: solo si el pendiente es horario y señala uno de los DOS (ordinal, día, hora o fecha); un "si" nunca', () => {
-    const H = { tipo: 'horario' as const };
-    const elige = (persona: string, pend: any = H, intencion = 'elige_horario') => valida({ intencion, horario_elegido: { fecha: '2026-10-26', hora: '15:30' } }, persona, pend);
-    expect(elige('si', H, 'acepta').horario_elegido).toBeNull();
-    expect(elige('si', H, 'elige_horario').intencion).toBe('ambiguo');
-    expect(elige('el primero').horario_elegido).toEqual({ fecha: '2026-10-26', hora: '15:30' });
-    expect(elige('el lunes').horario_elegido).toEqual({ fecha: '2026-10-26', hora: '15:30' });
-    expect(elige('a las 15:30').horario_elegido).toEqual({ fecha: '2026-10-26', hora: '15:30' });
-    expect(elige('el 26').horario_elegido).toEqual({ fecha: '2026-10-26', hora: '15:30' });
-    expect(elige('el primero', { tipo: 'filtro', campo: 'es_docente' }).horario_elegido).toBeNull(); // no se había pedido un horario
-    expect(elige('el primero', null).horario_elegido).toBeNull();
-    // aunque el extractor no lo haya devuelto, si señala uno se toma
-    expect(valida({ intencion: 'otro' }, 'el martes', H).horario_elegido).toEqual({ fecha: '2026-10-27', hora: '09:00' });
-    expect(horarioSenialado('el primero o el segundo', SLOTS)).toBeNull();
-    expect(horarioSenialado('si', SLOTS)).toBeNull();
-    expect(horarioSenialado('la segunda', SLOTS)).toEqual(SLOTS[1]);
-    expect(horarioSenialado('a las 9', SLOTS)).toEqual(SLOTS[1]);
-  });
-  it('pendiente · nombre: solo si lo pendiente es el nombre (o la persona se presenta); se rechazan ordinales, elecciones y palabras de horario', () => {
-    const N = { tipo: 'nombre' as const };
-    const nom = (valor: string, persona = valor, pend: any = N) => valida({ filtros: [fil('nombre', valor, persona)] }, persona, pend).filtros;
-    expect(nom('Ana Gomez')).toEqual([expect.objectContaining({ campo: 'nombre', valor: 'Ana Gomez' })]);
-    for (const malo of ['el primero', 'la segunda', 'uno', 'martes', 'el martes', 'a las 9', 'virtual']) expect(nom(malo)).toEqual([]);
-    expect(nom('Ana Gomez', 'Ana Gomez', { tipo: 'horario' })).toEqual([]); // no se había pedido el nombre
-    expect(nom('Ana Gomez', 'Ana Gomez', null)).toEqual([]);
-    expect(nom('Ana Gomez', 'me llamo Ana Gomez', { tipo: 'horario' })).toHaveLength(1); // se presenta sola
-    expect(pareceElNombreDeUnaPersona('María López')).toBe(true);
-    expect(pareceElNombreDeUnaPersona('el primero')).toBe(false);
-    expect(pareceElNombreDeUnaPersona('Ana 2')).toBe(false);
-  });
   it('pendiente · conversación completa: modalidad preguntada, "si" ambiguo → cuál de los dos, "el primero", nombre → agenda a nombre de Ana Gomez en el horario elegido', async () => {
     const c = await conversar([
       ...art9Hasta(3),
@@ -4315,12 +4283,6 @@ describe('agente v2 · director + extractor + redactor (todo con modelo simulado
     expect(turno).toMatchObject({ cliente_nombre: 'Ana Gomez', fecha_consulta: ofrecido.fecha, hora_consulta: ofrecido.hora });
   });
   // ------------------------------------------------------------------ PULIDO V2
-  it('pulido · primera palabra del mensaje: sin saludo, sin "¿" y sin "Entonces,"', () => {
-    expect(primeraPalabraDeMensaje('Hola, soy Karina, del Centro Jurídico NOA. Usted me cuenta que es docente.')).toBe('usted');
-    expect(primeraPalabraDeMensaje('¿Prefiere virtual o presencial?')).toBe('prefiere');
-    expect(primeraPalabraDeMensaje('Entonces, si le entendí bien: usted quiere frenar el descuento.')).toBe('usted');
-    expect(primeraPalabraDeMensaje('Usted menciona el artículo.')).toBe('usted');
-  });
   it('pulido · dos mensajes seguidos no empiezan con la misma palabra: se rechaza con el motivo y se reescribe', async () => {
     let visto = '';
     let n = 0;
@@ -4344,12 +4306,6 @@ describe('agente v2 · director + extractor + redactor (todo con modelo simulado
       { persona: P_OBJ, extractor: () => raw({ casilleros: [cas('objetivo', 'quiere que dejen de descontarle', P_OBJ)] }) },
     ], () => (n++ === 0 ? 'Hola, soy Karina. Usted es docente jubilada. ¿Qué le gustaría lograr con esto?' : 'Quiere frenar el descuento. ¿Qué fue lo que hasta ahora se lo impidió?'));
     expect(c.cuerpos[1].v2.redactor).toHaveLength(1);
-  });
-  it('pulido · ideas de valor: se reconocen las usadas aunque estén dichas con otras palabras', () => {
-    const ideas = CONFIG_CLIENTE.ofertas.art9_ganancias.ideas_de_valor!;
-    expect(ideasUsadasEn('Muchas veces ese descuento aparece en el recibo y nadie explica de dónde sale.', ideas)).toEqual([ideas[0].texto]);
-    expect(ideasUsadasEn('A menudo el descuento aparece en el recibo y nadie explica de dónde sale', ideas)).toEqual([ideas[0].texto]);
-    expect(ideasUsadasEn('Cuénteme qué le gustaría lograr.', ideas)).toEqual([]);
   });
   it('pulido · el código guarda qué ideas se usaron y al redactor le pasa solo las que no; si se usaron todas, el mensaje va sin ideas', async () => {
     const bloque = (sis: string) => (/IDEAS DE VALOR APROBADAS[^\n]*\n((?:- [^\n]+\n?)+)/.exec(sis)?.[1] ?? '').split('\n').filter(Boolean).map(x => x.replace(/^- /, ''));
@@ -4385,13 +4341,14 @@ describe('agente v2 · director + extractor + redactor (todo con modelo simulado
     expect(ideasParaElTurno({ cfg: CONFIG_CLIENTE, estado: e, objetivos: [{ tipo: 'ofrecer_consulta', texto: '' }] })).toHaveLength(3);
   });
   // ------------------------------------------------------------------ ESTRUCTURA DEL ESTUDIO Y EMPATÍA REAL
-  const redactorEstudio = (sis: string): string => {
+  const redactorEstudioBase = (sis: string): string => {
     if (/Ofrecele la consulta con tus palabras/.test(sis)) return 'La consulta con el Dr. Alejandro Reyes es sin cargo y puede ser presencial o virtual. ¿Cómo la prefiere?';
     if (/Necesitás saber[^\n]*docente/i.test(sis)) return '¿Es usted docente jubilada?';
     if (/Necesitás saber[^\n]*ANSES/i.test(sis)) return '¿Se jubiló por ANSES?';
     if (/Necesitás saber[^\n]*(descuent|ganancias)/i.test(sis)) return '¿Le descuentan ganancias en el recibo?';
     return redactorFalso(sis);
   };
+  const redactorEstudio = (sis: string): string => conSaludo(sis, redactorEstudioBase(sis));
   it('estudio · config: los dos casilleros_minimos del estudio están vacíos (sin preguntas de diagnóstico)', async () => {
     const { readFileSync } = await import('node:fs');
     const src = readFileSync(new URL('../../api/turnos/_config-cjnoa.ts', import.meta.url), 'utf8');
@@ -4434,17 +4391,6 @@ describe('agente v2 · director + extractor + redactor (todo con modelo simulado
     expect(turno).toMatchObject({ cliente_nombre: 'Ana Gomez', fecha_consulta: ofrecido.fecha, hora_consulta: ofrecido.hora });
     expect(c.cuerpos.some(b => (b.herramientas ?? []).includes('derivar_a_humano'))).toBe(false);
   });
-  it('estudio · aperturas prohibidas: el código las detecta (sin saludo) y el verificador las rechaza', () => {
-    for (const a of ['Usted me cuenta que es docente.', 'Usted me dice que sí.', 'Usted me confirma que se jubiló.', 'Usted menciona el artículo 9.', 'Dado que se jubiló por ANSES, ¿le descuentan?', 'Siendo usted docente, ¿qué le pasa?', 'Como usted dijo, ¿desde cuándo?'])
-      expect(aperturaProhibida(`Hola, soy Karina, del Centro Jurídico NOA. ${a}`)).not.toBeNull();
-    expect(aperturaProhibida('Hola, soy Karina. ¿Es usted docente jubilada?')).toBeNull();
-    expect(aperturaProhibida('Perfecto. ¿Se jubiló por ANSES?')).toBeNull();
-    const r = evaluarVerificacion({ violaciones: [] }, { borrador: 'Usted me cuenta que es docente. ¿Desde cuándo?', permite: permiteDeObjetivos([{ tipo: 'descubrir', texto: '' }]), anterior: '' });
-    expect(r.ok).toBe(false);
-    expect(r.violaciones.map(v => v.regla)).toEqual(['apertura_prohibida']);
-    expect(PROMPT_REDACTOR).toContain('Abrir el mensaje con "Usted me cuenta"');
-    expect(PROMPT_VERIFICADOR).toContain('apertura_prohibida');
-  });
   it('estudio · una apertura prohibida en el flujo se rechaza y se reescribe (verificador sin objeciones propias)', async () => {
     estudio();
     let n = 0;
@@ -4455,25 +4401,10 @@ describe('agente v2 · director + extractor + redactor (todo con modelo simulado
     expect(c.cuerpos[0].v2.verificador[0].motivo).toContain('abre con una fórmula prohibida');
     expect(c.cuerpos[0].respuestas[0]).toContain('Sobre el Artículo 9');
   });
-  it('estudio · si la persona solo dio un dato ("virtual", un nombre), el mensaje no lo repite en su primera oración', () => {
-    expect(datoRepetidoEnLaPrimeraOracion('Perfecto, la consulta será virtual. Le ofrezco dos horarios.', 'virtual')).not.toBeNull();
-    expect(datoRepetidoEnLaPrimeraOracion('Perfecto. Le ofrezco dos horarios: lunes 26 a las 09:00 o martes 27 a las 09:00.', 'virtual')).toBeNull();
-    expect(datoRepetidoEnLaPrimeraOracion('Gracias, Ana Gomez. Su consulta está agendada.', 'Ana Gomez')).not.toBeNull();
-    expect(datoRepetidoEnLaPrimeraOracion('Su consulta quedó agendada para el martes.', 'Ana Gomez')).toBeNull();
-    const permite = permiteDeObjetivos([{ tipo: 'ofrecer_horarios', texto: '' }]);
-    const ev = (borrador: string, ultimoPersona: string) => evaluarVerificacion({ violaciones: [] }, { borrador, permite, anterior: '', ultimoPersona });
-    expect(ev('Perfecto, la consulta será virtual. ¿Cuál le queda mejor?', 'virtual').violaciones.map(v => v.regla)).toEqual(['repite_dato_recien_dado']);
-    expect(ev('Perfecto. ¿Cuál le queda mejor?', 'virtual').ok).toBe(true);
-    // si la persona contó algo largo, reflejar lo que siente está permitido
-    expect(ev('Me imagino lo cansador que es seguir con ese descuento. ¿Cuál le queda mejor?', 'estoy cansada de que me descuenten todos los meses').ok).toBe(true);
-    expect(PROMPT_REDACTOR).toContain('NO lo repitas ni lo reflejes');
-    expect(PROMPT_REDACTOR).toContain('reflejá lo que siente, no lo que dijo');
-    expect(PROMPT_VERIFICADOR).toContain('repite_dato_recien_dado');
-  });
   it('estudio · con un "si", el dato repetido es el de la pregunta anterior; el modelo no decide: sus avisos de "repite el dato" se ignoran', () => {
     const permite = permiteDeObjetivos([{ tipo: 'obtener_filtro', texto: '' }]);
     const anteriores = ['Hola, soy Karina. ¿Es usted docente jubilada?'];
-    const ev = (borrador: string, modelo: any[] = []) => evaluarVerificacion({ violaciones: modelo }, { borrador, permite, anterior: anteriores.join('\n'), anteriores, ultimoPersona: 'SI' });
+    const ev = (borrador: string, modelo: any[] = []) => evaluarV({ violaciones: modelo }, { borrador, permite, anterior: anteriores.join('\n'), anteriores, ultimoPersona: 'SI' });
     expect(ev('Perfecto. ¿Se jubiló por ANSES?').ok).toBe(true);
     expect(ev('Perfecto. ¿Se jubiló por ANSES?', [{ regla: 'repite_dato_recien_dado', frase: '¿Se jubiló por ANSES?' }]).ok).toBe(true); // falso aviso del modelo: se ignora
     expect(ev('Perfecto, como docente jubilada. ¿Se jubiló por ANSES?').violaciones.map(v => v.regla)).toEqual(['repite_dato_recien_dado']);
@@ -4482,7 +4413,7 @@ describe('agente v2 · director + extractor + redactor (todo con modelo simulado
   });
   it('estudio · "SOBRE EL ARTICULO 9" es un dato corto: el mensaje no repite el tema; si la persona expresó una emoción corta, sí puede reflejarla', () => {
     const permite = permiteDeObjetivos([{ tipo: 'obtener_filtro', texto: '' }]);
-    const ev = (borrador: string, persona: string, conEmocion = false) => evaluarVerificacion({ violaciones: [] }, { borrador, permite, anterior: '', ultimoPersona: persona, conEmocion });
+    const ev = (borrador: string, persona: string, conEmocion = false) => evaluarV({ violaciones: [] }, { borrador, permite, anterior: '', ultimoPersona: persona, conEmocion });
     expect(ev('El tema del Artículo 9 e Impuesto a las Ganancias es relevante. ¿Es usted docente jubilada?', 'SOBRE EL ARTICULO 9').violaciones.map(v => v.regla)).toEqual(['repite_dato_recien_dado']);
     expect(ev('Perfecto. ¿Es usted docente jubilada?', 'SOBRE EL ARTICULO 9').ok).toBe(true);
     expect(ev('Se nota que le preocupa. ¿Desde cuándo?', 'me preocupa mucho').ok).toBe(false);
@@ -4594,9 +4525,9 @@ describe('agente v2 · director + extractor + redactor (todo con modelo simulado
     expect(v({ preferencia: { dia: 'sabadoo', franja: null, fecha: null, evidencia: 'el jueves' } }, 'el jueves').preferencia).toBeNull(); // sin día, franja ni fecha válidos
     expect(v({ dato_en_duda: { campo: 'jubilado_anses', evidencia: 'no se si me jubile por anses' } }, 'no se si me jubile por anses o por la provincia').dato_en_duda).toEqual({ campo: 'jubilado_anses' });
     expect(v({ dato_en_duda: { campo: 'campo_inventado', evidencia: 'no se' } }, 'no se').dato_en_duda).toBeNull();
-    expect(cumplePreferencia({ fecha: '2026-10-29', hora: '15:30' }, { dia: 'jueves', franja: 'tarde', fecha: null })).toBe(true);
-    expect(cumplePreferencia({ fecha: '2026-10-29', hora: '09:00' }, { dia: 'jueves', franja: 'tarde', fecha: null })).toBe(false);
-    expect(cumplePreferencia({ fecha: '2026-10-29', hora: '09:00' }, { dia: 'martes', franja: null, fecha: null })).toBe(false);
+    expect(cumpleP({ fecha: '2026-10-29', hora: '15:30' }, { dia: 'jueves', franja: 'tarde', fecha: null })).toBe(true);
+    expect(cumpleP({ fecha: '2026-10-29', hora: '09:00' }, { dia: 'jueves', franja: 'tarde', fecha: null })).toBe(false);
+    expect(cumpleP({ fecha: '2026-10-29', hora: '09:00' }, { dia: 'martes', franja: null, fecha: null })).toBe(false);
   });
   it('gestión · REPROGRAMAR: pregunta el día, ofrece dos horarios de ese día con el mismo abogado, y con el elegido llama reprogramar_turno y confirma solo con success', async () => {
     estudio();
@@ -4694,7 +4625,7 @@ describe('agente v2 · director + extractor + redactor (todo con modelo simulado
   it('gestión · nada inventado: con "como_se_conecta_virtual" pendiente, el agente solo dice que el estudio le confirma por el mismo chat', async () => {
     estudio();
     // solo las ofertas que pueden ser virtuales (la de jubilación es en el estudio)
-    for (const o of Object.values(CONFIG_CLIENTE.ofertas)) if ((o.datos_antes_de_horarios ?? []).some(d => (d.valores ?? []).includes('virtual'))) expect(o.como_se_conecta_virtual).toBe('[PENDIENTE: lo completa el estudio]');
+    for (const o of Object.values(CONFIG_CLIENTE.ofertas)) if ((o.datos_antes_de_horarios ?? []).some(d => (d.valores ?? []).includes('virtual'))) expect(o.como_se_conecta_virtual?.aprobado).toBe(false);
     const c = await conversar([
       ...hastaAgendar(),
       { persona: 'por donde es?', extractor: () => raw({ intencion: 'pregunta', pregunta_de_la_persona: 'por donde es?' }) },
@@ -4710,7 +4641,7 @@ describe('agente v2 · director + extractor + redactor (todo con modelo simulado
     estudio();
     const ofertas = CONFIG_CLIENTE.ofertas as any;
     const antes = ofertas.art9_ganancias.como_se_conecta_virtual;
-    ofertas.art9_ganancias.como_se_conecta_virtual = 'Se conecta por Meet con el enlace que le llega por mail.';
+    ofertas.art9_ganancias.como_se_conecta_virtual = { texto: 'Se conecta por Meet con el enlace que le llega por mail.', aprobado: true };
     try {
       const c = await conversar([...hastaAgendar(), { persona: 'como me conecto?', extractor: () => raw({ intencion: 'pregunta', pregunta_de_la_persona: 'como me conecto?' }) }], redactorEstudio);
       const datos = c.cuerpos[8].v2.datos.join('\n');
@@ -4770,21 +4701,12 @@ describe('agente v2 · director + extractor + redactor (todo con modelo simulado
     expect(PROMPT_VERIFICADOR).toContain('cancelacion_confirmada');
     const permite = permiteDeObjetivos([{ tipo: 'cancelacion_registrada', texto: '' }]);
     expect(permite).toMatchObject({ horarios: true, agendado: true });
-    const r = evaluarVerificacion({ violaciones: [{ regla: 'cancelacion_confirmada', frase: 'ya está cancelado' }] }, { borrador: 'Listo, su turno ya está cancelado.', permite, anterior: '' });
+    const r = evaluarV({ violaciones: [{ regla: 'cancelacion_confirmada', frase: 'ya está cancelado' }] }, { cfg: CONFIG_CLIENTE, maxPreguntas: 1, borrador: 'Listo, su turno ya está cancelado.', permite, anterior: '' });
     expect(r.ok).toBe(false);
     expect(r.motivo).toContain('REGISTRADA');
     expect(permiteDeObjetivos([{ tipo: 'confirmar_reprogramacion', texto: '' }])).toMatchObject({ agendado: true, horarios: true });
   });
   // ------------------------------------------------------------------ RONDA 1 DE LAS CORRIDAS B
-  it('corridas · horario señalado: las señales que distinguen tienen que coincidir ("el primero, martes 27 a las 9"); las que no distinguen se ignoran', () => {
-    const S = [{ fecha: '2026-10-27', hora: '09:00', profesional: 'Alejandro' }, { fecha: '2026-10-28', hora: '09:00', profesional: 'Alejandro' }];
-    expect(horarioSenialado('el primero, martes 27 de octubre a las 09:00.', S)).toEqual(S[0]);
-    expect(horarioSenialado('martes 27', S)).toEqual(S[0]);
-    expect(horarioSenialado('el miércoles a las 9', S)).toEqual(S[1]);
-    expect(horarioSenialado('a las 9', S)).toBeNull(); // las dos son a las 9: no distingue
-    expect(horarioSenialado('el primero, miércoles', S)).toBeNull(); // se contradice
-    expect(horarioSenialado('cualquiera de los dos', S)).toBeNull();
-  });
   it('corridas · una respuesta corta llena el dato pendiente aunque el extractor no lo devuelva (nombre, opción, número, sí/no)', () => {
     const v = (rawExt: any, persona: string, pend: any, ultimoAgente = '') => validarExtraccion(raw(rawExt), { cfg: CONFIG_CLIENTE, personaTextos: [persona], ofrecidos: [], ultimoAgente, datoPendiente: pend });
     // el nombre que el extractor mandó como casillero
@@ -4874,12 +4796,12 @@ describe('agente v2 · director + extractor + redactor (todo con modelo simulado
   });
   it('corridas · verificador: no se da por recibido un pago que el sistema no validó, ni se prometen recordatorios; los objetivos con contacto del equipo sí pueden decirlo', () => {
     const sinPago = permiteDeObjetivos([{ tipo: 'reserva_transferencia', texto: '' }]);
-    const r = evaluarVerificacion({ violaciones: [{ regla: 'pago_confirmado', frase: 'He verificado el comprobante' }] }, { borrador: 'He verificado el comprobante y todo está en orden.', permite: sinPago, anterior: '' });
+    const r = evaluarV({ violaciones: [{ regla: 'pago_confirmado', frase: 'He verificado el comprobante' }] }, { cfg: CONFIG_CLIENTE, maxPreguntas: 1, borrador: 'He verificado el comprobante y todo está en orden.', permite: sinPago, anterior: '' });
     expect(r.ok).toBe(false);
-    expect(evaluarVerificacion({ violaciones: [{ regla: 'pago_confirmado', frase: 'recibimos el pago' }] }, { borrador: 'Gracias, recibimos el pago.', permite: permiteDeObjetivos([{ tipo: 'ofrecer_horarios', texto: '' }], { pago: true }), anterior: '' }).ok).toBe(true);
+    expect(evaluarV({ violaciones: [{ regla: 'pago_confirmado', frase: 'recibimos el pago' }] }, { cfg: CONFIG_CLIENTE, maxPreguntas: 1, borrador: 'Gracias, recibimos el pago.', permite: permiteDeObjetivos([{ tipo: 'ofrecer_horarios', texto: '' }], { pago: true }), anterior: '' }).ok).toBe(true);
     const horarios = permiteDeObjetivos([{ tipo: 'preguntar_cual', texto: '' }]);
-    expect(evaluarVerificacion({ violaciones: [{ regla: 'promete_lo_no_dado', frase: 'le enviaré un recordatorio' }] }, { borrador: 'Perfecto, le enviaré un recordatorio. ¿Cuál prefiere?', permite: horarios, anterior: '' }).ok).toBe(false);
-    expect(evaluarVerificacion({ violaciones: [{ regla: 'promete_lo_no_dado', frase: 'alguien del equipo se comunicará' }] }, { borrador: 'Alguien del equipo se comunicará con usted.', permite: permiteDeObjetivos([{ tipo: 'derivar', texto: '' }]), anterior: '' }).ok).toBe(true);
+    expect(evaluarV({ violaciones: [{ regla: 'promete_lo_no_dado', frase: 'le enviaré un recordatorio' }] }, { cfg: CONFIG_CLIENTE, maxPreguntas: 1, borrador: 'Perfecto, le enviaré un recordatorio. ¿Cuál prefiere?', permite: horarios, anterior: '' }).ok).toBe(false);
+    expect(evaluarV({ violaciones: [{ regla: 'promete_lo_no_dado', frase: 'alguien del equipo se comunicará' }] }, { cfg: CONFIG_CLIENTE, maxPreguntas: 1, borrador: 'Alguien del equipo se comunicará con usted.', permite: permiteDeObjetivos([{ tipo: 'derivar', texto: '' }]), anterior: '' }).ok).toBe(true);
     for (const k of ['pago_confirmado', 'promete_lo_no_dado', 'Es difícil que']) expect(PROMPT_VERIFICADOR).toContain(k);
   });
   // ------------------------------------------------------------------ RONDA 2 DE LAS CORRIDAS B
@@ -5038,10 +4960,10 @@ describe('agente v2 · director + extractor + redactor (todo con modelo simulado
     estudio(); conOpcionales();
     const orig = ART9().vigencia_sin_cargo;
     try {
-      expect(orig).toMatch(/^\[PENDIENTE/);
+      expect(orig?.aprobado).toBe(false);
       const a = await conversar(conMonto(), redactorEstudio);
       expect(a.cuerpos[1].v2.datos.join('\n')).not.toContain('Vigencia de la consulta sin cargo');
-      ART9().vigencia_sin_cargo = 'hasta el viernes 6 de noviembre';
+      ART9().vigencia_sin_cargo = { texto: 'hasta el viernes 6 de noviembre', aprobado: true };
       const b = await conversar(conMonto(), redactorEstudio);
       expect(b.cuerpos[1].v2.datos.join('\n')).toContain('Vigencia de la consulta sin cargo: hasta el viernes 6 de noviembre');
     } finally { ART9().vigencia_sin_cargo = orig; }
@@ -5075,7 +4997,7 @@ describe('agente v2 · director + extractor + redactor (todo con modelo simulado
       expect(orig!.estado).toMatch(/pendiente/);
       const sin = await conversar([preguntaCosto], redactorEstudio);
       expect(sin.tipos[0].some((x: string) => x.startsWith('ofrecer_llamada'))).toBe(false); // pendiente de aprobación: no se usa
-      ART9().llamada_con_el_dr = { ...orig!, estado: 'aprobado por el estudio' };
+      ART9().llamada_con_el_dr = { ...orig!, estado: 'aprobado por el estudio', aprobado: true };
       const c = await conversar([preguntaCosto, { persona: 'sí, puedo', extractor: () => raw({ intencion: 'acepta' }) }], redactorEstudio);
       expect(c.tipos[0]).toEqual(['ofrecer_llamada']); // sin un "responder" aparte
       expect(c.cuerpos[0].v2.objetivos[0].texto).toContain('NO inventes ningún monto');
@@ -5090,7 +5012,7 @@ describe('agente v2 · director + extractor + redactor (todo con modelo simulado
     const P = 'Cuánto cobran por el juicio?';
     const preguntaCosto: Turno = { persona: P, extractor: () => raw({ oferta_detectada: 'art9_ganancias', pregunta_de_la_persona: P, costo_del_tramite: true }) };
     try {
-      ART9().llamada_con_el_dr = { ...orig!, estado: 'aprobado por el estudio' };
+      ART9().llamada_con_el_dr = { ...orig!, estado: 'aprobado por el estudio', aprobado: true };
       const c = await conversar([preguntaCosto, preguntaCosto, { persona: 'bueno', extractor: () => raw({ intencion: 'acepta' }) }], redactorEstudio);
       expect(c.tipos[0]).toEqual(['ofrecer_llamada']);
       expect(c.tipos[1].some((x: string) => x.startsWith('ofrecer_llamada'))).toBe(false); // no se repite
@@ -5224,17 +5146,6 @@ describe('agente v2 · director + extractor + redactor (todo con modelo simulado
     expect(leerEstadoV2(c.lead().datos).filtros.modalidad_consulta?.valor).toBe('virtual');
     expect(c.tipos[1]).toEqual(['ofrecer_horarios']);
     expect(c.tipos.flat().filter((t: string) => t === 'obtener_dato_agenda:modalidad_consulta')).toEqual([]);
-  });
-  it('chat · la opción dicha en cualquier momento se registra, pero con negación, pregunta, dos opciones o ya sabida no', () => {
-    const e = extraccionVacia();
-    const f = (t: string, sabidos: any = {}) => completarOpcionesDichas(e, CONFIG_CLIENTE, 'art9_ganancias', sabidos, t).filtros;
-    expect(f('quiero una llamada virtual')).toEqual([expect.objectContaining({ campo: 'modalidad_consulta', valor: 'virtual' })]);
-    expect(f('prefiero ir en persona')).toEqual([expect.objectContaining({ valor: 'presencial' })]);
-    expect(f('no quiero virtual')).toEqual([]);
-    expect(f('donde seria si fuera presencial?')).toEqual([]);
-    expect(f('virtual o presencial, me da igual')).toEqual([]);
-    expect(f('virtual', { modalidad_consulta: { valor: 'presencial', evidencia: 'x' } })).toEqual([]);
-    expect(f('que horarios tienen')).toEqual([]);
   });
 
   it('ronda 1 · config: cada filtro lleva su ayuda para el extractor ("maestra" es docente) y el extractor las recibe', () => {
@@ -5382,14 +5293,14 @@ describe('agente v2 · ajustes: fotos y documentos, rechazo firme y nombre (mode
   beforeEach(() => ponerMinimos(MINIMOS_VIEJOS));
   afterEach(() => ponerMinimos(MINIMOS_ESTUDIO));
   const sinV1 = async () => { throw new Error('la v1 no debe llamarse en la v2'); };
-  const raw = (p: Record<string, unknown> = {}) => ({ oferta_detectada: null, filtros: [], casilleros: [], emocion: null, intencion: 'otro', pregunta_de_la_persona: null, horario_elegido: null, ...p });
-  const fil = (campo: string, valor: string, evidencia: string) => ({ campo, valor, evidencia });
-  const cas = (casillero: string, texto: string, evidencia: string) => ({ casillero, texto, evidencia });
+  const raw = (p: Record<string, unknown> = {}) => ({ oferta_detectada: null, filtros: [], casilleros: [], emocion: null, intencion: 'otro', respuesta_corta: null, estilo: 'breve', pregunta_de_la_persona: null, horario_elegido: null, ...p });
+  const fil = (campo: string, valor: string, evidencia: string, extra: Record<string, unknown> = {}) => ({ campo, valor, evidencia, origen: 'espontaneo', negacion: valor === 'no' ? 'explicita' : 'no_aplica', implicita: false, subtipo: null, ...extra });
+  const cas = (casillero: string, texto: string, evidencia: string, extra: Record<string, unknown> = {}) => ({ casillero, texto, evidencia, origen: 'espontaneo', expresado_por_la_persona: true, ...extra });
   const FRASE1 = 'Hola, soy docente jubilada por ANSES y me descuentan ganancias';
   const art9 = raw({ oferta_detectada: 'art9_ganancias', filtros: [fil('es_docente', 'si', FRASE1), fil('jubilado_anses', 'si', FRASE1), fil('descuento_art9_ganancias', 'si', FRASE1)], casilleros: [cas('situacion', 'le descuentan ganancias', FRASE1)] });
   const P_OBJ = 'Quiero que dejen de descontarme y que me devuelvan lo que me sacaron';
   const P_HIST = 'Ya fui a ANSES y me dijeron que no se podía hacer nada';
-  const redactorFalso = (sis: string): string => {
+  const redactorFalsoBase = (sis: string): string => {
     let m = /Ofrecele exactamente DOS horarios, cada uno con su día y fecha: (.+?)\. Preguntale/.exec(sis);
     if (m) return `Tengo lugar ${m[1]}. ¿Cuál le queda mejor?`;
     m = /Turno agendado con (.+?): (.+?)\. (?:Dirección|La consulta es virtual)/.exec(sis);
@@ -5399,6 +5310,7 @@ describe('agente v2 · ajustes: fotos y documentos, rechazo firme y nombre (mode
     if (/el equipo del estudio lo va a verificar|el equipo del estudio lo va a verificar/.test(sis)) return 'Gracias por enviarlo. El equipo del estudio lo va a verificar y se comunica con usted.';
     return 'Cuénteme un poco más de su situación. ¿Qué le gustaría lograr?';
   };
+  const redactorFalso = (sis: string): string => conSaludo(sis, redactorFalsoBase(sis));
   const NOTA_VALIDADA = '[SISTEMA ERP: Comprobante de transferencia validado exitosamente por $25.000 hacia Arturo Rodrigo Reyes. Proceder con el agendamiento.]';
   const NOTA_NO_VALIDADA = '[SISTEMA ERP: No se pudo leer el comprobante de la foto. Pedí la foto de nuevo o derivá a una persona.]';
 
@@ -5549,8 +5461,8 @@ describe('agente v2 · respuestas cortas, derivación y oferta (modelo simulado,
   beforeEach(() => ponerMinimos(MINIMOS_VIEJOS));
   afterEach(() => ponerMinimos(MINIMOS_ESTUDIO));
   const sinV1 = async () => { throw new Error('la v1 no debe llamarse en la v2'); };
-  const raw = (p: Record<string, unknown> = {}) => ({ oferta_detectada: null, filtros: [], casilleros: [], emocion: null, intencion: 'otro', pregunta_de_la_persona: null, horario_elegido: null, ...p });
-  const fil = (campo: string, valor: string, evidencia: string) => ({ campo, valor, evidencia });
+  const raw = (p: Record<string, unknown> = {}) => ({ oferta_detectada: null, filtros: [], casilleros: [], emocion: null, intencion: 'otro', respuesta_corta: null, estilo: 'breve', pregunta_de_la_persona: null, horario_elegido: null, ...p });
+  const fil = (campo: string, valor: string, evidencia: string, extra: Record<string, unknown> = {}) => ({ campo, valor, evidencia, origen: 'espontaneo', negacion: valor === 'no' ? 'explicita' : 'no_aplica', implicita: false, subtipo: null, ...extra });
   const A9 = 'art9_ganancias';
   const PREGUNTA_DOCENTE = '¿Es usted docente jubilada?';
 
@@ -5613,13 +5525,6 @@ describe('agente v2 · respuestas cortas, derivación y oferta (modelo simulado,
       const F = 'Soy docente jubilada por ANSES';
       const v = validarExtraccion(raw({ filtros: [fil('es_docente', 'si', F)] }), { cfg, personaTextos: [F], ofrecidos: [] });
       expect(v.filtros).toEqual([{ campo: 'es_docente', valor: 'si', evidencia: F }]);
-    });
-    it('esRespuestaCortaSiNo y preguntaDelAgente', () => {
-      for (const t of ['si', 'Sí', 'no', 'No.', 'sí soy', 'correcto', 'así es']) expect(esRespuestaCortaSiNo(t)).toBe(true);
-      for (const t of ['si pero no se si tengo el recibo', 'quiero que no me descuenten más', 'virtual', 'no, por la caja']) expect(esRespuestaCortaSiNo(t)).toBe(false);
-      expect(preguntaDelAgente('Gracias. ¿Es usted docente jubilada?')).toBe(PREGUNTA_DOCENTE);
-      expect(preguntaDelAgente('Hola. ¿Cómo está? ¿Es usted docente?')).toBe('¿Es usted docente?');
-      expect(preguntaDelAgente('Gracias por escribirnos.')).toBeNull();
     });
     it('el extractor recibe el último mensaje del agente y qué campo preguntó, y su prompt explica las respuestas cortas', async () => {
       const c = await conversar([
@@ -5747,14 +5652,6 @@ describe('agente v2 · respuestas cortas, derivación y oferta (modelo simulado,
       const sis = armarSistemaRedactor({ cfg: CONFIG_CLIENTE, objetivos: [{ tipo: 'obtener_filtro', detalle: 'es_docente', texto: 'x' }], estado: { ...estadoV2Vacio(), oferta: A9 }, datos: [], primerMensaje: false });
       expect(sis).toContain(`«${CONFIG_CLIENTE.ofertas[A9].etiqueta}»`);
       expect(sis).toMatch(/nunca lo nombres como lo escribió la persona/);
-    });
-    it('temaMalNombrado detecta "art.98" y deja pasar el nombre correcto', () => {
-      const et = CONFIG_CLIENTE.ofertas[A9].etiqueta;
-      expect(temaMalNombrado('Usted menciona el artículo 98 de Ganancias.', et)).toMatch(/artículo 98/i);
-      expect(temaMalNombrado('Me escribió por art.98, ¿es docente?', et)).toMatch(/art\.98/i);
-      expect(temaMalNombrado('Usted consulta por el Artículo 9 / Ganancias.', et)).toBeNull();
-      expect(temaMalNombrado('Sobre el artículo 9, ¿es docente?', et)).toBeNull();
-      expect(temaMalNombrado('¿Es usted docente?', et)).toBeNull();
     });
     it('conversación: si el redactor escribe "art.98", se corrige antes de enviar', async () => {
       const c = await conversar([
