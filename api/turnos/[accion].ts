@@ -1815,7 +1815,8 @@ const diasPreferencia = () => [...DIAS_NOMBRE.slice(1), DIAS_NOMBRE[0]].map(limp
 const MESES_NOMBRE = CALENDARIO.meses;
 const sinTildes = (t: string) => t.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
 
-const PATRON_HORA = /\b(\d{1,2})[:.](\d{2})\b|\ba\s+las\s+(\d{1,2})(?![\d:]|\.\d)/g;
+const ANTES_DE_LA_HORA = T.antes_de_la_hora.trim().split(/\s+/).join('\\s+');
+const PATRON_HORA = new RegExp(`\\b(\\d{1,2})[:.](\\d{2})\\b|\\b${ANTES_DE_LA_HORA}\\s+(\\d{1,2})(?![\\d:]|\\.\\d)`, 'g');
 
 /** Cada vez que el texto nombra un horario ("9:00", "a las 9"), en orden y sin juntar los repetidos. */
 function ocurrenciasDeHora(texto: string): { hora: string; fin: number }[] {
@@ -1900,7 +1901,7 @@ export function importesEnTexto(txt: string): string[] {
 export function horasEnTexto(txt: string): string[] {
   const out = new Set<string>();
   for (const m of txt.matchAll(/\b(\d{1,2})[:.](\d{2})\b/g)) out.add(`${m[1].padStart(2, '0')}:${m[2]}`);
-  for (const m of txt.matchAll(/\ba\s+las\s+(\d{1,2})(?![\d:]|\.\d)/gi)) out.add(`${m[1].padStart(2, '0')}:00`);
+  for (const m of txt.matchAll(new RegExp(`\\b${ANTES_DE_LA_HORA}\\s+(\\d{1,2})(?![\\d:]|\\.\\d)`, 'gi'))) out.add(`${m[1].padStart(2, '0')}:00`);
   return [...out];
 }
 
@@ -1961,7 +1962,7 @@ export type ConfigOferta = {
   activo_de_valor: { tipo: string; herramienta: string; descripcion: string } | null;
   cierre: 'turno_directo' | 'reserva_y_turno';
 };
-export type Umbrales = { horarios_a_ofrecer: number; mensajes_recientes_para_el_extractor: number; mensajes_anteriores_del_agente: number; max_intentos_del_redactor: number; max_correcciones_de_estilo: number; max_rechazos_del_verificador: number; reintentos_del_extractor: number; bloqueo_respuestas_sin_el_dato: number; bloqueo_turnos_pidiendo_lo_mismo: number; hora_de_corte_manana_tarde: string; aclaraciones_por_dato: number; largo_maximo_de_frase_guardada: number; largo_maximo_de_dato_de_texto: number; largo_minimo_de_cita: number; palabras_de_apertura: number; palabras_minimas_de_apertura: number; palabras_minimas_de_frase_repetida: number; largo_maximo_del_motivo: number; mensajes_para_el_redactor: number };
+export type Umbrales = { largo_maximo_del_motivo_de_cancelacion: number; largo_minimo_de_dato_de_pago: number; digitos_maximos_de_numero: number; casilleros_en_el_reflejo: number; horarios_a_ofrecer: number; mensajes_recientes_para_el_extractor: number; mensajes_anteriores_del_agente: number; max_intentos_del_redactor: number; max_correcciones_de_estilo: number; max_rechazos_del_verificador: number; reintentos_del_extractor: number; bloqueo_respuestas_sin_el_dato: number; bloqueo_turnos_pidiendo_lo_mismo: number; hora_de_corte_manana_tarde: string; aclaraciones_por_dato: number; largo_maximo_de_frase_guardada: number; largo_maximo_de_dato_de_texto: number; largo_minimo_de_cita: number; palabras_de_apertura: number; palabras_minimas_de_apertura: number; palabras_minimas_de_frase_repetida: number; largo_maximo_del_motivo: number; mensajes_para_el_redactor: number };
 export type ConfigCliente = { cliente: string; /** El primer mensaje puede explicar qué hace el estudio (si es false, solo saluda y sigue con el objetivo). */ saludo_explica_el_servicio: boolean; /** Oferta que se asume cuando la persona todavía no dijo de qué tema consulta (si falta, se le pregunta). */ oferta_por_defecto?: string | null; /** Primer mensaje de la conversación: el saludo del estudio (editable). */ saludo_inicial: string; /** Objetivos del director donde se permiten las ideas de valor, y cuántas por conversación. */ ideas_de_valor_en: string[]; max_ideas_por_conversacion: number; umbrales: Umbrales; agente: { nombre: string; estudio: string; direccion: string; ciudad: string; tipo_de_organizacion: string; especialidad: string; /** De qué temas se ocupa el estudio (lo que no entra se explica con tacto). */ alcance?: string }; casilleros: Record<string, string>; /** Cómo preguntaría una persona cada casillero (variantes). */ ejemplos_pregunta?: Record<string, string[]>; datos_agenda: ConfigFiltro[]; ofertas: Record<string, ConfigOferta> };
 export const CONFIG_CLIENTE = CONFIG_CJNOA as unknown as ConfigCliente;
 
@@ -2178,7 +2179,7 @@ export function validarExtraccion(raw: any, a: { cfg: ConfigCliente; personaText
     const v = String(f?.valor ?? '').trim();
     let valor = '';
     if (def.tipo === 'si_no') { const n = normalizar(v); valor = n === 'si' || n === 'no' ? n : ''; }
-    else if (def.tipo === 'numero') valor = /^\d{1,3}$/.test(v) ? v : '';
+    else if (def.tipo === 'numero') valor = new RegExp(`^\\d{1,${a.cfg.umbrales.digitos_maximos_de_numero}}$`).test(v) ? v : '';
     else if (def.tipo === 'opcion') { const n = normalizar(v); valor = (def.valores ?? []).includes(n) ? n : ''; }
     else valor = v.length > 0 && v.length <= a.cfg.umbrales.largo_maximo_de_dato_de_texto && !(def.campo === 'nombre' && /\d/.test(v)) ? v : '';
     if (!valor) continue;
@@ -2225,7 +2226,7 @@ export function validarExtraccion(raw: any, a: { cfg: ConfigCliente; personaText
   }
   // Un mensaje que es solo el número que se le pidió contesta el dato, aunque el extractor lo haya rotulado objeción o pregunta.
   const defPend = pend?.tipo === 'filtro' && pend.campo ? definicionDeFiltro(a.cfg, pend.campo) : undefined;
-  const soloElNumero = defPend?.tipo === 'numero' && /^\s*\d{1,3}\s*$/.test(ultimoMsg);
+  const soloElNumero = defPend?.tipo === 'numero' && new RegExp(`^\\s*\\d{1,${a.cfg.umbrales.digitos_maximos_de_numero}}\\s*$`).test(ultimoMsg);
   if (soloElNumero && defPend && !out.filtros.some(x => x.campo === defPend.campo)) registrar({ campo: defPend.campo, valor: ultimoMsg.trim(), evidencia: ultimoMsg.trim(), origen: 'respuesta_al_pedido', negacion: 'no_aplica', implicita: false, subtipo: null });
   // Si el mensaje entero es la evidencia de un dato pedido, no es una pregunta ni una objeción.
   const esSoloElDato = out.filtros.some(x => x.origen === 'respuesta_al_pedido' && limpiarParaComparar(x.evidencia) === limpiarParaComparar(ultimoMsg));
@@ -2474,7 +2475,7 @@ async function dirigirTurnoBase(a: EntradaDirector): Promise<SalidaDirector> {
     await a.ejecutar('derivar_a_humano', { motivo }, a.ctx);
     estado.etapa = 'derivado';
     out.derivado = true;
-    return { tipo: 'derivar', texto: AVISO_DERIVACION, detalle: motivo };
+    return { tipo: 'derivar', texto: T.aviso_derivacion, detalle: motivo };
   };
 
   // ------------------------------------------------------------ turno ya agendado: seguimiento, cambiar la fecha o cancelar
@@ -2507,7 +2508,7 @@ async function dirigirTurnoBase(a: EntradaDirector): Promise<SalidaDirector> {
         estado.gestion = 'cancelando';
         return fin({ tipo: 'ofrecer_cambio_en_lugar_de_cancelar', texto: T.dirigirTurnoBase_9 });
       }
-      const c: any = await a.ejecutar('solicitar_cancelacion', { motivo: (a.textoCliente ?? '').trim().slice(0, 300) || 'sin motivo' }, a.ctx);
+      const c: any = await a.ejecutar('solicitar_cancelacion', { motivo: (a.textoCliente ?? '').trim().slice(0, a.cfg.umbrales.largo_maximo_del_motivo_de_cancelacion) || T.sin_motivo }, a.ctx);
       if (c?.status === 'solicitada' || c?.status === 'success') {
         estado.cancelacion_solicitada = true;
         delete estado.gestion;
@@ -2739,7 +2740,7 @@ async function dirigirTurnoBase(a: EntradaDirector): Promise<SalidaDirector> {
           const yaEnviados = !!estado.datos_pago_enviados;
           estado.datos_pago_enviados = true;
           if (yaEnviados) return { tipo: 'reserva_transferencia', detalle: { incluir: [] }, texto: T.principal_26 };
-          return { tipo: 'reserva_transferencia', detalle: { incluir: datosPagoTxt.split('·').map(x => x.split(':').slice(1).join(':').trim()).filter(x => x.length >= 4) }, texto: T.principal_29(importeTxt ? T.principal_27 : T.principal_28) };
+          return { tipo: 'reserva_transferencia', detalle: { incluir: datosPagoTxt.split('·').map(x => x.split(':').slice(1).join(':').trim()).filter(x => x.length >= cfg.umbrales.largo_minimo_de_dato_de_pago) }, texto: T.principal_29(importeTxt ? T.principal_27 : T.principal_28) };
         }
         return { tipo: 'reserva', texto: cond.mensaje };
       }
@@ -2759,7 +2760,7 @@ async function dirigirTurnoBase(a: EntradaDirector): Promise<SalidaDirector> {
       if ((oferta.escasez_umbral ?? 0) > 0 && libres0.length <= (oferta.escasez_umbral as number)) out.datos.push(T.ofrecerNuevos_2(libres0.length));
       let libres = pref ? libres0.filter(s => cumplePreferencia(s, pref, cfg.umbrales.hora_de_corte_manana_tarde)) : libres0;
       const faltaPref = !!pref && libres.length < cfg.umbrales.horarios_a_ofrecer;
-      out.datos = out.datos.filter(x => !x.startsWith('AVISO PREFERENCIA'));
+      out.datos = out.datos.filter(x => x !== T.ofrecerNuevos_3);
       if (faltaPref) out.datos.push(T.ofrecerNuevos_3);
       if (faltaPref) libres = [...libres, ...libres0.filter(s => !libres.includes(s))];
       const dos = elegirHorarios(libres, cfg.umbrales.horarios_a_ofrecer, cfg.umbrales.hora_de_corte_manana_tarde);
@@ -2976,7 +2977,7 @@ export function mensajeSeguro(a: { objetivos: Objetivo[]; estado: EstadoV2; cfg:
   const o = a.objetivos[0];
   if (!o) return null;
   const oferta = a.estado.oferta ? a.cfg.ofertas[a.estado.oferta] : null;
-  // El reflejo integra lo que dijo la persona (ya resumido en tercera persona por el extractor), sin comillas: «Le descuentan ganancias del haber.»
+  // El reflejo integra lo que dijo la persona (ya resumido en tercera persona por el extractor), sin comillas.
   const dicho = (a.dicho ?? []).map(x => String(x).trim().replace(/[.\s]+$/, '')).filter(Boolean)[0] ?? '';
   const personaCorta = (a.estilo ?? a.estado.estilo_persona) === 'breve';
   // Ante una duda u objeción no se festeja ("Perfecto.") ni se agradece: se la recibe.
@@ -2998,7 +2999,7 @@ export function mensajeSeguro(a: { objetivos: Objetivo[]; estado: EstadoV2; cfg:
     case 'aclarar_negacion': { const cs = o.campos ?? []; const d = cs.map(c => definicionDeFiltro(a.cfg, c)?.descripcion ?? c); cuerpo = cs.length === 1 ? (pregunta(cs[0]) ?? null) : d.length ? T.seguro_aclarar_negacion(d.join(T.o)) : null; break; }
     case 'no_califica': cuerpo = T.mensajeSeguro_5(reflejo); break;
     case 'reorganizar_y_ofrecer': {
-      const frase = Object.keys(a.cfg.casilleros).map(k => a.estado.casilleros[k]).filter(Boolean).slice(0, 2).map(c => String((c as any).texto).replace(/[.\s]+$/, '')).join(T.y);
+      const frase = Object.keys(a.cfg.casilleros).map(k => a.estado.casilleros[k]).filter(Boolean).slice(0, a.cfg.umbrales.casilleros_en_el_reflejo).map(c => String((c as any).texto).replace(/[.\s]+$/, '')).join(T.y);
       cuerpo = oferta?.activo_de_valor
         ? T.mensajeSeguro_7(frase || T.mensajeSeguro_6, oferta.activo_de_valor.descripcion)
         : T.mensajeSeguro_8(frase || T.mensajeSeguro_6);
@@ -3015,7 +3016,7 @@ export function mensajeSeguro(a: { objetivos: Objetivo[]; estado: EstadoV2; cfg:
       else { const q = pregunta(o.detalle); cuerpo = q; }
       break;
     }
-    case 'ofrecer_horarios': { const d = (o.detalle as SlotOfrecido[]) ?? []; cuerpo = d.length === 2 ? T.mensajeSeguro_12(dia(d[0]), dia(d[1])) : null; break; }
+    case 'ofrecer_horarios': { const d = (o.detalle as SlotOfrecido[]) ?? []; cuerpo = d.length >= a.cfg.umbrales.horarios_a_ofrecer ? T.mensajeSeguro_12(dia(d[0]), dia(d[1])) : null; break; }
     case 'ofrecer_llamada': cuerpo = T.mensajeSeguro_13; break;
     case 'responder_objecion': cuerpo = T.mensajeSeguro_14(idea).trim(); break;
     case 'dejar_puerta_abierta': cuerpo = T.mensajeSeguro_15; break;
@@ -3025,7 +3026,7 @@ export function mensajeSeguro(a: { objetivos: Objetivo[]; estado: EstadoV2; cfg:
     case 'confirmar_reprogramacion': { const e = a.estado.turno; cuerpo = e ? T.mensajeSeguro_19(dia(e)) : null; break; }
     case 'fuera_de_alcance': cuerpo = a.cfg.agente.alcance ? T.mensajeSeguro_20(a.cfg.agente.alcance) : T.mensajeSeguro_21; break;
     case 'aclarar_dato': { const d = definicionDeFiltro(a.cfg, String(o.detalle)); cuerpo = d ? T.mensajeSeguro_22(d.descripcion) : null; break; }
-    case 'preguntar_cual': { const d = (o.detalle as SlotOfrecido[]) ?? []; cuerpo = d.length === 2 ? T.mensajeSeguro_23(dia(d[0]), dia(d[1])) : null; break; }
+    case 'preguntar_cual': { const d = (o.detalle as SlotOfrecido[]) ?? []; cuerpo = d.length >= a.cfg.umbrales.horarios_a_ofrecer ? T.mensajeSeguro_23(dia(d[0]), dia(d[1])) : null; break; }
     case 'confirmar_turno': { const e = a.estado.turno; cuerpo = e ? T.mensajeSeguro_24(e.profesional, dia(e)) : null; break; }
     default: cuerpo = null;
   }
@@ -3347,7 +3348,7 @@ export async function procesarMensaje(deps: Deps, m: MsgEntrante) {
     catch (e) { console.error('[agente] preparar', e); }
   }
   if (datosPreparados || m.referral) await upsertLeadSeguro(db, m.from, camposDeLead({ datos: { ...(datosPreparados ?? {}), ...(m.referral ? { anuncio_origen: m.referral } : {}) } }));
-  if (m.esTexto) {
+  if (m.esTexto && deps.version !== 'v2') {
     const ultAg = [...previos].reverse().find(x => x.from === 'agente')?.texto;
     const inf = inferirNombre(ultAg, m.texto);
     if (inf) {
@@ -3372,7 +3373,7 @@ export async function procesarMensaje(deps: Deps, m: MsgEntrante) {
   // El hilo: lo último que dijiste vos y lo que la persona acaba de responder, para que su mensaje se lea como respuesta a eso y no suelto.
   const ultimoAgente = [...previos].reverse().find(x => x.from !== 'cliente')?.texto;
   const recorte = (t: string, n: number) => (t.length > n ? `${t.slice(0, n)}…` : t);
-  const hilo = ultimoAgente
+  const hilo = ultimoAgente && deps.version !== 'v2'
     ? `HILO DE LA CONVERSACIÓN: tu último mensaje fue «${recorte(ultimoAgente, 500)}». La persona acaba de contestar «${recorte(textoCliente, 300)}». Leé su mensaje como la respuesta a eso, con el sentido que tiene en ese momento de la conversación (un «sí», «no», «video», «mañana» o «a la mañana» responde a lo que le preguntaste), no como un mensaje suelto. No repitas ni reformules lo que ya le dijiste y no vuelvas a preguntar lo que ya contestó.`
     : '';
   const datosLead = await datosDeLead(db, m.from);
@@ -3393,7 +3394,7 @@ export async function procesarMensaje(deps: Deps, m: MsgEntrante) {
   };
   const datosPago = limpiarSecreto(process.env.AGENTE_DATOS_PAGO ?? '');
   // Si ya dijo dos veces que no le interesa, el agente se despide: no vuelve a ofrecer ni a preguntar.
-  if (m.esTexto && esRechazoFirme(m.texto) && textosCliente.filter(esRechazoFirme).length >= 2) {
+  if (m.esTexto && deps.version !== 'v2' && esRechazoFirme(m.texto) && textosCliente.filter(esRechazoFirme).length >= 2) {
     const ult = mensajes[mensajes.length - 1];
     if (ult && typeof ult.content === 'string') ult.content += '\n[SISTEMA ERP: La persona ya dijo dos veces que no le interesa. Despedite con respeto en una o dos frases, agradeciendo y dejando la puerta abierta con tus palabras. No ofrezcas horarios, no repitas la propuesta y no hagas preguntas.]';
   }
