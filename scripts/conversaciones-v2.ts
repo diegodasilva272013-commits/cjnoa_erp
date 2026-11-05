@@ -96,7 +96,7 @@ async function main() {
   const cuales = (process.env.V2_CONVERSACIONES ?? 'C1,C2,C3,C4').split(',').map(x => x.trim()).filter(x => x in CONVERSACIONES || x in PERSONAS);
   log(`inicio · conversaciones=${cuales.join(',')} · modelo=gpt-4o-mini · clave OpenAI: ${process.env.api_openai || process.env.OPENAI_API_KEY ? 'presente' : 'AUSENTE'} · agenda real (solo lectura): ${real ? 'sí' : 'no'} · tope ${tope} USD`);
   const sinV1 = (async () => { throw new Error('la v1 no debe llamarse'); }) as any;
-  const f = funcionesV2('gpt-4o-mini');
+  const f = funcionesV2();
 
   for (const id of cuales) {
     const fija = CONVERSACIONES[id];

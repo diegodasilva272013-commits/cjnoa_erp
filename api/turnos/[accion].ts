@@ -3060,7 +3060,9 @@ async function extraerOpenAI(sistemaTxt: string, usuario: string, esquema: unkno
 }
 
 /** Lo que llaman el webhook y el Chat de prueba para armar las dos funciones de modelo de la v2. */
-export function funcionesV2(modelo?: string): Pick<Deps, 'extraer' | 'redactar' | 'verificar'> {
+export function funcionesV2(modeloElegido?: string): Pick<Deps, 'extraer' | 'redactar' | 'verificar'> {
+  // El modelo sale de la config del cliente (salvo que se elija otro a mano): un modelo chico no sostiene las reglas del redactor ni distingue lo ajeno al estudio.
+  const modelo = modeloElegido ?? (CONFIG_CJNOA as any).modelo_del_agente;
   return {
     extraer: (s, u, e) => extraerOpenAI(s, u, e, modelo),
     verificar: (s, u, e) => extraerOpenAI(s, u, e, modelo, { nombre: 'verificacion', etiqueta: 'agente_verificador', maxTokens: 300 }),
@@ -3207,7 +3209,11 @@ async function turnoV2(a: {
       const malo = !t || importesInventados(t).length || horasEnTexto(t).some(h => !permitidas.has(h)) || fechasInventadas(t).length
         || (primerMensaje && !limpiarParaComparar(t).includes(limpiarParaComparar(cfg.saludo_inicial)))
         || (!primerMensaje && limpiarParaComparar(t).includes(limpiarParaComparar(cfg.saludo_inicial)));
-      if (!malo) return t;
+      if (!malo) {
+        const crudoF: any = await deps.verificar!(promptFormulas(cfg), JSON.stringify({ lo_que_dijo_la_persona: a.textoCliente, borrador: t }), esquemaFormulas);
+        const conFormula = (Array.isArray(crudoF?.oraciones_con_formula) ? crudoF.oraciones_con_formula : []).some((z: unknown) => limpiarParaComparar(t).includes(limpiarParaComparar(String(z ?? ''))) && !limpiarParaComparar(cfg.saludo_inicial).includes(limpiarParaComparar(String(z ?? ''))));
+        if (!conFormula) return t;
+      }
     } catch (e) { console.error('[agente v2] respaldo', e instanceof Error ? e.message : e); }
     return seguroDeCodigo();
   };

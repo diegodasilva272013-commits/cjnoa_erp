@@ -14,6 +14,7 @@ export const CONFIG_CJNOA = {
     "publico": "Muchas de las personas que escriben son adultos mayores: usá un lenguaje simple y claro, con paciencia y respeto."
   },
   "oferta_por_defecto": null,
+  "modelo_del_agente": "gpt-4.1-mini",
   "saludo_explica_el_servicio": false,
   "saludo_inicial": "Hola, mucho gusto. Lo saluda Karina, del Centro Jurídico NOA.",
   "ideas_de_valor_en": [
