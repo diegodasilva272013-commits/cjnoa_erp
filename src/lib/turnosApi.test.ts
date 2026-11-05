@@ -4517,7 +4517,7 @@ describe('agente v2 · director + extractor + redactor (todo con modelo simulado
     expect(c.tipos[9]).toEqual(['ofrecer_horarios']);
     expect(c.cuerpos.flatMap(b => b.herramientas ?? [])).not.toContain('solicitar_cancelacion');
   });
-  it('gestión · nada inventado: con "como_se_conecta_virtual" pendiente, el agente solo dice que el estudio le confirma por el mismo chat', async () => {
+  it('gestión · nada inventado: con "como_se_conecta_virtual" pendiente, el agente solo dice que el estudio lo contacta el Dr.', async () => {
     estudio();
     // solo las ofertas que pueden ser virtuales (la de jubilación es en el estudio)
     for (const o of Object.values(CONFIG_CLIENTE.ofertas)) if ((o.datos_antes_de_horarios ?? []).some(d => (d.valores ?? []).includes('virtual'))) expect(o.como_se_conecta_virtual?.aprobado).toBe(false);
@@ -4528,7 +4528,7 @@ describe('agente v2 · director + extractor + redactor (todo con modelo simulado
     expect(c.tipos[8]).toEqual(['turno_agendado_seguimiento']);
     const datos = c.cuerpos[8].v2.datos.join('\n');
     expect(datos).toContain('TODAVÍA NO LO TENÉS');
-    expect(datos).toContain('el estudio le confirma por este mismo chat cómo conectarse');
+    expect(datos).toContain('el Dr. se va a comunicar con ella para coordinar cómo conectarse');
     expect(c.cuerpos[8].v2.objetivos[0].texto).not.toMatch(/persona del equipo lo gestiona/);
     expect(c.cuerpos[8].v2.objetivos[0].texto).toContain('lo gestionás vos');
   });
