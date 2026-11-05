@@ -12,7 +12,7 @@ export const CONFIG_CJNOA = {
     "tipo_de_organizacion": "estudio jurídico",
     "especialidad": "derecho previsional"
   },
-  "oferta_por_defecto": "art9_ganancias",
+  "oferta_por_defecto": null,
   "saludo_explica_el_servicio": false,
   "saludo_inicial": "Hola, mucho gusto. Lo saluda Karina, del Centro Jurídico NOA.",
   "ideas_de_valor_en": ["ofrecer_consulta"],
@@ -60,7 +60,7 @@ export const CONFIG_CJNOA = {
       "max_preguntas_por_mensaje": 2,
       "estilos": {
         "breve": "La persona escribe corto: mensaje corto y directo, sin reflejar lo que contó y agrupando en una sola pregunta los datos que faltan del grupo.",
-        "expresivo": "La persona se explaya: primero reflejá con calidez, con sus palabras, lo que contó; después preguntá lo que falte."
+        "expresivo": "La persona se explaya: respondé con una frase propia y humana (sin repetir lo que dijo ni anunciar que lo viste); después preguntá lo que falte."
       },
       "filtros": [
         {
@@ -178,7 +178,7 @@ export const CONFIG_CJNOA = {
     },
     "jubilacion_aportes": {
       "etiqueta": "Jubilación y compra de aportes",
-      "descripcion": "Cualquier persona (no solo docentes) que consulta por su jubilación: que le faltan años de aportes, que quiere comprar o pagar aportes, por la moratoria o el plan de la Ley 27.705, cuándo o cómo se va a poder jubilar, o que ya está jubilada y quiere revisar o mejorar su jubilación. Si habla de descuentos, retenciones o Ganancias en su haber, NO es esta oferta: es art9_ganancias.",
+      "descripcion": "Cualquier persona (no solo docentes) que consulta por su jubilación: que le faltan años de aportes, que quiere comprar o pagar aportes, por la moratoria o el plan de la Ley 27.705, cuándo o cómo se va a poder jubilar, o que ya está jubilada y quiere revisar o mejorar su jubilación. Si dice que quiere jubilarse o que todavía no se jubiló, es esta oferta aunque no nombre la compra de aportes. Si habla de descuentos, retenciones o Ganancias en su haber, NO es esta oferta: es art9_ganancias.",
       "campana": "jubilacion_docente",
       "profesional": "fabricio",
       "tipo_consulta": "jubilacion_aportes",
@@ -186,7 +186,7 @@ export const CONFIG_CJNOA = {
       "max_preguntas_por_mensaje": 1,
       "estilos": {
         "breve": "La persona escribe corto: mensaje corto y directo, sin reflejar lo que contó.",
-        "expresivo": "La persona se explaya: primero reflejá con calidez, con sus palabras, lo que contó; después preguntá lo que falte."
+        "expresivo": "La persona se explaya: respondé con una frase propia y humana (sin repetir lo que dijo ni anunciar que lo viste); después preguntá lo que falte."
       },
       "filtros": [
         {

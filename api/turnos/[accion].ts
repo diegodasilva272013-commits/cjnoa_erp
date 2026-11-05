@@ -578,7 +578,7 @@ export async function responderDesdeErp(db: Db, quien: string, telefono: string,
 export type CamposLead = {
   nombre?: string; apellido?: string; email?: string; dni_cuil?: string; localidad?: string;
   campana?: string; mensaje_inicial?: string; rama?: string; tipo_tramite?: string; calificacion?: string;
-  resumen?: string; requiere_turno?: boolean; datos?: Record<string, unknown>;
+  resumen?: string; requiere_turno?: boolean; datos?: Record<string, unknown>; /** La campaña se guarda una sola vez; con esto se corrige (la v2 asumió una oferta y era otra). */ corregir_campana?: boolean;
 };
 
 /** Nunca se guardan claves ni contraseñas (p. ej. la clave de ANSES): quedan solo en la transcripción. */
@@ -633,6 +633,8 @@ export function camposDeLead(origen: Record<string, unknown>): CamposLead {
   }
   if (out.calificacion) out.calificacion = calificacionCanonica(out.calificacion) || undefined;
 
+  usadas.add('corregir_campana');
+  if (origen.corregir_campana === true) out.corregir_campana = true;
   const rt = valorPlano(origen.requiere_turno);
   usadas.add('requiere_turno');
   if (typeof rt === 'boolean') out.requiere_turno = rt;
@@ -674,7 +676,7 @@ export function fusionarLead(
   const base: Record<string, any> = existente ? { ...existente } : { telefono, etapa: 'nuevo', datos: {}, canal: 'whatsapp', primer_contacto_at: ctx.ahora };
   const PISAN = ['nombre', 'apellido', 'email', 'dni_cuil', 'localidad', 'rama', 'tipo_tramite', 'calificacion', 'resumen'] as const;
   for (const k of PISAN) if (c[k]) base[k] = c[k];
-  for (const k of ['campana', 'mensaje_inicial'] as const) if (c[k] && !base[k]) base[k] = c[k];
+  for (const k of ['campana', 'mensaje_inicial'] as const) if (c[k] && (!base[k] || (k === 'campana' && c.corregir_campana))) base[k] = c[k];
   if (typeof c.requiere_turno === 'boolean') base.requiere_turno = c.requiere_turno;
   base.datos = { ...(existente?.datos ?? {}), ...(c.datos ?? {}) };
   base.ultimo_contacto_at = ctx.ahora;
@@ -2309,7 +2311,7 @@ export function aplicarExtraccion(estado: EstadoV2, ext: Extraccion, cfg: Config
   // Sin oferta todavía: si la persona dio un dato que solo pide UNA de las ofertas de la config, es esa. Un sí/no es una condición, no el tema: no define la oferta.
   const camposDe = (o: ConfigOferta) => [...o.filtros, ...o.filtros_de_cierre, ...(o.datos_antes_de_horarios ?? [])].filter(f => f.tipo !== 'si_no').map(f => f.campo);
   const porDato = e.oferta || ext.oferta_detectada ? [] : Object.entries(cfg.ofertas).filter(([id, o]) => ext.filtros.some(f => camposDe(o).includes(f.campo) && !Object.entries(cfg.ofertas).some(([id2, o2]) => id2 !== id && camposDe(o2).includes(f.campo)))).map(([id]) => id);
-  const nueva = (e.oferta && respuestaAlPedido ? null : ext.oferta_detectada) ?? (porDato.length === 1 ? porDato[0] : null) ?? (e.oferta ? null : ofertaDeCampana ?? (cfg.oferta_por_defecto && cfg.ofertas[cfg.oferta_por_defecto] ? cfg.oferta_por_defecto : null));
+  const nueva = (e.oferta && ext.respuesta_corta !== null ? null : ext.oferta_detectada) ?? (porDato.length === 1 ? porDato[0] : null) ?? (e.oferta ? null : ofertaDeCampana ?? (cfg.oferta_por_defecto && cfg.ofertas[cfg.oferta_por_defecto] ? cfg.oferta_por_defecto : null));
   if (nueva && nueva !== e.oferta) {
     e.oferta = nueva;
     if (['ofrecer', 'activo_valor', 'reserva', 'horarios', 'agendado', 'no_califica'].includes(e.etapa)) e.etapa = 'descubrir';
@@ -2618,11 +2620,14 @@ async function dirigirTurnoBase(a: EntradaDirector): Promise<SalidaDirector> {
     // 2b. un dato del que no está segura: no se da por sí ni por no, se la ayuda a aclararlo
     if (ext.dato_en_duda) {
       const def = definicionDeFiltro(cfg, ext.dato_en_duda.campo);
-      if (def) return conBloqueo({ tipo: 'aclarar_dato', detalle: def.campo, texto: T.principal_8(def.descripcion, def.ayuda_al_dudar ? ` (${def.ayuda_al_dudar})` : '') }, `aclarar_dato:${def.campo}`);
+      // un dato opcional que no sabe no frena nada: se sigue sin él
+      if (def && !def.opcional) return conBloqueo({ tipo: 'aclarar_dato', detalle: def.campo, texto: T.principal_8(def.descripcion, def.ayuda_al_dudar ? ` (${def.ayuda_al_dudar})` : '') }, `aclarar_dato:${def.campo}`);
     }
     // 3-pre. un "no" ambiguo (suelto a una pregunta de varios datos, o que contradice lo dicho) no se registra: se aclara una vez y, si sigue ambiguo, se deriva
-    if (oferta && ext.ambiguos.length) {
-      const campos = ext.ambiguos;
+    // (solo los datos de la oferta vigente: un dato de otra oferta ya no importa)
+    const ambiguosVigentes = oferta ? ext.ambiguos.filter(c => oferta.filtros.some(f => f.campo === c)) : [];
+    if (oferta && ambiguosVigentes.length) {
+      const campos = ambiguosVigentes;
       if (campos.some(c => (estado.aclaraciones?.[c] ?? 0) >= cfg.umbrales.aclaraciones_por_dato)) return derivar(T.motivo_negacion_ambigua(campos.join(', ')));
       estado.aclaraciones = { ...(estado.aclaraciones ?? {}), ...Object.fromEntries(campos.map(c => [c, (estado.aclaraciones?.[c] ?? 0) + 1])) };
       const descripciones = campos.map(c => definicionDeFiltro(cfg, c)?.descripcion ?? c);
@@ -2889,7 +2894,7 @@ export function armarSistemaRedactor(a: { cfg: ConfigCliente; objetivos: Objetiv
 // ------------------------------------------------------------------ verificador del borrador (un segundo modelo, no regex)
 export const PROMPT_VERIFICADOR = T.verificador_prompt;
 export const promptVerificador = (cfg: ConfigCliente) => rellenar(PROMPT_VERIFICADOR, datosDelAgente(cfg));
-export const REGLAS_VERIFICADOR = ['promesa', 'consulta_o_abogado', 'horarios', 'precios', 'agendado', 'formula_empatia', 'repite_mensaje_anterior', 'estructura_repetida', 'repite_dato_recien_dado', 'cancelacion_confirmada', 'pago_confirmado', 'promete_lo_no_dado', 'explica_el_servicio', 'no_refleja_lo_contado', 'pregunta_fuera_del_objetivo', 'opciones_inclinadas', 'jerga_interna', 'tratamiento_informal', 'reproche_o_apuro', 'saludo_repetido', 'tema_mal_nombrado'] as const;
+export const REGLAS_VERIFICADOR = ['promesa', 'consulta_o_abogado', 'horarios', 'precios', 'agendado', 'formula_empatia', 'repite_mensaje_anterior', 'estructura_repetida', 'repite_dato_recien_dado', 'cancelacion_confirmada', 'pago_confirmado', 'promete_lo_no_dado', 'explica_el_servicio', 'pregunta_fuera_del_objetivo', 'opciones_inclinadas', 'jerga_interna', 'tratamiento_informal', 'reproche_o_apuro', 'saludo_repetido', 'tema_mal_nombrado'] as const;
 export const esquemaVerificador = {
   type: 'object', additionalProperties: false, required: ['violaciones', 'ideas_usadas'],
   properties: {
@@ -2904,8 +2909,6 @@ const REGLAS_QUE_AFIRMAN = ['promesa', 'agendado', 'pago_confirmado', 'cancelaci
 export const esquemaPreguntas = { type: 'object', additionalProperties: false, required: ['preguntas'], properties: { preguntas: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['indice', 'corresponde'], properties: { indice: { type: 'integer' }, corresponde: { type: 'boolean' } } } } } };
 export const esquemaFormulas = { type: 'object', additionalProperties: false, required: ['oraciones_con_formula'], properties: { oraciones_con_formula: { type: 'array', items: { type: 'string' } } } };
 export const promptFormulas = (cfg: ConfigCliente) => rellenar(T.verificador_formulas_prompt, datosDelAgente(cfg));
-export const esquemaReflejo = { type: 'object', additionalProperties: false, required: ['oracion_que_retoma', 'es_formula_de_empatia', 'refleja'], properties: { oracion_que_retoma: { type: 'string' }, es_formula_de_empatia: { type: 'boolean' }, refleja: { type: 'boolean' } } };
-export const promptReflejo = (cfg: ConfigCliente) => rellenar(T.verificador_reflejo_prompt, datosDelAgente(cfg));
 export const promptPreguntas = (cfg: ConfigCliente) => rellenar(T.verificador_preguntas_prompt, datosDelAgente(cfg));
 
 /**
@@ -2982,8 +2985,8 @@ export function mensajeSeguro(a: { objetivos: Objetivo[]; estado: EstadoV2; cfg:
   const personaCorta = (a.estilo ?? a.estado.estilo_persona) === 'breve';
   // Ante una duda u objeción no se festeja ("Perfecto.") ni se agradece: se la recibe.
   const conObjecion = ['trabajar_objecion', 'responder_objecion'].includes(o.tipo);
-  const reflejo = conObjecion || (a.primerMensaje && !dicho) ? '' : dicho && !personaCorta && !['acepta', 'ambiguo', 'elige_horario', 'rechaza_horarios'].includes(a.intencion)
-    ? `${dicho.charAt(0).toUpperCase()}${dicho.slice(1)}.` : (personaCorta ? T.reflejo_corto : T.reflejo_1);
+  // nunca se repite lo que dijo la persona: a lo sumo una palabra de transición
+  const reflejo = conObjecion || a.primerMensaje ? '' : (personaCorta ? T.reflejo_corto : T.reflejo_1);
   // La idea de valor aprobada que todavía no se usó (de la config): es lo que responde la objeción en el mensaje seguro.
   const idea = o.tipo === 'responder_objecion' ? (ideasParaElTurno({ cfg: a.cfg, estado: a.estado, objetivos: a.objetivos })[0]?.texto ?? '') : '';
   const saludo = a.primerMensaje ? `${a.cfg.saludo_inicial} ` : '';
@@ -3129,6 +3132,8 @@ async function turnoV2(a: {
   for (const [campo, d] of Object.entries(estado.filtros)) { compat[campo] = d.valor; compat[`${campo}_evidencia`] = d.evidencia; }
   await upsertLeadSeguro(db, m.from, camposDeLead({
     ...(oferta ? { campana: oferta.campana } : {}),
+    // la campaña se guarda una sola vez: si la oferta cambió (se asumió una por defecto y era otra), se corrige, porque de ella depende qué se exige para agendar
+    ...(oferta && a.datosLead?.campana && a.datosLead.campana !== oferta.campana ? { corregir_campana: true } : {}),
     ...(estado.filtros['nombre'] ? { nombre: estado.filtros['nombre'].valor } : {}),
     datos: { ...compat, estado_v2: estado },
   }));
@@ -3185,7 +3190,6 @@ async function turnoV2(a: {
     (r !== 'repite_dato_recien_dado' || (respondioUnPedido && !permite.horarios)) &&
     (r !== 'saludo_repetido' || !primerMensaje) &&
     (r !== 'explica_el_servicio' || (primerMensaje && !cfg.saludo_explica_el_servicio)) &&
-    (r !== 'no_refleja_lo_contado' || estado.estilo_persona === 'expresivo') &&
     r !== 'pregunta_fuera_del_objetivo' &&
     (r !== 'tema_mal_nombrado' || !!oferta)) as string[];
   // Las preguntas que el objetivo pide, con las palabras de la config.
@@ -3260,16 +3264,9 @@ async function turnoV2(a: {
         }
         // Revisión angosta de fórmulas: cada oración del borrador que valora o usa una fórmula de empatía en vez de las palabras de la persona.
         if (v.ok) {
-          const crudoF: any = await deps.verificar(promptFormulas(cfg), JSON.stringify({ borrador: texto }), esquemaFormulas);
+          const crudoF: any = await deps.verificar(promptFormulas(cfg), JSON.stringify({ lo_que_dijo_la_persona: a.textoCliente, borrador: texto }), esquemaFormulas);
           const conFormula = (Array.isArray(crudoF?.oraciones_con_formula) ? crudoF.oraciones_con_formula : []).map((x: unknown) => String(x ?? '').trim()).filter((x: string) => x && limpiarParaComparar(texto).includes(limpiarParaComparar(x)) && !limpiarParaComparar(cfg.saludo_inicial).includes(limpiarParaComparar(x)));
           if (conFormula.length) v = { ok: false, motivo: conFormula.map((x: string) => T.motivo_de_violacion(x, T.instruccion_regla.formula_empatia)).join(' ').slice(0, u.largo_maximo_del_motivo), ideas_usadas: v.ideas_usadas };
-        }
-        // Tercera revisión, angosta: si la persona se explayó, entre el saludo y la pregunta tiene que haber una oración que retome lo que contó.
-        if (v.ok && ext.estilo === 'expresivo' && !respondioUnPedido && a.textoCliente.trim()) {
-          const crudoR: any = await deps.verificar(promptReflejo(cfg), JSON.stringify({ lo_que_conto_la_persona: a.textoCliente, borrador: texto }), esquemaReflejo);
-          const oracionR = String(crudoR?.oracion_que_retoma ?? '').trim();
-          if (crudoR?.es_formula_de_empatia === true) v = { ok: false, motivo: T.motivo_de_violacion(oracionR || texto, T.instruccion_regla.formula_empatia).slice(0, u.largo_maximo_del_motivo), ideas_usadas: v.ideas_usadas };
-          else if (crudoR?.refleja === false || !oracionR || oracionR.includes('?') || limpiarParaComparar(cfg.saludo_inicial).includes(limpiarParaComparar(oracionR)) || !limpiarParaComparar(texto).includes(limpiarParaComparar(oracionR))) v = { ok: false, motivo: T.motivo_de_violacion(texto, T.instruccion_regla.no_refleja_lo_contado).slice(0, u.largo_maximo_del_motivo), ideas_usadas: v.ideas_usadas };
         }
       } catch (e) {
         console.error('[agente v2] verificador', e instanceof Error ? e.message : e);

@@ -3853,14 +3853,6 @@ describe('agente v2 · director + extractor + redactor (todo con modelo simulado
     expect(o.texto).toContain('¿Qué le gustaría lograr con esto?');
     expect(o.texto).toMatch(/Nunca digas "objetivo"/);
   });
-  it('ronda 3 · reorganizar_y_ofrecer le pasa al redactor las palabras de la persona y exige arrancar con «Entonces, si le entendí bien:»', async () => {
-    const c = await conversar(art9Hasta(3), (sis, mensajes) =>
-      (mensajes.some((m: any) => String(m.content).startsWith('[SISTEMA ERP: Corregí')) ? 'Entonces, si le entendí bien: quiere que dejen de descontarle. ¿Le gustaría avanzar con una consulta sin cargo?' : redactorFalso(sis)));
-    const o = c.cuerpos[2].v2.objetivos[0];
-    expect(o.tipo).toBe('reorganizar_y_ofrecer');
-    expect(o.texto).toContain('Entonces, si le entendí bien:');
-    expect(o.texto).toContain(P_OBJ);
-  });
   it('ronda 3 · dos horarios: días distintos; si hay un solo día, mañana y tarde; si hay una sola franja, los más separados', () => {
     const s = (fecha: string, hora: string) => ({ fecha, hora, profesional: 'Alejandro' });
     expect(elegirH([s('2026-10-26', '09:00'), s('2026-10-26', '09:30'), s('2026-10-27', '10:00'), s('2026-10-28', '09:00')]).map(x => `${x.fecha} ${x.hora}`)).toEqual(['2026-10-26 09:00', '2026-10-27 10:00']);
@@ -4127,8 +4119,8 @@ describe('agente v2 · director + extractor + redactor (todo con modelo simulado
     const b = { estado: e, cfg: CONFIG_CLIENTE, intencion: 'otro', textoCliente: 'Me descuentan ganancias del haber', primerMensaje: false };
     expect(mensajeSeguro({ ...b, objetivos: [{ tipo: 'obtener_filtro', detalle: 'es_docente', texto: '' }] })).toContain('¿Usted es docente?');
     expect(mensajeSeguro({ ...b, objetivos: [{ tipo: 'profundizar', texto: '' }] })).toContain('¿Me cuenta un poco más sobre eso?');
-    expect(mensajeSeguro({ ...b, objetivos: [{ tipo: 'reorganizar_y_ofrecer', texto: '' }] })).toMatch(/^Entonces, si le entendí bien: quiere que dejen de descontarle\. /);
-    expect(mensajeSeguro({ ...b, dicho: ['le descuentan ganancias del haber.'], objetivos: [{ tipo: 'profundizar', texto: '' }] })).toBe('Le descuentan ganancias del haber. ¿Me cuenta un poco más sobre eso?');
+    expect(mensajeSeguro({ ...b, objetivos: [{ tipo: 'reorganizar_y_ofrecer', texto: '' }] })).not.toMatch(/entend[ií] bien|quiere que dejen/i); // nunca repite lo que dijo la persona
+    expect(mensajeSeguro({ ...b, dicho: ['le descuentan ganancias del haber.'], objetivos: [{ tipo: 'profundizar', texto: '' }] })).not.toContain('ganancias'); // el mensaje seguro no repite lo que dijo
     expect(mensajeSeguro({ ...b, dicho: ['le descuentan ganancias'], objetivos: [{ tipo: 'descubrir', detalle: 'objetivo', texto: '' }] })).not.toMatch(/[«»]/);
     expect(mensajeSeguro({ ...b, estado: { ...e, horario_pendiente: { fecha: '2026-10-27', hora: '09:00' } }, objetivos: [{ tipo: 'obtener_dato_agenda', detalle: 'nombre', texto: '' }] })).toContain('para el turno del martes 27 de octubre a las 09:00');
     expect(mensajeSeguro({ ...b, objetivos: [{ tipo: 'derivar', texto: '' }] })).toBeNull();
@@ -4217,16 +4209,16 @@ describe('agente v2 · director + extractor + redactor (todo con modelo simulado
     expect(c.cuerpos[0].v2.redactor).toHaveLength(2);
     expect(c.cuerpos[0].v2.verificador.map((v: any) => v.ok)).toEqual([false, true]);
   });
-  it('criterio · si la persona se explayó (estilo expresivo), el mensaje necesita una oración que retome lo que contó', async () => {
-    const oracion = 'Usted es docente jubilada y le descuentan ganancias.';
-    const c = await conversar([{ persona: FRASE1, extractor: () => ({ ...art9, estilo: 'expresivo' }) }],
-      (sis, _m, n) => { const b = redactorFalso(sis); return n === 0 ? b : b.replace(CONFIG_CLIENTE.saludo_inicial, `${CONFIG_CLIENTE.saludo_inicial} ${oracion}`); }, undefined,
+  it('criterio · el eco ("Veo que…", "Usted menciona que…") lo marca el verificador y el redactor lo reescribe sin repetir lo que dijo la persona', async () => {
+    const eco = 'Usted menciona que es docente jubilada.';
+    const c = await conversar([{ persona: FRASE1, extractor: () => art9 }],
+      (sis, _m, n) => (n === 0 ? `${redactorFalso(sis)} ${eco}` : redactorFalso(sis)), undefined,
       async (_s, u, esq: any) => {
-        if (esq.required?.includes('refleja')) { const b = JSON.parse(u).borrador as string; return b.includes(oracion) ? { oracion_que_retoma: oracion, es_formula_de_empatia: false, refleja: true } : { oracion_que_retoma: '', es_formula_de_empatia: false, refleja: false }; }
+        if (esq.required?.includes('oraciones_con_formula')) { const o = JSON.parse(u); return { oraciones_con_formula: (o.borrador as string).includes(eco) ? [eco] : [] }; }
         return sinViolaciones;
       });
     expect(c.cuerpos[0].v2.redactor).toHaveLength(2);
-    expect(c.cuerpos[0].respuestas[0]).toContain(oracion);
+    expect(c.cuerpos[0].respuestas[0]).not.toContain('Usted menciona');
   });
   it('criterio · la revisión de fórmulas rechaza la oración que el verificador marca y el redactor la reescribe', async () => {
     const formula = 'Entiendo que le preocupa.';
@@ -4253,6 +4245,15 @@ describe('agente v2 · director + extractor + redactor (todo con modelo simulado
     expect(CONFIG_CLIENTE.max_ideas_por_conversacion).toBe(1);
     expect(CONFIG_CLIENTE.ideas_de_valor_en).toEqual(['ofrecer_consulta']);
     expect(CONFIG_CLIENTE.umbrales.max_rechazos_del_verificador).toBeGreaterThan(0);
+  });
+  it('criterio · si la oferta asumida por defecto no es la que busca, al nombrar otro servicio se cambia (aunque responda a una pregunta)', async () => {
+    const P = 'no me jubile, vi el anuncio para comprar aportes';
+    const c = await conversar([
+      { persona: 'hola mas informacion', extractor: () => raw() },
+      { persona: P, extractor: () => raw({ oferta_detectada: 'jubilacion_aportes', filtros: [fil('jubilado_anses', 'no', P, { origen: 'respuesta_al_pedido', negacion: 'ambigua' })] }) },
+    ]);
+    expect(leerEstadoV2(c.lead().datos).oferta).toBe('jubilacion_aportes');
+    expect(c.tipos[1][0]).toBe('obtener_filtro:edad');
   });
   it('pulido · ideasParaElTurno: solo van en los objetivos que la config indica (ideas_de_valor_en), una vez por conversación (max_ideas_por_conversacion)', () => {
     const e = { ...estadoV2Vacio(), oferta: 'art9_ganancias' };
@@ -4393,12 +4394,13 @@ describe('agente v2 · director + extractor + redactor (todo con modelo simulado
     const e2 = aplicarExtraccion(estadoV2Vacio(), validarExtraccion(raw({ filtros: [fil('jubilado_anses', 'si', 'cobro de anses')] }), { cfg: CONFIG_CLIENTE, personaTextos: ['cobro de anses'], ofrecidos: [] }), CONFIG_CLIENTE, null, 'cobro de anses');
     expect(e2.oferta).toBe(CONFIG_CLIENTE.oferta_por_defecto); // sin tema, la config asume su oferta por defecto
   });
-  it('oferta por defecto · si el mensaje no deja claro el tema, el director asume la oferta de la config (oferta_por_defecto) y sigue con sus filtros', async () => {
+  it('sin tema claro · el director pregunta primero por cuál de los temas del estudio consulta, sin asumir ninguno', async () => {
     estudio();
-    const c = await conversar([{ persona: 'hola, vi el anuncio', extractor: () => raw() }], redactorEstudio);
-    expect(CONFIG_CLIENTE.oferta_por_defecto).toBe('art9_ganancias');
-    expect(c.tipos[0]).toEqual(['obtener_filtro:es_docente']);
-    expect(leerEstadoV2(c.lead().datos).oferta).toBe('art9_ganancias');
+    const c = await conversar([{ persona: 'hola mas informacion', extractor: () => raw() }], redactorEstudio);
+    expect(c.tipos[0]).toEqual(['descubrir_situacion']);
+    expect(leerEstadoV2(c.lead().datos).oferta).toBeNull();
+    const t = c.cuerpos[0].v2.objetivos[0].texto;
+    for (const o of Object.values(CONFIG_CLIENTE.ofertas)) expect(t).toContain(o.etiqueta);
   });
   /** El nombre (sin acento) de un día hábil dentro de la semana próxima, para pedirlo como preferencia. */
   const diaHabilProximo = () => { const d = new Date(Date.now() + 3 * 86400000); while ([0, 6].includes(d.getUTCDay())) d.setUTCDate(d.getUTCDate() + 1); return { nombre: ['domingo', 'lunes', 'martes', 'miercoles', 'jueves', 'viernes', 'sabado'][d.getUTCDay()], dow: d.getUTCDay() }; };
@@ -4804,7 +4806,7 @@ describe('agente v2 · director + extractor + redactor (todo con modelo simulado
     expect(c.tipos[1]).toEqual(['ofrecer_consulta:modalidad_consulta']);
     const texto = c.cuerpos[1].v2.objetivos[0].texto;
     expect(texto).toContain('350 mil por mes');
-    expect(texto).toContain('tomaste nota');
+    expect(texto).toContain('No se lo repitas');
     expect(texto).toContain(ART9().encuadre_del_caso!.texto);
     expect(texto).toContain('sin prometer ningún resultado');
     expect(texto).toMatch(/no puede viajar/);
