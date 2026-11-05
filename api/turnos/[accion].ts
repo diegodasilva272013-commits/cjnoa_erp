@@ -2183,7 +2183,7 @@ export function validarExtraccion(raw: any, a: { cfg: ConfigCliente; personaText
     if (def.tipo === 'si_no') { const n = normalizar(v); valor = n === 'si' || n === 'no' ? n : ''; }
     else if (def.tipo === 'numero') valor = new RegExp(`^\\d{1,${a.cfg.umbrales.digitos_maximos_de_numero}}$`).test(v) ? v : '';
     else if (def.tipo === 'opcion') { const n = normalizar(v); valor = (def.valores ?? []).includes(n) ? n : ''; }
-    else valor = v.length > 0 && v.length <= a.cfg.umbrales.largo_maximo_de_dato_de_texto && !(def.campo === 'nombre' && /\d/.test(v)) ? v : '';
+    else valor = v.length > 0 && v.toLowerCase() !== 'null' && v.length <= a.cfg.umbrales.largo_maximo_de_dato_de_texto && !(def.campo === 'nombre' && /\d/.test(v)) ? v : '';
     if (!valor) continue;
     const origen = f?.origen === 'respuesta_al_pedido' ? 'respuesta_al_pedido' : 'espontaneo';
     // Lo que se dice en respuesta a un pedido solo vale para ese pedido (el extractor lo clasifica; acá solo se compara con lo que se pidió).
