@@ -39,7 +39,8 @@ export const CONFIG_CJNOA = {
     "casilleros_en_el_reflejo": 2,
     "palabras_de_apertura": 3,
     "palabras_minimas_de_apertura": 2,
-    "palabras_minimas_de_frase_repetida": 5,
+    "palabras_minimas_de_frase_repetida": 4,
+    "digitos_minimos_de_cifra": 3,
     "largo_maximo_del_motivo": 500,
     "mensajes_para_el_redactor": 10
   },
