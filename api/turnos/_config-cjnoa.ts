@@ -30,7 +30,7 @@ export const CONFIG_CJNOA = {
     "max_correcciones_de_estilo": 3,
     "max_rechazos_del_verificador": 2,
     "reintentos_del_extractor": 2,
-    "bloqueo_respuestas_sin_el_dato": 2,
+    "bloqueo_respuestas_sin_el_dato": 3,
     "bloqueo_turnos_pidiendo_lo_mismo": 4,
     "hora_de_corte_manana_tarde": "13:00",
     "aclaraciones_por_dato": 1,
@@ -107,7 +107,7 @@ export const CONFIG_CJNOA = {
           "campo": "monto_descuento",
           "tipo": "texto",
           "opcional": true,
-          "descripcion": "el monto aproximado que le descuentan por mes",
+          "descripcion": "desde cuándo le hacen el descuento y más o menos cuánto le descuentan por mes (no es imprescindible: si no lo sabe, se sigue igual)",
           "ayuda": "Solo si la persona dice cuánto le descuentan (por ejemplo \"350 mil\", \"unos 200.000\", \"527000\"). Si no lo sabe o no lo dice, no lo inventes."
         }
       ],
@@ -116,7 +116,7 @@ export const CONFIG_CJNOA = {
         "obligatorios": [],
         "al_menos_uno_de": []
       },
-      "condicion": "La consulta con el Dr. Alejandro Reyes es SIN CARGO y sin compromiso, y puede ser presencial en San Salvador de Jujuy o virtual. En la consulta el Dr. Alejandro Reyes analiza su caso y le explica qué se puede hacer y cuáles son los pasos a seguir.",
+      "condicion": "La consulta con el Dr. Alejandro Reyes es SIN CARGO y sin compromiso, y puede ser presencial en San Salvador de Jujuy o virtual. En la consulta el Dr. Alejandro Reyes revisa el recibo de haber y los descuentos que le hacen para ver si corresponden o no, y le explica qué se puede hacer y cuáles son los pasos a seguir; no se puede adelantar el resultado antes de verlo. La consulta virtual está pensada para quienes viven en el interior de la provincia y no pueden o no quieren viajar: si la persona dice que vive lejos o en otra localidad, ofrecele la virtual.",
       "urgencia": "La ley permite reclamar lo descontado hasta 2 años hacia atrás en Artículo 9 y hasta 5 años en Ganancias, contados desde la presentación de la demanda; por eso cada mes que se demora, los descuentos más antiguos pueden quedar fuera del reclamo. Es todo lo que podés decir sobre plazos y nunca prometés un resultado.",
       "activo_de_valor": null,
       "cierre": "turno_directo",
@@ -143,7 +143,7 @@ export const CONFIG_CJNOA = {
             "virtual"
           ],
           "descripcion": "si prefiere la consulta presencial (en San Salvador de Jujuy) o virtual",
-          "ayuda": "\"Virtual\", \"por videollamada\", \"por Meet o Zoom\", \"desde casa\" => virtual; \"presencial\", \"en persona\", \"voy al estudio\" => presencial.",
+          "ayuda": "\"Virtual\", \"por videollamada\", \"por Meet o Zoom\", \"desde casa\" => virtual; \"presencial\", \"en persona\", \"voy al estudio\" => presencial. Si dice que vive lejos, en el interior o en otra localidad, o que no puede viajar, es virtual (marcala como implícita). Preguntar dónde queda el estudio o a dónde llevar un recibo NO es elegir presencial.",
           "sinonimos": {
             "virtual": [
               "virtual",

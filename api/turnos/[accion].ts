@@ -2203,7 +2203,8 @@ export function validarExtraccion(raw: any, a: { cfg: ConfigCliente; personaText
     }
     if (!evidencia) continue;
     // Opciones (modalidad, forma de reserva): la evidencia tiene que mencionar el valor o un sinónimo de la config; nombrarla dentro de una pregunta es una duda, no una elección.
-    if (def.tipo === 'opcion') {
+    // (una opción que la persona da de forma implícita —«soy de La Quiaca, es mucho viaje»→ virtual— no nombra el valor: la deduce el modelo y no se exige el sinónimo)
+    if (def.tipo === 'opcion' && f?.implicita !== true) {
       const buscadas = [valor, ...(def.sinonimos?.[valor] ?? [])].map(limpiarParaComparar).filter(Boolean);
       const dichoL = limpiarParaComparar(f?.evidencia ?? '');
       if (!buscadas.some(b => contieneTermino(dichoL, b) || ` ${dichoL}`.includes(` ${b}`))) continue;
@@ -2651,7 +2652,9 @@ async function dirigirTurnoBase(a: EntradaDirector): Promise<SalidaDirector> {
     }
     // 3. emoción nueva
     // Se profundiza una vez: si el mensaje anterior ya profundizó, se sigue con el flujo (no se encadenan "¿me cuenta más?").
-    if (ext.emocion && estado.profundizo_en !== a.turno - 1) {
+    // Si en el mismo mensaje la persona dio un dato que se necesitaba (por ejemplo, dijo que vive lejos y eso define la modalidad), se avanza con eso: la duda se atiende después, sin frenar el flujo.
+    const dioUnDatoUtil = ext.implicitos.length > 0;
+    if (ext.emocion && !dioUnDatoUtil && estado.profundizo_en !== a.turno - 1) {
       const clave = limpiarParaComparar(ext.emocion.frase);
       if (!estado.emociones_trabajadas.some(x => limpiarParaComparar(x) === clave)) {
         estado.emociones_trabajadas = [...estado.emociones_trabajadas, ext.emocion.frase];
