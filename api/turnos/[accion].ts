@@ -2185,9 +2185,10 @@ export function validarExtraccion(raw: any, a: { cfg: ConfigCliente; personaText
     else if (def.tipo === 'opcion') { const n = normalizar(v); valor = (def.valores ?? []).includes(n) ? n : ''; }
     else valor = v.length > 0 && v.toLowerCase() !== 'null' && v.length <= a.cfg.umbrales.largo_maximo_de_dato_de_texto && !(def.campo === 'nombre' && /\d/.test(v)) ? v : '';
     if (!valor) continue;
-    const origen = f?.origen === 'respuesta_al_pedido' ? 'respuesta_al_pedido' : 'espontaneo';
+    let origen: 'respuesta_al_pedido' | 'espontaneo' = f?.origen === 'respuesta_al_pedido' ? 'respuesta_al_pedido' : 'espontaneo';
     // Lo que se dice en respuesta a un pedido solo vale para ese pedido (el extractor lo clasifica; acá solo se compara con lo que se pidió).
-    if (aplicaPendiente && origen === 'respuesta_al_pedido' && !pendientes.has(def.campo)) continue;
+    // Un "sí" o "no" pelado solo contesta lo que se preguntó; pero si la persona dijo el dato con sus palabras (aunque no era lo que se pedía), el dato vale igual.
+    if (aplicaPendiente && origen === 'respuesta_al_pedido' && !pendientes.has(def.campo)) { if (out.respuesta_corta !== null) continue; origen = 'espontaneo'; }
     // El nombre se registra si era lo que se pidió o si la persona se presenta por su cuenta.
     if (aplicaPendiente && def.campo === 'nombre' && !pendientes.has('nombre') && origen !== 'espontaneo') continue;
     const esTodoElMensaje = limpiarParaComparar(String(f?.evidencia ?? '')) !== '' && limpiarParaComparar(String(f?.evidencia ?? '')) === limpiarParaComparar(ultimoMsg);
@@ -2213,7 +2214,11 @@ export function validarExtraccion(raw: any, a: { cfg: ConfigCliente; personaText
     // Un "no": explícito se registra; ambiguo (o un "no" suelto a una pregunta de varios datos) no se registra, se aclara.
     if (valor === 'no' && def.tipo === 'si_no') {
       const sueltoACompuesta = out.respuesta_corta === 'no' && pendientes.size > 1 && pendientes.has(def.campo);
-      if (f?.negacion === 'ambigua' || sueltoACompuesta) { if (!out.ambiguos.includes(def.campo)) out.ambiguos.push(def.campo); continue; }
+      // si la persona en realidad está preguntando o reclamando algo (el modelo marcó intención "pregunta"), su "no" no es la respuesta al dato: se aclara
+      const preguntando = raw.intencion === 'pregunta' && f?.origen === 'respuesta_al_pedido';
+      // un "no" solo se registra si el modelo dice que la persona lo niega de forma explícita; si no, se aclara
+      const noExplicito = !contestaCorto && f?.negacion !== 'explicita';
+      if (f?.negacion === 'ambigua' || sueltoACompuesta || preguntando || noExplicito) { if (!out.ambiguos.includes(def.campo)) out.ambiguos.push(def.campo); continue; }
     }
     registrar({ campo: def.campo, valor, evidencia, origen, negacion: f?.negacion === 'ambigua' ? 'ambigua' : f?.negacion === 'explicita' ? 'explicita' : 'no_aplica', implicita: f?.implicita === true, subtipo: typeof f?.subtipo === 'string' ? f.subtipo : null });
   }
@@ -3064,7 +3069,8 @@ export function funcionesV2(modeloElegido?: string): Pick<Deps, 'extraer' | 'red
   // El modelo sale de la config del cliente (salvo que se elija otro a mano): un modelo chico no sostiene las reglas del redactor ni distingue lo ajeno al estudio.
   const modelo = modeloElegido ?? (CONFIG_CJNOA as any).modelo_del_agente;
   return {
-    extraer: (s, u, e) => extraerOpenAI(s, u, e, modelo),
+    // entender lo que dice la persona es lo más difícil de todo el turno: el extractor usa un modelo más capaz si la config lo indica
+    extraer: (s, u, e) => extraerOpenAI(s, u, e, modeloElegido ?? (CONFIG_CJNOA as any).modelo_del_extractor ?? modelo),
     verificar: (s, u, e) => extraerOpenAI(s, u, e, modelo, { nombre: 'verificacion', etiqueta: 'agente_verificador', maxTokens: 300 }),
     redactar: (s, m) => llamarModelo(s, m, { respaldo: false, modelo, sinHerramientas: true }),
   };
@@ -3116,7 +3122,8 @@ async function turnoV2(a: {
       const v = validarExtraccion(crudo, { cfg, personaTextos, ofrecidos, ultimoAgente: ultimoAgenteTexto, preguntaPendiente: estadoAntes.pregunta_pendiente?.campo ?? null, preguntasPendientes: estadoAntes.pregunta_pendiente?.campos, datoPendiente: estadoAntes.dato_pendiente ?? null, hoy: localDe(a.ahora).fecha });
       if (!v.fallo) {
         // con la oferta ya definida, solo valen los campos de ESA oferta (un "el primero" no puede ser una forma de pago de otra)
-        const ofertaActiva = estadoAntes.oferta ?? v.oferta_detectada;
+        // (si la persona nombra otro tema que el asumido, valen los datos del tema nuevo: si no, se perdía lo que acababa de decir)
+        const ofertaActiva = (v.respuesta_corta === null ? v.oferta_detectada : null) ?? estadoAntes.oferta ?? v.oferta_detectada;
         const of = ofertaActiva ? cfg.ofertas[ofertaActiva] : null;
         if (of) { const validos = new Set([...of.filtros, ...of.filtros_de_cierre, ...(of.datos_antes_de_horarios ?? []), ...(cfg.datos_agenda ?? [])].map(f => f.campo)); v.filtros = v.filtros.filter(f => validos.has(f.campo)); }
         ext = v; break;
@@ -3633,7 +3640,7 @@ export function deOpenAI(msg: any): { stop_reason: string; content: BloqueLLM[] 
 }
 
 /** Precio de lista en dólares por millón de tokens (entrada, salida). */
-const PRECIOS_USD: Record<string, [number, number]> = { 'gpt-4o-mini': [0.15, 0.6], 'gpt-4.1-mini': [0.4, 1.6], 'gpt-4o': [2.5, 10] };
+const PRECIOS_USD: Record<string, [number, number]> = { 'gpt-4o-mini': [0.15, 0.6], 'gpt-4.1-mini': [0.4, 1.6], 'gpt-4.1': [2, 8], 'gpt-4o': [2.5, 10] };
 export const usoOpenAI = { llamadas: 0, entrada: 0, salida: 0, usd: 0, fallos_de_registro: 0 };
 export const costoUsd = (modelo: string, entrada: number, salida: number) => { const [e, o] = PRECIOS_USD[modelo] ?? PRECIOS_USD['gpt-4o']; return (entrada * e + salida * o) / 1_000_000; };
 let dbUso: Db | null = null;
@@ -5410,9 +5417,32 @@ async function agentesHttp(req: VercelRequest, res: VercelResponse, db: Db, raw:
     const rol = String((perfil as any).rol ?? '');
     if (rol !== 'admin' && rol !== 'socio') return res.status(403).json({ error: 'No tenés permiso para probar el agente.' });
     // Solo el chat de prueba puede elegir otro modelo (para comparar); el agente real usa siempre el de producción.
-    const modeloElegido = ['gpt-4o-mini', 'gpt-4.1-mini'].includes(String(body?.modelo ?? '')) ? String(body.modelo) : undefined;
+    const modeloElegido = ['gpt-4o-mini', 'gpt-4.1-mini', 'gpt-4.1'].includes(String(body?.modelo ?? '')) ? String(body.modelo) : undefined;
     const v2 = body?.version === 'v2' ? funcionesV2(modeloElegido) : undefined;
-    try { const r = await chatAgentePaso(String(body?.texto ?? ''), body?.estado, (sis, msgs) => llamarModelo(sis, msgs, { respaldo: false, modelo: modeloElegido }), db, v2); return res.status(r.code).json(r.body); }
+    try {
+      const r = await chatAgentePaso(String(body?.texto ?? ''), body?.estado, (sis, msgs) => llamarModelo(sis, msgs, { respaldo: false, modelo: modeloElegido }), db, v2);
+      // Cada turno del chat de prueba queda grabado para revisarlo después en el ERP (si la tabla todavía no existe, el chat sigue andando).
+      let guardado = false;
+      const idSesion = /^[0-9a-f-]{36}$/i.test(String(body?.sesion ?? '')) ? String(body.sesion) : null;
+      if (idSesion && r.code === 200) {
+        try {
+          const ex = await db.from('chat_prueba_conversaciones').select('mensajes').eq('sesion', idSesion).maybeSingle();
+          const previos = Array.isArray((ex.data as any)?.mensajes) ? (ex.data as any).mensajes : [];
+          const at = new Date().toISOString();
+          const respuestas = (((r.body as any)?.respuestas ?? []) as string[]);
+          const v2b = (r.body as any)?.v2 as Record<string, unknown> | undefined;
+          const nuevos = [
+            { de: 'persona', texto: String(body?.texto ?? ''), at },
+            ...respuestas.map((x, i) => ({ de: 'agente', texto: x, at, ...(i === respuestas.length - 1 && v2b ? { v2: { objetivos: v2b.objetivos, extractor: v2b.extractor, verificador: v2b.verificador, mensaje_seguro: v2b.mensaje_seguro, redactor: v2b.redactor } } : {}) })),
+          ];
+          const agendo = (((r.body as any)?.estado?.tablas?.consultas_agendadas ?? []) as unknown[]).length > 0;
+          const { error } = await db.from('chat_prueba_conversaciones').upsert({ sesion: idSesion, usuario: String(sesion?.user?.email ?? ''), version: body?.version === 'v2' ? 'v2' : 'v1', modelo: modeloElegido ?? (body?.version === 'v2' ? String((CONFIG_CJNOA as any).modelo_del_agente) : 'producción'), agendo, mensajes: [...previos, ...nuevos], updated_at: at }, { onConflict: 'sesion' });
+          guardado = !error;
+          if (error) console.error('[chat_agente] guardar', error.message);
+        } catch (e) { console.error('[chat_agente] guardar', e instanceof Error ? e.message : e); }
+      }
+      return res.status(r.code).json({ ...(r.body as Record<string, unknown>), guardado });
+    }
     catch (e) { console.error('[chat_agente]', e); return res.status(500).json({ error: e instanceof Error ? e.message.slice(0, 200) : 'Error en el chat' }); }
   }
   if (body?.accion === 'gasto_cuenta' || body?.accion === 'gasto_saldo') {

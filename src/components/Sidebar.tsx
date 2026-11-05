@@ -188,6 +188,12 @@ export default function Sidebar({ open, onClose }: SidebarProps) {
               Chat de prueba
             </NavLink>
           )}
+          {(rol === 'admin' || rol === 'socio') && (
+            <NavLink to="/chat-agente/conversaciones" onClick={onClose} className={({ isActive }) => linkClass(isActive)}>
+              <MessageCircle className="w-5 h-5" />
+              Conversaciones de prueba
+            </NavLink>
+          )}
 
           {/* Gasto de OpenAI en tiempo real: solo admin y socio */}
           {(rol === 'admin' || rol === 'socio') && (

@@ -40,6 +40,7 @@ const AgentesRegistro = lazyWithRetry(() => import('./pages/AgentesRegistro'));
 const AgentePruebas = lazyWithRetry(() => import('./pages/AgentePruebas'));
 const GastosAgente = lazyWithRetry(() => import('./pages/GastosAgente'));
 const ChatAgente = lazyWithRetry(() => import('./pages/ChatAgente'));
+const ConversacionesPrueba = lazyWithRetry(() => import('./pages/ConversacionesPrueba'));
 const LeadsCampanas = lazyWithRetry(() => import('./pages/LeadsCampanas'));
 
 function ProtectedRoute({ modulo, children }: { modulo: 'dashboard' | 'casos' | 'finanzas' | 'equipo' | 'agenda' | 'previsional' | 'honorarios'; children: React.ReactNode }) {
@@ -111,6 +112,7 @@ export default function App() {
           <Route path="/agentes" element={<SoloAdminSocio><AgentesIA /></SoloAdminSocio>} />
           <Route path="/agente-whatsapp" element={<SoloAdminSocio><AgenteWhatsApp /></SoloAdminSocio>} />
           <Route path="/chat-agente" element={<SoloAdminSocio><ChatAgente /></SoloAdminSocio>} />
+          <Route path="/chat-agente/conversaciones" element={<SoloAdminSocio><ConversacionesPrueba /></SoloAdminSocio>} />
           <Route path="/gastos-agente" element={<SoloAdminSocio><GastosAgente /></SoloAdminSocio>} />
           <Route path="/agente-pruebas" element={<SoloAdminSocio><AgentePruebas /></SoloAdminSocio>} />
           <Route path="/agentes/registro" element={<SoloAdminSocio><AgentesRegistro /></SoloAdminSocio>} />

@@ -15,6 +15,7 @@ export const CONFIG_CJNOA = {
   },
   "oferta_por_defecto": null,
   "modelo_del_agente": "gpt-4.1-mini",
+  "modelo_del_extractor": "gpt-4.1",
   "saludo_explica_el_servicio": false,
   "saludo_inicial": "Hola, mucho gusto. Lo saluda Karina, del Centro Jurídico NOA.",
   "ideas_de_valor_en": [
