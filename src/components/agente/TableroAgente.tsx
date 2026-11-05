@@ -473,11 +473,13 @@ export default function TableroAgente({ m, dias, onDias, informe, optimizando, p
           <Dona partes={estadosPartes} tam={150} grosor={16} centro={<><Contador valor={m.estados.agendadas} className="text-3xl font-semibold tabular-nums text-white" /><span className="text-[11px] text-gray-500">con cita</span></>} />
           <div className="w-full"><Leyenda partes={estadosPartes} /></div>
         </Tarjeta>
-        <Tarjeta titulo="Personas con cita agendada" subtitulo="Lo que Noa logró cerrar" icono={<CalendarCheck className="size-4" />} className="flex flex-col justify-between" retraso={240}>
+        <Tarjeta titulo="Personas con cita agendada" subtitulo="Citas de Noa y las que cargó el equipo" icono={<CalendarCheck className="size-4" />} className="flex flex-col justify-between" retraso={240}>
           <div>
             <Contador valor={m.estados.agendadas} className="block text-5xl font-semibold tabular-nums text-white" />
             <p className="mt-1 text-sm text-emerald-300">{m.personas ? `${Math.round((m.estados.agendadas / m.personas) * 1000) / 10}% de las personas que escribieron` : 'Sin datos todavía'}</p>
             {m.turnos.agendados > m.estados.agendadas && <p className="mt-1 text-[11px] text-gray-500">{num(m.turnos.agendados)} citas en total: algunas personas agendaron más de una.</p>}
+            {(m.turnos.cargadas_por_el_equipo ?? 0) > 0 && <p className="mt-1 text-[11px] text-gray-500">{num(m.turnos.cargadas_por_el_equipo ?? 0)} las cargó el equipo a mano.</p>}
+            {(m.turnos.sin_chat_en_la_base ?? 0) > 0 && <p className="mt-1 text-[11px] text-amber-400/80">Además hay {num(m.turnos.sin_chat_en_la_base ?? 0)} citas de personas que no tienen su chat guardado acá.</p>}
           </div>
           <div className="mt-4 grid grid-cols-3 gap-2 text-center">
             {[{ t: 'Reprogramadas', v: m.turnos.reprogramados, i: <Repeat className="mx-auto size-4" /> }, { t: 'Piden cancelar', v: m.turnos.cancelaciones_solicitadas, i: <UserX className="mx-auto size-4" /> }, { t: 'Con reserva pagada', v: m.turnos.con_reserva_pagada, i: <ShieldCheck className="mx-auto size-4" /> }].map(x => (

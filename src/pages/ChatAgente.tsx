@@ -15,7 +15,8 @@ export default function ChatAgente() {
   const [error, setError] = useState('');
   const [modelo, setModelo] = useState('');
   const [sesion, setSesion] = useState(() => crypto.randomUUID());
-  const [sinGuardar, setSinGuardar] = useState(false);
+  const [sinGuardar, setSinGuardar] = useState('');
+  const [guardada, setGuardada] = useState(false);
   const [version, setVersion] = useState<'v1' | 'v2'>('v1');
   const estado = useRef<any>(null);
   const fin = useRef<HTMLDivElement>(null);
@@ -30,7 +31,7 @@ export default function ChatAgente() {
     try {
       const r = await llamarAgentes<any>('chat_agente', { texto: t, estado: estado.current, modelo, version, sesion });
       estado.current = r.estado;
-      setSinGuardar(r.guardado === false);
+      setSinGuardar(r.guardado === false ? String(r.guardado_error || 'motivo desconocido') : ''); setGuardada(r.guardado === true);
       const respuestas = r.respuestas as string[];
       // La traza de este turno (herramientas con su input y su resultado completos) cuelga de la última respuesta del agente.
       setLineas(l => [...l, ...respuestas.map((x, i) => ({ de: 'agente' as const, texto: x, ...(i === respuestas.length - 1 ? { trazas: (r.trazas ?? []) as Traza[], v2: (r.v2 ?? null) as TrazaV2 | null } : {}) }))]);
@@ -38,7 +39,7 @@ export default function ChatAgente() {
     finally { setEnviando(false); }
   };
 
-  const reiniciar = () => { estado.current = null; setLineas([]); setError(''); setSesion(crypto.randomUUID()); setSinGuardar(false); };
+  const reiniciar = () => { estado.current = null; setLineas([]); setError(''); setSesion(crypto.randomUUID()); setSinGuardar(''); setGuardada(false); };
 
   return (
     <div className="max-w-2xl mx-auto space-y-4">
@@ -111,7 +112,8 @@ export default function ChatAgente() {
         {enviando && <div className="flex items-center gap-2 text-xs text-gray-500"><Loader2 className="w-3.5 h-3.5 animate-spin" /> el agente está escribiendo…</div>}
         <div ref={fin} />
       </div>
-      {sinGuardar && <p className="text-xs text-amber-400">Esta conversación no se está guardando: falta crear la tabla en Supabase (archivo supabase/migration_chat_prueba.sql).</p>}
+      {sinGuardar && <p className="text-xs text-amber-400">Esta conversación NO se guardó: {sinGuardar}</p>}
+      {guardada && !sinGuardar && <p className="text-xs text-emerald-400">Conversación guardada. La ves en «Conversaciones guardadas».</p>}
       {error && <p className="text-xs text-rose-400">{error}</p>}
       <form onSubmit={e => { e.preventDefault(); enviar(); }} className="flex gap-2">
         <input value={texto} onChange={e => setTexto(e.target.value)} placeholder="Escribí tu mensaje…" disabled={enviando}

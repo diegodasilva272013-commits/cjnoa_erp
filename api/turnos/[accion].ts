@@ -2271,9 +2271,11 @@ export function validarExtraccion(raw: any, a: { cfg: ConfigCliente; personaText
   // Una frase que ya es la evidencia de un dato (o de un casillero) es ese dato, no una pregunta: el extractor a veces rotula así un saludo con el tema.
   if (out.pregunta_de_la_persona) {
     const pq = limpiarParaComparar(out.pregunta_de_la_persona);
-    if ([...out.filtros.map(f => f.evidencia), ...out.casilleros.map(c => c.evidencia)].some(ev => limpiarParaComparar(ev).includes(pq))) out.pregunta_de_la_persona = null;
+    if ([...out.filtros.map(f => f.evidencia), ...out.casilleros.map(c => c.evidencia)].some(ev => ev && pq.includes(limpiarParaComparar(ev)) && !/[?¿]/.test(String(out.pregunta_de_la_persona)))) out.pregunta_de_la_persona = null; // (si la evidencia es el mensaje entero y la pregunta es solo una parte, la pregunta se queda)
   }
   if (out.intencion === 'pregunta' && !out.pregunta_de_la_persona) out.intencion = 'otro';
+  // Si la persona está preguntando, lo primero es contestarle: su preocupación no desvía el turno hacia otra cosa.
+  if (out.intencion === 'pregunta' && out.pregunta_de_la_persona) out.emocion = null;
   // El horario elegido tiene que ser uno de los ofrecidos. Un "sí" pelado no elige ninguno.
   const h = raw.horario_elegido;
   if (h && typeof h === 'object' && evidenciaCompleta(String(h.evidencia ?? '').trim(), [ultimoMsg], [])) {
@@ -4393,7 +4395,7 @@ export type DetalleConteo = {
   fichas_sin_conversacion: { nombre: string; tel: string; creada: string }[];
 };
 
-export function agregarMetricasAgente(ps: PersonaMetrica[], o: { ahoraMs: number; dias: number | null; turnosPorDia?: Record<string, number>; detalle?: DetalleConteo }) {
+export function agregarMetricasAgente(ps: PersonaMetrica[], o: { ahoraMs: number; dias: number | null; turnosPorDia?: Record<string, number>; detalle?: DetalleConteo; citasDelEquipo?: number; citasSinChat?: number }) {
   const n = ps.length;
   const idx = (e: EtapaEmbudo) => ETAPAS_EMBUDO.indexOf(e);
   const alcanzaron = ETAPAS_EMBUDO.map((_, i) => cuenta(ps, p => idx(p.etapa) >= i));
@@ -4435,7 +4437,7 @@ export function agregarMetricasAgente(ps: PersonaMetrica[], o: { ahoraMs: number
     },
     recibos: { total: recibos.length, sin_cargo: cuenta(recibos, x => x === 'sin_cargo'), con_cargo: cuenta(recibos, x => x === 'con_cargo'), sin_descuento: cuenta(recibos, x => x === 'sin_descuento'), sin_importe: cuenta(recibos, x => x === 'sin_importe'), ilegibles: cuenta(recibos, x => x === 'ilegible') },
     comprobantes: { total: comps.length, validados: cuenta(comps, x => x === 'validado'), pendientes_mp: cuenta(comps, x => x === 'pendiente_mp'), insuficientes: cuenta(comps, x => x === 'insuficiente'), otro_titular: cuenta(comps, x => x === 'otro_titular'), ilegibles: cuenta(comps, x => x === 'ilegible') },
-    turnos: { agendados: sumar(ps.map(p => p.turnos)), con_reserva_pagada: sumar(ps.map(p => p.reservasPagadas)), reprogramados: sumar(ps.map(p => p.reprogramados)), cancelaciones_solicitadas: sumar(ps.map(p => p.cancelaciones)) },
+    turnos: { agendados: sumar(ps.map(p => p.turnos)), con_reserva_pagada: sumar(ps.map(p => p.reservasPagadas)), reprogramados: sumar(ps.map(p => p.reprogramados)), cancelaciones_solicitadas: sumar(ps.map(p => p.cancelaciones)), cargadas_por_el_equipo: o.citasDelEquipo ?? 0, sin_chat_en_la_base: o.citasSinChat ?? 0 },
     derivaciones: cuenta(ps, p => p.derivada),
     errores,
     por_campana: [...ps.reduce((mapa, p) => { const k = p.campana || 'sin dato'; (mapa.get(k) ?? mapa.set(k, []).get(k)!).push(p); return mapa; }, new Map<string, PersonaMetrica[]>())]
@@ -4481,9 +4483,14 @@ export async function calcularMetricasAgente(db: Db, o: { dias: number | null; a
   const convs = todas.filter((_, i) => !motivos[i]);
   // Las citas que cuentan son las que cargó Noa, no las que cargó el equipo a mano.
   const turnosPorDia: Record<string, number> = {};
+  // Citas cargadas a mano por el equipo (de las personas con chat) y citas de personas que no tienen ningún chat guardado: también son agendadas y tienen que verse.
+  const clavesConChat = new Set(convs.map(c => telefonoClave(c.telefono)).filter(Boolean));
+  const citasDelEquipo = convs.reduce((n, c) => n + (turnosTodosPor.get(telefonoClave(c.telefono)) ?? []).filter(t => t?.origen !== 'agente').length, 0);
+  const { data: todasLasCitas } = await db.from('consultas_agendadas').select('telefono_clave, origen').limit(5000);
+  const citasSinChat = ((Array.isArray(todasLasCitas) ? todasLasCitas : []) as any[]).filter(t => !clavesConChat.has(String(t.telefono_clave ?? ''))).length;
   const personas = convs.map(c => {
     const k = telefonoClave(c.telefono);
-    const citas = soloCitasDelAgente(turnosTodosPor.get(k) ?? []);
+    const citas = turnosTodosPor.get(k) ?? []; // cuentan las citas de Noa y las que cargó el equipo
     for (const t of citas) if (t.created_at) { const f = localDe(t.created_at).fecha; turnosPorDia[f] = (turnosPorDia[f] ?? 0) + 1; }
     return personaMetrica(c, leadPor.get(k) ?? null, citas, ahora.getTime());
   });
@@ -4499,7 +4506,7 @@ export async function calcularMetricasAgente(db: Db, o: { dias: number | null; a
     excluidas: todas.map((c, i) => ({ c, m: motivos[i] })).filter(x => x.m).map(x => ({ nombre: String(x.c.nombre ?? '').trim() || 'Sin nombre', tel: String(x.c.telefono ?? ''), motivo: x.m as 'equipo' | 'prueba' | 'excluida' })).slice(0, 400),
     fichas_sin_conversacion: fichas.filter(f => !todasClaves.has(f.telefono_clave)).map(f => ({ nombre: [f.nombre, f.apellido].filter(Boolean).join(' ').trim() || 'Sin nombre', tel: String(f.telefono ?? f.telefono_clave ?? ''), creada: f.created_at })).slice(0, 400),
   };
-  return agregarMetricasAgente(personas, { ahoraMs: ahora.getTime(), dias: o.dias, turnosPorDia, detalle });
+  return agregarMetricasAgente(personas, { ahoraMs: ahora.getTime(), dias: o.dias, turnosPorDia, detalle, citasDelEquipo, citasSinChat });
 }
 
 
@@ -5423,6 +5430,7 @@ async function agentesHttp(req: VercelRequest, res: VercelResponse, db: Db, raw:
       const r = await chatAgentePaso(String(body?.texto ?? ''), body?.estado, (sis, msgs) => llamarModelo(sis, msgs, { respaldo: false, modelo: modeloElegido }), db, v2);
       // Cada turno del chat de prueba queda grabado para revisarlo después en el ERP (si la tabla todavía no existe, el chat sigue andando).
       let guardado = false;
+      let guardadoError = '';
       const idSesion = /^[0-9a-f-]{36}$/i.test(String(body?.sesion ?? '')) ? String(body.sesion) : null;
       if (idSesion && r.code === 200) {
         try {
@@ -5438,10 +5446,10 @@ async function agentesHttp(req: VercelRequest, res: VercelResponse, db: Db, raw:
           const agendo = (((r.body as any)?.estado?.tablas?.consultas_agendadas ?? []) as unknown[]).length > 0;
           const { error } = await db.from('chat_prueba_conversaciones').upsert({ sesion: idSesion, usuario: String(sesion?.user?.email ?? ''), version: body?.version === 'v2' ? 'v2' : 'v1', modelo: modeloElegido ?? (body?.version === 'v2' ? String((CONFIG_CJNOA as any).modelo_del_agente) : 'producción'), agendo, mensajes: [...previos, ...nuevos], updated_at: at }, { onConflict: 'sesion' });
           guardado = !error;
-          if (error) console.error('[chat_agente] guardar', error.message);
-        } catch (e) { console.error('[chat_agente] guardar', e instanceof Error ? e.message : e); }
-      }
-      return res.status(r.code).json({ ...(r.body as Record<string, unknown>), guardado });
+          if (error) { guardadoError = error.message.slice(0, 160); console.error('[chat_agente] guardar', error.message); }
+        } catch (e) { guardadoError = e instanceof Error ? e.message.slice(0, 160) : 'error'; console.error('[chat_agente] guardar', guardadoError); }
+      } else if (!idSesion) guardadoError = 'el navegador no mandó el id de la sesión (recargá la página con Ctrl+F5)';
+      return res.status(r.code).json({ ...(r.body as Record<string, unknown>), guardado, guardado_error: guardadoError });
     }
     catch (e) { console.error('[chat_agente]', e); return res.status(500).json({ error: e instanceof Error ? e.message.slice(0, 200) : 'Error en el chat' }); }
   }
