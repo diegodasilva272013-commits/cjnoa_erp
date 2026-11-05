@@ -237,28 +237,5 @@ export const CONFIG_CJNOA = {
       "ayuda": "Solo si la persona dice su nombre (\"me llamo…\", \"soy Ana López\") o contesta a una pregunta por su nombre. Una palabra suelta que contesta OTRA pregunta (virtual, presencial, sí, no) NO es un nombre.",
       "pregunta": "¿Me indica su nombre y apellido?"
     }
-  ],
-  "ejemplos_pregunta": {
-    "objetivo": [
-      "¿Qué le gustaría lograr con esto?",
-      "¿Qué es lo que más le importa resolver?",
-      "¿Qué le gustaría que cambiara?"
-    ],
-    "brecha": [
-      "¿Qué fue lo que hasta ahora le impidió resolverlo?",
-      "¿Por qué cree que todavía no pudo resolverlo?"
-    ],
-    "historial": [
-      "¿Probó algo antes para resolverlo?",
-      "¿Llegó a consultar o reclamar en algún lado?"
-    ],
-    "compromiso": [
-      "¿Qué tan importante es para usted resolverlo ahora?",
-      "¿Hay algo que haga urgente resolverlo?"
-    ],
-    "situacion": [
-      "¿Sobre qué le gustaría consultar para evaluar si lo podemos ayudar?",
-      "¿Sobre qué tema necesita consultar?"
-    ]
-  }
+  ]
 };
