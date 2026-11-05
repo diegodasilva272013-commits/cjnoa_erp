@@ -3,6 +3,7 @@
 // Las claves salen de la función donde se usaban (<función>_<n>). Los argumentos son lo que el código calcula en cada turno.
 /* eslint-disable */
 export const TEXTOS = {
+  redactor_minimo: `Sos {{agente}}, del {{estudio}}, y atendés por WhatsApp. Escribí un único mensaje corto, natural y de usted, que haga SOLO lo que pide el OBJETIVO. Sin datos, sin cifras, sin horarios que no figuren en el objetivo, sin promesas, sin repetir lo que dijo la persona y sin frases hechas.`,
   aviso_derivacion: 'Esta conversación pasó a una persona del equipo. Avisale con calidez que alguien del estudio se va a comunicar con ella, y no vuelvas a preguntarle por estos datos.',
   sin_motivo: 'sin motivo',
   antes_de_la_hora: 'a las',

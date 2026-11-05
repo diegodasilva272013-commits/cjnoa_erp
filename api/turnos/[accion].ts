@@ -3198,7 +3198,19 @@ async function turnoV2(a: {
   // Las preguntas que el objetivo pide, con las palabras de la config.
   const preguntasDelObjetivo = salida.objetivos.flatMap(o => o.asuntos ?? ((T.asuntos_por_objetivo as Record<string, string>)[o.tipo] ? [(T.asuntos_por_objetivo as Record<string, string>)[o.tipo]] : []));
   const objetivosSeguros = salida.objetivos.filter(o => o.tipo !== 'responder');
-  const seguroDelTurno = () => mensajeSeguro({ objetivos: objetivosSeguros.length ? objetivosSeguros : salida.objetivos, estado, cfg, intencion: ext.intencion, textoCliente: a.textoCliente, primerMensaje, dicho: ext.casilleros.map(c => c.texto), estilo: ext.estilo });
+  const seguroDeCodigo = () => mensajeSeguro({ objetivos: objetivosSeguros.length ? objetivosSeguros : salida.objetivos, estado, cfg, intencion: ext.intencion, textoCliente: a.textoCliente, primerMensaje, dicho: ext.casilleros.map(c => c.texto), estilo: ext.estilo });
+  // Respaldo: tras los rechazos, el modelo escribe un mensaje mínimo (solo la pregunta del objetivo, sin datos ni cifras); si ese también falla los controles, recién ahí sale el texto del código.
+  const seguroDelTurno = async () => {
+    try {
+      const minimo = await deps.redactar!(`${rellenar(T.redactor_minimo, datosDelAgente(cfg))}${primerMensaje ? `\n${T.redactor_primer_mensaje(cfg.saludo_inicial)}` : ''}\n${T.redactor_objetivo((objetivosSeguros.length ? objetivosSeguros : salida.objetivos).map(o => o.texto).join('\n'))}`, mensajes);
+      const t = minimo.content.filter(b => b.type === 'text').map(b => String(b.text)).join('\n').trim();
+      const malo = !t || importesInventados(t).length || horasEnTexto(t).some(h => !permitidas.has(h)) || fechasInventadas(t).length
+        || (primerMensaje && !limpiarParaComparar(t).includes(limpiarParaComparar(cfg.saludo_inicial)))
+        || (!primerMensaje && limpiarParaComparar(t).includes(limpiarParaComparar(cfg.saludo_inicial)));
+      if (!malo) return t;
+    } catch (e) { console.error('[agente v2] respaldo', e instanceof Error ? e.message : e); }
+    return seguroDeCodigo();
+  };
   for (let i = 0; i < u.max_intentos_del_redactor; i++) {
     const r = await deps.redactar!(sistemaTxt, mensajes);
     texto = r.content.filter(b => b.type === 'text').map(b => String(b.text)).join('\n').trim();
@@ -3232,7 +3244,7 @@ async function turnoV2(a: {
     if (!problemas.length || correcciones >= u.max_correcciones_de_estilo) {
       // Se agotaron las correcciones y el borrador todavía tiene un defecto: sale el mensaje seguro del director, nunca el borrador con el defecto.
       if (problemas.length) {
-        const msj = seguroDelTurno();
+        const msj = await seguroDelTurno();
         if (msj) { texto = msj; seguro = true; }
         break;
       }
@@ -3280,7 +3292,7 @@ async function turnoV2(a: {
       if (v.ok) break;
       rechazosV++;
       if (rechazosV > u.max_rechazos_del_verificador) {
-        const msj = seguroDelTurno();
+        const msj = await seguroDelTurno();
         if (msj) { texto = msj; seguro = true; }
         break;
       }
@@ -3291,7 +3303,7 @@ async function turnoV2(a: {
   }
   // Nunca sale un horario ni una fecha que la agenda no dio, aunque se hayan agotado las correcciones.
   if (!seguro && texto && (horasEnTexto(texto).some(h => !permitidas.has(h)) || fechasInventadas(texto).length || importesInventados(texto).length)) {
-    const msj = seguroDelTurno();
+    const msj = await seguroDelTurno();
     if (msj) { texto = msj; seguro = true; }
   }
   if (texto && importesEnTexto(texto).length) estado.precio_informado = true;

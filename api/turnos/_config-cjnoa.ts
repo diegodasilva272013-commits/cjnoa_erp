@@ -16,7 +16,9 @@ export const CONFIG_CJNOA = {
   "oferta_por_defecto": null,
   "saludo_explica_el_servicio": false,
   "saludo_inicial": "Hola, mucho gusto. Lo saluda Karina, del Centro Jurídico NOA.",
-  "ideas_de_valor_en": ["ofrecer_consulta"],
+  "ideas_de_valor_en": [
+    "ofrecer_consulta"
+  ],
   "max_ideas_por_conversacion": 1,
   "umbrales": {
     "horarios_a_ofrecer": 2,
@@ -58,7 +60,13 @@ export const CONFIG_CJNOA = {
       "campana": "art9_ganancias",
       "profesional": "alejandro",
       "tipo_consulta": "articulo9_ganancias",
-      "grupos_de_filtros": [["es_docente", "jubilado_anses", "descuento_art9_ganancias"]],
+      "grupos_de_filtros": [
+        [
+          "es_docente",
+          "jubilado_anses",
+          "descuento_art9_ganancias"
+        ]
+      ],
       "max_preguntas_por_mensaje": 2,
       "estilos": {
         "breve": "La persona escribe corto: mensaje corto y directo, sin reflejar lo que contó y agrupando en una sola pregunta los datos que faltan del grupo.",
@@ -69,15 +77,13 @@ export const CONFIG_CJNOA = {
           "campo": "es_docente",
           "tipo": "si_no",
           "descripcion": "si es docente jubilado/a",
-          "ayuda": "Docente incluye maestra/o, profesora/o y personal de escuela o de colegio. \"Soy maestra\", \"fui maestra 30 años\", \"me jubilé como docente\" => si. Solo es no si lo niega o dice otra ocupación (administrativa, empleada, etc.).",
-          "pregunta": "¿Usted es docente?"
+          "ayuda": "Docente incluye maestra/o, profesora/o y personal de escuela o de colegio. \"Soy maestra\", \"fui maestra 30 años\", \"me jubilé como docente\" => si. Solo es no si lo niega o dice otra ocupación (administrativa, empleada, etc.)."
         },
         {
           "campo": "jubilado_anses",
           "tipo": "si_no",
           "descripcion": "si se jubiló por ANSES",
           "ayuda": "\"Me jubilé por ANSES\", \"jubilada de ANSES\", \"cobro de ANSES\" => si. \"Caja provincial\" u otra caja => no. Decir solo \"jubilada\" o \"jubilado\", sin nombrar la entidad, NO alcanza: no incluyas este campo (la persona todavía no lo dijo).",
-          "pregunta": "¿Se jubiló por ANSES?",
           "ayuda_al_dudar": "Preguntale con qué entidad cobra su jubilación (ANSES o una caja provincial) o si en el recibo de haberes figura ANSES."
         },
         {
@@ -85,21 +91,22 @@ export const CONFIG_CJNOA = {
           "tipo": "si_no",
           "subtipo": {
             "campo": "tipo_de_descuento",
-            "opciones": ["ganancias", "art9", "ambos"],
-            "descripcion": "cuál es el descuento: Ganancias, Artículo 9 o ambos",
-            "pregunta": "¿cuál de los descuentos: Ganancias, Artículo 9 o ambos?"
+            "opciones": [
+              "ganancias",
+              "art9",
+              "ambos"
+            ],
+            "descripcion": "cuál es el descuento: Ganancias, Artículo 9 o ambos"
           },
           "descripcion": "si le descuentan Artículo 9 y/o Ganancias",
-          "ayuda": "Cualquier descuento, retención o 'me sacan plata' del haber cuenta como SI. La persona no tiene por qué saber el nombre del descuento; lo revisa el abogado. Si dice que consulta por el impuesto a las ganancias, por el Artículo 9 o por los descuentos del haber, ya está diciendo que los tiene: es SI, con el subtipo que nombre. 'No sé' o 'no me acuerdo' NO es NO: es una duda.",
-          "pregunta": "¿Le están descontando ganancias en el recibo de su haber?"
+          "ayuda": "Cualquier descuento, retención o 'me sacan plata' del haber cuenta como SI. La persona no tiene por qué saber el nombre del descuento; lo revisa el abogado. Si dice que consulta por el impuesto a las ganancias, por el Artículo 9 o por los descuentos del haber, ya está diciendo que los tiene: es SI, con el subtipo que nombre. 'No sé' o 'no me acuerdo' NO es NO: es una duda."
         },
         {
           "campo": "monto_descuento",
           "tipo": "texto",
           "opcional": true,
           "descripcion": "el monto aproximado que le descuentan por mes",
-          "ayuda": "Solo si la persona dice cuánto le descuentan (por ejemplo \"350 mil\", \"unos 200.000\", \"527000\"). Si no lo sabe o no lo dice, no lo inventes.",
-          "pregunta": "¿Más o menos qué monto le descuentan por mes?"
+          "ayuda": "Solo si la persona dice cuánto le descuentan (por ejemplo \"350 mil\", \"unos 200.000\", \"527000\"). Si no lo sabe o no lo dice, no lo inventes."
         }
       ],
       "filtros_de_cierre": [],
@@ -115,7 +122,10 @@ export const CONFIG_CJNOA = {
         "texto": "Es un tipo de caso que el estudio atiende: el Dr. Alejandro Reyes revisa este tipo de descuentos en la consulta.",
         "estado": "pendiente de aprobación del estudio"
       },
-      "vigencia_sin_cargo": { "texto": "hasta cuándo rige que la consulta es sin cargo (lo completa el estudio)", "aprobado": false },
+      "vigencia_sin_cargo": {
+        "texto": "hasta cuándo rige que la consulta es sin cargo (lo completa el estudio)",
+        "aprobado": false
+      },
       "escasez_umbral": 6,
       "llamada_con_el_dr": {
         "texto": "El Dr. Alejandro Reyes puede explicar por una llamada telefónica, sin compromiso, cuánto cuesta el trámite completo; la persona escucha, aclara dudas y después decide.",
@@ -132,7 +142,6 @@ export const CONFIG_CJNOA = {
           ],
           "descripcion": "si prefiere la consulta presencial (en San Salvador de Jujuy) o virtual",
           "ayuda": "\"Virtual\", \"por videollamada\", \"por Meet o Zoom\", \"desde casa\" => virtual; \"presencial\", \"en persona\", \"voy al estudio\" => presencial.",
-          "pregunta": "¿Prefiere que la consulta sea presencial o virtual?",
           "sinonimos": {
             "virtual": [
               "virtual",
@@ -176,7 +185,10 @@ export const CONFIG_CJNOA = {
           "estado": "pendiente de aprobación del estudio"
         }
       ],
-      "como_se_conecta_virtual": { "texto": "cómo se conecta la persona a la consulta virtual (lo completa el estudio)", "aprobado": false }
+      "como_se_conecta_virtual": {
+        "texto": "cómo se conecta la persona a la consulta virtual (lo completa el estudio)",
+        "aprobado": false
+      }
     },
     "jubilacion_aportes": {
       "etiqueta": "Jubilación y compra de aportes",
@@ -184,7 +196,14 @@ export const CONFIG_CJNOA = {
       "campana": "jubilacion_docente",
       "profesional": "fabricio",
       "tipo_consulta": "jubilacion_aportes",
-      "grupos_de_filtros": [["edad"], ["aportes_faltantes"]],
+      "grupos_de_filtros": [
+        [
+          "edad"
+        ],
+        [
+          "aportes_faltantes"
+        ]
+      ],
       "max_preguntas_por_mensaje": 1,
       "estilos": {
         "breve": "La persona escribe corto: mensaje corto y directo, sin reflejar lo que contó.",
@@ -195,16 +214,14 @@ export const CONFIG_CJNOA = {
           "campo": "edad",
           "tipo": "numero",
           "descripcion": "su edad",
-          "ayuda": "Solo el número que dice como su edad.",
-          "pregunta": "¿Qué edad tiene?"
+          "ayuda": "Solo el número que dice como su edad."
         },
         {
           "campo": "aportes_faltantes",
           "tipo": "texto",
           "opcional": true,
           "descripcion": "cuántos años de aportes le faltan, si lo sabe",
-          "ayuda": "Solo si la persona dice cuántos años o meses de aportes le faltan (\"me faltan 8 años\", \"tengo 20 años aportados\") o que no le faltan. Si no lo sabe, no lo inventes.",
-          "pregunta": "¿Sabe más o menos cuántos años de aportes le faltan?"
+          "ayuda": "Solo si la persona dice cuántos años o meses de aportes le faltan (\"me faltan 8 años\", \"tengo 20 años aportados\") o que no le faltan. Si no lo sabe, no lo inventes."
         }
       ],
       "filtros_de_cierre": [],
@@ -234,8 +251,7 @@ export const CONFIG_CJNOA = {
       "campo": "nombre",
       "tipo": "texto",
       "descripcion": "su nombre y apellido",
-      "ayuda": "Solo si la persona dice su nombre (\"me llamo…\", \"soy Ana López\") o contesta a una pregunta por su nombre. Una palabra suelta que contesta OTRA pregunta (virtual, presencial, sí, no) NO es un nombre.",
-      "pregunta": "¿Me indica su nombre y apellido?"
+      "ayuda": "Solo si la persona dice su nombre (\"me llamo…\", \"soy Ana López\") o contesta a una pregunta por su nombre. Una palabra suelta que contesta OTRA pregunta (virtual, presencial, sí, no) NO es un nombre."
     }
   ]
 };
