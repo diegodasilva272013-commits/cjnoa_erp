@@ -257,8 +257,8 @@ export const CONFIG_CJNOA = {
       "¿Hay algo que haga urgente resolverlo?"
     ],
     "situacion": [
-      "¿Qué le está pasando hoy, en concreto?",
-      "¿Me cuenta cómo está hoy esa situación?"
+      "¿Sobre qué le gustaría consultar para evaluar si lo podemos ayudar?",
+      "¿Sobre qué tema necesita consultar?"
     ]
   }
 };
