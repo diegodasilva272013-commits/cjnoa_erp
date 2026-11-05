@@ -10,7 +10,8 @@ export const CONFIG_CJNOA = {
     "alcance": "derecho previsional: jubilaciones y el reclamo por descuentos de Impuesto a las Ganancias (Artículo 9) para docentes jubilados de ANSES",
     "ciudad": "San Salvador de Jujuy",
     "tipo_de_organizacion": "estudio jurídico",
-    "especialidad": "derecho previsional"
+    "especialidad": "derecho previsional",
+    "publico": "Muchas de las personas que escriben son adultos mayores: usá un lenguaje simple y claro, con paciencia y respeto."
   },
   "oferta_por_defecto": null,
   "saludo_explica_el_servicio": false,
@@ -110,13 +111,13 @@ export const CONFIG_CJNOA = {
       "activo_de_valor": null,
       "cierre": "turno_directo",
       "encuadre_del_caso": {
-        "texto": "Su situación es de las que el estudio atiende, y esos descuentos son justamente lo que el Dr. Alejandro Reyes revisa en la consulta.",
+        "texto": "Es un tipo de caso que el estudio atiende: el Dr. Alejandro Reyes revisa este tipo de descuentos en la consulta.",
         "estado": "pendiente de aprobación del estudio"
       },
       "vigencia_sin_cargo": { "texto": "hasta cuándo rige que la consulta es sin cargo (lo completa el estudio)", "aprobado": false },
       "escasez_umbral": 6,
       "llamada_con_el_dr": {
-        "texto": "Si necesita saber cuánto cuesta el trámite completo antes de decidir, el Dr. Alejandro Reyes puede explicárselo por una llamada telefónica, sin compromiso: usted escucha, aclara sus dudas y después decide con tranquilidad.",
+        "texto": "El Dr. Alejandro Reyes puede explicar por una llamada telefónica, sin compromiso, cuánto cuesta el trámite completo; la persona escucha, aclara dudas y después decide.",
         "estado": "pendiente de aprobación del estudio",
         "aprobado": false
       },
@@ -162,11 +163,11 @@ export const CONFIG_CJNOA = {
       ],
       "ideas_de_valor": [
         {
-          "texto": "Muchas veces ese descuento aparece en el recibo y nadie explica de dónde sale.",
+          "texto": "El descuento suele aparecer en el recibo sin que nadie explique de dónde sale.",
           "estado": "pendiente de aprobación del estudio"
         },
         {
-          "texto": "Cada caso es distinto, porque depende del haber y de cómo se calculó el descuento. Por eso lo mira un abogado.",
+          "texto": "Cada caso depende del haber y de cómo se calculó el descuento; por eso lo analiza un abogado.",
           "estado": "pendiente de aprobación del estudio"
         },
         {
@@ -217,11 +218,11 @@ export const CONFIG_CJNOA = {
       "datos_antes_de_horarios": [],
       "ideas_de_valor": [
         {
-          "texto": "Si sabe que al llegar a la edad le van a faltar años de aportes, puede empezar a regularizarlos desde ahora, de a poco.",
+          "texto": "Quien sabe que al llegar a la edad de jubilarse le van a faltar años de aportes puede empezar a regularizarlos desde ahora, de a poco.",
           "estado": "texto de Rodrigo Reyes (3/11/2026)"
         },
         {
-          "texto": "Es mejor revisarlo antes que llegar a la edad y encontrarse con que no se puede jubilar por falta de aportes.",
+          "texto": "Conviene revisar los aportes antes de llegar a la edad de jubilarse, para no descubrir tarde que faltan.",
           "estado": "texto de Rodrigo Reyes (3/11/2026)"
         }
       ]

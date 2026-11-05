@@ -3833,11 +3833,12 @@ describe('agente v2 · director + extractor + redactor (todo con modelo simulado
     expect(c.tipos[1]).toEqual([`profundizar:${Q}`]);
   });
   // ------------------------------------------------------------------ RONDA 3
-  it('ronda 3 · prompt del redactor: las tres partes (entender con sus palabras, valor solo si hay ideas aprobadas, pregunta) y no nombrar el método', () => {
-    expect(PROMPT_REDACTOR).toContain('Cada mensaje tiene tres partes, en este orden');
-    expect(PROMPT_REDACTOR).toContain('Aportás valor SOLO si el sistema te da IDEAS DE VALOR APROBADAS');
-    expect(PROMPT_REDACTOR).not.toContain('muchas personas en su situación descubren');
-    expect(PROMPT_REDACTOR).toMatch(/Nunca preguntes por algo que el objetivo no pide/);
+  it('ronda 3 · prompt del redactor: por principios (entender, no repetir lo que dijo, una idea, ideas como hechos) y con los límites duros', () => {
+    expect(PROMPT_REDACTOR).toContain('Cómo conversás');
+    expect(PROMPT_REDACTOR).toContain('nunca se lo repitas, resumas ni anuncies');
+    expect(PROMPT_REDACTOR).toContain('son hechos, no frases');
+    expect(PROMPT_REDACTOR).toContain('Límites que no se negocian');
+    expect(PROMPT_REDACTOR).toMatch(/Cada mensaje suena distinto/);
   });
   it('ronda 3 · control de salida: fórmulas de empatía y promesas se corrigen', () => {
     for (const f of ['Es natural que no haya reclamado.', 'Es comprensible que se preocupe.', 'Es muy comprensible su enojo.', 'Es preocupante que le descuenten.', 'Entiendo que está cansada.', 'Para poder ayudarla mejor, ¿desde cuándo?', 'Es un gusto conocer su profesión.'])
@@ -3894,13 +3895,13 @@ describe('agente v2 · director + extractor + redactor (todo con modelo simulado
   it('ronda 4 · config: ideas de valor por oferta, marcadas pendientes de aprobación', () => {
     const a9 = CONFIG_CLIENTE.ofertas.art9_ganancias.ideas_de_valor!, jb = CONFIG_CLIENTE.ofertas.jubilacion_aportes.ideas_de_valor!;
     expect(a9.map(x => x.texto)).toEqual([
-      'Muchas veces ese descuento aparece en el recibo y nadie explica de dónde sale.',
-      'Cada caso es distinto, porque depende del haber y de cómo se calculó el descuento. Por eso lo mira un abogado.',
+      'El descuento suele aparecer en el recibo sin que nadie explique de dónde sale.',
+      'Cada caso depende del haber y de cómo se calculó el descuento; por eso lo analiza un abogado.',
       'Revisar el recibo con alguien que conoce el tema suele aclarar mucho.',
     ]);
     expect(jb.map(x => x.texto)).toEqual([
-      'Si sabe que al llegar a la edad le van a faltar años de aportes, puede empezar a regularizarlos desde ahora, de a poco.',
-      'Es mejor revisarlo antes que llegar a la edad y encontrarse con que no se puede jubilar por falta de aportes.',
+      'Quien sabe que al llegar a la edad de jubilarse le van a faltar años de aportes puede empezar a regularizarlos desde ahora, de a poco.',
+      'Conviene revisar los aportes antes de llegar a la edad de jubilarse, para no descubrir tarde que faltan.',
     ]);
     expect(a9.every(x => x.estado === 'pendiente de aprobación del estudio')).toBe(true);
     expect(jb.every(x => /Rodrigo Reyes/.test(x.estado))).toBe(true); // salen del texto de la campaña que mandó Rodrigo
@@ -4056,7 +4057,7 @@ describe('agente v2 · director + extractor + redactor (todo con modelo simulado
     expect(evaluarV({ violaciones: [{ regla: 'repite_mensaje_anterior', frase: 'lunes 26 de octubre a las 10:00' }] }, ctx('Es el lunes 26 de octubre a las 10:00. ¿Me confirma?', 'Le ofrezco lunes 26 de octubre a las 10:00')).ok).toBe(true); // horario
     const sis = armarSistemaRedactor({ cfg: CONFIG_CLIENTE, estado: { ...estadoV2Vacio(), oferta: 'art9_ganancias' }, datos: [], primerMensaje: false, objetivos: [{ tipo: 'no_califica', texto: 'x' }] });
     expect(sis).not.toContain('IDEAS DE VALOR APROBADAS (elegí');
-    expect(PROMPT_REDACTOR).toContain('Si la persona solo respondió un dato');
+    expect(PROMPT_REDACTOR).toContain('Una respuesta corta');
   });
   // ------------------------------------------------------------------ RONDA FINAL
   it('final · config: descuento_art9_ganancias cuenta cualquier descuento o "me sacan plata" como SI, sin lista de palabras obligatorias', () => {
@@ -4906,7 +4907,7 @@ describe('agente v2 · director + extractor + redactor (todo con modelo simulado
     expect(c.tipos.slice(0, 6).flat().some((x: string) => x.includes(':nombre'))).toBe(false);
     expect(c.tipos[6]).toEqual(['obtener_dato_agenda:nombre']);
     for (const cuerpo of c.cuerpos) for (const o of cuerpo.v2.objetivos) expect(o.texto).not.toMatch(/(?:envi|mand|pas|sub|adjunt|sac)w*[^.?]*recibo|foto del recibo|clave de/i);
-    expect(PROMPT_REDACTOR).toContain('Pedir claves, ni recibos, ni documentos por este chat');
+    expect(PROMPT_REDACTOR).toContain('No pidas claves, recibos ni documentos por este chat');
   });
   it('rodrigo 11 · si pregunta el costo de la consulta, el redactor tiene la condición sin cargo desde ese mismo turno', async () => {
     estudio();
