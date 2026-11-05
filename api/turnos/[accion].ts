@@ -5420,6 +5420,44 @@ async function agentesHttp(req: VercelRequest, res: VercelResponse, db: Db, raw:
     try { const r = await probarAgentePaso(String(body?.id ?? ''), Number(body?.paso ?? 0), body?.estado, llamarModelo, db); return res.status(r.code).json(r.body); }
     catch (e) { console.error('[pruebas] ', e); return res.status(500).json({ error: e instanceof Error ? e.message.slice(0, 200) : 'Error en la prueba' }); }
   }
+  if (body?.accion === 'kapso_revision') {
+    // Compara lo que tiene Kapso con lo que está guardado en el ERP. SOLO LECTURA: no escribe nada en la base ni manda nada por WhatsApp.
+    const rol = String((perfil as any).rol ?? '');
+    if (rol !== 'admin' && rol !== 'socio') return res.status(403).json({ error: 'No tenés permiso para revisar Kapso.' });
+    const key = envWA('KAPSO_API_KEY'), pid = emisorKapso || envWA('KAPSO_PHONE_NUMBER_ID');
+    if (!key || !pid) return res.status(200).json({ ok: false, error: 'Falta la clave o el número de Kapso en este entorno.' });
+    const desde = /^\d{4}-\d{2}-\d{2}/.test(String(body?.desde ?? '')) ? String(body.desde).slice(0, 10) : '2026-10-27';
+    try {
+      let url = `https://api.kapso.ai/meta/whatsapp/v24.0/${pid}/messages?limit=100&since=${desde}T00:00:00Z`;
+      const items: any[] = []; let paginas = 0, corto = false;
+      while (url && paginas < 40) {
+        const r = await fetch(url, { headers: { 'X-API-Key': key } });
+        if (!r.ok) return res.status(200).json({ ok: false, error: `Kapso respondió ${r.status}: ${(await r.text()).slice(0, 160)}` });
+        const j: any = await r.json(); paginas++;
+        const lote = Array.isArray(j?.data) ? j.data : [];
+        items.push(...lote);
+        url = j?.paging?.next && lote.length ? String(j.paging.next) : '';
+        if (url && paginas >= 40) corto = true;
+      }
+      const filas: any[] = [];
+      for (let d = 0; ; d += 1000) {
+        const { data, error: e } = await db.from('conversaciones_whatsapp').select('conversation_id, telefono, mensajes').order('conversation_id').range(d, d + 999);
+        if (e) return res.status(200).json({ ok: false, error: `Base: ${e.message}` });
+        filas.push(...(data as any[]));
+        if (!data || data.length < 1000) break;
+      }
+      const wids = new Set<string>(); const clavesBase = new Set<string>();
+      for (const f of filas) { clavesBase.add(telefonoClave(f.telefono)); for (const m of (Array.isArray(f.mensajes) ? f.mensajes : []) as any[]) if (m?.wid) wids.add(String(m.wid)); }
+      const ts = (it: any) => (it.timestamp ? new Date(Number(it.timestamp) * 1000).toISOString() : String(it.kapso?.created_at ?? it.created_at ?? ''));
+      const entrantes = items.filter(it => (it.kapso?.direction ?? it.direction) === 'inbound');
+      const salientes = items.length - entrantes.length;
+      const telefonosKapso = new Set(items.map(it => telefonoClave(String((it.kapso?.direction ?? it.direction) === 'inbound' ? it.from : it.to ?? it.from ?? ''))).filter(Boolean));
+      const faltanTel = [...telefonosKapso].filter(t => !clavesBase.has(t));
+      const faltanEntrantes = entrantes.filter(it => it.id && !wids.has(String(it.id)));
+      const fechas = items.map(ts).filter(Boolean).sort();
+      return res.status(200).json({ ok: true, desde, paginas, incompleto: corto, kapso: { mensajes: items.length, entrantes: entrantes.length, salientes, desde_el_celular: items.filter(it => it.kapso?.origin === 'business_app').length, personas: telefonosKapso.size, primero: fechas[0] ?? null, ultimo: fechas[fechas.length - 1] ?? null }, base: { conversaciones: filas.length }, faltan: { personas_sin_chat_en_la_base: faltanTel.length, mensajes_entrantes_que_no_estan: faltanEntrantes.length, ejemplo_telefonos: faltanTel.slice(0, 5).map(t => '…' + t.slice(-4)) } });
+    } catch (e) { console.error('[kapso_revision]', e); return res.status(200).json({ ok: false, error: e instanceof Error ? e.message.slice(0, 200) : 'Error al consultar Kapso' }); }
+  }
   if (body?.accion === 'chat_agente') {
     const rol = String((perfil as any).rol ?? '');
     if (rol !== 'admin' && rol !== 'socio') return res.status(403).json({ error: 'No tenés permiso para probar el agente.' });
@@ -5431,7 +5469,10 @@ async function agentesHttp(req: VercelRequest, res: VercelResponse, db: Db, raw:
       // Cada turno del chat de prueba queda grabado para revisarlo después en el ERP (si la tabla todavía no existe, el chat sigue andando).
       let guardado = false;
       let guardadoError = '';
-      const idSesion = /^[0-9a-f-]{36}$/i.test(String(body?.sesion ?? '')) ? String(body.sesion) : null;
+      // El id de la conversación viaja dentro del estado del chat: así se guarda aunque el navegador tenga una versión vieja de la página que no manda `sesion`.
+      const valido = (x: unknown) => /^[0-9a-f-]{36}$/i.test(String(x ?? ''));
+      const idSesion = valido(body?.sesion) ? String(body.sesion) : valido(body?.estado?.sesion_chat) ? String(body.estado.sesion_chat) : randomUUID();
+      if (r.body && typeof (r.body as any).estado === 'object' && (r.body as any).estado) (r.body as any).estado.sesion_chat = idSesion;
       if (idSesion && r.code === 200) {
         try {
           const ex = await db.from('chat_prueba_conversaciones').select('mensajes').eq('sesion', idSesion).maybeSingle();
@@ -5448,7 +5489,7 @@ async function agentesHttp(req: VercelRequest, res: VercelResponse, db: Db, raw:
           guardado = !error;
           if (error) { guardadoError = error.message.slice(0, 160); console.error('[chat_agente] guardar', error.message); }
         } catch (e) { guardadoError = e instanceof Error ? e.message.slice(0, 160) : 'error'; console.error('[chat_agente] guardar', guardadoError); }
-      } else if (!idSesion) guardadoError = 'el navegador no mandó el id de la sesión (recargá la página con Ctrl+F5)';
+      }
       return res.status(r.code).json({ ...(r.body as Record<string, unknown>), guardado, guardado_error: guardadoError });
     }
     catch (e) { console.error('[chat_agente]', e); return res.status(500).json({ error: e instanceof Error ? e.message.slice(0, 200) : 'Error en el chat' }); }

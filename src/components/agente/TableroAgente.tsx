@@ -5,6 +5,7 @@ import {
   UserCheck, RefreshCw, Lightbulb, Gauge, Hand, Repeat, UserX, AlertTriangle, Activity, Zap, Target, ShieldCheck, ListChecks, Search, Copy, Check,
 } from 'lucide-react';
 import AgenteAvatar from './AgenteAvatar';
+import { llamarAgentes } from '../../lib/agentesApi';
 import type { MetricasAgente, InformeMejoras, DetalleConteo, FilaPersona } from '../../lib/agentesApi';
 
 const ESTILOS = `
@@ -393,6 +394,36 @@ export type PropsTablero = {
   informe: InformeMejoras | null; optimizando: boolean; progreso: { tarea: string; porcentaje: number } | null; onOptimizar: () => void; actualizando?: boolean;
 };
 
+
+function RevisionKapso() {
+  const [cargando, setCargando] = useState(false);
+  const [r, setR] = useState<any>(null);
+  const revisar = async () => {
+    setCargando(true);
+    try { setR(await llamarAgentes('kapso_revision', {})); } catch (e) { setR({ ok: false, error: e instanceof Error ? e.message : 'Error' }); }
+    setCargando(false);
+  };
+  return (
+    <div className="rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-gray-300">
+      <div className="flex flex-wrap items-center gap-3">
+        <span className="font-medium text-white">¿Está todo lo de Kapso en el ERP?</span>
+        <button type="button" onClick={revisar} disabled={cargando} className="rounded-xl bg-white/10 px-3 py-1.5 text-xs text-white hover:bg-white/20 disabled:opacity-50">{cargando ? 'Revisando…' : 'Revisar ahora (solo lee, no cambia nada)'}</button>
+      </div>
+      {r && !r.ok && <p className="mt-2 text-xs text-amber-300">{r.error}</p>}
+      {r && r.ok && (
+        <div className="mt-2 space-y-1 text-xs">
+          <p>Kapso desde el {r.desde}: <b>{r.kapso.mensajes}</b> mensajes ({r.kapso.entrantes} de clientes, {r.kapso.salientes} enviados, {r.kapso.desde_el_celular} desde el celular) de <b>{r.kapso.personas}</b> personas. Último: {r.kapso.ultimo ? new Date(r.kapso.ultimo).toLocaleString('es-AR') : '—'}.</p>
+          <p>En el ERP hay {r.base.conversaciones} conversaciones guardadas.</p>
+          <p className={r.faltan.personas_sin_chat_en_la_base || r.faltan.mensajes_entrantes_que_no_estan ? 'text-amber-300' : 'text-emerald-300'}>
+            Faltan: {r.faltan.personas_sin_chat_en_la_base} personas sin chat en el ERP y {r.faltan.mensajes_entrantes_que_no_estan} mensajes de clientes que no están guardados{r.faltan.ejemplo_telefonos?.length ? ` (ej.: ${r.faltan.ejemplo_telefonos.join(', ')})` : ''}.
+          </p>
+          {r.incompleto && <p className="text-amber-300">Kapso tiene más mensajes que los que se alcanzaron a revisar.</p>}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function TableroAgente({ m, dias, onDias, informe, optimizando, progreso, onOptimizar, actualizando }: PropsTablero) {
   const periodoTexto = dias === null ? 'desde el principio' : `últimos ${dias} días`;
   const listo = useMontado();
@@ -447,6 +478,8 @@ export default function TableroAgente({ m, dias, onDias, informe, optimizando, p
           </div>
         </div>
       </section>
+
+      <RevisionKapso />
 
       {m.confianza === 'baja' && m.personas > 0 && (
         <div className="flex items-start gap-2.5 rounded-2xl border border-amber-500/30 bg-amber-500/5 px-4 py-3 text-sm text-amber-200">
