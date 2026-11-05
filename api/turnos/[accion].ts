@@ -2655,7 +2655,7 @@ async function dirigirTurnoBase(a: EntradaDirector): Promise<SalidaDirector> {
     // 4. oferta
     // Si su mensaje no deja claro el tema (la persona suele cambiar el mensaje del anuncio), se le pregunta por cuál de los temas del estudio consulta.
     const temas = Object.values(cfg.ofertas).map(o => o.etiqueta);
-    if (!oferta) return conBloqueo({ tipo: 'descubrir_situacion', texto: T.principal_14(temas.length > 1 ? T.principal_13(temas.join(' o por ')) : '') }, 'descubrir_situacion');
+    if (!oferta) return conBloqueo({ tipo: 'descubrir_situacion', texto: T.principal_14(temas.join(' o por ')) }, 'descubrir_situacion');
     // 5. faltan filtros (los opcionales se preguntan una sola vez). Se piden juntos los del grupo, hasta el máximo de preguntas por mensaje de la oferta.
     const faltantes = oferta.filtros.filter(f => !estado.filtros[f.campo] && !(f.opcional && (estado.opcionales_preguntados ?? []).includes(f.campo)));
     if (faltantes.length) {
