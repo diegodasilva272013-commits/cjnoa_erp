@@ -1937,7 +1937,7 @@ export function promesaSinCumplir(txt: string): boolean {
 // Las ofertas (filtros, casilleros mínimos, condición, activo de valor, cierre) salen de _config-cjnoa.ts (un archivo de datos aparte), no del código.
 // =====================================================================================
 
-export type ConfigFiltro = { campo: string; /** Opciones de detalle de un dato ya dado (por ejemplo, cuál de los descuentos): se puede confirmar dentro del mismo mensaje del grupo. */ subtipo?: { campo: string; opciones: string[]; descripcion: string; pregunta?: string };  tipo: 'si_no' | 'texto' | 'numero' | 'opcion'; descripcion: string; valores?: string[]; ayuda?: string; /** Para las opciones: palabras que valen como cada valor (la evidencia tiene que mencionar el valor o uno de estos). */ sinonimos?: Record<string, string[]>; /** Cómo ayudar a aclarar este dato cuando la persona dice que no sabe o no está segura. */ ayuda_al_dudar?: string; /** Cómo se lo preguntaría una persona (lo usa el mensaje seguro). */ pregunta?: string; /** Se pregunta UNA sola vez y no frena la conversación si la persona no lo da (por ejemplo, el monto aproximado). */ opcional?: boolean };
+export type ConfigFiltro = { campo: string; /** El dato se confirma preguntándolo, aunque la persona ya lo haya dado por hecho en su mensaje (si dudó, no se avanza). */ confirmar?: boolean; /** Opciones de detalle de un dato ya dado (por ejemplo, cuál de los descuentos): se puede confirmar dentro del mismo mensaje del grupo. */ subtipo?: { campo: string; opciones: string[]; descripcion: string; pregunta?: string };  tipo: 'si_no' | 'texto' | 'numero' | 'opcion'; descripcion: string; valores?: string[]; ayuda?: string; /** Para las opciones: palabras que valen como cada valor (la evidencia tiene que mencionar el valor o uno de estos). */ sinonimos?: Record<string, string[]>; /** Cómo ayudar a aclarar este dato cuando la persona dice que no sabe o no está segura. */ ayuda_al_dudar?: string; /** Cómo se lo preguntaría una persona (lo usa el mensaje seguro). */ pregunta?: string; /** Se pregunta UNA sola vez y no frena la conversación si la persona no lo da (por ejemplo, el monto aproximado). */ opcional?: boolean };
 export type ConfigOferta = {
   etiqueta: string; descripcion: string; campana: string; profesional: 'alejandro' | 'fabricio'; tipo_consulta: string;
   filtros: ConfigFiltro[]; filtros_de_cierre: ConfigFiltro[];
@@ -1973,7 +1973,7 @@ export type CasilleroV2 = { texto: string; evidencia: string } | null;
 export type DatoPendiente = { tipo: 'filtro' | 'casillero' | 'horario' | 'nombre' | 'preferencia' | 'aclaracion'; campo?: string; /** Otros campos que el mismo mensaje preguntó junto con este. */ campos?: string[] };
 export type EstadoV2 = {
   oferta: string | null;
-  filtros: Record<string, { valor: string; evidencia: string }>;
+  filtros: Record<string, { valor: string; evidencia: string; confirmado?: boolean }>;
   casilleros: Record<string, CasilleroV2>;
   emociones_trabajadas: string[];
   etapa: EtapaV2;
@@ -2326,9 +2326,11 @@ export function aplicarExtraccion(estado: EstadoV2, ext: Extraccion, cfg: Config
   }
   // Lo que ya se sabe no se pisa con un re-informe del extractor (que a veces repite datos viejos con otra evidencia): solo cambia si el dato sale del último mensaje.
   const delUltimo = (evidencia: string) => !!ultimoMensaje && limpiarParaComparar(ultimoMensaje).includes(limpiarParaComparar(evidencia));
-  for (const f of ext.filtros) if (!e.filtros[f.campo] || delUltimo(f.evidencia)) { e.filtros[f.campo] = { valor: f.valor, evidencia: f.evidencia }; if (e.aclaraciones) delete e.aclaraciones[f.campo]; }
+  for (const f of ext.filtros) if (!e.filtros[f.campo] || delUltimo(f.evidencia)) { e.filtros[f.campo] = { valor: f.valor, evidencia: f.evidencia, ...(f.origen === 'respuesta_al_pedido' || (e.filtros[f.campo]?.confirmado && e.filtros[f.campo].valor === f.valor) ? { confirmado: true } : {}) }; if (e.aclaraciones) delete e.aclaraciones[f.campo]; }
   for (const c of ext.casilleros) if (!e.casilleros[c.casillero] || delUltimo(c.evidencia)) e.casilleros[c.casillero] = { texto: c.texto, evidencia: c.evidencia };
   if (Object.keys(ext.subtipos).length) e.subtipos = { ...(e.subtipos ?? {}), ...ext.subtipos };
+  // Un dato en duda deja de darse por confirmado hasta que la persona lo verifique.
+  if (ext.dato_en_duda && e.filtros[ext.dato_en_duda.campo]) delete e.filtros[ext.dato_en_duda.campo];
   if (ext.estilo) e.estilo_persona = ext.estilo;
   // Pidió un día o una franja y todavía no hay horarios para ofrecer: se recuerda (lo de mensajes seguidos se completa: "mañana" y después "a la mañana").
   if (ext.preferencia && !e.turno && e.etapa !== 'horarios') { const p = e.preferencia_pedida; e.preferencia_pedida = { dia: ext.preferencia.dia ?? p?.dia ?? null, franja: ext.preferencia.franja ?? p?.franja ?? null, fecha: ext.preferencia.fecha ?? p?.fecha ?? null }; }
@@ -2667,7 +2669,7 @@ async function dirigirTurnoBase(a: EntradaDirector): Promise<SalidaDirector> {
     const temas = Object.values(cfg.ofertas).map(o => o.etiqueta);
     if (!oferta) return conBloqueo({ tipo: 'descubrir_situacion', texto: T.principal_14(temas.join(' o por ')) }, 'descubrir_situacion');
     // 5. faltan filtros (los opcionales se preguntan una sola vez). Se piden juntos los del grupo, hasta el máximo de preguntas por mensaje de la oferta.
-    const faltantes = oferta.filtros.filter(f => !estado.filtros[f.campo] && !(f.opcional && (estado.opcionales_preguntados ?? []).includes(f.campo)));
+    const faltantes = oferta.filtros.filter(f => (!estado.filtros[f.campo] || (f.confirmar && estado.filtros[f.campo].valor === 'si' && !estado.filtros[f.campo].confirmado)) && !(f.opcional && (estado.opcionales_preguntados ?? []).includes(f.campo)));
     if (faltantes.length) {
       const grupo = oferta.grupos_de_filtros.find(g => faltantes.some(f => g.includes(f.campo))) ?? [faltantes[0].campo];
       const pedir = faltantes.filter(f => grupo.includes(f.campo)).slice(0, oferta.max_preguntas_por_mensaje);
@@ -2866,7 +2868,7 @@ export const PROMPT_REDACTOR = T.redactor_prompt;
 /** Mientras el objetivo es una de estas, el redactor NO recibe la oferta, el abogado, los horarios ni los precios: no puede mencionar lo que no tiene. */
 export const OBJETIVOS_SIN_OFERTA = ['descubrir', 'descubrir_situacion', 'profundizar', 'obtener_filtro', 'aclarar_negacion', 'trabajar_objecion', 'no_califica', 'fuera_de_alcance', 'aclarar_dato'];
 /** Objetivos cuyo mensaje tiene que traer una pregunta con signos (a ella responde un "sí" o un "no" corto de la persona). */
-export const OBJETIVOS_CON_PREGUNTA = ['obtener_filtro', 'aclarar_negacion', 'descubrir', 'descubrir_situacion', 'profundizar', 'obtener_dato_agenda', 'ofrecer_horarios', 'preguntar_cual', 'reorganizar_y_ofrecer', 'ofrecer_consulta', 'preguntar_dia_reprogramar', 'ofrecer_cambio_en_lugar_de_cancelar', 'aclarar_dato', 'responder_objecion', 'ofrecer_llamada'];
+export const OBJETIVOS_CON_PREGUNTA = ['obtener_filtro', 'aclarar_negacion', 'descubrir', 'descubrir_situacion', 'profundizar', 'obtener_dato_agenda', 'ofrecer_horarios', 'preguntar_cual', 'reorganizar_y_ofrecer', 'ofrecer_consulta', 'preguntar_dia_reprogramar', 'ofrecer_cambio_en_lugar_de_cancelar', 'responder_objecion', 'ofrecer_llamada'];
 export const PROMPT_REDACTOR_HORARIOS = T.redactor_horarios;
 
 /** Las ideas de valor que puede recibir el redactor en este turno: solo en los objetivos que la config permite, las que todavía no se usaron, y hasta el máximo por conversación. */
