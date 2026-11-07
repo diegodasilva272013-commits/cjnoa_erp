@@ -7,7 +7,7 @@ export const CONFIG_CJNOA = {
     "nombre": "Karina",
     "estudio": "Centro Jurídico NOA",
     "direccion": "Hipólito Yrigoyen 680, San Salvador de Jujuy",
-    "alcance": "derecho previsional: jubilaciones y el reclamo por descuentos de Impuesto a las Ganancias (Artículo 9) para docentes jubilados de ANSES",
+    "alcance": "derecho previsional (jubilaciones y el reclamo por descuentos de Impuesto a las Ganancias y Artículo 9 para docentes jubilados de ANSES) y cualquier otro tema legal; el estudio NO trabaja derecho penal",
     "ciudad": "San Salvador de Jujuy",
     "tipo_de_organizacion": "estudio jurídico",
     "especialidad": "derecho previsional",
@@ -251,7 +251,7 @@ export const CONFIG_CJNOA = {
     },
     "otros_temas": {
       "etiqueta": "Consulta de otro tema",
-      "descripcion": "Cualquier otra consulta legal o previsional que no encaje en art9_ganancias ni en jubilacion_aportes (por ejemplo, actualización o reajuste de haberes, diferencias de cargo o de sueldo, pensiones, otros trámites). Lo que no tiene nada que ver con el estudio (salud, comida, etc.) NO es esta oferta.",
+      "descripcion": "Cualquier otra consulta legal que no encaje en art9_ganancias ni en jubilacion_aportes y que NO sea de derecho penal: sucesiones, familia (divorcio, alimentos), civil, laboral, actualización o reajuste de haberes, diferencias de cargo o de sueldo, pensiones, otros trámites. Lo que no tiene nada que ver con el estudio (salud, comida, etc.) y el derecho penal NO son esta oferta.",
       "campana": "otros_temas",
       "profesional": "alejandro",
       "tipo_consulta": "otros_temas",
@@ -267,12 +267,13 @@ export const CONFIG_CJNOA = {
         "obligatorios": [],
         "al_menos_uno_de": []
       },
-      "condicion": "Para este tipo de consulta (que no es de los temas principales del estudio) la consulta es con el Dr. Alejandro Reyes y cuesta $100.000. No prometas ningún resultado ni indagues más sobre el caso.",
+      "condicion": "Para este tipo de consulta (que no es de los temas principales del estudio) la consulta es con el Dr. Alejandro Reyes y cuesta $100.000, que se abonan en el estudio el día de la consulta. Reservar el turno por este chat no tiene costo. No hay reserva, ni transferencia, ni comprobante. No prometas ningún resultado ni indagues más sobre el caso.",
       "urgencia": null,
       "activo_de_valor": null,
-      "cierre": "informar",
-      "preguntas_antes_de_informar": 1,
-      "ideas_de_valor": []
+      "cierre": "turno_directo",
+      "ideas_de_valor": [],
+      "preguntas_antes_de_ofrecer": 1,
+      "datos_antes_de_horarios": []
     }
   },
   "datos_agenda": [

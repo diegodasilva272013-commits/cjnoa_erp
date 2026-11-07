@@ -763,6 +763,8 @@ export const TIPOS_CONSULTA = {
   articulo9_ganancias: { valor: 0, reserva: 0, abogado: 'Alejandro', nombre: 'Artículo 9 e Impuesto a las Ganancias (sin cargo)' },
   // Campaña de jubilación (compra de aportes, Ley 27.705, y cualquier consulta de jubilación): el turno se reserva sin costo por chat y se abona en el estudio el día de la consulta.
   jubilacion_aportes: { valor: 50000, reserva: 0, abogado: 'Fabricio', nombre: 'jubilación (Dr. Fabricio Reyes)', pago_en_estudio: true },
+  // Cualquier otro tema legal que no sea de los dos anteriores (ni penal): $100.000 con el Dr. Alejandro Reyes, se abona en el estudio el día de la consulta.
+  otros_temas: { valor: 100000, reserva: 0, abogado: 'Alejandro', nombre: 'otras consultas (Dr. Alejandro Reyes)', pago_en_estudio: true },
 } as const;
 /** La consulta se abona en el estudio el día de la consulta: no hay reserva ni pago por chat. */
 export const pagaEnEstudio = (t: unknown): boolean => { const c = (TIPOS_CONSULTA as Record<string, any>)[String(t ?? '')]; return !!c?.pago_en_estudio; };
@@ -1962,9 +1964,9 @@ export type ConfigOferta = {
   /** Qué ofrece el estudio cuando la persona quiere saber el costo del trámite completo (por ejemplo, una llamada con el abogado). Solo se usa si el estudio lo aprobó (estado sin "pendiente"). */
   llamada_con_el_dr?: { texto: string; estado: string; aprobado: boolean };
   activo_de_valor: { tipo: string; herramienta: string; descripcion: string } | null;
-  cierre: 'turno_directo' | 'reserva_y_turno' | 'informar';
-  /** Con cierre «informar»: cuántas preguntas breves hace antes de informar con quién es y cuánto cuesta (y nada más). */
-  preguntas_antes_de_informar?: number;
+  cierre: 'turno_directo' | 'reserva_y_turno';
+  /** Cuántas preguntas breves hace antes de ofrecer la consulta (para un tema que no es de los principales). */
+  preguntas_antes_de_ofrecer?: number;
 };
 export type Umbrales = { digitos_minimos_de_cifra: number; largo_maximo_del_motivo_de_cancelacion: number; largo_minimo_de_dato_de_pago: number; digitos_maximos_de_numero: number; casilleros_en_el_reflejo: number; horarios_a_ofrecer: number; mensajes_recientes_para_el_extractor: number; mensajes_anteriores_del_agente: number; max_intentos_del_redactor: number; max_correcciones_de_estilo: number; max_rechazos_del_verificador: number; reintentos_del_extractor: number; bloqueo_respuestas_sin_el_dato: number; bloqueo_turnos_pidiendo_lo_mismo: number; hora_de_corte_manana_tarde: string; aclaraciones_por_dato: number; largo_maximo_de_frase_guardada: number; largo_maximo_de_dato_de_texto: number; largo_minimo_de_cita: number; palabras_de_apertura: number; palabras_minimas_de_apertura: number; palabras_minimas_de_frase_repetida: number; largo_maximo_del_motivo: number; mensajes_para_el_redactor: number };
 export type ConfigCliente = { cliente: string; /** El primer mensaje puede explicar qué hace el estudio (si es false, solo saluda y sigue con el objetivo). */ saludo_explica_el_servicio: boolean; /** Oferta que se asume cuando la persona todavía no dijo de qué tema consulta (si falta, se le pregunta). */ oferta_por_defecto?: string | null; /** Primer mensaje de la conversación: el saludo del estudio (editable). */ saludo_inicial: string; /** Objetivos del director donde se permiten las ideas de valor, y cuántas por conversación. */ ideas_de_valor_en: string[]; max_ideas_por_conversacion: number; umbrales: Umbrales; agente: { nombre: string; estudio: string; direccion: string; ciudad: string; tipo_de_organizacion: string; especialidad: string; publico?: string; /** De qué temas se ocupa el estudio (lo que no entra se explica con tacto). */ alcance?: string }; casilleros: Record<string, string>; /** Cómo preguntaría una persona cada casillero (variantes). */ ejemplos_pregunta?: Record<string, string[]>; datos_agenda: ConfigFiltro[]; ofertas: Record<string, ConfigOferta> };
@@ -2670,19 +2672,16 @@ async function dirigirTurnoBase(a: EntradaDirector): Promise<SalidaDirector> {
     }
     // 4. oferta
     // Si su mensaje no deja claro el tema (la persona suele cambiar el mensaje del anuncio), se le pregunta por cuál de los temas del estudio consulta.
-    const temas = Object.values(cfg.ofertas).filter(o => o.cierre !== 'informar').map(o => o.etiqueta);
+    const temas = Object.values(cfg.ofertas).filter(o => !o.preguntas_antes_de_ofrecer).map(o => o.etiqueta);
     if (!oferta) return conBloqueo({ tipo: 'descubrir_situacion', texto: T.principal_14(temas.join(' o por ')) }, 'descubrir_situacion');
-    // 4b. Un tema que no es de los principales del estudio: un par de preguntas breves para entender de qué se trata y, sin indagar más, se informa con quién es y cuánto cuesta.
-    if (oferta.cierre === 'informar') {
+    // 4b. Un tema que no es de los principales del estudio: antes de ofrecer la consulta se hace un par de preguntas breves para entender de qué se trata (sin indagar más).
+    const preguntasAntes = oferta.preguntas_antes_de_ofrecer ?? 0;
+    if (preguntasAntes > 0) {
       const hechas = estado.preguntas_otro ?? 0;
-      if (estado.informo_otro) return { tipo: 'informar_otro', texto: T.principal_otro_ya_informado };
-      if (hechas < (oferta.preguntas_antes_de_informar ?? 2) && !ext.pregunta_de_la_persona) {
+      if (hechas < preguntasAntes && !ext.pregunta_de_la_persona && ext.intencion !== 'acepta') {
         estado.preguntas_otro = hechas + 1;
         return conBloqueo({ tipo: 'descubrir_otro', preguntas: 1, texto: T.principal_otro_preguntar }, 'descubrir_otro');
       }
-      estado.informo_otro = true;
-      estado.etapa = 'ofrecer';
-      return { tipo: 'informar_otro', texto: T.principal_otro_informar };
     }
     // 5. faltan filtros (los opcionales se preguntan una sola vez). Se piden juntos los del grupo, hasta el máximo de preguntas por mensaje de la oferta.
     const faltantes = oferta.filtros.filter(f => (!estado.filtros[f.campo] || (f.confirmar && estado.filtros[f.campo].valor === 'si' && !estado.filtros[f.campo].confirmado)) && !(f.opcional && (estado.opcionales_preguntados ?? []).includes(f.campo)));
