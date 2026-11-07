@@ -1968,7 +1968,7 @@ export type ConfigOferta = {
   /** Cuántas preguntas breves hace antes de ofrecer la consulta (para un tema que no es de los principales). */
   preguntas_antes_de_ofrecer?: number;
 };
-export type Umbrales = { digitos_minimos_de_cifra: number; largo_maximo_del_motivo_de_cancelacion: number; largo_minimo_de_dato_de_pago: number; digitos_maximos_de_numero: number; casilleros_en_el_reflejo: number; horarios_a_ofrecer: number; mensajes_recientes_para_el_extractor: number; mensajes_anteriores_del_agente: number; max_intentos_del_redactor: number; max_correcciones_de_estilo: number; max_rechazos_del_verificador: number; reintentos_del_extractor: number; bloqueo_respuestas_sin_el_dato: number; bloqueo_turnos_pidiendo_lo_mismo: number; hora_de_corte_manana_tarde: string; aclaraciones_por_dato: number; largo_maximo_de_frase_guardada: number; largo_maximo_de_dato_de_texto: number; largo_minimo_de_cita: number; palabras_de_apertura: number; palabras_minimas_de_apertura: number; palabras_minimas_de_frase_repetida: number; largo_maximo_del_motivo: number; mensajes_para_el_redactor: number };
+export type Umbrales = { solape_minimo_con_los_datos: number; digitos_minimos_de_cifra: number; largo_maximo_del_motivo_de_cancelacion: number; largo_minimo_de_dato_de_pago: number; digitos_maximos_de_numero: number; casilleros_en_el_reflejo: number; horarios_a_ofrecer: number; mensajes_recientes_para_el_extractor: number; mensajes_anteriores_del_agente: number; max_intentos_del_redactor: number; max_correcciones_de_estilo: number; max_rechazos_del_verificador: number; reintentos_del_extractor: number; bloqueo_respuestas_sin_el_dato: number; bloqueo_turnos_pidiendo_lo_mismo: number; hora_de_corte_manana_tarde: string; aclaraciones_por_dato: number; largo_maximo_de_frase_guardada: number; largo_maximo_de_dato_de_texto: number; largo_minimo_de_cita: number; palabras_de_apertura: number; palabras_minimas_de_apertura: number; palabras_minimas_de_frase_repetida: number; largo_maximo_del_motivo: number; mensajes_para_el_redactor: number };
 export type ConfigCliente = { cliente: string; /** El primer mensaje puede explicar qué hace el estudio (si es false, solo saluda y sigue con el objetivo). */ saludo_explica_el_servicio: boolean; /** Oferta que se asume cuando la persona todavía no dijo de qué tema consulta (si falta, se le pregunta). */ oferta_por_defecto?: string | null; /** Primer mensaje de la conversación: el saludo del estudio (editable). */ saludo_inicial: string; /** Objetivos del director donde se permiten las ideas de valor, y cuántas por conversación. */ ideas_de_valor_en: string[]; max_ideas_por_conversacion: number; umbrales: Umbrales; agente: { nombre: string; estudio: string; direccion: string; ciudad: string; tipo_de_organizacion: string; especialidad: string; publico?: string; /** De qué temas se ocupa el estudio (lo que no entra se explica con tacto). */ alcance?: string }; casilleros: Record<string, string>; /** Cómo preguntaría una persona cada casillero (variantes). */ ejemplos_pregunta?: Record<string, string[]>; datos_agenda: ConfigFiltro[]; ofertas: Record<string, ConfigOferta> };
 export const CONFIG_CLIENTE = CONFIG_CJNOA as unknown as ConfigCliente;
 
@@ -2943,7 +2943,14 @@ export const promptPreguntas = (cfg: ConfigCliente) => rellenar(T.verificador_pr
  * Convierte lo que detectó el modelo en { ok, motivo }. El modelo clasifica y cita la frase; el código solo comprueba contra el estado:
  * ignora las citas que no están en el borrador (alucinadas) y las categorías que el objetivo permite. No interpreta palabras.
  */
-export function evaluarVerificacion(crudo: any, a: { borrador: string; permite: ReturnType<typeof permiteDeObjetivos>; anterior: string; cfg: ConfigCliente; /** Preguntas que el objetivo permite en el mensaje. */ maxPreguntas: number; personaTextos?: string[]; anteriores?: string[]; /** Cuántas ideas de valor se le pasaron al redactor (para validar los índices). */ ideasOfrecidas?: number; /** Reglas que se revisaron en este turno (las demás se ignoran). */ activas?: string[] }): { ok: boolean; motivo: string; violaciones: { regla: string; frase: string }[]; ideas_usadas: number[] } {
+/** Qué parte de las palabras de `frase` (de más de 3 letras) aparece en `texto`. */
+export const solapeDePalabras = (frase: string, texto: string) => {
+  const pal = limpiarParaComparar(frase).split(' ').filter(w => w.length > 3);
+  if (!pal.length) return 0;
+  const t = new Set(limpiarParaComparar(texto).split(' '));
+  return pal.filter(w => t.has(w)).length / pal.length;
+};
+export function evaluarVerificacion(crudo: any, a: { datos?: string[]; borrador: string; permite: ReturnType<typeof permiteDeObjetivos>; anterior: string; cfg: ConfigCliente; /** Preguntas que el objetivo permite en el mensaje. */ maxPreguntas: number; personaTextos?: string[]; anteriores?: string[]; /** Cuántas ideas de valor se le pasaron al redactor (para validar los índices). */ ideasOfrecidas?: number; /** Reglas que se revisaron en este turno (las demás se ignoran). */ activas?: string[] }): { ok: boolean; motivo: string; violaciones: { regla: string; frase: string }[]; ideas_usadas: number[] } {
   if (!Array.isArray(crudo?.violaciones)) throw new Error(T.ev_respuesta_invalida);
   const u = a.cfg.umbrales;
   const en = (texto: string, frase: string) => { const f = limpiarParaComparar(frase); return f.length >= u.largo_minimo_de_cita && limpiarParaComparar(texto).includes(f); };
@@ -2952,6 +2959,8 @@ export function evaluarVerificacion(crudo: any, a: { borrador: string; permite: 
     const regla = String(v?.regla ?? ''), frase = String(v?.frase ?? '').trim();
     if (!(REGLAS_VERIFICADOR as readonly string[]).includes(regla) || !en(a.borrador, frase)) continue;
     if (a.activas && !a.activas.includes(regla)) continue;
+    // Lo que el borrador toma de los datos permitidos (aunque lo diga con otras palabras) no es una promesa: lo dicen los datos.
+    if (regla === 'promesa' && a.datos?.some(d => solapeDePalabras(frase, d) >= u.solape_minimo_con_los_datos)) continue;
     if (REGLAS_QUE_AFIRMAN.includes(regla) && frase.includes('?')) continue;
     if (regla === 'consulta_o_abogado' && a.permite.consulta_y_abogado) continue;
     if (regla === 'horarios' && a.permite.horarios) continue;
@@ -3304,7 +3313,7 @@ async function turnoV2(a: {
           pregunta_que_hizo_el_agente_antes: preguntaDelAgente(ultimoAgente),
           ultimo_mensaje_de_la_persona: a.textoCliente,
         }), esquemaVerificador);
-        v = evaluarVerificacion(crudoV, { borrador: texto, permite, anterior: anterioresAgente.join('\n'), cfg, maxPreguntas, personaTextos, anteriores: anterioresAgente, ideasOfrecidas: ideasOfrecidas.length, activas: reglasActivas });
+        v = evaluarVerificacion(crudoV, { borrador: texto, permite, anterior: anterioresAgente.join('\n'), cfg, maxPreguntas, personaTextos, anteriores: anterioresAgente, ideasOfrecidas: ideasOfrecidas.length, activas: reglasActivas, datos: salida.datos });
         ideasUsadasIdx = v.ideas_usadas ?? [];
         // Segunda revisión, angosta: cada pregunta del borrador tiene que corresponder a lo que el objetivo pide.
         const preguntasDelBorrador = trozosDe(texto).filter(t => t.includes('?'));

@@ -37,6 +37,7 @@ export const CONFIG_CJNOA = {
     "largo_maximo_de_frase_guardada": 300,
     "largo_maximo_de_dato_de_texto": 120,
     "largo_minimo_de_cita": 4,
+    "solape_minimo_con_los_datos": 0.6,
     "largo_maximo_del_motivo_de_cancelacion": 300,
     "largo_minimo_de_dato_de_pago": 4,
     "digitos_maximos_de_numero": 3,
@@ -112,7 +113,7 @@ export const CONFIG_CJNOA = {
         "al_menos_uno_de": []
       },
       "condicion": "La consulta con el Dr. Alejandro Reyes es SIN CARGO y sin compromiso, y puede ser presencial en San Salvador de Jujuy o virtual. En la consulta el Dr. Alejandro Reyes revisa el recibo de haber y los descuentos que le hacen para ver si corresponden o no, y le explica qué se puede hacer y cuáles son los pasos a seguir; no se puede adelantar el resultado antes de verlo. La consulta virtual está pensada para quienes viven en el interior de la provincia y no pueden o no quieren viajar: si la persona dice que vive lejos o en otra localidad, ofrecele la virtual.",
-      "urgencia": "La ley permite reclamar lo descontado hasta 2 años hacia atrás en Artículo 9 y hasta 5 años en Ganancias, contados desde la presentación de la demanda; por eso cada mes que se demora, los descuentos más antiguos pueden quedar fuera del reclamo. Es todo lo que podés decir sobre plazos y nunca prometés un resultado.",
+      "urgencia": "Si la persona pregunta si puede recuperar o reclamar lo que le descontaron: la ley permite reclamar lo descontado hasta 2 años hacia atrás en Artículo 9 y hasta 5 años en Ganancias, contados desde que se presenta la demanda. Decilo así, sin asegurar el resultado, y que el Dr. analiza el caso en la consulta.",
       "activo_de_valor": null,
       "cierre": "turno_directo",
       "encuadre_del_caso": {
@@ -243,7 +244,7 @@ export const CONFIG_CJNOA = {
       ]
     },
     "otros_temas": {
-      "etiqueta": "Consulta de otro tema",
+      "etiqueta": "consulta legal",
       "descripcion": "Cualquier otra consulta legal que no encaje en art9_ganancias ni en jubilacion_aportes y que NO sea de derecho penal: sucesiones, familia (divorcio, alimentos), civil, laboral, actualización o reajuste de haberes, diferencias de cargo o de sueldo, pensiones, otros trámites. Lo que no tiene nada que ver con el estudio (salud, comida, etc.) y el derecho penal NO son esta oferta.",
       "campana": "otros_temas",
       "profesional": "alejandro",
