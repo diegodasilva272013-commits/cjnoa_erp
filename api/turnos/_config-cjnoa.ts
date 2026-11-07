@@ -104,13 +104,6 @@ export const CONFIG_CJNOA = {
           "confirmar": true,
           "ayuda_al_dudar": "Pedile con amabilidad que revise su recibo de haber: tiene que figurar un descuento por Artículo 9 o por Ganancias. Decile que, cuando lo verifique, te escriba y seguís desde ahí. No le ofrezcas la consulta todavía.",
           "ayuda": "Cualquier descuento, retención o 'me sacan plata' del haber cuenta como SI. La persona no tiene por qué saber el nombre del descuento; lo revisa el abogado. Si dice que consulta por el impuesto a las ganancias, por el Artículo 9 o por los descuentos del haber, ya está diciendo que los tiene: es SI, con el subtipo que nombre. 'No sé' o 'no me acuerdo' NO es NO: es una duda."
-        },
-        {
-          "campo": "monto_descuento",
-          "tipo": "texto",
-          "opcional": true,
-          "descripcion": "desde cuándo le hacen el descuento y más o menos cuánto le descuentan por mes (no es imprescindible: si no lo sabe, se sigue igual)",
-          "ayuda": "Solo si la persona dice cuánto le descuentan (por ejemplo \"350 mil\", \"unos 200.000\", \"527000\"). Si no lo sabe o no lo dice, no lo inventes."
         }
       ],
       "filtros_de_cierre": [],
