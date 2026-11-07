@@ -196,7 +196,7 @@ export const CONFIG_CJNOA = {
     },
     "jubilacion_aportes": {
       "etiqueta": "Jubilación y compra de aportes",
-      "descripcion": "Cualquier persona (no solo docentes) que consulta por su jubilación: que le faltan años de aportes, que quiere comprar o pagar aportes, por la moratoria o el plan de la Ley 27.705, cuándo o cómo se va a poder jubilar, o que ya está jubilada y quiere revisar o mejorar su jubilación. Si dice que quiere jubilarse o que todavía no se jubiló, es esta oferta aunque no nombre la compra de aportes. Si habla de descuentos, retenciones o Ganancias en su haber, NO es esta oferta: es art9_ganancias.",
+      "descripcion": "Persona que TODAVÍA NO se jubiló y consulta por su jubilación, de cualquier tipo: que le faltan años de aportes, que quiere comprar o pagar aportes, la moratoria o el plan de la Ley 27.705, cuándo o cómo se va a poder jubilar. Si dice que quiere jubilarse o que todavía no se jubiló, es esta oferta aunque no nombre la compra de aportes. Si ya está jubilada y habla de descuentos, retenciones o Ganancias en su haber, es art9_ganancias; si ya está jubilada y consulta por otra cosa (por ejemplo mejorar o actualizar su haber), es otros_temas.",
       "campana": "jubilacion_docente",
       "profesional": "fabricio",
       "tipo_consulta": "jubilacion_aportes",
@@ -248,6 +248,31 @@ export const CONFIG_CJNOA = {
           "estado": "texto de Rodrigo Reyes (3/11/2026)"
         }
       ]
+    },
+    "otros_temas": {
+      "etiqueta": "Consulta de otro tema",
+      "descripcion": "Cualquier otra consulta legal o previsional que no encaje en art9_ganancias ni en jubilacion_aportes (por ejemplo, actualización o reajuste de haberes, diferencias de cargo o de sueldo, pensiones, otros trámites). Lo que no tiene nada que ver con el estudio (salud, comida, etc.) NO es esta oferta.",
+      "campana": "otros_temas",
+      "profesional": "alejandro",
+      "tipo_consulta": "otros_temas",
+      "grupos_de_filtros": [],
+      "max_preguntas_por_mensaje": 1,
+      "estilos": {
+        "breve": "La persona escribe corto: mensaje corto y directo, sin reflejar lo que contó.",
+        "expresivo": "La persona se explaya: respondé con una frase propia y humana (sin repetir lo que dijo ni anunciar que lo viste); después preguntá lo que falte."
+      },
+      "filtros": [],
+      "filtros_de_cierre": [],
+      "casilleros_minimos": {
+        "obligatorios": [],
+        "al_menos_uno_de": []
+      },
+      "condicion": "Para este tipo de consulta (que no es de los temas principales del estudio) la consulta es con el Dr. Alejandro Reyes y cuesta $100.000. No prometas ningún resultado ni indagues más sobre el caso.",
+      "urgencia": null,
+      "activo_de_valor": null,
+      "cierre": "informar",
+      "preguntas_antes_de_informar": 1,
+      "ideas_de_valor": []
     }
   },
   "datos_agenda": [

@@ -3,6 +3,9 @@
 // Las claves salen de la función donde se usaban (<función>_<n>). Los argumentos son lo que el código calcula en cada turno.
 /* eslint-disable */
 export const TEXTOS = {
+  principal_otro_preguntar: 'La persona consulta por un tema que no es de los principales del estudio. Hacele UNA pregunta breve y natural para entender mejor lo que necesita (sin repetirle lo que ya dijo), sin indagar en detalles, sin pedirle documentos y sin ofrecer ni informar nada todavía.',
+  principal_otro_informar: 'Ya entendiste que su consulta no es de los temas principales del estudio. Decile con amabilidad y en pocas palabras SOLO con quién es la consulta y cuánto cuesta (DATOS QUE PODÉS USAR). No ofrezcas coordinar la consulta, no preguntes por días ni horarios, no hagas más preguntas y no indagues en su caso.',
+  principal_otro_ya_informado: 'Ya le informaste con quién es la consulta y cuánto cuesta. Si pregunta algo, contestalo con los DATOS QUE PODÉS USAR sin repetir el costo salvo que lo pida; no ofrezcas coordinar, no preguntes por días ni horarios, no indagues y no insistas.',
   redactor_minimo: `Sos {{agente}}, del {{estudio}}, y atendés por WhatsApp. Escribí un único mensaje corto, natural y de usted, que haga SOLO lo que pide el OBJETIVO. Sin datos, sin cifras, sin horarios que no figuren en el objetivo, sin promesas, sin repetir lo que dijo la persona y sin frases hechas.`,
   aviso_derivacion: 'Esta conversación pasó a una persona del equipo. Avisale con calidez que alguien del estudio se va a comunicar con ella, y no vuelvas a preguntarle por estos datos.',
   sin_motivo: 'sin motivo',
@@ -19,6 +22,8 @@ export const TEXTOS = {
     obtener_dato_agenda: 'el dato que se pide para el turno',
     descubrir: 'lo que el objetivo quiere descubrir de su situación',
     descubrir_situacion: 'en qué puede ayudarla el estudio',
+    descubrir_otro: 'de qué se trata lo que necesita consultar',
+    informar_otro: 'si tiene alguna otra duda sobre la consulta',
     profundizar: 'profundizar en lo que contó',
     trabajar_objecion: 'qué es lo que le genera dudas',
     responder_objecion: 'si quiere ver horarios ahora o prefiere pensarlo',
