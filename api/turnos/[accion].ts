@@ -1978,6 +1978,8 @@ export type DatoPendiente = { tipo: 'filtro' | 'casillero' | 'horario' | 'nombre
 export type EstadoV2 = {
   /** Cuántas preguntas se hicieron en un tema «informar» y si ya se informó. */
   preguntas_otro?: number; informo_otro?: boolean;
+  /** Cuántas veces se le preguntó sobre qué tema consulta sin que quedara claro. */
+  preguntas_tema?: number;
   oferta: string | null;
   filtros: Record<string, { valor: string; evidencia: string; confirmado?: boolean }>;
   casilleros: Record<string, CasilleroV2>;
@@ -2674,7 +2676,16 @@ async function dirigirTurnoBase(a: EntradaDirector): Promise<SalidaDirector> {
     // 4. oferta
     // Si su mensaje no deja claro el tema (la persona suele cambiar el mensaje del anuncio), se le pregunta por cuál de los temas del estudio consulta.
     const temas = Object.values(cfg.ofertas).filter(o => !o.preguntas_antes_de_ofrecer).map(o => o.etiqueta);
-    if (!oferta) return conBloqueo({ tipo: 'descubrir_situacion', texto: T.principal_14(temas.join(' o por ')) }, 'descubrir_situacion');
+    if (!oferta) {
+      const yaPreguntado = estado.preguntas_tema ?? 0;
+      estado.preguntas_tema = yaPreguntado + 1;
+      // Ya se le preguntó el tema y nombró algo que no alcanza para saber cuál es: se le pregunta lo que distingue a los temas del estudio (según sus descripciones), no el tema de nuevo.
+      if (yaPreguntado > 0 && ext.intencion !== 'pregunta') {
+        const descr = Object.values(cfg.ofertas).filter(o => !o.preguntas_antes_de_ofrecer).map(o => `- ${o.etiqueta}: ${o.descripcion}`).join('\n');
+        return conBloqueo({ tipo: 'descubrir_situacion', texto: T.principal_tema_distinguir(descr), asuntos: [T.asunto_distinguir_tema] }, 'descubrir_situacion');
+      }
+      return conBloqueo({ tipo: 'descubrir_situacion', texto: T.principal_14(temas.join(' o por ')) }, 'descubrir_situacion');
+    }
     // 4b. Un tema que no es de los principales del estudio: antes de ofrecer la consulta se hace un par de preguntas breves para entender de qué se trata (sin indagar más).
     const preguntasAntes = oferta.preguntas_antes_de_ofrecer ?? 0;
     if (preguntasAntes > 0) {
